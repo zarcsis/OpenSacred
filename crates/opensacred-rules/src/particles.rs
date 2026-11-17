@@ -1,8 +1,12 @@
 //! The particle systems' machinery (docs/re/effects.md, "The particle systems"), with no engine:
 //! the particles of 64 bytes, the emitter layers of their rates, the emission blocks, the colour
 //! ramps of 256 entries over a particle's life, the update of `0x7640C0` and the emission of
-//! `0x764760`; and the fires of `cParticleSystem_smoke` (#1092, docs/re/effects.md, "The fires and
-//! smokes"), its variants 4 to 6 and 10 to 12, a flame's layer and a smoke's.
+//! `0x764760`; and the systems made of it, class by class of the original's `cParticleSystem_*`,
+//! each with its tables and its clock: the fires, the smokes, the geyser and the magic fire of
+//! `cParticleSystem_smoke` (#1092, docs/re/effects.md, "The fires and smokes"), the torches'
+//! flames, the bursts at a body's or a model's vertices, the items' glitter and their own glows,
+//! the bolts, the sights of the spells and of the combat arts, the creatures' fires and spits,
+//! the blood and the bodies' ends, and the looks of the traps' and the scripts' objects.
 //!
 //! Places, sizes and speeds are in the models' units, the third coordinate up.
 //!
@@ -100,7 +104,7 @@ pub struct Block {
     /// A frame of the texture's grid at random below it, the first for 0 or 1, the particle's
     /// layer for [`FRAME_OF_LAYER`] (`+0x60`).
     pub frames: u8,
-    /// A colour of each particle's own and its spread, of 1 (`+0x4C`, `+0x50`): rolled where it
+    /// A colour of each particle's own and its spread, of 1 (`+0x50`, `+0x54`): rolled where it
     /// spreads, else white.
     pub colour: Spread<[f32; 3]>,
 }
@@ -252,7 +256,8 @@ impl System {
     }
 
     /// Emits, at the system's place (the origin), as many particles as whole intervals of the
-    /// first block, times the detail's factor, have passed since the last emission, each of a block that `pick` chooses and
+    /// first block, times the detail's factor, have passed since the last emission, each of a block
+    /// that `pick` chooses and
     /// aged by its share of the time (`0x764760`), up to `count` alive.
     pub fn emit(&mut self, blocks: &[Block], layers: &[Layer], count: usize, dice: &mut impl Dice) {
         self.emit_at(blocks, layers, count, dice, |_, _| [0.0; 3]);
@@ -533,7 +538,8 @@ fn smoke_ramp() -> Ramp {
 
 /// The fire of the smoke class's variant `variant` (the FX event's `+0x38`): 4, 5 and 6 the fire
 /// smokes `FX_FI_SMOKE_S`, `_M` and `_L`, 10, 11 and 12 the fires `FX_FIRE_L` of the radii 40,
-/// 70 and 100 (docs/re/effects.md, the table of the variants); none for the others.
+/// 70 and 100 (docs/re/effects.md, the table of the variants); the others `smoke`'s (the smokes
+/// 1 to 3, 8 and 9, the geyser 7 and the magic fire 13), none for a variant outside 1 to 13.
 pub fn fire(variant: u8) -> Option<Fire> {
     // The flame's and the smoke's life and growth a second, the flame's and the smoke's sizes, the
     // places' spread along x and y, the velocities' spreads, the smoke's ramp and the light.
@@ -694,7 +700,8 @@ pub fn ground_frame(t: f32) -> Option<u8> {
 /// The smokes of the smoke class's variants 1 to 3, the chimneys' `FX_HS_SMOKE_S`, `_M` and `_L`,
 /// a grey of 224 at the alpha of the life (the flags `0x146`), and 8 and 9, the lavas'
 /// `FX_LV_SMOKE_M` and `_L`, ramp B starting opaque (`0x10C`): one layer of `PARTICLE_SMOKE03`'s
-/// 2 × 2 frames, a frame at random, turned and spinning, laid over by its alpha, no light.
+/// 2 × 2 frames, a frame at random, turned and spinning, laid over by its alpha, no light. The
+/// variant 7 is [`geyser`]'s and 13 [`magic_fire`]'s; none for another.
 fn smoke(variant: u8) -> Option<Fire> {
     let grey = 224.0 / 255.0;
     let fading = || Ramp::new([grey, grey, grey, 1.0], &[([grey, grey, grey, 0.0], 256)]);
@@ -1742,12 +1749,12 @@ pub fn vertex_sparks(points: &[[f32; 3]], colour: u32, dice: &mut impl Dice) -> 
     }
 }
 
-/// The sparks of the generic system's variant 0 in the colour `colour` (`0x796E86`; #1262): up to
+/// The sparks of the generic system's variant 0 in the colour `colour` (`0x796E86`; #1262): its
 /// [`GENERIC_PARTICLES`] at the points `points` of a body in the system's frame, taken in turn
-/// (the original's every `⌊V/500⌋`th vertex of its model, the game's points), each of a buoyancy of
-/// 150 ± 30, a size of 5 ± 2 that falls by 2 a second, a velocity of ± (3, 3, 0), never ageing
-/// otherwise, bouncing at the ground of the system's frame (0); `PARTICLE_SPARK06` added in the
-/// colour, a light of 100 while they live.
+/// and again from the first (the original's every `⌊V/500⌋`th vertex of its model, the game's
+/// points), each of a buoyancy of 150 ± 30, a size of 5 ± 2 that falls by 2 a second, a velocity
+/// of ± (3, 3, 0), never ageing otherwise, bouncing at the ground of the system's frame (0);
+/// `PARTICLE_SPARK06` added in the colour, a light of 100 while they live.
 pub fn generic_sparks(points: &[[f32; 3]], colour: u32, dice: &mut impl Dice) -> Burst {
     let [a, r, g, b] = colour.to_be_bytes().map(|c| f32::from(c) / 255.0);
     let block = Block {
@@ -2200,7 +2207,7 @@ pub struct Spark {
 /// The glitter over an item that lies on the ground, at its time `t` (`sdk_GLOW`, `0x408B70`;
 /// docs/re/items.md, "The glitter"): the half of the game's seconds plus its object's phase. Each
 /// of its `count` sparks wanders within 10 of the point by the sines of [`GLITTER`], its coloured
-/// square turning round the hues in two seconds, its grey square from 1 to 3 across.
+/// square turning round the hues in two seconds, its grey square's half side from 1 to 3.
 pub fn glitter(t: f32, count: u8) -> Vec<Spark> {
     sparks(t, count, false)
 }
@@ -2437,7 +2444,7 @@ impl Default for Firestrike {
 /// The Daemon's bolt of his 1103 (1159, `cParticleSystem_emperor`, `0x7BD9B0`; docs/re/effects.md,
 /// "The bolts"): rays of `LIGHTNING01`'s 2 × 2 frames riding with it, one every 0.005 s for its
 /// first 1.14 s, each of a half side of 10 ± 7, turned at random about its foot at the bolt's
-/// centre and living 0.21 s, added in a ramp from black to (220, 220, 255); and while it makes
+/// centre and living 0.21 s, added in a ramp from (220, 220, 255) to black; and while it makes
 /// them a glow of `PARTICLE_GLOW03` of (224, 224, 255) flickering at its centre. At a hit (on its
 /// target's neck) or a stop it flares 2 s more, its rays and its glow 1.75 times as large.
 #[derive(Clone, Debug, PartialEq)]
@@ -2448,7 +2455,8 @@ pub struct Emperor {
     pub scale: f32,
 }
 
-/// The emperor's rays' texture and grid, its glow's texture, colour and half side.
+/// The emperor's rays' texture and grid, its glow's texture and colour (its half side is
+/// [`Emperor::glow_half`]).
 pub const EMPEROR_TEXTURE: &str = "PARTICLE_LIGHTNING01";
 pub const EMPEROR_GRID: u8 = 2;
 pub const EMPEROR_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
@@ -2547,7 +2555,8 @@ impl Default for Emperor {
 /// rising at 50 ± 10 within 1.5 of the bone and living 0.32 s, riding with the torch's holder
 /// (its flags `0x204`: the system's frame has its origin at the holder's place on the ground, so
 /// that its flames trail the bone's swing about the holder alone), added and turned, its 4 × 4
-/// frames played once over its life ([`age_frame`]); and a glow of `PARTICLE_GLOW01` at the bone ([`TORCH_GLOW_HALF`],
+/// frames played once over its life ([`age_frame`]); and a glow of `PARTICLE_GLOW01` at the bone
+/// ([`TORCH_GLOW_HALF`],
 /// [`TORCH_GLOW_COLOUR`]), added by its alpha. Put out, it makes no more and ends with its last
 /// flame.
 #[derive(Clone, Debug, PartialEq)]
@@ -2849,7 +2858,7 @@ pub struct Column {
 }
 
 /// The holy light's pulse at its clock `t` (`+0x20AC`): `0.8 + 0.1 sin 4t`, which its column's
-/// alphas and its glow's take.
+/// alphas take, its cylinder's foot's and its bands' inner foot's ([`HOLY_COLUMN`]).
 pub fn holy_pulse(t: f32) -> f32 {
     0.8 + 0.1 * (4.0 * t).sin()
 }
@@ -5221,10 +5230,10 @@ const HOLY_SHIELD_FADE: f32 = 400.0;
 const HOLY_SHIELD_TURN: f32 = 0.5;
 
 /// The holy shield (819, `cParticleSystem_holyshield`; its start `0x785DE0`, its run
-/// `0x785970`, its draw `0x785A20`): a pale blue cylinder of light about its bearer, 35 across
-/// and 120 high, lit only by a band of eight columns at its foot that sweeps round clockwise on
-/// the screen every 2 s, over a matching arc on the ground; an arrow it turns aside lights it
-/// whole for some 0.6 s; it goes at once at the end of its seconds. No particle.
+/// `0x785970`, its draw `0x785A20`): a pale blue cylinder of light about its bearer, of the
+/// radius 35 and 120 high, lit only by a band of eight columns at its foot that sweeps round
+/// clockwise on the screen every 2 s, over a matching arc on the ground; an arrow it turns aside
+/// lights it whole for some 0.6 s; it goes at once at the end of its seconds. No particle.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HolyShield {
     clock: f32,
@@ -5346,11 +5355,11 @@ const SHIELD_WALL_BUILD: f32 = 30.0;
 const SHIELD_WALL_FADE: f32 = 0.75;
 
 /// The shield wall (834, `cParticleSystem_magicshield`; its start `0x78B040`, its run
-/// `0x78AAF0`, its draw `0x78AC00`): two red-tinted walls about its bearer, 35 across, built
-/// column by column counterclockwise on the screen from the front over a second, a red glow at
-/// each built column's foot; they stand bobbing between 56 and 84 high out of step with each
-/// other, a spell or an arrow turned aside doubling their height at once, which falls back over
-/// 1.33 s; past its seconds they are unbuilt the other way over a second. No particle.
+/// `0x78AAF0`, its draw `0x78AC00`): two red-tinted walls about its bearer, at the radius 35,
+/// built column by column counterclockwise on the screen from the front over a second, a red
+/// glow at each built column's foot; they stand bobbing between 56 and 84 high out of step with
+/// each other, a spell or an arrow turned aside doubling their height at once, which falls back
+/// over 1.33 s; past its seconds they are unbuilt the other way over a second. No particle.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ShieldWall {
     clock: f32,
@@ -6053,7 +6062,7 @@ impl HardRay {
         self.motes.particles.is_empty()
     }
 
-    /// Its line of glows over its segment while it fades in, none after.
+    /// Its line of glows over its segment while it fades out, none after.
     pub fn line(&self) -> Option<(GlowLine, [f32; 3], [f32; 3])> {
         let left = 1.0 - self.clock * HARD_RAY_FADE;
         (left > 0.0).then(|| {
@@ -6086,8 +6095,8 @@ const MULTI_SHOT_FROM: [f32; 3] = [4.0, 0.0, 0.0];
 const MULTI_SHOT_TAIL: u8 = 20;
 const MULTI_SHOT_STEP: f32 = 0.15;
 pub const MULTI_SHOT_HEAD: f32 = 5.0;
-/// Its burst at its first run: its sparks, their half side, their speed along each axis at most,
-/// how fast they age (−400, 0.6375 s) and the pull back to the hand.
+/// Its burst's sparks at its first run; their half side, their speed along each axis at most,
+/// how fast they age (−400, 0.6375 s) and the pull back to the hand are [`MultiShot::update`]'s.
 const MULTI_SHOT_SPARKS: usize = 200;
 
 /// The Seraphim's bolts' sight (844 of 1019): its comets, the point they go round through, their
@@ -8249,8 +8258,8 @@ impl GroundFire {
 pub const LAVA_BURST_SOUND: u32 = 206;
 const LAVA_BURST_CHANCE: f32 = 0.3;
 pub const LAVA_BURST_COOLDOWN: f32 = 1.0;
-/// A burst's glow at its rock (`0x79F12A`, the style 5 of [`METEOR_GLOW_TEXTURE`]) and its trail's
-/// texture.
+/// A burst's glow at its rock (`0x79F12A`, the style 5): its half side and its colour, in
+/// [`METEOR_GLOW_TEXTURE`], its trail's texture too.
 pub const LAVA_GLOW_HALF: f32 = 30.0;
 pub const LAVA_GLOW_COLOUR: [f32; 4] = [128.0 / 255.0, 53.0 / 255.0, 10.0 / 255.0, 1.0];
 /// Its particles at most (`0x5A0C50`).
@@ -8713,8 +8722,8 @@ impl ForceOfHell {
         }
     }
 
-    /// A run of `dt` seconds, its blade gone from the segment `from` to `to` in its frame where it
-    /// has one: its sparks age, and within its seconds it makes them along the blade's sweep.
+    /// A run of `dt` seconds, its blade gone over the sweep `blade` in its frame where it has
+    /// one: its sparks age, and within its seconds it makes them along the blade's sweep.
     pub fn update(&mut self, dt: f32, blade: Option<Sweep>, dice: &mut impl Dice) {
         let layers = [Self::layer()];
         self.system.update(dt, &layers);
@@ -10333,8 +10342,9 @@ impl MineSign {
         )
     }
 
-    /// A run of `dt` seconds (`0x7BA610`) with `share` of the mines left: its tongues age, and
-    /// new ones stand along its arc, each at a point at random on it, its turn pointing out.
+    /// A run of `dt` seconds (`0x7BA610`) with the share `share_left` of the mines left: its
+    /// tongues age, and new ones stand along its arc, each at a point at random on it, its turn
+    /// pointing out.
     pub fn update(&mut self, dt: f32, share_left: f32, dice: &mut impl Dice) {
         let layers = [Self::layer()];
         self.system.update(dt, &layers);
@@ -11503,7 +11513,7 @@ pub enum DwarfFire {
 }
 
 impl DwarfFire {
-    /// Its texture, a 2 × 2 grid whose frame is a particle's layer, and the flamethrower's smoke's.
+    /// Its texture, a 2 × 2 grid whose frame is a particle's layer.
     pub fn texture(self) -> &'static str {
         match self {
             Self::Flamer => "particle_flamethrower",
@@ -11851,9 +11861,9 @@ pub const TELEPORT_CORNERS: [[f32; 4]; 4] = [
     [0x66 as f32 / 255.0, 0x66 as f32 / 255.0, 1.0, 1.0],
     [0x55 as f32 / 255.0, 0x55 as f32 / 255.0, 1.0, 1.0],
 ];
-/// The ring's radius and its height over its place, the half side of its sparks, and the time
-/// each stage takes in the run's time (the time times the cast's rate): its arc opening, its
-/// cylinder rising, its hold, its pause, its cylinder sinking and its arc closing.
+/// The ring's radius and its height over its place, the half side of its sparks, and its stages'
+/// paces in the run's time (the time times the cast's rate): how fast its arc opens and closes,
+/// in radians a second, how fast its cylinder rises and sinks, and how long it holds and pauses.
 const TELEPORT_RING: f32 = 30.0;
 const TELEPORT_HEIGHT: f32 = 50.0;
 const TELEPORT_SPARK: f32 = 7.0;
@@ -11887,9 +11897,9 @@ enum TeleportStage {
 /// run `0x771410` and draw `0x771C10`; #1092): 500 sparks on a ring of 30 about its place, 50
 /// over it, each running about it at its own rate either way; the ring opens from an arc to the
 /// whole circle, rises into a cylinder of 0 to 100, holds 0.3 s, when the hero is put at the
-/// arrival, then sinks and closes as it came; a spark now and then breaks away, falls bouncing on
-/// the ground and shrinks, and comes back to the ring. Its time runs at the cast's rate; it is
-/// added by its alpha in its blue corners.
+/// arrival, and 0.3 s more, then sinks and closes as it came; a spark now and then breaks away,
+/// falls bouncing on the ground and shrinks, and comes back to the ring. Its time runs at the
+/// cast's rate; it is added by its alpha in its blue corners.
 #[derive(Clone, Debug)]
 pub struct TeleportSight {
     sparks: Vec<TeleportSpark>,
@@ -11936,8 +11946,8 @@ impl TeleportSight {
         ]
     }
 
-    /// A run of `dt` seconds, its place at the height `ground` over the ground in its frame, of
-    /// the rolls of `dice`; whether the hero is put at the arrival now, as its hold ends.
+    /// A run of `dt` seconds, the ground at the height `ground` in its frame, of the rolls of
+    /// `dice`; whether the hero is put at the arrival now, as its hold ends.
     pub fn update(&mut self, dt: f32, ground: f32, dice: &mut impl Dice) -> bool {
         if dt > 1.0 || self.stage == TeleportStage::Done {
             return false;
@@ -13226,7 +13236,7 @@ pub const SOULCATCHER_GLOW: [f32; 4] = [1.0, 239.0 / 255.0, 128.0 / 255.0, 1.0];
 /// The Dark Elf's soulcatcher (869, `cParticleSystem_soulcatcher`, `0x76AA40`, `0x76A860`,
 /// `0x76A960`): twirls spinning 40 over his neck, four in five of a layer added in gold, one in
 /// five of a longer one laid over in black, riding with him; each soul it absorbs swells them by
-/// 20 and lights a pale yellow glow of a half side of twice that, both falling by 13 a second.
+/// 20, which falls by 13 a second, and lights a pale yellow glow of a half side of twice that.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Soulcatcher {
     pub system: System,
@@ -13418,8 +13428,8 @@ pub enum SpikesKind {
 }
 
 impl SpikesKind {
-    /// Its spikes' scale's least and spread, their place's spread, their wave's speed and their
-    /// burning's time.
+    /// Its spikes' scale's least and spread, their place's spread, their wave's speed and the
+    /// time they stand.
     fn rolls(self) -> (f32, f32, f32, f32, f32) {
         match self {
             SpikesKind::Demon => (0.65, 0.55, 70.0, 350.0, 0.75),
@@ -15170,7 +15180,7 @@ impl ConfusionCircle {
     }
 }
 
-/// The ground's poison's textures, its circle's half side, colour and turn, its stain's half side
+/// The ground's poison's textures, its circle's half side and colour, its stain's half side
 /// (792, `0x778760`, `0x778980`).
 pub const POISON_STAIN: &str = "FX_GROUNDPOISON";
 pub const POISON_SMOKE: &str = "PARTICLE_SMOKE03";
@@ -18414,7 +18424,7 @@ mod tests {
         for _ in 0..100 {
             confusion.update(1.0 / 30.0, &mut dice);
         }
-        // A phase of 0.5: fully shown, its helix from 50 to 74.5 high.
+        // A phase of 0.5: fully shown, its helix from 25 to 49.5 high.
         assert!(confusion.alpha() > 0.99);
         let [flat, upright] = confusion.helix();
         assert_eq!((flat.len(), upright.len()), (50, 50));
@@ -19164,7 +19174,7 @@ mod tests {
             [60.0 * angle.cos(), 60.0 * angle.sin(), 0.0]
         });
         berserk.update(0.5, 0.0);
-        // One ribbon of the width 0.5 until its first beat, its pairs 10·0.5·fade apart.
+        // One ribbon of the width 0.5 until its first beat, its pairs 10·0.5·fade either side.
         let ribbons = berserk.ribbons(&arc);
         assert_eq!(ribbons.len(), 1);
         let [a, b] = ribbons[0][3];
@@ -19254,7 +19264,7 @@ mod tests {
     fn the_war_crys_sign_sweeps_two_fans_of_rays_and_fades_over_its_seconds() {
         let mut sign = WarCrySign::new(5.0);
         assert!(sign.glow_half() == 0.0);
-        // Faded in after 2 s, its phase 0.3 back from 1: 0.3.
+        // Faded in after 2 s, its phase 0.7 back from 1: 0.3.
         for _ in 0..200 {
             sign.update(0.01);
         }

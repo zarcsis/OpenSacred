@@ -212,8 +212,9 @@ const DRAGON_POSITIONS: usize = 1634;
 /// Positions of a ring and where they lie in the file, to 0.001.
 type Ring = [(usize, [f32; 3]); 6];
 /// The rings that the rule finds in the mesh, each with the share of `Bip01 Tail` it takes: four
-/// positions of the left side and two of the right in each, since the right's position mirroring
-/// the left's 225, wholly on the tail, is half on its thigh already.
+/// positions of the left side and two of the right in the first, three of each in the second,
+/// since the right's position mirroring the left's 225, wholly on the tail, is half on its thigh
+/// already.
 const TAIL_RINGS: [(Ring, f32); 2] = [
     (
         [

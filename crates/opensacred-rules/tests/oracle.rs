@@ -6,7 +6,8 @@
 //! the game, they run locally: first `cargo run --release -p opensacred-oracle --features
 //! emulator`, which writes the vectors to `OPENSACRED_VECTORS`, else to
 //! `%LOCALAPPDATA%\OpenSacred\vectors` on Windows and `$XDG_DATA_HOME/OpenSacred/vectors`
-//! elsewhere. The most health's also reads the balance of `OriginalGame/bin/Balance.bin`.
+//! elsewhere. The most health's and the weighing's also read the balance of
+//! `OriginalGame/bin/Balance.bin`.
 
 use std::collections::HashMap;
 use std::fs;

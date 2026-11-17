@@ -5,7 +5,8 @@
 //! masters alone (`build` leaves it out, #2647). A texture is referenced as the PNG that
 //! `opensacred-convert textures` writes to `<out>/textures/texture/`, and in the game's file as the
 //! KTX2 file that `build` makes of it ([`built`]). The records that [`model_repairs`] names are
-//! repaired as they are written.
+//! repaired as they are written, and a model is written at its scale, the client's own for the
+//! models of [`model_scales`], else its record's, and its clips with it (#443, #2578).
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;

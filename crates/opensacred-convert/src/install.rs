@@ -4,7 +4,8 @@
 //! assets', `build` writes the assets there too, the mark of the conversion is written into them
 //! last (`opensacred_data::converted`), and they take the place of the old assets only then, so
 //! that a run cut off leaves the old ones or none, never half of them; the masters are removed.
-//! The progress goes to stdout as JSON lines among the commands' own lines, for the game.
+//! The progress goes to stdout among the commands' own lines, as JSON lines for the game with
+//! `--json`.
 
 use std::fs;
 use std::path::{Path, PathBuf};

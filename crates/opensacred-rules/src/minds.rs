@@ -13,6 +13,15 @@
 //! another parts from it (`0x544890`), and one that walks into the hero's way steps aside
 //! (`0x547070`). The hero's
 //! attack chooses where it stands and when it strikes (`0x6172C0`).
+//! Here too: the sides by which two creatures are hostile and the side that a maker or a script
+//! gives a creature ([`hostile`], [`made_side`], [`created_side`]; docs/re/fight.md, "Sides"); a
+//! hostile creature taking another that fights for its foe (`0x54338B`) and a group's alarm
+//! (`0x46AE70`); the followers keeping by their masters and fighting for them ([`keeps`],
+//! [`defends`]; docs/re/ai.md, "Followers"); the casters' decisions by their marks and the
+//! bosses' keep-back ([`Mind::cast`], with [`crate::casts`]); the riders' circling and charge;
+//! the flyers' take-off, height and landing ([`take_off`], [`climbs`], [`lands`]); a creature's
+//! sight of the hero ([`sees`]); the holds of a knockback and a stun ([`Mind::knocked`]); and
+//! the townsfolk's doings and their icons ([`activity`]).
 //! `opensacred-game` (`ai`, `attack`) keeps the creatures' minds as components, the systems that
 //! read the world and carry the decisions out, and the world's points; this module is the rules
 //! alone, over points of the ground ([`Spot`]).
@@ -363,8 +372,8 @@ const STEP_OFF_TRIES: usize = 10;
 const TRADER_WITHIN: f32 = 800.0;
 /// The children's play (`0x4F2AD7`): within 800 of home about itself, farther than 1,000 800
 /// toward home, else about home, within 400 along each axis; one farther than 349 from the hero
-/// within a building follows it, one within 200 of it turns to it, and one now and then runs to
-/// 150 from it.
+/// on a settlement's ground follows it, one within 200 of it turns to it, and one now and then
+/// runs to 150 from it.
 const PLAYS_ABOUT: i32 = 400;
 const PLAYS_NEAR: f32 = 800.0;
 const PLAYS_FAR: f32 = 1_000.0;
@@ -433,7 +442,7 @@ const CHILD_LINES: [&str; 35] = [
 const ATTACKS_WITHIN: f32 = 800.0;
 const GIVES_UP: f32 = 2_000.0;
 /// In how many ticks of one an idle hostile creature looks among the creatures of its sector for
-/// one that fights, and in how many cases of one it takes each it finds (`0x54338B`).
+/// one that fights, and of how many cases it takes each it finds in all but one (`0x54338B`).
 const LOOKS_FOR_FOES: u32 = 3;
 const TAKES_FOE: u32 = 3;
 /// How near a guard attacks the nearest creature hostile to it (`0x4EF150`, `0x4EEE40`).
@@ -512,7 +521,7 @@ const CHARGE_LEGS: u8 = 10;
 const CHARGE_LEAVES: f32 = 300.0;
 pub const CHARGE_EFFECT_SECONDS: f32 = 10.0;
 
-/// A riding black rider's charge's step.
+/// A riding black rider's charge's step, or the hornet hunter's (#2562).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Charge {
     #[default]
@@ -522,6 +531,8 @@ enum Charge {
     /// Its ride away, of the legs ridden.
     Away(u8),
 }
+/// How far beyond its reach its target stands for a creature that went to melee from its bow to
+/// take one again (`0x4D4A80`, the archers' switch above).
 const TAKES_BOW_BEYOND: f32 = 100.0;
 /// The weapons of the switch, `items.pak` types made at the creature's level (`0x5D5080`): the
 /// four of melee, held in the right hand, and the two bows, held in the left.
@@ -680,7 +691,7 @@ pub fn marked(creature: u32) -> bool {
     MARKED.iter().any(|types| types.contains(&creature))
 }
 
-/// A creature's mind while no foe is near, and in its fight with the hero.
+/// A creature's mind while no foe is near, and in its fight, with the hero or a creature.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Mind {
     /// Where it was made, the point it goes home to.
@@ -776,9 +787,8 @@ pub struct Mind {
     /// `0x4D4800`).
     to_door: bool,
     /// At range: whether it decides (the sub-state 0) rather than moves to its band (1), whether
-    /// that decision follows a shot, which ends in the AI's state 0 (`0x4DBFC0`), how many times
-    /// it has backed off since it last decided (`+0x12B`), whether it moves at a run (`+0x1F8`),
-    /// and the chain of its shots (`+0x210`).
+    /// that decision follows a shot, which ends in the AI's state 0 (`0x4DBFC0`), and how many
+    /// times it has backed off since it last decided (`+0x12B`).
     deciding: bool,
     shot: bool,
     backs: u8,
@@ -786,8 +796,9 @@ pub struct Mind {
     /// whether its id is odd, which turns its horse's circling about the hero one way or the
     /// other ([`Self::circles`], #2288); none on foot.
     pub rides: Option<bool>,
-    /// Its charge's step, a riding black rider's (#2288).
+    /// Its charge's step, a riding black rider's (#2288) or the hornet hunter's (#2562).
     charge: Charge,
+    /// At range: whether it moves at a run (`+0x1F8`), and the chain of its shots (`+0x210`).
     runs_at_range: bool,
     shots: Chain,
     /// Whether it went to melee from its bow and takes one again (`+0x2B8` bit `0x10`, which only
@@ -1459,7 +1470,7 @@ impl Mind {
         self.leaves_fight();
     }
 
-    /// It leaves its fight with the hero.
+    /// It leaves its fight, with the hero or a creature.
     fn leaves_fight(&mut self) {
         self.fighting = false;
         self.fled = false;
@@ -1479,10 +1490,10 @@ impl Mind {
     }
 
     /// What a caster of the mark 1 does at a decision of its melee (`0x4D51ED`; #1852,
-    /// [`crate::casts`]), before it fights hand to hand ([`Self::pursue`]): none for another type,
-    /// out of the fight, at range, striking or coming on to its target (the melee's sub-state 1,
-    /// which runs no specials); it decides standing or on a run of its own. Walking into its band,
-    /// it decides nothing until it stands. It stands facing its target for
+    /// [`crate::casts`]), before it fights hand to hand ([`Self::pursue`]): none for a type of no
+    /// cast, out of the fight, at range, striking or coming on to its target (the melee's
+    /// sub-state 1, which runs no specials); it decides standing or on a run of its own. Walking
+    /// into its band, it decides nothing until it stands. It stands facing its target for
     /// [`casts::STANDS`] decisions after each; it casts the stone at the hero from 400 to 1,500
     /// ([`casts::holds`]); else, on its casting path ([`casts::casting`]), it keeps its band
     /// ([`casts::leaves_band`]), casts its type's spell by a roll with a straight way (`clear`)
@@ -1492,13 +1503,18 @@ impl Mind {
     /// A dragon (`0x4D5B95`, #1853) casts its meteors farther than its reach and 500 from its
     /// target in one decision of two ([`casts::dragon_casts`]), and stands facing it after. A big
     /// demon casts its eye lasers or its fire as it comes on ([`casts::big_demon_approaches`]) or
-    /// standing ([`casts::big_demon_casts`]), and without a straight way runs about its target and
+    /// standing ([`casts::big_demon_casts`]), and without a straight way walks about its target and
     /// stands facing it after ([`casts::big_demon_runs`]); none of the three keeps a deadline.
     /// A magician of the mark 8 (`0x4D5F33`, #1854) decides at every tick: the plant cage at the
     /// hero from 400 to 1,500 ([`casts::cages`]); its band ([`casts::mage_leaves_band`],
     /// [`casts::band_walks`]); its cast by a roll with a way and its deadline passed, or where its
     /// target fights it ([`casts::mage_casts`]), the spell its type's ([`casts::mage_spell`]); else
     /// it stays facing its target ([`casts::mage_stays`]) or, standing, runs about it.
+    /// A caster of a mark of its own decides by its mark ([`casts::own_mark`], #1855). The spiders
+    /// 75 and 55 and the crab queen make their own as they come on, and a dragon breathes its fire
+    /// so ([`casts::coming_on`], [`casts::approaches`]). Before any standing decision a boss or a
+    /// champion of a mark of [`casts::KEEPS_BACK`], of a type of no cast too, may keep back
+    /// (#2563).
     pub fn cast(
         &mut self,
         sight: &Pursuit,
@@ -1692,9 +1708,6 @@ impl Mind {
                 self.stands = casts::QUEEN_STANDS;
                 return Some(Pursues::Strolls(circle(here, target, cast.id), true));
             }
-            // It walks on or stands in one decision of three, stands where it has no straight
-            // line to the hero, and within twice its reach hides by a coin or while the hero
-            // attacks it (`0x4D9789`).
             // Within its reach and 30, in one decision of three, the Dark Elf's `Attacke` or
             // `Hardhit` by a coin (`0x4D8133`).
             OwnMark::IceChampion => {
@@ -1867,6 +1880,9 @@ impl Mind {
                     variant: 0,
                 });
             }
+            // It walks on or stands in one decision of three, stands where it has no straight
+            // line to the hero, and within twice its reach hides by a coin or while the hero
+            // attacks it (`0x4D9789`).
             OwnMark::Larva => {
                 if sight.walk.is_some() || rng.below(3) == 0 || !clear() {
                     self.stands = casts::LARVA_STANDS;
@@ -2087,11 +2103,10 @@ impl Mind {
 
     /// What a creature that fights the hero does next, by what it sees (`0x4E0300`): farther
     /// than 2,000 it gives up; wounded to a third, near the hero, it flees 700 from it at a run,
-    /// once a fight (`flees`); farther than the band of its reach it comes on, at a run in 7
-    /// cases of 11, after the hero as it moves; nearer, it steps back as far again, steered by the
-    /// hero as it goes, striking at once in the band, and strikes where it stops, the hero still
-    /// nearer (the sub-state 2, [`Self::stepped`]); in the band at full
-    /// health, farther than 2,500 from home, it goes home and leaves the fight; else it stands
+    /// once a fight (`flees`); farther than the band of its reach it comes on, at a run by its
+    /// rolls ([`Self::comes_on_runs`]), after the hero as it moves; nearer, it steps back as far
+    /// again, steered by the hero as it goes, striking at once in the band, and strikes where it
+    /// stops, the hero still nearer (the sub-state 2, [`Self::stepped`]); else it stands
     /// in the band, turned to the hero, where it strikes (#280), and decides again when the
     /// strike ends (`0x4E2147`): at once when the strike chains, else once it has waited
     /// ([`Self::ends_strike`]). Deciding, the second, third or fourth of the hero's list of
@@ -2103,7 +2118,8 @@ impl Mind {
     /// deciding, coming on or in the band, for the hero beyond its reach + 100 (`0x4D4A80`, at
     /// `0x4E0C63`, `0x4E1B78` and `0x4E43C5`). One with a ranged weapon fights at range instead
     /// ([`Self::at_range`]), where a straight line of walkable cells to the hero (`clear`)
-    /// counts. `None` while it does not fight, or walks on.
+    /// counts. `None` while it does not fight, or walks on. The leash, by which it goes home from
+    /// too far and leaves the fight, is the caller's to ask before ([`Self::leash`]).
     pub fn pursue(
         &mut self,
         sight: &Pursuit,
@@ -2312,7 +2328,9 @@ impl Mind {
     /// for 20 updates at most; then it strikes in passing and rides 400 beyond along its heading
     /// turned ±30° by a coin; within 300 of the hero it rides on while it moves and takes another
     /// leg as it stops, 10 at most; from 300 it charges again in one case of three, with the
-    /// effect 24, else decides. None where it decides as any other.
+    /// effect 24, else decides. The hornet hunter charges so by its special, in one decision of
+    /// three whatever it does, and without the effect (`0x4DB7B6`, #2562). None where it decides
+    /// as any other.
     fn charges(
         &mut self,
         (here, hero): (Spot, Spot),
@@ -2435,8 +2453,8 @@ impl Mind {
     /// back off standing: its bow put away, a sword, a dagger, a bastard sword or a mace in its
     /// right hand, and, by its type, the bit by which it takes a bow again
     /// ([`Self::pursue`]). Before all that, one of class 5 within 150 of the hero goes to melee in
-    /// one case of four with its bow put away and no other weapon (its `+0x25F`, not kept, taken
-    /// as not 10).
+    /// one case of four with its bow put away and no other weapon (the original's only where its
+    /// `+0x25F` is not 10, the black rider's mark, which is not tested).
     fn at_range(
         &mut self,
         sight: &Pursuit,
@@ -2586,9 +2604,6 @@ impl Mind {
         Pursues::ToMelee(weapon)
     }
 
-    /// It takes a bow again (`0x4D4A80`): `BOW_LONG` or `BOW_SHORT` by a coin ([`bow`]) in its
-    /// left hand, its right hand emptied, the bit cleared, and it fights at range (the AI's state
-    /// 8, deciding).
     /// A dryad's bow taken (`0x4D4A80`): its state the ranged one, a bow of [`casts::DRYADS_BOWS`]
     /// by a coin into its left hand (#2566).
     fn takes_dryads_bow(&mut self, rng: &mut impl Dice) -> Pursues {
@@ -2599,6 +2614,9 @@ impl Mind {
         }
     }
 
+    /// It takes a bow again (`0x4D4A80`): `BOW_LONG` or `BOW_SHORT` by a coin ([`bow`]) in its
+    /// left hand, its right hand emptied, the bit cleared, and it fights at range (the AI's state
+    /// 8, deciding).
     fn takes_a_bow(&mut self, rng: &mut impl Dice) -> Pursues {
         self.takes_bow = false;
         self.ranged = true;
@@ -2930,7 +2948,7 @@ pub enum Fidget {
     Attack,
 }
 
-/// The first of the fidgets' slots, `*_FUN_IDLE_*`, and how many follow it (180 to 192).
+/// The first of the fidgets' slots, `*_FUN_IDLE_*`, and how many they are (180 to 192).
 pub const FUN_SLOTS: u16 = 180;
 pub const FUN_COUNT: u16 = 13;
 
@@ -2978,8 +2996,8 @@ fn fidget(fun: u16, rng: &mut impl Dice) -> Fidget {
 }
 
 /// What a creature fighting the hero sees ([`Mind::pursue`]): where it and the hero stand, its
-/// walk if it walks, whether it strikes, its health and its most if it has one, whether the hero
-/// strikes, and where it stands in the hero's list of hostiles if it is in it (`0xAD3CE0`,
+/// walk if it walks, whether it strikes, its health and its most if it has one, and where it
+/// stands in the hero's list of hostiles if it is in it (`0xAD3CE0`,
 /// nearest first, docs/re/motions.md, "The fight stance"): its index, 0 the nearest, and where
 /// the nearest stands; and whether the hero attacks it, the creature the hero's attack's target
 /// (`0x4D4B70`: the target's AI's state 4 or 8 with it as its target, or the target's strike or
@@ -3009,7 +3027,7 @@ pub struct Pursuit {
 /// (docs/re/ai.md, "The flyers"), which take off as they flee wounded (`0x4E1336`).
 const FLY_LOOP: [u32; 3] = [513, 589, 590];
 
-/// What a caster of the mark 1 sees beyond its [`Pursuit`] ([`Mind::cast`], #1852).
+/// What a caster sees beyond its [`Pursuit`] ([`Mind::cast`], #1852).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CastSight {
     /// The real clock's seconds, which a caster's deadline counts (`0x6413E0`).
@@ -3174,7 +3192,8 @@ pub enum Pursues {
     ComesOn { runs: bool, within: f32 },
     /// A riding archer's horse takes it round the hero to the point, at a run (#2288).
     Circles { to: Spot },
-    /// A riding black rider charges the hero at a run, again with the effect 24 (#2288).
+    /// A riding black rider, or the hornet hunter, charges the hero at a run, the rider again
+    /// with the effect 24 (#2288, #2562).
     Charges { to: Spot, again: bool },
     /// It strikes the hero in passing and rides on to the point (#2288).
     Passes { to: Spot },
@@ -3182,7 +3201,8 @@ pub enum Pursues {
     RidesAway { to: Spot },
     /// Too near the hero, it steps back to the point.
     StepsBack(Spot),
-    /// Too far from home, it walks home and leaves the fight.
+    /// Too far from home, it walks home and leaves the fight ([`Mind::leash`], which the caller
+    /// asks).
     GoesBack,
     /// In the band, turned to the hero, it strikes by the choice of its attack's clip (one of
     /// five), unless it strikes already.
@@ -3196,7 +3216,7 @@ pub enum Pursues {
     /// A caster goes to the point about its target, at a run or not.
     Strolls(Spot, bool),
     /// A caster blinks away from its target (the black magician 10's, #1855): to the first of
-    /// [`casts::BLINK_TRIES`] points [`casts::BLINK_REACH`] about it that a straight way reaches.
+    /// [`casts::BLINK_TRIES`] points about it ([`casts::blink_try`]) that a straight way reaches.
     Blinks,
     /// It makes the weapon art `art` at its target, as a special orders it (the AI's state 11,
     /// #2564).
@@ -3551,10 +3571,10 @@ pub fn activity_icon(mind: &Mind) -> Option<i32> {
 
 /// What a townsperson standing does when it decides by day, by its roll (`0x4F22F0`): 0 takes
 /// the nearest human, `human`, for its partner, 2 too and walks home, 1 walks to the nearest
-/// animal, `animal`, 3 walks home, 5 and 8 visit the trader `trader`, one of 8 in one case of
-/// three only (in the other two its field's branch finds no field, `0x4F2643`); 4, 6 and 7 go
-/// into a house (#248), 9 plays an instrument (#253) and a child's 20 its play (#252); the rest
-/// stop.
+/// animal, `animal`, 3 walks home, 5 and 8 visit the trader `trader`, one of the flag 8 in one
+/// case of three only (in the other two its field's branch finds no field, `0x4F2643`); 4, 6 and
+/// 7 go into a house (#248), 9 plays an instrument (#253) and a child's 20 its play (#252); the
+/// rest stop.
 pub fn townsperson<T>(
     mind: &Mind,
     human: Option<T>,
@@ -7571,7 +7591,8 @@ mod tests {
         let home = Spot::default();
         let kid = Mind::new(home, TOWNSFOLK, (true, true), None, SPEEDS, (702, 3));
         let hero = at(1000.0, 0.0);
-        // Outside, it plays about itself near home, toward home from afar.
+        // The hero off a settlement's ground, it plays about itself near home, toward home from
+        // afar.
         for _ in 0..50 {
             let Child::Plays(to) = child(&kid, home, (hero, false, false), false, &mut rng) else {
                 panic!("plays");
@@ -7583,7 +7604,8 @@ mod tests {
             };
             assert!((to - at(1200.0, 0.0)).length() < 0.01, "{to:?}");
         }
-        // Inside, from afar it follows the hero (but in one case of 13 it plays).
+        // The hero on a settlement's ground, from afar it follows it (but in one case of 13 it
+        // plays).
         let follows = (0..1300)
             .filter(|_| {
                 child(&kid, home, (hero, false, false), true, &mut rng) == Child::FollowsHero
@@ -7820,7 +7842,7 @@ mod tests {
 
     #[test]
     fn the_sides_make_two_creatures_hostile_by_the_table_and_the_spider() {
-        // A peaceful creature of a side hostile to the heroes, 3 or 7, and a hostile one of 2 are
+        // A peaceful creature of a side friendly to the heroes, 3 or 7, and a hostile one of 2 are
         // hostile both ways; two of a side are friends, as are the sides 0 and 6 of every side but
         // 13.
         for peaceful in [3, 7] {

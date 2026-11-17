@@ -1,6 +1,10 @@
 //! `netscript` subcommand: the NetScript bytecode of the 20 trees of `bin/` → one tree file each
-//! under `<out>/netscript/` (docs/02 §7; the format is [`opensacred_data::netscript`]) and, on request,
-//! a readable listing of each tree next to it.
+//! under `<out>/netscript/` and their index `netscript.ron` (docs/02 §7; the format is
+//! [`opensacred_data::netscript`]), each tree's Luau sources and their index in a directory of
+//! its own beside its file ([`crate::luau`], #723), which `build` compiles for the game, the
+//! calls they were translated with (`calls.ron`, #1399) and, on request, a readable listing of
+//! each tree and of its structured flow next to it. The trees are repaired before they are
+//! written ([`script_repairs`]).
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -23,10 +27,11 @@ pub fn output_dir(out: &Path) -> PathBuf {
     out.join("netscript")
 }
 
-/// The trees of the network games, as [`file_name`] names them, which the game loads none of
-/// before M9 and `build` leaves out until then (#2648): the original takes `Bin\NetScript` for a
-/// network game of Sacred, with `Camp` for a campaign (`0x46F9B0`, `0x7DB230`), and
-/// `Bin\Addon\NetScript` for one of Underworld; nothing builds the path of the add-on's `Camp`.
+/// The trees of the network games, as [`file_name`] names them less the extension, which the
+/// game loads none of before M9 and `build` leaves out until then (#2648): the original takes
+/// `Bin\NetScript` for a network game of Sacred, with `Camp` for a campaign (`0x46F9B0`,
+/// `0x7DB230`), and `Bin\Addon\NetScript` for one of Underworld; nothing builds the path of the
+/// add-on's `Camp`.
 pub const NETWORK: [&str; 4] = [
     "netscript",
     "netscriptcamp",
@@ -367,8 +372,8 @@ fn ending_name(ending: Ending) -> &'static str {
     }
 }
 
-/// The listing of a tree's functions as their flow structures (`flow::structure`, #723): an
-/// error names the tree and the function whose flow does not.
+/// The listing of a tree's scripts and functions as their flow structures (`flow::structure`,
+/// #723): an error names the tree and the script or the function whose flow does not.
 fn flow_listing(source: &str, tree: &Tree) -> Result<String> {
     let mut out = String::new();
     let _ = writeln!(
@@ -393,7 +398,7 @@ fn flow_listing(source: &str, tree: &Tree) -> Result<String> {
     Ok(out)
 }
 
-/// Converts every tree; `listing` also writes `<tree>.txt` next to each tree file, and its
+/// Converts every tree; `listing_too` also writes `<tree>.txt` next to each tree file, and its
 /// functions' structured flow, `<tree>.flow.txt`.
 pub fn convert(game_dir: &Path, out: &Path, listing_too: bool) -> Result<Summary> {
     let dir = output_dir(out);

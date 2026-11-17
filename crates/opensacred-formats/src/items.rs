@@ -60,8 +60,9 @@ pub struct Shadow {
     pub size: u16,
 }
 
-/// Every field of a used slot, 128 bytes; spans whose meaning is not known yet are named by their
-/// offset. The name is padded with zeros (`tools/analysis/formats/tables_dump.py`).
+/// Every field of a used slot, 128 bytes; the spans with no name of their own are named by their
+/// offset, and what is known of their fields is in docs/02 §6.1. The name is padded with zeros
+/// (`tools/analysis/formats/tables_dump.py`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Record {
     pub kind: u8,

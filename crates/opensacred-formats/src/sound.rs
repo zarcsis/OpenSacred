@@ -1,6 +1,7 @@
 //! Sound (docs/02 §10.1–10.2): `PAK/sound.pak` (`"SND"` v1) holds the samples, RIFF WAV or MP3,
 //! by id; `PAK/sndProfiles.pak` (`"SPF"` v1) the profiles that name them; a table in `Sacred.exe`
-//! names the ids. Confirmed on every record by `tools/analysis/formats/sound_dump.py`.
+//! names the ids. Confirmed on every record by `tools/analysis/formats/sound_dump.py`. The MPEG
+//! frames of an MP3 are found here too, for the music files of `mp3/` (docs/02 §10.3).
 
 use crate::error::{Error, ErrorKind, Place, Result, field, to_usize};
 use crate::pak::Pak;

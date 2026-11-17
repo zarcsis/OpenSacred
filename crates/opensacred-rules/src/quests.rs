@@ -3,11 +3,16 @@
 //! `TriggerQuest`, `ExitQuest`, `LoseQuest` and `UnTriggerQuest`, the variables by name, the
 //! dialogues' table that the start script's records of type 40 fill, the regions that have run
 //! their `Region<n>Init`, each of a sector's area ([`region`]), the places that `DefPos` names,
-//! the icons over the creatures of a dialogue or a trade ([`icon`]), the base triggers' boxes, which run their functions as the hero steps on them (#1002), the
-//! timers, which run theirs as the game's minutes pass (#933), and the scripts' drops of the
-//! creatures' types (#930). A transition names the
-//! section functions it runs for its caller, the scripts' runtime, to run, and takes each one's
-//! answer, whether its body ran to its end (`0x46BA90`); all of it serializes, for the saves.
+//! the icons over the creatures of a dialogue or a trade ([`icon`]), the base triggers' boxes,
+//! which run their functions as the hero steps on them (#1002), the timers, which run theirs as
+//! the game's minutes pass (#933), the scripts' drops of the creatures' types (#930), the quest
+//! log's entries and their compasses, the creatures' death's and sight functions, the counts of
+//! the kills and of the items collected, the fills' replacements of `ReplaceSpawn` and the lists
+//! of `RegionChange`, the areas that `RegionFrei` pacified, the pools of `AddPoolPos`, the mouse
+//! events, the hidden stashes of `MachVersteck` among them, the main quest's items and the
+//! places' names on the world map. A transition names the section functions it runs for its
+//! caller, the scripts' runtime, to run, and takes each one's answer, whether its body ran to its
+//! end (`0x46BA90`); all of it serializes, for the saves.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -427,7 +432,7 @@ impl Quests {
 pub const VARIABLE_NAME: usize = 31;
 
 /// The scripts' variables by name (`this+0x7550`, records of `{char name[32]; i32 value}`,
-/// docs/re/netscript.md, "Variable references"), a name kept to its first 31 bytes and found
+/// docs/re/netscript.md, "Variables and groups"), a name kept to its first 31 bytes and found
 /// without regard to case (`0x859690`, #1054).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Variables(BTreeMap<String, i32>);
@@ -972,9 +977,9 @@ impl DeathFunctions {
     }
 
     /// The function that the creature's death runs, taken out with the others of its kind: the
-    /// first entry not of an item's prefixes (`0x4A71F0` with an empty name), then each entry of
-    /// no `:` or of `See:` but those of [`KEPT`] (`0x464330(id, 1, 1)`); none where the list holds
-    /// no such entry (`0x53E915`, `0x52F769`).
+    /// first entry of no item's prefix nor a sight's (`0x4A71F0` with an empty name), then each
+    /// entry of no `:` or of `See:` but those of [`KEPT`] (`0x464330(id, 1, 1)`); none where the
+    /// list holds no such first entry (`0x53E915`, `0x52F769`).
     pub fn take(&mut self) -> Option<String> {
         let first = self
             .0
@@ -1036,8 +1041,8 @@ pub enum Counted {
 }
 
 /// The scripts' counts by type (`SetOnKill`, 135, `0x4AF190`, at `+0x7614`; `SetOnCollect`, 136,
-/// `0x4AF8C0`, at `+0x7620`; docs/re/netscript.md, "`SetOnKill` and `SetOnCollect`"), in the order
-/// set.
+/// `0x4AF8C0`, at `+0x7620`; docs/re/netscript.md, "`SetGroupState`, `DelNPC`, `SetOnKill` and
+/// `SetOnCollect`"), in the order set.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Counts(Vec<Count>);
 
@@ -1420,7 +1425,8 @@ pub struct Scripts {
     /// The pools of places that `AddPoolPos` fills (#1518).
     #[serde(default)]
     pub pools: Pools,
-    /// The hidden stashes that `MachVersteck` lays and the hero has not searched yet (#1518).
+    /// The mouse events with uses left: the hidden stashes that `MachVersteck` lays and the hero
+    /// has not searched yet (#1518), and the `MouseEvent` records' (#1584).
     #[serde(default)]
     pub stashes: Stashes,
     /// The places' names that the world map writes (`SetMapIcon` with a text, #1577).
@@ -1542,11 +1548,11 @@ impl Stashes {
         !held
     }
 
-    /// `MouseEvent` (94, `0x4A6950`): an event at the cell and floor `at` of the function
-    /// `function` and the text `text` (a `res:` name's key, none where empty), of one use where
-    /// `once` (`0x66`), else endless; the flags 1 (`0x10`) show nothing, the flags 2 (`0x0F`)
-    /// the stash's blink, neither the sparks; of the box `boxed` where its first or its third
-    /// number is not 0 (`0x62CF8D`).
+    /// `MouseEvent` (94, `0x4A6950`): an event at the cell (`x`, `y`) and the floor `floor` of the
+    /// function `function` and the text `text` (a `res:` name's key, none where empty), of one
+    /// use where `once` (`0x66`), else endless; the flags 1 (`0x10`) show nothing, the flags 2
+    /// (`0x0F`) the stash's blink, neither the sparks; of the box `boxed` where its first or its
+    /// third number is not 0 (`0x62CF8D`).
     pub fn mouse_event(
         &mut self,
         (x, y, floor): (i32, i32, i32),

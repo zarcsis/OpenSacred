@@ -1,6 +1,6 @@
 //! The types' names that `Sacred.exe` holds (`0x8EC328`), entries of 0x44 bytes: a type's number
-//! and its name of up to 64 bytes (`TYPE_NPC_GOBLIN_WARRIOR`), which `0x43CED0` gives a type's
-//! number by and which the client's code tests for parts of (`0x68EB90` the footsteps, `0x695800`
+//! and its name of up to 64 bytes (`TYPE_NPC_GOBLIN_WARRIOR`), which `0x43CED0` gives by a type's
+//! number and which the client's code tests for parts of (`0x68EB90` the footsteps, `0x695800`
 //! the doors' sounds; docs/re/sound.md). A fixed virtual address of the GOG 2.28 build, which the
 //! caller checks against the manifest.
 

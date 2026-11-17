@@ -1,6 +1,7 @@
 //! FFmpeg as an external program (the one beside the converter, else `FFMPEG`, else `ffmpeg` from
-//! `PATH`; docs/03): it decodes the
-//! VTex textures and encodes the samples, so no codec code enters the converter.
+//! `PATH`; docs/03): it decodes the VTex textures ([`crate::embedded`]) and encodes the sound
+//! ([`crate::sound`]) and the cutscenes ([`crate::video`]), their masters and the game's files of
+//! them, so no codec code enters the converter.
 
 use std::io::Write;
 use std::process::{Command, Output, Stdio};

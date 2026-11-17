@@ -1,9 +1,11 @@
 //! The hero's backpack as the original's grid (#1268; docs/re/inventory.md, §3): every hero's of
 //! 20 columns by 8 rows, an item's size in cells (`0x428D60`), the fit of an item at a cell
 //! (`0x5DACB0`), the search for the first fit column by column (`0x5DABA0`'s mode 0), the place
-//! and the removal (`0x5D9F00`, `0x5DA630`), and the swap's test (`0x5DB0D0`); the cursor's item
-//! (#1269; §3 "The clicks on the items' page" and §6): its offset from the cursor, the cell it is
-//! held over, the cells' highlight under it and its put.
+//! and the removal (`0x5D9F00`, `0x5DA630`), the swap's test (`0x5DB0D0`) and the sort
+//! (`0x5DB6B0`); the cursor's item (#1269; §3 "The clicks on the items' page" and §6): its offset
+//! from the cursor, the cell it is held over, the cells' highlight under it, its put, and the
+//! cell where it lands dropped off the cursor (`0x611620`); and the gold that a click on the
+//! statistics window's gold drops (`0x6A6110`).
 
 /// Every hero's grid: 20 columns by 8 rows (`0x5DF570`, `0x5D7A50`).
 pub const COLUMNS: u8 = 20;

@@ -1,8 +1,9 @@
 //! What a container gives as it opens (#1381; docs/re/containers.md, "The contents"): the
 //! scripts' `FillChest` (78, `0x4A02A0`), which its `Take:` function runs as it opens. With a
-//! value, 16 cases in 101 give nothing (a grave or a shrine raises a ghost instead); else a run of
-//! random items of about the hero's level, each in 19 of 101 rolls and each taking its price off
-//! the value, and then a pile of gold by the hero's level; or the books, or the type it names.
+//! value, 16 cases in 101 give nothing (a grave or a shrine raises a ghost or a noble instead);
+//! else a run of random items of about the hero's level, each in 19 of 101 rolls and each taking
+//! its price off the value, and then a pile of gold by the hero's level; or the books, or the type
+//! it names, or its count of random items (#1412).
 
 use crate::drops::{self, Catalogue, Hero, Kind, Wanted, between};
 use crate::spawning::Dice;
@@ -61,10 +62,11 @@ pub enum Content {
     Creature(u32),
 }
 
-/// Who opens the container and what it is: the hero, its level held for the gold (to its
-/// sector's highest plus the difficulty's `LevelKap`), the drops' rules, whether the container
-/// raises a creature, whether an icon lies in the world, and the count of the class's runes given
-/// (`drops::Rules::rune_range`).
+/// Who opens the container and what it is: the hero, the level for the gold (the original holds
+/// the hero's to its sector's highest plus the difficulty's `LevelKap`; the game passes it
+/// unheld, docs/decisions/items.md, "Containers' items at the hero's level"), the drops' rules,
+/// whether the container raises a creature, whether an icon lies in the world, and the count of
+/// the class's runes given (`drops::Rules::rune_range`).
 pub struct Opening<'a> {
     pub hero: &'a Hero,
     pub gold_level: u32,
@@ -100,7 +102,8 @@ pub fn seed(hero: (u32, u32, u64), container: (i32, i32, u32)) -> u64 {
 /// type's price (`+0x08`): a value `v + R(0, ⌊v/10⌋ + 1)`, or without a value, books or type the
 /// hero's level times 800; for a value above 0, nothing in [`SPAWN_ITEM`]`[0] + 1` cases of 101 (a
 /// creature raised by a raising container), else the run of items and its gold; then the books;
-/// then the type named, where there is no value; then the random items ([`random_items`]).
+/// then the type named, where there is no value and it names no container; then the random items
+/// ([`random_items`]).
 pub fn fill(
     fill: &Fill,
     opening: &mut Opening<'_>,

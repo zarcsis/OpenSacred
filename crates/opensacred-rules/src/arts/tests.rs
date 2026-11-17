@@ -792,7 +792,8 @@ fn the_other_classes_arts_play_their_executors_clips() {
     assert_eq!(slot(8, Style::Hardhit, 13), Some((247, true, Some(202))));
     assert_eq!(slot(8, Style::Rundum, 3), Some((222, true, Some(220))));
     assert_eq!(slot(8, Style::Rundum, 14), None);
-    // The Daemon's `Attacke` at 1.0, and neither a `Rundum` nor his charge.
+    // The Daemon's `Attacke` at 1.0, and neither a `Rundum` nor a `Hardhit`: his 1091 is a
+    // charge, a style of its own.
     assert_eq!(slot(9, Style::Attacke, 1), Some((211, true, None)));
     assert_eq!(slot(9, Style::Rundum, 1), None);
     assert_eq!(slot(9, Style::Hardhit, 1), None);

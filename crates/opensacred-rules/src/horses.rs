@@ -1,5 +1,7 @@
-//! The horses (docs/re/horses.md, #1822): the horse data's rows, the riding test, the place by
-//! a horse that its rider mounts from and gets off at, and the riders' clips.
+//! The horses (docs/re/horses.md, #1822): the horse data's rows, the horses' prices and what a
+//! trader asks, pays and heals for, the rider's trample and the health its horse gives it, the
+//! riding test, the theft, the place by a horse that its rider mounts from and gets off at, and
+//! the riders' clips.
 
 use opensacred_data::tables::Balance;
 

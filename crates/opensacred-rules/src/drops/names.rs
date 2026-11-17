@@ -60,7 +60,7 @@ const CANNON: &str = "Kanone";
 pub(super) const NORMS: usize = 74;
 /// The image's word of the first record.
 const NORMS_AT: usize = 0x9DC / 4;
-/// The share in per cent above which an element names an item: fire, magic, poison.
+/// The share in per cent from which an element names an item: fire, magic, poison.
 const SHARES: [u32; 3] = [51, 41, 31];
 
 /// The effects' records of the balance's image `image` ([`NORMS`]); none where it is too short.
@@ -298,7 +298,7 @@ fn bonuses(values: &ItemValues, jewel: bool, norms: &[[f32; 6]]) -> u32 {
 
 /// The weight of a bonus's value in its count (`0x891B54`), a single-precision float.
 const WEIGHT: f32 = 0.04;
-/// The least third float of an effect's record that weighs a bonus by its first (`0x890C04`).
+/// The third float of an effect's record below which a bonus weighs by its fourth (`0x890C04`).
 const SMALL: f32 = 0.000_01;
 
 /// The kind of the effect `effect` (`0x5D2D70`): 0 for 801 to 804 and for every effect that no

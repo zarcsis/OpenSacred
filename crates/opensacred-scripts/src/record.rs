@@ -2,8 +2,10 @@
 //! whose readers take the records as the converter keeps them: its type by its call's name
 //! (`opensacred_data::luau::kind_of`), its operands by their tags' shapes
 //! (`opensacred_data::netscript::shape`), a tag that repeats one operand for each of its values,
-//! and its markers in their order (`marks`, #993). A variable's reference and a number's
-//! expression come as the values the runtime read for them.
+//! its valued operands in the order the call lists (`order`, #1835), else by their tags, and its
+//! markers after them in their order (`marks`, #993); a dialogues' table's entry by its `name`
+//! and its `values`. A variable's reference and a number's expression come as the values the
+//! runtime read for them.
 
 use std::collections::BTreeMap;
 
@@ -13,7 +15,8 @@ use opensacred_data::netscript::{self, Body, Record, Shape, Value, shape};
 use crate::Operand;
 
 /// The record that the call `name` with `operands` (its one table) stands for; none for a call
-/// of no record type, or of operands of no table.
+/// of no record type, of operands of no table, or of an operand that its tag's shape does not
+/// take.
 pub fn record(name: &str, operands: &[Operand]) -> Option<Record> {
     let kind = kind_of(name)?;
     let tags = match operands {

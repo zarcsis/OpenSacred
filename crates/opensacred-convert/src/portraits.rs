@@ -1,8 +1,10 @@
 //! The creatures' portraits of the dialogues' window (docs/02 §6.7; docs/re/netscript.md,
 //! "Dialogues"): each creature type's index among the interface's images, which the function
-//! `0x4345C0` of the GOG build returns by a switch over the type. The converter carries it, as the
-//! Steam build encrypts the code that holds it (#1489); the images themselves, their textures and
-//! rectangles, come from the table at `0x9ECEB0` of `Sacred.exe`'s data, the same in both builds.
+//! `0x4345C0` of the GOG build returns by a switch over the type, and the pictures of the
+//! portraits' column, which its `0x435D30` returns by another (#1465). The converter carries
+//! them, as the Steam build encrypts the code that holds them (#1489); the images themselves,
+//! their textures and rectangles, come from the table at `0x9ECEB0` of `Sacred.exe`'s data, the
+//! same in both builds.
 
 /// The image of the types without one of their own, the switch's default (`0x43525A`).
 pub const DEFAULT: u32 = 900;

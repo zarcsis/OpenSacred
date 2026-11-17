@@ -1,8 +1,9 @@
 //! The weather (docs/re/weather.md, #1072): rain, fog and snow, chosen by the weather entries of
 //! the sector the camera is in on timers of real time that every sector shares (`0x625290`),
 //! their levels moving toward what the choice wants at about three steps a second (`0x41A4F0`),
-//! as the renderer's events set them (`0x419A70`). It is drawn and heard only: no rule of the
-//! play reads it.
+//! as the renderer's events set them (`0x419A70`), with the storm's lightning, the screen's quake
+//! and jolt, and the fliers that the same choice sends over the camera ([`Weather::fliers()`]).
+//! It is drawn and heard only: no rule of the play reads it.
 //!
 //! Two slips of the original's choice are repaired (#1083, docs/decisions/weather.md, "Weather
 //! times span their range"): its time is `shortest + (longest − shortest) / b` for the roll `b`,
@@ -69,8 +70,8 @@ impl Level {
     }
 }
 
-/// An event of the weather (`cEventWeather`, its kinds 0, 1, 2, 3, 5 and 7; docs/re/weather.md,
-/// "`cEventWeather` and its kinds"), a value of 0 stopping its kind.
+/// An event of the weather (`cEventWeather`, its kinds 0, 1, 2, 3, 5, 7 and 12;
+/// docs/re/weather.md, "`cEventWeather` and its kinds"), a value of 0 stopping its kind.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Event {
     /// Every flag off at once (0).
@@ -89,7 +90,7 @@ pub enum Event {
 /// The weather as the renderer keeps it.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Weather {
-    /// The flags ([`RAIN`], [`FOG`], [`STORM`], [`SNOW`]).
+    /// The flags ([`RAIN`], [`FOG`], [`STORM`], [`SNOW`], [`QUAKE`]).
     pub flags: u32,
     /// The rain's drops (`+0x20`, `+0x1C`), the fog's alpha (`+0x178`, `+0x17C`) and the snow's
     /// flakes (`+0x9158`, `+0x9154`).
@@ -100,7 +101,8 @@ pub struct Weather {
     pub storm: f32,
     /// A quake's amplitude, in the screen's pixels (`+0x9DB8`).
     pub quake: f32,
-    /// A jolt's offset down the screen, in its pixels (docs/re/weather.md, "The jolt").
+    /// A jolt's offset down the screen, in its pixels (the kind 12; docs/re/weather.md,
+    /// "`cEventWeather` and its kinds").
     pub jolt: f32,
     /// The steps' accumulator (`0xAA4548`).
     steps: f32,

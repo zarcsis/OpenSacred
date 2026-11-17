@@ -1,6 +1,6 @@
 //! The data tables of `bin/` (docs/02 §6.3), compiled by the original's built-in compiler from
-//! texts that are not shipped: counted lists of words, read to the last byte. The meaning of most
-//! fields waits for the code that uses them (M3); every word is kept. Confirmed by
+//! texts that are not shipped: counted lists of words, read to the last byte. Every word is kept,
+//! the fields whose meaning is not known among them. Confirmed by
 //! `tools/analysis/formats/bin_tables_dump.py`.
 
 use crate::error::{Result, field};
@@ -11,7 +11,7 @@ pub use balance_keys::BALANCE_KEYS;
 
 /// `Balance.bin`: `u32` the size in bytes of an image of the client's balance variables (at
 /// `0xAD4490`), the image, then tables of their own (docs/02 §6.3). The balance text's keys and
-/// `GoldProLevel`'s second value name 355 of the image's words ([`BALANCE_KEYS`]).
+/// `GoldProLevel`'s second value name 358 of the image's words ([`BALANCE_KEYS`]).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Balance {
     /// The image's words, 1,224: each an f32 or an i32, by its key where it has one.
@@ -32,12 +32,14 @@ pub struct Tail {
     pub weights: Vec<(u32, u32)>,
     /// 3: the item maker's quality key and the value of the quality pass `0x5D2E40` it takes.
     pub qualities: Vec<(u32, u32)>,
-    /// 4: rows of seven words by a key, 1 to 9, into `0xAD57D4`; not followed.
+    /// 4: rows of seven words by a key, 1 to 9, into `0xAD57D4`: the horse data by the horse's
+    /// class (docs/re/horses.md, "The price and the horse data").
     pub rows: Vec<(u32, [u32; 7])>,
     /// 5: an effect and the parameters `a`, `b`, `c` of a chance by its value
     /// (`(1 − a/(b + v))·100 + 0.5` per cent at most `c`, `0x5F23A0`).
     pub chances: Vec<(u32, [f32; 3])>,
-    /// 6: lists of item types by a key, into `0xAD57EC`; not followed.
+    /// 6: lists of item types by a key, into `0xAD57EC`: the weapon skills and their weapons, of
+    /// which a merchant offers one of the hero's best skill (docs/re/trade.md).
     pub item_lists: Vec<(u32, Vec<u32>)>,
     /// 7: the regions (`0xAAAD28`), records of 0x40 bytes.
     pub regions: Vec<Region>,
@@ -55,7 +57,8 @@ pub struct Region {
     pub index: u8,
 }
 
-/// What a balance variable holds: the parser stores a float with `fstp`, an integer with `mov`.
+/// What a balance variable holds: the parser stores a float with `fstp`, an integer with `mov`
+/// or, for the three colours it reads as hexadecimal, through `sscanf`'s `%x` (#2505).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
     F32,
@@ -211,7 +214,7 @@ fn tail(r: &mut Reader<'_>) -> Result<Tail> {
 const REGION: usize = 0x40;
 
 /// A record of the regions' table: the areas at `+0`, the name's key at `+0x10` (32 bytes, to its
-/// first zero), the total at `+0x30`, the warning's byte at `+0x34`, the remaining count at
+/// first zero), the total at `+0x30`, the warning's flag at `+0x34`, the remaining count at
 /// `+0x38`, the index at `+0x3C` (`0x5E5C50`).
 fn region(r: &mut Reader<'_>) -> Result<Region> {
     let areas = r.array::<16>("region areas")?;

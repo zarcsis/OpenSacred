@@ -5,15 +5,17 @@
 //! It holds the spawning's rolls ([`spawning`]), the fight's formulas with the hero's levels
 //! ([`fight`]), the ways with the cells in the way ([`ways`]), the creatures' decisions with
 //! the hero's attack ([`minds`]), the archers' arrows ([`arrows`]), what a killed creature
-//! drops ([`drops`]), a creature's combat arts with the runes that teach them ([`arts`]), the
-//! spells' cast ([`spells`]), the scripts' state: the quests, the variables and the dialogues
+//! drops ([`drops`]), what a container gives as it opens ([`containers`]), a creature's combat
+//! arts with the runes that teach them ([`arts`]), a hero's combos ([`combos`]), the combat
+//! master's exchange of runes ([`exchange`]), the spells' cast ([`spells`]), the creatures'
+//! casts ([`casts`]), the scripts' state: the quests, the variables and the dialogues
 //! ([`quests`]), the regions' kills ([`regions`]), a quest's reward ([`rewards`]), the weather
-//! ([`weather`]), the peace stream's music ([`music`]), the undead that rise again
-//! ([`undead`]), the particle systems ([`particles`]), the scripts' Pong ([`pong`]), the
+//! ([`weather`]), the peace stream's music and the fights' ([`music`]), the undead that rise
+//! again ([`undead`]), the particle systems ([`particles`]), the scripts' Pong ([`pong`]), the
 //! backpack's grid ([`inventory`]), the equipment's slots and who may use an item
-//! ([`equipment`]), the land explored ([`explored`]),
-//! the potions and the belt ([`potions`]), the weapon sets ([`sets`]), the item sets' bonuses
-//! ([`set_bonuses`]), the prices ([`trade`]) and the blacksmith ([`smith`]).
+//! ([`equipment`]), the land explored ([`explored`]), the potions and the belt ([`potions`]),
+//! the weapon sets ([`sets`]), the item sets' bonuses ([`set_bonuses`]), the prices and the
+//! merchants' stock ([`trade`]), the blacksmith ([`smith`]) and the horses ([`horses`]).
 
 pub mod arrows;
 pub mod arts;

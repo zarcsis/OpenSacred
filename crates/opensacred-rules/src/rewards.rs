@@ -13,8 +13,9 @@ use crate::spawning::Dice;
 /// The reward's flags: gold and experience.
 pub const GOLD: u32 = 0x1;
 pub const EXPERIENCE: u32 = 0x2;
-/// The flags of its items: weapons, rings and amulets, armour, a shield, the hero's own (`0x7C`
-/// tested, `0x40` its class's item).
+/// The flags of its items, in their order from 4 (`0x7C` tested; `ITEM_CATEGORIES`): one of nine
+/// categories, the rings, the potions, the books and the amulets among them; a weapon or a
+/// shield; a piece of armour or a shield; a ring; and `0x40` its class's item.
 pub const ITEMS: u32 = 0x7C;
 
 /// Gold's and experience's numbers by the reward's step (`0x4ACE79`…).
@@ -58,7 +59,7 @@ impl Prize {
     /// The experience it gives a hero of level `hero` in a sector whose levels' middle is
     /// `middle` (0 for a sector without levels), on `difficulty`, none without its flag 2:
     /// `⌊(m + 2)·(E[s]·v + 100)/2⌋` times the difficulty's factor, truncated, times the decay of
-    /// a high hero (`0x57E050`), truncated; none below 0.
+    /// a high hero (`0x57E050`), truncated; 0 below 0.
     pub fn experience(self, middle: i64, hero: u32, difficulty: Difficulty) -> Option<u64> {
         if self.flags & EXPERIENCE == 0 {
             return None;
@@ -74,7 +75,7 @@ impl Prize {
 
 /// The categories of a reward's items by their flags, in the order the reward tries them
 /// (`0x4AD5CB`…): the flag 4 one of nine, 8 a weapon or one of 13, `0x10` one of ten, `0x20`
-/// the rings' and amulets' 8.
+/// the rings' 8.
 const ITEM_CATEGORIES: [(u32, &[u8]); 4] = [
     (0x04, &[7, 8, 9, 15, 16, 20, 29, 30, 31]),
     (0x08, &[5, 13]),
