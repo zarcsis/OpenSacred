@@ -27,7 +27,7 @@ All places are pixels of the 1024 × 768 screen; "image N" is the entry N of the
 - Each tab has its book (`cUI_Book`, `0x6AFD50`, its type the tab): seven chapters, each a list of pages and a list of items, a page its rows (`+0` flags, `+4` the title's text, `+8` the item, `+0xC` the log's index, `+0x10` the icon's image) and its selected row, an item its title, up to ten lines, and a picture.
 - A book is built again (`0x6B1990`) as the book shows, as its tab is selected, and as a side quest is tracked: the list's page and its selected row kept where they still stand, the chapter selected again with the sound event `(14, 2, 10)`, the other pages' selections lost.
   So the book shows the log as it stood at its build: an entry made while it shows comes at the next show.
-- The fonts (the table `0xA1CDB4`): 1 AntiquaSSK 13, 5 Carolingia 16, 6 Carolingia 18; the titles and the counts in 6, a main quest's row in 5, a side quest's row and every text in 1.
+- The fonts (the table `0xA1CDB4`, entries of `0x44` bytes, the face's name then its size): 1 AntiquaSSK 13, 5 Carolingia 16, 6 Carolingia 18, 7 AntiquaSSK 8 (read 2026-10-31, #1611); the titles and the counts in 6, a main quest's row in 5, a side quest's row and every text in 1, the statistics' legend in 7.
   **Measured**: the text's lines 20 apart, a line of the title 28 high (the text under one line of title starts 8 lower than under none).
 
 ## The quests' book (type 0)
@@ -140,7 +140,6 @@ Read in the code for #1565; **seen** in the game where said.
 - The sender of the UI message `0x20` that adds an information item to a shown book.
 - The `CreateObj` handler's condition for `addMainQuestItem` (`0x4868F6`), and when its entries' keys are 0.
 - The font at `0x182EE2C`; the exact terms of the levels' damage values; whether the world's sectors' count (`+0x8284`) counts the empty slots of the sectors' array (**hypothesis**: it is the sectors the world loads, 6,050, by which three sectors visited make the original's 0.05 %).
-- The fonts' table (`0xA1CDB4`, entries of `0x44` bytes, the face's name then its size) makes the font 7 AntiquaSSK 8, the statistics' legend's (read 2026-10-31, #1611).
 
 ## In `opensacred-game`
 

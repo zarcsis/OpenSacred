@@ -39,7 +39,7 @@ As `trace 0x4dd855 --stack object@esi,double@228,double@140,double@348,double@10
 | `sample-start`, `sample-3d-start` | `sound` | `AIL_start_sample`, `AIL_start_3D_sample` | the sample |
 | `stream` | `sound` | `AIL_open_stream` | the file opened |
 
-The per-frame functions (`death`, `regen`, `idle`) cost a call of the agent each time; the presets filter them before logging.
+The per-frame functions (`death`, `regen`, `idle`) cost a call of the agent each time; `death` and `regen` filter them before logging, and `idle` logs every call within its limit, those of the creatures of `--ids` alone where it is given.
 
 ## What the traces showed (observed)
 

@@ -2,7 +2,7 @@
 
 What the original's save holds, and when it saves and loads (read 2026-11-03 for #1956, a part of #1095; **confirmed** by code unless marked otherwise).
 The game does not load the original's saves (PLAN.md §1.1, ADR-08): this is what its own saves must give back.
-The saves' window and the keys are in docs/re/window.md ("The menus that the driver clicks", the keys of `cEngine_receiveEvent`); the exported heroes `save/hero*.pax` are not saves (docs/02 §9, docs/re/menus.md).
+The saves' window is in docs/re/menus.md, "The saves' window"; the driver's view of it and the keys are in docs/re/window.md ("The menus that the driver clicks", the keys of `cEngine_receiveEvent`); the exported heroes `save/hero*.pax` are not saves (docs/02 §9, docs/re/menus.md).
 
 ## The file
 
@@ -51,7 +51,7 @@ Which sectors the object manager and the world keep (all the world's, or those v
   The scripts post it, not a timer (#1961): the record `AutoSave` (121, `0x4AC740`) takes its number (a field of its tags `0x16`, `0x1D` or `0x1E`, the last read) and, where the number is not 0, outside a network game (`0x182EBEC`) and with `AUTOSAVE` set, posts the engine `(0xF, 3)`, the picture's frame, and then `(0xF, 2)` with the slot −1, the number, no picture, no test of the interface and no name, the second 100 later (**hypothesis**: milliseconds) (read 2026-11-04, #1989).
   `cEngine::save` (`0x619BF0`) names a save whose number is not 0 by the number's text (the game's texts by their numbers, made narrow, 63 characters at most) and clears the number, which the header keeps too: each autosave goes into a slot of its own, named by its quest's text.
   The numbers are 30000 to 30027 (texts of `global.res`); the Seraphim's tree holds 26 records, in the sections of its quests' exits (`QIS_OnExit11`, `QIS_OnExit22`, `QIS_OnExit41`, …) and a few functions of the quests 9, 11, 22, 41 to 45, 50 to 59, 61, 65, 71 to 74, 81 and 670, so that the original autosaves as the main quests are done.
-  docs/06 §6's `AUTOSAVEDELAY` is no key of this release's (no string of `Sacred.exe` names it).
+  `AUTOSAVEDELAY` is no key of this release's (no string of `Sacred.exe` names it).
 
 ## The picture
 
@@ -66,7 +66,7 @@ Read 2026-11-04 for #1991 (**confirmed** by code; the pictures of three saves de
 ## For `opensacred-game`
 
 The game saves its own format (ADR-08), and keeps what the original's save keeps, by its own means: the hero (its values, items, arts, combos, skills, effects, place), the world (the creatures alive and dead by their sectors, the items on the ground, the doors, the containers and the hidden stashes, the followers, the town stash, the explored map), the scripts' state, the calendar and the weather, the difficulty and the campaign.
-#1095 is split into its pull requests on its issue.
+#1095, closed, was split into its pull requests on its issue.
 
 Since #1957 the game saves the hero (`saves`): a save is postcard in `saves/<name>.sav` beside the settings' file, its header first (the version, the save's name, the hero's class, name, difficulty and level, the calendar, the computer's time), which the list reads alone, and a save of another version is refused, as the original's load refuses one.
 It keeps the hero's place and floor, its experience, attributes and skills, its health, its effects, its arts, art slots and selected art, its combos, its pack (the gold, the backpack, the items worn, the quests' items, the books read), its weapon sets, its home, its statistics, the time played and the calendar.
@@ -90,6 +90,7 @@ Not kept: the creatures' script queues (`npcs::ScriptQueue`) and a `CreateObj` w
 Since #1988 F9 and Control+Z save the game as `QUICKSAVE` where the interface allows a save (`saves::allowed`), and F8 and Control+X load it, two actions of `controls.toml`; since #1989 the quick save is the slot 0's file, `saves/GAME00.sav`, its name inside it, as the original's.
 Since #1989 a script's `AutoSave` saves the game where `[gameplay] autosave` of `settings.toml` is on, off by default (docs/decisions/interface.md, "Autosave off from the first test"): into the first free slot from `GAME01`, named by its number's text, whatever windows show.
 A save's file and its name are apart: the console's `save NAME` writes `NAME.sav`, its name the same.
+Since #1990 the saves' window lists the slots' saves and loads, saves and erases them (`saves_window`, `saves::slots`, `saves::erase`; docs/re/menus.md, "In `opensacred-game`").
 The load of the hero's stats (`0x585260`, its reading branch) tells the taskbar its "+" as the points leave it, the message 8 (shown, glowing) where attribute or skill points or skills to learn wait, else 7 with 1 (hidden); since #1992 a loaded game's hero sets the "+" so (`points::Plus::loaded`).
 Since #1991 a save keeps a picture after its header (the saves' version 4): the window's frame as the menu over a game opens, which shows the menu a frame later, and right before a quick save and an autosave, which wait for it (30 frames at most, then save with the last taken), sampled as the original does of the frame's middle of its screen's shape (`save_picture`; docs/decisions/interface.md, "Save's picture of the screen's middle"), kept as the original's ARGB4444 words.
 Since #1125 a save keeps the level that each script's item lying was made at (`npcs::Saved`'s `laid`; docs/re/netscript.md, "The items' levels"), the saves' version 5.
@@ -99,4 +100,6 @@ Since #2308 a save keeps no effect's source, an entity of the running world alon
 Since #2301 a save keeps the hero's own horse apart from its sector's creatures, as a follower (`npcs::mount_of`, `saves::World`'s `horse`): what it is made of and where it stands with its health and effects; a load puts it back there unmounted, the hero's own again (`npcs::mount_again`), as the original's load restores it (`0x6058A0`), the saves' version 7.
 Since #2300 a creature's placement keeps its stable's trader (`npcs::Placement`'s `stock`), the saves' version 8.
 Since #2288 it keeps whether it is a fill's black rider on its horse (`rides`), seated again on the horse kept beside it as their sector comes in, the saves' version 9.
+Since #2316 a save keeps the hero's own horse's bridle, the item of its slot 0 (`saves::World`'s `bridle`), the saves' version 10; since #2390 the items' names that a carried hero's file keeps, the version 11.
 Since #2472 a save's header keeps the game's script tree where it is not the class's Ancaria tree, an Underworld game's (`saves::Header`'s `tree`), which its load runs again; before, an Underworld game's save loaded Ancaria's tree, the saves' version 12.
+Since #2487 a creature's placement keeps its defending slot, its parry's, the saves' version 13; since #2514 whether its model has a dying clip in the slot 173, the version 14; since #2464 the hero keeps its wins of each difficulty (`saves::Hero`'s `wins`), the version 15; since #2750 a placement keeps the type of its prison, a magic one's or a bubble's, the version 16, which `saves::VERSION` holds.

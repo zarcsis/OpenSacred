@@ -52,4 +52,5 @@ After the quads, `0x6770E0` and `0x690690` get the average of the drawn cells' p
 
 `opensacred-game` follows the slots, the timing, the 4 × 4 mapping and the surfaces, flat at height 0 and as opaque as the bed is deep (`liquids.rs`).
 It draws the clear waters' second layer before the surfaces (#118): each cell's ground quad on the screen where its bed lies, at the surface's depth there, with its own material's frame of the moment over 2 × 2 cells, added to the frame, each corner's grey by the bed's depth and the whole by the night's level (docs/decisions/drawing.md, "Clear waters' second layer per cell").
+Since #2342 the settings' `[graphics] detail` is the original's `DETAILLEVEL`: at 0 the frame stands at 0, and the second layer shows at 2 alone.
 Its surfaces lie over the miniatures of the liquid cells and under the draw lists, as the original draws them between the two (docs/re/drawing.md, "The liquid cells"), and over the waters' crabs and fish and the items lying in a liquid cell, with their shadows (#983).

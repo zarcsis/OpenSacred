@@ -10,7 +10,7 @@ Its time of day is three words, hours, minutes and seconds (`+0x20`, `+0x22`, `+
 A new clock reads **08:00**.
 
 The renderer's update of a frame (`0x41A4F0`) advances it by the frame's time (the clock's second virtual function, `0x4176C0`): the time times 24.0 (`+0x0C`) times a speed of the day or of the night (`+0x10` from 07:00 to 19:59, `+0x14` otherwise, both 1.0) is added in seconds (`0x416F00`), carried into minutes, hours and days, and a day carries into the date (`0x416DA0`).
-**Hypothesis**: the frame's time is in seconds, so a day of the game lasts an hour.
+**Hypothesis**: the frame's time is in seconds, so a day of the game lasts an hour; the driver's reading agrees (docs/re/objects.md, "The clock": 08:31:06 a minute and a half into a new game).
 In a network game the server sets the clock (the message `0x8B` of `0x61B6F0`).
 
 ## The phases
@@ -51,18 +51,19 @@ The colour that a point of the world takes (`0x41B510`, which the world's passes
 By night (the renderer's flag `0x20`) or in a dungeon, the pass that draws a miniature (`0x62FF60` the draw lists', `0x62E410` those of the liquid cells, docs/re/drawing.md) draws over one whose type has the flag `0x20000` (the lamps `MiniObjTex20`, `21` and `22`, 2,440, 60 and 135 placed, dozens of them around the start) a glow: right after the miniature, the texture `PARTICLE_GLOW01` (16 × 16, white, its alpha up to 153) on a quad whose every corner is the miniature's moved out by the miniature's size, three times its size across and down about it, the whole texture over it; in the miniature's states, blended by its alpha (`SRCALPHA`, `INVSRCALPHA`), without the depth test, filtered linearly (`0x643470`: the state `0x800` is the linear filter, `8` and `0x10` make either blend factor `ONE`).
 Its vertices' colour is (255, 236, 149) with an alpha of `N`/2 (`N << 23 | 0xFFEC95`), and in a dungeon (255, 218, 43) at 64.
 The two passes draw a miniature and its glow with the same code, and take a sprite or a miniature of that flag as a light (`0x41B170`, above; confirmed by code 2026-10-18).
-A creature's distance of 700 (`0x54A7B0`; hypothesis: its sight) becomes 1000 − `N`·700/255 while the flag `0x20` is set.
+A hero's radius of 700 (`0x54A7B0`, its light's, "The light's level" above) becomes 1000 − `N`·700/255 while the flag `0x20` is set.
 
 ## In `opensacred-game`
 
 `daynight` keeps the clock (08:00 at the start, `--time HH:MM` for another hour), advances it by 24 seconds a second of the frames' time, and takes its phase and the night's level as above.
 The colour by the night is laid over the frame drawn, a fullscreen pass that multiplies each pixel's 8-bit values by it (`night.wesl`; the interface is drawn after it), rather than over each vertex: the same for the art, which the original multiplies by its vertices' colour, but not for what the original blends (docs/decisions/drawing.md, "Night as a pass over the frame").
 The light sources are the static objects of the light types in the loaded sectors, at their positions on the ground at height 0 (the original's are flat positions on the screen), the world's fires (`fx`, #1189), and the hero, of the radii above; the 32 nearest the screen's centre that reach the view light it, the distance taken on the screen in the original's pixels, both ways alike, as the original's.
-The Wood Elf's light is doubled by night.
+The Wood Elf's light is doubled by night, and the Vampiress's while she wears her night's form (`forms`).
 In a sector that `world.ron` marks a dungeon (above), the hero's, at any hour the colour is the grey ramp and the hero's light of radius 200.
 A lit torch in a hand of the hero's selected weapon set makes its light 300 in a dungeon and half as much again by night elsewhere (#61), as the original's rule above, in floats.
 Each of the hero's followers lights as a hero of its own (#61): of the radius above at its place, never doubled (a creature's type is no hero's class), half as much again by night with a lit torch in its hand.
 The lamps' glows (`statics`, `daynight::glow`) are quads of `PARTICLE_GLOW01` about the light sources' miniatures, a little in front of them, of the colour and alpha above, under the night pass, which darkens them as it does the rest (docs/decisions/drawing.md, "Night as a pass over the frame").
-The hero's items' effect of the light grows its radius as the original's rule above (#61, `fight::lit_radius`); its followers' items carry no values in the game, and their light grows by none.
-Not yet: the spells' and the traps' lights, each with its effect (#1092), and the ridden horses', with the horses (#1822).
+The hero's items' effect of the light grows its radius as the original's rule above (#61, `opensacred_rules::fight::lit_radius`); its followers' items carry no values in the game, and their light grows by none.
+The spells', the arts' and the traps' lights came with their effects (#1092): an effect's entity carries its radius (`daynight::Light`) and is a light source as the statics are (docs/re/effects.md, "Lights").
+Not yet: a ridden horse's light, which the original gives its rider's radius.
 The ambient loops of the night play in the dusk and by night (`atmosphere`), and no music starts by night (`music`).
