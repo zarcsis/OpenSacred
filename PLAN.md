@@ -331,6 +331,7 @@ Details and formulas: [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.m
   Parallel sessions add up.
 * **Maintainer hours**: setting tasks, review, manual checks, playtesting.
 * **Cost**: at API prices per million tokens as of 2026-10-16: Claude Opus 5.5: $4 input, $20 output, $0.20 cache read, $5 cache write for 5 minutes and $8 for an hour, which Claude Code uses (docs/usage.md); Claude Sonnet 5.5: $2 / $10 / $0.20 / $2.50; Claude Fable 5.1: $10 / $50 / $0.25 / $12.50.
+  The sessions of 2026-11-17 on Claude Mythos 5.2 count at its prices of that day: $8 / $40 / $0.20 / $10, and $16 for an hour's cache write.
 * **Agent-hour cost model (estimate):** output with reasoning 0.2–0.5M tokens, cache reads 5–15M, cache writes 0.5–1M.
   For Opus 5.5 that is ≈$8–18 per agent-hour, for Sonnet 5.5 ≈$4–10, for Fable 5.1 ≈$18–40.
   On a Claude Code subscription the payment is fixed, and the pace is limited by usage limits.

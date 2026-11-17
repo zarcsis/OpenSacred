@@ -80,6 +80,47 @@ class BringUp(unittest.TestCase):
         self.assertIsNone(stack.bring_up(r.git, self.parent, merged, self.main))
 
 
+class CoAuthors(unittest.TestCase):
+    OPUS = 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
+    MYTHOS = 'Co-Authored-By: Claude Mythos 5.2 <noreply@anthropic.com>'
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Repo(Path(self.tmp.name))
+        # main's own commit names a co-author that no branch takes.
+        self.main = self.repo.commit({'a.txt': '1\n'}, f'start\n\n{self.OPUS}')
+        self.repo.git.run('switch', '--quiet', '-c', 'branch')
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_a_merge_names_the_co_authors_of_the_branchs_newest_commit_that_has_any(self):
+        r = self.repo
+        r.commit({'b.txt': '1\n'}, f'first\n\n{self.OPUS}')
+        r.commit({'b.txt': '2\n'}, f'second\n\nIts body.\n\n{self.MYTHOS}\nCo-authored-by: Other <o@example.com>')
+        tip = r.commit({'b.txt': '3\n'}, 'third, by hand')
+        self.assertEqual(stack.co_authors(r.git, tip, self.main),
+                         f'{self.MYTHOS}\nCo-authored-by: Other <o@example.com>')
+
+    def test_a_branch_whose_commits_name_none_gives_none(self):
+        tip = self.repo.commit({'b.txt': '1\n'}, 'by hand\n\nSigned-off-by: Test <test@example.com>')
+        self.assertEqual(stack.co_authors(self.repo.git, tip, self.main), '')
+        self.assertEqual(stack.co_authors(self.repo.git, self.main, self.main), '')
+
+    def test_an_earlier_merges_trailer_is_not_taken(self):
+        r = self.repo
+        own = r.commit({'b.txt': '1\n'}, f'own\n\n{self.MYTHOS}')
+        r.git.run('switch', '--quiet', 'main')
+        main = r.commit({'a.txt': '2\n'}, 'other (#2)')
+        tree, _ = r.git.merge(own, main)
+        merged = r.git.commit(tree, [own, main], f'Merge main into branch\n\n{self.OPUS}')
+        self.assertEqual(stack.co_authors(r.git, merged, main), self.MYTHOS)
+
+    def test_the_trailers_are_a_paragraph_of_their_own(self):
+        self.assertEqual(stack.with_trailers('Merge #1 into x', self.MYTHOS), f'Merge #1 into x\n\n{self.MYTHOS}')
+        self.assertEqual(stack.with_trailers('Merge #1 into x', ''), 'Merge #1 into x')
+
+
 class MergeOrder(unittest.TestCase):
     def test_a_stacked_pull_request_comes_after_its_base(self):
         prs = [

@@ -16,9 +16,10 @@ own checkout's branch, so a message in a linked worktree has the worktree's bran
 does a response whose tool calls work in a linked worktree from elsewhere (a `cd` or `git -C` into it, a file tool on
 a path in it), with their results. A branch the session renamed (`git branch -m`) counts under its new name. Model
 responses are taken once each (by message.id), and the cost is computed at prices per 1M tokens (cache write:
-5 minutes = 1.25× input, 1 hour = 2× input). The cost is what the tokens would cost at API prices: development runs
-on a Claude subscription, so the dollar figures are hypothetical, not money spent. Agent-hours are the time from an
-owner's prompt to the agent's last action; a pause longer than 10 minutes counts as 10.
+5 minutes = 1.25× input, 1 hour = 2× input), each model at its own (PRICES). The cost is what the tokens would cost
+at API prices: development runs on a Claude subscription, so the dollar figures are hypothetical, not money spent.
+Agent-hours are the time from an owner's prompt to the agent's last action; a pause longer than 10 minutes counts
+as 10.
 
 Example
   uv run python -I tools/usage/pr_usage.py 17            # print the usage of pull request #17
@@ -28,21 +29,30 @@ Example
 Expected output: the sessions that worked on the pull request; the block for its description (a per-model table of
 requests, tokens in M and cost, the agent-hours, and a machine-readable comment that the Usage workflow sums for
 the README's badge). With --update, `gh pr edit` replaces the block between its markers, or puts it before the
-attribution line, and `gh workflow run usage.yml` refreshes the badge. The transcripts contain the sessions'
-conversations, so their content is not printed and is not copied anywhere. Dependencies: standard library and
-the GitHub CLI `gh`.
+attribution line, and `gh workflow run usage.yml` refreshes the badge. A response of a model without a price is
+listed as "not priced", its tokens counted and its dollars not, and the run ends with an error that names the
+model. The transcripts contain the sessions' conversations, so their content is not printed and is not copied
+anywhere. Dependencies: standard library and the GitHub CLI `gh`.
 """
 import argparse, datetime as dt, glob, json, os, re, subprocess, sys
 
 # $ per 1M tokens: input, output, cache read, 5-minute cache write and 1-hour cache write.
-# Source: PLAN.md §9.1 and the Claude API reference (cached 2026-10-06); verified against /cost for Opus 5.5.
+# Source: the Claude API's pricing page (platform.claude.com/docs/en/about-claude/pricing, read 2026-11-17);
+# verified against /cost for Opus 5.5. A model that the sessions run on and that has no row here fails the run
+# (main), so that its row is added with its first pull request.
 PRICES = {
     'claude-opus-5-5': (4.0, 20.0, 0.20, 5.0, 8.0),
-    'claude-sonnet-5-5': (2.0, 10.0, 0.20, 2.5, 4.0),
+    'claude-sonnet-5-5': (2.0, 10.0, 0.10, 2.5, 4.0),
+    'claude-haiku-5-5': (0.10, 0.50, 0.01, 0.125, 0.20),
     'claude-fable-5-1': (10.0, 50.0, 0.25, 12.5, 20.0),
+    'claude-fable-5-2': (8.0, 40.0, 0.20, 10.0, 16.0),
+    'claude-mythos-5-2': (8.0, 40.0, 0.20, 10.0, 16.0),
 }
-NAMES = {'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-fable-5-1': 'Fable 5.1',
-         'claude-haiku-5-5': 'Haiku 5.5'}
+# The models priced by the prompt's length: the tokens of a request's prompt (its input, the cache's reads and
+# writes among them) above which the request pays the prices beside them, each request on its own.
+LONG_PROMPT = {'claude-haiku-5-5': (100_000, (0.50, 2.50, 0.05, 0.625, 1.0))}
+NAMES = {'claude-opus-5-5': 'Opus 5.5', 'claude-sonnet-5-5': 'Sonnet 5.5', 'claude-haiku-5-5': 'Haiku 5.5',
+         'claude-fable-5-1': 'Fable 5.1', 'claude-fable-5-2': 'Fable 5.2', 'claude-mythos-5-2': 'Mythos 5.2'}
 IDLE = dt.timedelta(minutes=10)
 PROJECTS = os.path.join(os.path.expanduser('~'), '.claude', 'projects')
 # Branches of no pull request: their messages count toward a neighbouring branch of the session.
@@ -255,8 +265,15 @@ def split(u):
 
 
 def cost(model, u):
+    """A response's cost in dollars at API prices, from its usage; 0 for a model without a price."""
     p = PRICES.get(model)
-    return sum(n * price for n, price in zip(split(u), p)) / 1e6 if p else 0.0
+    if not p:
+        return 0.0
+    tokens = split(u)
+    limit, above = LONG_PROMPT.get(model, (None, p))
+    if limit is not None and tokens[0] + sum(tokens[2:]) > limit:
+        p = above
+    return sum(n * price for n, price in zip(tokens, p)) / 1e6
 
 
 def records(path):
@@ -515,6 +532,11 @@ def main():
         r = subprocess.run(['gh', 'workflow', 'run', WORKFLOW], capture_output=True, text=True, encoding='utf-8')
         print('badge: %s' % ('refreshing (the Usage workflow)' if r.returncode == 0
                              else 'not refreshed: %s' % r.stderr.strip()))
+
+    unpriced = sorted(str(m) for m in per_model if m not in PRICES)
+    if unpriced:
+        sys.exit('no price for %s: the block counts its tokens and no dollars for them; add its row to PRICES '
+                 '(tools/usage/pr_usage.py) from the pricing page and run this again' % ', '.join(unpriced))
 
 
 if __name__ == '__main__':

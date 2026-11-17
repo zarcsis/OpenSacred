@@ -3,12 +3,15 @@
 
 Purpose (docs/usage.md; .github/workflows/usage.yml): `tools/usage/pr_usage.py` writes each pull request's usage
 into its description, with a machine-readable comment `<!-- usage {...} -->`. This script sums those of the pull
-requests in a `gh pr list --json number,title,body` listing, adds the sessions before per-pull-request tracking
-(the table of docs/usage.md), and writes a shields.io endpoint for the README's badge and, optionally, a Markdown
-table of the pull requests for the workflow's run summary. The Usage workflow runs it; locally:
+requests in a `gh pr list --json number,title,body,author` listing, adds the sessions before per-pull-request
+tracking (the table of docs/usage.md), and writes a shields.io endpoint for the README's badge and, optionally, a
+Markdown table of the pull requests for the workflow's run summary. With --author it counts the pull requests of
+that account alone: the listing is of every pull request, since `gh pr list --author` is a search, and a search
+answers 1,000 results at most (#2834). The Usage workflow runs it; locally:
 
-  gh pr list --state all --author <owner> --limit 10000 --json number,title,body > prs.json
-  uv run python -I tools/usage/usage_badge.py prs.json --badge usage.json --summary summary.md
+  gh pr list --state all --limit 100000 --json number,title,body,author > prs.json
+  uv run python -I tools/usage/usage_badge.py prs.json --author <owner> --badge usage.json --summary summary.md
+  uv run python -I -m unittest discover -s tools/usage -p "test_*.py"   # the tests, on synthetic listings
 
 Expected output: usage.json, {"schemaVersion": 1, "label": "Claude Code", "message": "1.03B tokens · $338 at API
 prices", "color": "blue"}, and the table in summary.md. The dollars are the cost of the same tokens at API prices,
@@ -25,7 +28,8 @@ BEFORE = {'input': 0, 'output': 3.05e6, 'cache_read': 1018.2e6, 'cache_write': 1
 BLOCK = re.compile(r'<!-- usage (\{.*?\}) -->')
 
 ap = argparse.ArgumentParser(description='Sum the Claude Code usage blocks of pull requests into a badge.')
-ap.add_argument('listing', help='JSON from gh pr list --json number,title,body')
+ap.add_argument('listing', help='JSON from gh pr list --json number,title,body,author')
+ap.add_argument('--author', help='count the pull requests of this account alone (the listing has their authors)')
 ap.add_argument('--badge', required=True, help='shields.io endpoint JSON to write')
 ap.add_argument('--summary', help='Markdown file to append the table of pull requests to')
 args = ap.parse_args()
@@ -61,6 +65,12 @@ def short(n):
 
 with open(args.listing, encoding='utf-8') as f:
     prs = sorted(json.load(f), key=lambda pr: pr['number'])
+if args.author:
+    # A listing made without the authors would count nobody's pull requests and publish the sessions before alone.
+    if any('author' not in pr for pr in prs):
+        sys.exit('the listing has no authors: list with --json number,title,body,author')
+    # A deleted account's pull request has no author to name, and is not this account's.
+    prs = [pr for pr in prs if (pr['author'] or {}).get('login') == args.author]
 rows = [(pr, u) for pr in prs if (u := usage(pr)) is not None]
 total = {k: BEFORE[k] + sum(u[k] for _, u in rows) for k in FIELDS}
 

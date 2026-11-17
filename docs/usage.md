@@ -26,7 +26,9 @@ The description can be edited after the merge, so the figures include the CI, th
   A branch that the session renamed with `git branch -m`, such as the `worktree-<name>` that `EnterWorktree` with a name creates, counts under its new name.
 * **Tokens and cost.**
   Each model response counts once (by its id), at the API prices per 1M tokens (Opus 5.5: $4 input, $20 output, $0.20 cache read, $8 one-hour cache write).
-  The script's table of prices (`PRICES`) holds Opus 5.5, Sonnet 5.5 and Fable 5.1; a response of another model is listed as "not priced": its tokens count and its dollars do not.
+  The script's table of prices (`PRICES`) holds Opus 5.5, Sonnet 5.5, Haiku 5.5, Fable 5.1, Fable 5.2 and Mythos 5.2, as the Claude API's pricing page gave them on 2026-11-17 (Mythos 5.2 and Fable 5.2: $8 input, $40 output, $0.20 cache read, $16 one-hour cache write).
+  A request of Haiku 5.5 pays by its prompt's length: five times the prices once its input, the cache's reads and writes among it, is over 100,000 tokens.
+  A response of another model is listed as "not priced": its tokens count and its dollars do not, and the script ends with an error that names the model, so that its prices are added before the next pull request (#2834: the pull requests of 2026-11-17 on Mythos 5.2 counted no dollars until then).
   The tokens are input, output, cache reads and cache writes together; in a long session most of them are cache reads, the context reread by every request.
   The same calculation matched the `/cost` snapshots in the transcripts to the cent.
 * **Agent-hours.**
