@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Claude Code hook: a running session learns that the rules changed on `main` (#1400; .claude/settings.json;
-docs/03-toolchain.md, §3.5).
+docs/03-toolchain.md, §3.4).
 
 A session reads CLAUDE.md as it starts, and one that runs for hours does not see a rule merged meanwhile.
 SessionStart (`start`) records the text of each file of WATCHED as the session's branch took it from `main` (at the

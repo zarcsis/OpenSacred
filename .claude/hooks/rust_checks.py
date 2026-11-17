@@ -3,17 +3,18 @@
 
   fmt    PostToolUse on Edit|Write: after a .rs file is written, `cargo fmt --all`. A failure (for example, a file
          that does not parse yet in the middle of a multi-step edit) is left to the `check` hook.
-  check  Stop: if the working tree has uncommitted changes to Rust sources or the workspace configuration, runs
+  check  Stop: if the working tree has uncommitted changes to Rust sources, to the workspace configuration or to
+         any other file under a crate's directory (its manifest, its test data, a screenshot reference), runs
          `cargo clippy --all-targets -- -D warnings` and `cargo nextest run` for the changed crates and the crates
          that depend on them. On failure Claude is sent back to fix it; if the checks still fail after that one
          retry, Claude may stop and the owner gets a warning. A passing state is remembered in target/, so a turn
          without new changes does not rebuild anything.
 
 Example (the hook input is JSON on stdin)
-  echo '{}' | uv run python -I .claude/hooks/rust_checks.py check
+  echo '{}' | uv run --no-project python -I .claude/hooks/rust_checks.py check
 
-Tests on the game files (`--run-ignored all`) and `cargo deny check` stay manual (CLAUDE.md). Dependencies:
-standard library, git, cargo, cargo-nextest.
+Tests on the game files (`--run-ignored all`), `cargo deny check` and the mutants of the branch's lines stay manual
+(CLAUDE.md, "Before finishing a task"). Dependencies: standard library, git, cargo, cargo-nextest.
 """
 import hashlib, json, subprocess, sys
 from pathlib import Path
