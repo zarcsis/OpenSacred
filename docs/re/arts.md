@@ -1134,7 +1134,7 @@ Before that the adder has cases of its own by the effect's id (read 2026-10-24, 
 | 24 (`0x18`) | `+0x2B7` bit `0x10`, and on a horse (`0x4266F0`) an object of ten times its seconds kept in the entry |
 | 25 (`0x19`) and 26 (`0x1A`) | `+0x2B7` bits 1 and 2 (the deflections of arrows and of spells, 1045 and 1046) |
 | 27 (`0x1B`) | `+0x200` bit `0x40000` (the knockback's hold, "The kicks") |
-| 28 (`0x1C`), 37 (`0x25`) | one alone: refused where one holds already |
+| 28 (`0x1C`), 37 (`0x25`) | one alone: refused where one holds already; 37 is a network game's test of sunglasses, which the stats' recomputation gives the local player wearing sunglasses and whose taker sets `+0xB0` bit `0x10000000` on a team all in sunglasses (docs/re/effects.md, "The effect 33's auras", #2770) |
 | 40 (`0x28`) | one alone: where one holds its seconds are renewed instead; else refused with a value below 1, and an object made at it by its kind |
 | 61 (`0x3D`) | one alone, refused where one holds; `+0x1F4` bit `0x4000000` and `+0xB0` bit `0x20000000`, with objects at about a third of fifty of its bones |
 | 30 (`0x1E`) | on a creature whose stats' `+0x148` has bit `0x10`, refused unless its whole value and value are 0; else `+0x1F4` bit `0x4000000`; one already in the list merged with it, nothing of the same source (docs/re/fight.md, "The poison", #1354); with the whole value and the value 0 a cure (read 2026-10-28 for #1353): each effect 30 held loses `art·value/100` of its value, from an art of 90 its value 0 and its seconds 0.001, the stats made anew and nothing added (the green potions, docs/re/inventory.md, §7) |
