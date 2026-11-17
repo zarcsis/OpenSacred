@@ -4,6 +4,7 @@ Recovered from the GOG `Sacred.exe` 2.28 with Ghidra 12.1.4 on 2026-10-19 (#153)
 A model's motion slots are in [docs/02 §4.1](../02-data-formats.md#41-the-mdlmdt-container-and-caches) (`ModelDesc +0x70`); the converter keeps them with each clip, as `extras.slots` of its glTF animation.
 The weapon kinds are in [docs/02 §6.2](../02-data-formats.md#62-creaturepak-cif-and-weaponpak-wpn), the hands in [docs/re/equipment.md](equipment.md).
 Status: **confirmed** on the code unless marked otherwise.
+Implemented in `opensacred-game` (`motions`, `npcs`, `crowd`, `hero`, `forms`), `opensacred-rules` (`horses`) and `opensacred-convert` (`gltf`, `models`).
 
 ## The slots of the actions
 

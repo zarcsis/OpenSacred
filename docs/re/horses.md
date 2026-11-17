@@ -3,6 +3,7 @@
 The heroes' horses: the stables and their traders, buying, riding, fighting from the saddle and the horse left alone (#1822).
 Read 2026-11-08 in Ghidra, code only, unless marked **seen**; every claim **confirmed** by code unless marked **hypothesis**.
 Field offsets are of a `cCreature` unless said otherwise; "the horse" is a creature of `Creature.pak` class 4 (`0x4266F0`), "the rider" the creature on it.
+Implemented in `opensacred-rules` (`horses`, `minds`) and `opensacred-game` (`riding`, `stables`, `trample`, `floops`, `npcs`, `bar`).
 
 ## The types and the links
 

@@ -2,6 +2,7 @@
 
 Read 2026-10-27 (#1087) in the GOG `Sacred.exe` 2.28 (the taskbar `cUI_Taskbar2`, the portraits' column `cUI_Mercenary`, their buttons and statics, the interface's images' table) and measured on three frames of the running original at 1024 × 768 (a new Seraphim at the start, under fog, rain and snow; the frames stay in the scratchpad).
 Status: **confirmed** by code unless marked otherwise; "measured" means a composite of the atlases at the places below was compared pixel by pixel with a frame.
+Implemented in `opensacred-game` (`bar`, `bar_tips`, `hud`, `art_slots`, `art_burn`, `compass`, `belt`, `sparkles`, `points`, `low_health`, `control_glow`, `tooltip`, `bonus_list`, `labels`, `icons`, `info_lines`, `sets`, `followers`), `opensacred-rules` (`quests`, `fight`, `minds`), `opensacred-convert` (`tables`) and `opensacred-formats` (`portraits`).
 
 All places are pixels of the 1024 × 768 screen.
 `cUI_Manager_createGameWindows` (`0x759AF0`) makes `UI_WND_TASKBAR` at (0, 676, 1024, 92) and `UI_WND_MERC` at (932, 0, 92, 676); a control made with its window as the parent is placed relative to the window's corner, and the potions' belt, the clips and the taskbar's "+" are written in screen coordinates directly (both **measured**).

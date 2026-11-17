@@ -59,7 +59,7 @@ Every format and rule goes through four steps (the legal basis is in docs/08 §2
    Decompiler output is never pasted in.
 3. **Implement.**
    The Rust code in `opensacred-formats` or `opensacred-rules` is written independently from that description, in the project's own structure (§3).
-   `opensacred-rules` holds the rules followed so far (CLAUDE.md, "Workspace"), which the systems of `opensacred-game` call (#364).
+   `opensacred-rules` holds the rules followed so far (docs/11-code-map.md), which the systems of `opensacred-game` call (#364).
 4. **Verify.**
    A reader is tested on every file of the installation and cross-checked with the Python prototype in `tools/analysis/`; a rule is compared with vectors that `opensacred-oracle` records from the developer's own `Sacred.exe` (§2.3) and, where the oracle cannot reach, with observations of the running original (x64dbg, and the driver through which Claude Code runs it itself, #448; docs/03 §1, §3.8).
    A rule without vectors yet is checked by unit tests written from its description and by observations of the running original (#227).

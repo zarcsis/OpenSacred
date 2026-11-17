@@ -107,7 +107,7 @@ The repository root holds `CLAUDE.md` with the rules that Claude Code reads at t
 * the work order, and how an issue is taken and its pull request opened and merged (§3.3, §3.6);
 * prohibitions: do not commit anything from `OriginalGame/`, `assets/`, `assets-hd/`; do not publish `Sacred.exe`; do not write `unsafe` (`opensacred-oracle` needs none either);
 * mandatory checks before finishing a task: `cargo fmt`, `cargo clippy -- -D warnings`, `cargo nextest run`, and, after the changes that call for them, `cargo deny check` and the mutants of the branch's lines (§3.4);
-* where to write notes on recovered logic (`docs/re/<subsystem>.md`) and the decision log of deviations from the original (`docs/decisions/`);
+* where to find things (the map of the code `docs/11-code-map.md`, the notes, the decisions) and where to write notes on recovered logic (`docs/re/<subsystem>.md`) and the decision log of deviations from the original (`docs/decisions/`);
 * naming conventions: the original class and function names (`cCreature::takeDamage`) are mentioned in comments next to the Rust code.
 
 ### 3.2 Ghidra MCP server
@@ -253,6 +253,10 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
   On 2026-10-24 it built with CMake 4.4.4, Ninja 1.13.2, MSVC 19.51 and the component's libclang of LLVM 22.1.3, with no other LLVM on the machine, in 26 s with 32 jobs.
   CI builds the workspace without the feature: the oracle there checks its PE reader and its files (`cargo nextest run -p opensacred-oracle`); the emulator's own tests, on a synthetic image, run with `--features emulator` and need no game files.
   Without the feature, the oracle checks the installation, the image and the directory, and stops.
+* **The documents' tests** (#2793): the crate `opensacred-docs`, with no dependency and no game files, so that CI runs it on every pull request.
+  One test makes the map of the code from the header of every source file of `crates/` (its `//!` doc comment, a shader's first comment) and fails while `docs/11-code-map.md` is not that map; `UPDATE_CODE_MAP=1 cargo nextest run -p opensacred-docs` writes it again.
+  The other reads the documents and the comments for what they cite and fails while a citation leads nowhere: a file of `crates/`, `docs/`, `tools/`, `.claude/`, `.github/` or `release/`; a numbered section (`docs/03 §3.4`); a section, a paragraph named in bold or a decision's row cited by its title (`docs/re/fight.md, "Health"`); a module that the line `Implemented in …` of a note of `docs/re/` names.
+  The audit of 2026-11-17 (#2787) found the documents and the comments behind the code in a thousand places that no check saw; these two see the kinds that a program can.
 * **Screenshot tests:** a headless render of a scene through wgpu to PNG and comparison with a reference within a tolerance.
 * **Clippy:** the default rule set as errors, plus targeted rules for this project: numeric casts via `as`, `unwrap`/`expect` outside tests, suppressing rules only through `#[expect(…, reason = "…")]`, leftover `dbg!`/`todo!`.
   The pedantic and nursery groups are not enabled wholesale: on the project's code they produce mostly stylistic noise.

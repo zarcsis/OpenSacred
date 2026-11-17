@@ -3,6 +3,7 @@
 Read 2026-10-30 (#1560) in the GOG `Sacred.exe` 2.28 and measured on frames of the running original at 1024 × 768 (a Seraphim at the start; the frames stay in the scratchpad).
 Status: **confirmed** by code unless marked otherwise; "measured" means the game's pieces at the places below were compared with a frame.
 All places are pixels of the 1024 × 768 screen; "image N" is the entry N of the interface's images' table at `0x9ECEB0` (docs/02 §11, docs/re/interface.md).
+Implemented in `opensacred-game` (`quest_book`, `minimap`, `statistics`) and `opensacred-rules` (`quests`).
 
 ## The window
 

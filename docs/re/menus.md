@@ -2,6 +2,7 @@
 
 Seen in the GOG `Sacred.exe` 2.28 with the driver of #448 on 2026-10-26 (#1114), in its window of 1024 × 768, and read in its strings, its text keys and the menus' textures.
 Status: **confirmed** by sight unless marked otherwise; the code that lays the screens out is not read.
+Implemented in `opensacred-game` (`menu`, `choice`, `ripples`, `menu_sound`, `esc_menu`, `busy_dialog`, `pause`, `saves_window`, `options`, `follow_foe`, `control_glow`).
 
 The places below are the window's pixels, as the driver's clicks name them (`tools/original/host.py`).
 The interface's classes are `cUI_MainMenu` (the main menu and its submenus), `cUI_Character` (the choice of the hero) and `cUI_Manager`, which loads their textures (the names of their RTTI and logs).

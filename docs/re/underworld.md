@@ -3,6 +3,7 @@
 Read 2026-11-08 for #1675 in `Sacred.exe` (GOG 2.28) and in the running original under the driver of #448.
 Each claim is **confirmed** (read in the code, or seen in the running original) or a **hypothesis**; texts are named by their keys.
 The choice of the hero's screen itself is in docs/re/menus.md, "The choice of the hero"; the heroes' file format in docs/02-data-formats.md §9.
+Implemented in `opensacred-game` (`choice`, `exports`, `carry`, `saves`, `pause`, `game`), `opensacred-convert` (`heroes`), `opensacred-formats` (`amh`) and `opensacred-data` (`heroes`).
 
 ## The heroes of `save/hero*.pax`
 

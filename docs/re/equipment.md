@@ -3,6 +3,7 @@
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra 12.1.4 on 2026-10-18.
 The item categories and the weapon kinds are in [docs/02 §6.1](../02-data-formats.md#61-itemspak-itm-v5-the-object-template-database) and [§6.2](../02-data-formats.md#62-creaturepak-cif-and-weaponpak-wpn); the `CreateNPC` record is in [§7.3](../02-data-formats.md#73-the-opcode-space-141-and-113).
 Status: **confirmed** on the code unless marked otherwise.
+Implemented in `opensacred-rules` (`equipment`), `opensacred-game` (`npcs`, `equipment`, `hero`, `choice`, `model_effects`) and `opensacred-convert` (`tables`).
 
 ## The slots
 

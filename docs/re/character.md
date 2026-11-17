@@ -2,6 +2,7 @@
 
 Read 2026-10-30 (#1089, #1521) in the GOG `Sacred.exe` 2.28, **confirmed** by code unless marked otherwise; the places are pixels of the 1024 × 768 screen, or of the window where it says so, and "image N" is the entry N of the interface's images' table (`0x9ECEB0`, docs/02 §6.7).
 The values are docs/re/fight.md's; the points that each level gives are its "The hero's levels".
+Implemented in `opensacred-rules` (`fight`, `set_bonuses`, `arts`) and `opensacred-game` (`statistics`, `points`, `tooltip/art`, `bar`, `sparkles`, `fight`).
 
 ## The window (`cUI_StatisticsChar`, `UI_WND_STATS_CHAR`)
 

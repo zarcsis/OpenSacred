@@ -2,6 +2,7 @@
 
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra 12.1.4 on 2026-10-21, for the original's driver (#448, #449, #450; docs/03 §3.8).
 Status: **confirmed** on the code unless marked otherwise; "observed" marks what the driver saw in the running original on 2026-10-21.
+Implemented in `opensacred-game` (`controls`, `hero`, `iso`, `inventory`, `busy_dialog`, `options`); the driver's side in `tools/original/agent.js` and `tools/original/host.py`.
 
 ## The start
 

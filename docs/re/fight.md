@@ -5,6 +5,7 @@ Distances are in world units, 53.66563 a cell; "straight" is the distance of `0x
 Status: **confirmed** on the code unless marked otherwise; where it says so, also by the vectors that `opensacred-oracle` records by running the functions themselves (#363, docs/03 §3.4).
 The creature's fields are those of docs/re/ai.md: the AI's state `+0xFC` (sub-state `+0xFE`), the action's `+0x150` (`+0x152`), the target `+0x104`, the gait `+0x1F8` (1 walk, 2 run), the level `+0x3FE`.
 The balance's values are named by their keys and read from the image of `bin/Balance.bin` (docs/02 §6.3, `tables/balance.ron`); the difficulty is the int `0x182EE44`, 0 to 4, bronze to niobium ("The difficulty" below), and a balance row of six takes the sixth value for 0, else the value `0x182EE44 − 1`.
+Implemented in `opensacred-rules` (`fight`, `fight/magic`, `minds`, `arrows`, `undead`, `set_bonuses`, `drops`, `music`), `opensacred-game` (`fight`, `attack`, `ai`, `npcs`, `arrows`, `undead`, `bodies`, `knock_down`, `health_rings`, `rank_symbols`, `level_sparks`, `doors`, `equipment`) and `opensacred-oracle` (`fight`); the vectors' test `crates/opensacred-rules/tests/oracle.rs`.
 
 ## Who fights: the test of the levels
 

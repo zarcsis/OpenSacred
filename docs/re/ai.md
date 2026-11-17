@@ -3,6 +3,7 @@
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra 12.1.4 on 2026-10-20 (#232; the townsfolk #241).
 Distances are in world units, 53.66563 a cell.
 Status: **confirmed** on the code unless marked otherwise.
+Implemented in `opensacred-rules` (`minds`, `casts`) and `opensacred-game` (`ai`, `followers`, `creature_casts`, `creature_arts`, `crowd`, `flight`, `mercenaries`, `npcs`, `lines`, `torches`).
 
 ## Two states
 

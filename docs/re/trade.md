@@ -2,6 +2,7 @@
 
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra and byte scans on 2026-10-31 (#1066, #1617).
 Status: **confirmed** by code unless marked otherwise; the window, its pages and the purchase window **seen** the same day in the running original (the driver of #448) at the merchant of 50,40 (the creature 1165, type 692, level 2), the Seraphim at level 1.
+Implemented in `opensacred-rules` (`trade`, `trade/stock`, `trade/worth`, `drops`) and `opensacred-game` (`merchant`, `purchase`, `talk`).
 
 The prices are docs/re/inventory.md, §9 "The item's tooltip" (the price, `0x43C350`, `opensacred_rules::trade::shown`, #1273).
 The talk that opens the traders' windows is docs/re/arts.md, "The combat master" (`0x52AB70`): a creature of `+0x200` bit `0x2000` without a dialogue opens the inventory and `UI_WND_MERCHANT` and sends the window the UI event `0x2E` of the sub-kind 8 with its level (`+0x3FE`) and its id.

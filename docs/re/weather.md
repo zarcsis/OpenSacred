@@ -2,6 +2,7 @@
 
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra on 2026-10-26 (#1065, a subagent of the session), and on `World/sectors.keyx` and the NetScript trees by scans of the files.
 Status: **confirmed** by code unless marked otherwise; the rain and the fog seen in the running original on 2026-10-27 (#1073, below).
+Implemented in `opensacred-rules` (`weather`), `opensacred-game` (`weather`, `skies`, `skies.wesl`, `fliers`, `butterflies`) and `opensacred-convert` (`world`, `tables`).
 
 The weather is drawn and heard only: no rule of the play reads it.
 The sector the camera looks at chooses it, by the weather entries of its `sectors.keyx` record, on timers of real time that every sector shares.

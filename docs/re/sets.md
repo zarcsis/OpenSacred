@@ -5,6 +5,7 @@ Read 2026-11-01 for #1727 by code: the disassembly of `0x5711F0`, `0x571710` (it
 **Confirmed** by code and the emulation unless marked otherwise; nothing here is seen in the running original yet, but set 3's flag at four pieces (docs/re/interface.md, "The labels on Alt").
 `D` is the difficulty's factor (`0x51CEF0`, `0x55E070`, `0x55E0F0`): 1.0, 1.34, 1.67, 2.0, 2.34 for `0x182EE44` 0 to 4; `⌊c·D⌋` is `0x55E070(c)`, the float product truncated (`__ftol`); `c·D` a float added as it is.
 The stats block is the creature's `+0x3A8` (so the stats' `+0x148` is the creature's `+0x4F0`, `+0x14C`/`+0x150` its `+0x4F4`/`+0x4F8`).
+Implemented in `opensacred-rules` (`set_bonuses`, `fight`, `drops`, `undead`, `minds`, `arrows`) and `opensacred-game` (`equipment`, `tooltip/set`, `set_icon`, `held`, `labels`).
 
 ## 1. Counting the pieces: the recomputation and `0x5711F0`
 

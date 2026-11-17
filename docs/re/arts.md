@@ -1,6 +1,7 @@
 # The combat arts
 
 Status: **confirmed** by code where it gives an address, read 2026-10-22 (#500, Ghidra, in prose); the fields' meanings are **hypotheses** where marked.
+Implemented in `opensacred-rules` (`arts`, `spells`, `combos`, `exchange`, `fight`, `arrows`), `opensacred-game` (`arts`, `making`, `spells`, `effects`, `combos`, `spells_page`, `combos_page`, `master`, `art_slots`, `tooltip/art`, `arsenal`, `forms`, `glance`, `hurled`, `souls`, `followers`, `bolts`, `burns`, `guns`, `blast`, `breath`, `daemon`), `opensacred-formats` (`arts`, `amh`) and `opensacred-convert` (`tables`, `heroes`).
 
 ## Two tables
 

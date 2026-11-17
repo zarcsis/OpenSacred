@@ -4,6 +4,7 @@ Recovered from the GOG `Sacred.exe` 2.28 with Ghidra and scans of the executable
 Seen in the running original with the driver of #448 on 2026-10-27 (a Seraphim's new game: the braziers of 50,39 by noon and by night, the butterflies of 54,42 by noon and by night, a torch in the hero's hand by night; frames in the scratchpad only).
 Status: **confirmed** by code unless marked otherwise.
 Builds on docs/re/arts.md ("The spells' objects", "The objects' actions", "The objects' hits", "The objects' systems"), docs/re/weather.md ("The butterflies and the birds"), docs/re/daynight.md ("The light", "The glows") and docs/re/drawing.md (the draw lists, the engine's switch of render states `0x643430`/`0x643470`).
+Implemented in `opensacred-rules` (`particles`, `spells`, `casts`, `arrows`, `fight`, `ways`, `pong`) and `opensacred-game` (`fx`, `puffs`, `fx_lights`, `npcs`, `bolt_looks`, `torches`, `butterflies`, `hit_sparks`, `beams`, `marks`, `skins`, `item_glows`); a module of `opensacred-game` for each class of effects besides, which the class's section names.
 
 ## Summary
 

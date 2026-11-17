@@ -2,6 +2,7 @@
 
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra 12.1.4 on 2026-10-18.
 Status: **confirmed** on the code unless marked otherwise.
+Implemented in `opensacred-game` (`daynight`, `night.wesl`, `statics`, `torches`, `forms`) and `opensacred-rules` (`fight`).
 
 ## The clock
 

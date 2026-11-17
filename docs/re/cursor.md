@@ -2,6 +2,7 @@
 
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra and in the running original under the driver of #448 on 2026-10-27 (#1147, a subagent of the session).
 Status: **confirmed** by code unless marked otherwise; **seen** where the running original showed it (probes of the chooser and screenshots, which include the cursor; the frames stay in the scratchpad).
+Implemented in `opensacred-game` (`cursors`, `hud`, `foe_panel`, `hover`, `labels`, `attack`, `pick`, `stashes`) and `opensacred-rules` (`fight`, `quests`).
 
 ## Where the cursor comes from
 

@@ -105,6 +105,7 @@ Tests that need the game files are marked `#[ignore]`: CI does not have them. Cr
 | [docs/decisions/](docs/decisions/) | the deliberate deviations from the original, a table per subsystem |
 | [docs/08-risks-legal.md](docs/08-risks-legal.md) | the legal policy: what the project publishes and what it never does |
 | [docs/10-game-tools.md](docs/10-game-tools.md) | the game's commands, scripts and remote control |
+| [docs/11-code-map.md](docs/11-code-map.md) | the map of the code: a line per source file of `crates/`, generated from the file's own header |
 | [docs/usage.md](docs/usage.md) | how the Claude Code usage of each pull request is counted |
 | [tools/README.md](tools/README.md) | the research scripts and how to run them |
 | [CLAUDE.md](CLAUDE.md) | conventions for development with Claude Code |

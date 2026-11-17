@@ -2,6 +2,7 @@
 
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra on 2026-10-28 (#1379, a subagent of the session), and on the Seraphim's script trees by scans of their Luau translations.
 Status: **confirmed** by code unless marked otherwise; the opening of a chest and a barrel seen in the running original on 2026-10-28 (below).
+Implemented in `opensacred-rules` (`containers`, `quests`, `drops`, `particles`) and `opensacred-game` (`containers`, `town_stash`, `stashes`, `drops`, `npcs`, `glitter`, `cursors`).
 
 The containers are the `CreateObj` objects of the `items.pak` category 4 (`+0x2E`), the client's `cChest3D`: the chests, the barrels, the vases, the coffins, the graves, the cabinets, the book stands and the shrines.
 A click sends the hero to one; at it the container's own trigger opens with its model's clip and sound, its `Take:` function runs and fills it, and it throws everything it holds to the hero's feet at once.
