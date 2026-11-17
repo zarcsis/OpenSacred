@@ -19,18 +19,42 @@ use crate::fx::{Quads, empty, particle_material, particle_texture};
 use crate::game::{AppState, Data};
 use crate::iso;
 
-/// A burst to make at its entity's place ([`make`]), following `follows` where given.
+/// A burst to make at its entity's place ([`make`]), following `follows` where given, or drawn
+/// over the model of `over`.
 #[derive(Component)]
 pub struct Unmade {
     burst: Burst,
     follows: Option<Entity>,
+    over: Option<Entity>,
 }
 
 /// Starts `burst` at `at`, following the entity `follows` where given: the burst's entity.
 pub fn spawn(commands: &mut Commands, burst: Burst, at: Vec3, follows: Option<Entity>) -> Entity {
     commands
         .spawn((
-            Unmade { burst, follows },
+            Unmade {
+                burst,
+                follows,
+                over: None,
+            },
+            Transform::from_translation(at),
+            Visibility::default(),
+            DespawnOnExit(AppState::InGame),
+        ))
+        .id()
+}
+
+/// Starts `burst` at `at`, the root of the model of `creature`, standing there and drawn over
+/// that model as the original draws a system after the creature standing in its cell, depth
+/// tested against it (`fx::Orders::over`; the level-up's sparks, #2762): the burst's entity.
+pub fn spawn_over(commands: &mut Commands, burst: Burst, at: Vec3, creature: Entity) -> Entity {
+    commands
+        .spawn((
+            Unmade {
+                burst,
+                follows: None,
+                over: Some(creature),
+            },
             Transform::from_translation(at),
             Visibility::default(),
             DespawnOnExit(AppState::InGame),
@@ -41,7 +65,11 @@ pub fn spawn(commands: &mut Commands, burst: Burst, at: Vec3, follows: Option<En
 /// [`spawn`] from a world, as the undead's raising runs (`undead`).
 pub fn spawn_in(world: &mut World, burst: Burst, at: Vec3, follows: Option<Entity>) {
     world.spawn((
-        Unmade { burst, follows },
+        Unmade {
+            burst,
+            follows,
+            over: None,
+        },
         Transform::from_translation(at),
         Visibility::default(),
         DespawnOnExit(AppState::InGame),
@@ -49,12 +77,14 @@ pub fn spawn_in(world: &mut World, burst: Burst, at: Vec3, follows: Option<Entit
 }
 
 /// A burst that lives: its texture's grid, its layer, its ramp, its particles, the entity it
-/// follows, the mesh its quads go into and the dice of what it streams.
+/// follows, the creature whose model it is drawn over, the mesh its quads go into and the dice of
+/// what it streams.
 #[derive(Component)]
 struct Puff {
     burst: Burst,
     system: System,
     follows: Option<Entity>,
+    over: Option<Entity>,
     mesh: Handle<Mesh>,
     dice: opensacred_rules::spawning::Rng,
 }
@@ -121,6 +151,7 @@ fn make(
             burst,
             system,
             follows: unmade.follows,
+            over: unmade.over,
             mesh: mesh.clone(),
             dice: crate::seed::dice(SEED ^ index),
         });
@@ -159,6 +190,7 @@ fn run(
             burst,
             system,
             follows,
+            over,
             mesh,
             dice,
         } = &mut *puff;
@@ -202,6 +234,13 @@ fn run(
                 (frame / grid, 1.0 / grid),
                 burst.ramp.at(particle.life),
             );
+        }
+        // Over the creature it was made at, as the original draws the system after it (#2762),
+        // while that creature's model stands in the order.
+        if let Some(order) = (*over).and_then(|over| orders.over(over)) {
+            quads.as_drawn(Some(order), transform.translation);
+            quads.into_mesh(&mut mesh);
+            continue;
         }
         // Just behind the creature it follows, else at its place, as the original draws the
         // system before the creature (#2188).

@@ -148,6 +148,7 @@ mod knock_down;
 mod labels;
 mod lava_bursts;
 mod lens_creatures;
+mod level_sparks;
 mod light_blades;
 mod light_strikes;
 mod lightning_strikes;
@@ -647,11 +648,12 @@ fn run(cli: Cli) -> Result<AppExit> {
         knock_down::KnockDownPlugin,
         labels::LabelsPlugin,
         lava_bursts::LavaBurstsPlugin,
+        level_sparks::LevelSparksPlugin,
         light_blades::LightBladesPlugin,
         light_strikes::LightStrikesPlugin,
-        lightning_strikes::LightningStrikesPlugin,
     ))
     .add_plugins((
+        lightning_strikes::LightningStrikesPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
         lost_souls::LostSoulsPlugin,
