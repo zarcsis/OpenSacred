@@ -11,7 +11,8 @@ Example
   uv run python -I tools/analysis/formats/mhp_vs_mdt.py --game-dir ./OriginalGame
 
 Expected output: "MHP[8:198]==MDT[0x42:0x100]: 3423/3423; u32 id == MDT u16@0x2E: ...". The constants 1574/1194/3423/256
-match the 2.28 build (overridable with options). Dependencies: standard library.
+match the 2.28 build (overridable with options). Dependencies: standard library, and pefile and capstone through
+sacred_pe (the default game directory).
 """
 import sys, struct, collections, re, argparse, os
 

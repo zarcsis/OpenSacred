@@ -36,8 +36,10 @@ Expected output (2.28): every check passes; the tail of Balance.bin prints its w
 15 15 15 15 300 544, the quality pass's values 0 1 2 3 4 5 6 7 9 11 13 15 18 21 25 25 and the effects' chance
 parameters (861, 863, 859: 100 100 98; 862: 300 301 75; 868: 500 502 25). --rows writes a row per file: path, records,
 crc32 of the canonical listing (`canonical`: one line per record, numbers in decimal separated by spaces; for
-Balance.bin the image, each entry of the tail's first and fourth tables, the second and the third tables, each entry
-of the fifth, its floats as their bits, and the rest). Dependencies: standard library.
+Balance.bin the image, each entry of the tail's first table, the second and the third tables, each entry of the fourth
+and of the fifth, its floats as their bits, each list of items, each region as its 16 areas, its name's bytes, its
+total and its index, and the rest, which is empty). Dependencies: standard library, and pefile and capstone through
+sacred_pe (the default game directory).
 """
 import argparse
 import collections

@@ -301,7 +301,7 @@ ehh = set(eh_thunks)
 R['cxx_eh_frames_push_handler'] = sum(c for a, c in push_imm_text.items() if a in ehh)
 seh3 = set(t for t, ia in thunks.items() if iat[ia][1] == '_except_handler3')
 R['seh3_frames_push_handler_import'] = sum(push_imm_text[t] for t in seh3)
-# push handler where handler is a text address that is not an EH thunk and is pushed right before fs:[0] (approx: count pushes of text addresses not in call targets and not EH thunks)
+# push handler where handler is a text address that is not an EH thunk and is pushed right before fs:[0] (approx: count pushes of text addresses that are not EH thunks)
 R['push_text_addr_non_eh'] = sum(c for a, c in push_imm_text.items() if a not in ehh)
 # ---------- functions ----------
 starts = set(call_targets) | prologues | (virt_funcs & set(insn_addr)) | set(eh_thunks)
@@ -381,7 +381,7 @@ size_of = dict(zip(starts, sizes))
 lab_bytes = collections.Counter(); lab_funcs = collections.Counter()
 for f, lab in labels.items(): lab_bytes[lab] += size_of[f]; lab_funcs[lab] += 1
 R['labelled_bytes'] = dict(lab_bytes); R['labelled_func_counts'] = dict(lab_funcs)
-# propagate: nearest labelled function before (within 24 KB) else after (within 24 KB)
+# propagate: the nearer of the labelled functions before and after (the one before on a tie), within 24 KB
 lab_starts = sorted(labels)
 prop_bytes = collections.Counter(); prop_funcs = collections.Counter(); prop_label = {}
 for s in starts:

@@ -6,8 +6,8 @@ Purpose: a sweep of the levels, the health and the hostility of the creatures th
 given, the hero of each game goes onto it (`cell X,Y`), optionally at a level and an hour, and after the sectors have
 come in each game lists its creatures (`creatures RADIUS`). The creatures are paired by type, each with the nearest
 of the other game's within --pair cells, and the report prints the pairs whose level, most health, hostility or rank
-differ, then the creatures of one game that found no pair, by type, with their levels. The game's lines and the
-original's driver's carry the same fields (`ID type T cell X,Y [floor F] health H/M level L hostile|peaceful
+differ, then the creatures of one game that found no pair, by type, with their levels and most health. The game's lines
+and the original's driver's carry the same fields (`ID type T cell X,Y [floor F] health H/M level L hostile|peaceful
 [champion|boss]`). Both games must run with their remote control: the game with `--remote` (this Claude Code
 session's port as remote.py finds it, #1397, else 127.0.0.1:15702) and the original under `tools/original/host.py`
 (127.0.0.1:15703), each in a game. Nothing is written: the report goes to the
@@ -29,10 +29,10 @@ plus the attributes'; each resistance times its own. The creatures stay where th
 
 Expected output: a block per cell, `= 3383,2520: 11 in the game, 11 in the original, 9 paired`, then a line per
 difference (`level 4 / 1  type 297 at 3378,2517 / 3378,2517`, the game's value first) and per creature without a
-pair (`only in the original: type 288 level 1 at 3370,2524`); with `stats`, a line per creature whose values differ
-by more than the game's one decimal (the most health, `A`, `D` and the attack speed) or, the damages and the
-resistances, than two thousandths (`type 76 level 5: D 31 / 32`, the game's first), and a count at the end.
-Dependencies: the standard library.
+pair (`only in the original: type T level L health M at X,Y [hostile|peaceful] [champion|boss]`); with `stats`, a line
+per creature whose values differ by more than the game's one decimal (the most health, `A`, `D` and the attack
+speed) or, the damages and the resistances, than the larger of that decimal and two thousandths of the original's
+value (`type 76 level 5: D 31 / 32`, the game's first), and a count at the end. Dependencies: the standard library.
 """
 import argparse, importlib.util, json, os, re, struct, sys, time, urllib.request
 

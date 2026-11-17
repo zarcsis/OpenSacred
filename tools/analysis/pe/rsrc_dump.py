@@ -2,15 +2,16 @@
 """Summary of the PE resource section: types and sizes, large/custom resources (magic, entropy), dialogs
 (DLGTEMPLATE/DLGTEMPLATEEX with controls and texts), string tables, menus/accelerators/version/manifest.
 
-Purpose (docs/01 §4.6): Sacred.exe .rsrc is 5.3 MB, resource BINARY #107 (2.76 MB,
-16-bit data, purpose unknown), settings dialogs, string tables.
+Purpose (docs/01 §4.6): Sacred.exe .rsrc is 5.3 MB: resource BINARY #107 (2.76 MB, an encoded copy of
+scripts/us/global.res), the two dialogs of the built-in UI property editor, bitmaps, icons; no string tables.
 
 Example
   uv run python -I tools/analysis/pe/rsrc_dump.py OriginalGame/Sacred.exe
   uv run python -I tools/analysis/pe/rsrc_dump.py --game-dir ./OriginalGame
 
 Expected output: "== resource types ==" with count/total, "== large / custom resources ==" (BINARY #107 size=27xxxxx),
-"== dialogs ==", "== string tables ==". Dependencies: pefile.
+"== dialogs ==", "== string tables ==". Dependencies: pefile, and capstone through sacred_pe (the default game
+directory).
 """
 import sys, struct, collections, re, math, argparse, os
 import pefile

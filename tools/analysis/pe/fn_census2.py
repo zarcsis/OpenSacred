@@ -10,8 +10,9 @@ Example
   uv run python -I tools/analysis/pe/fn_census2.py --game-dir ./OriginalGame --funcs /tmp/analysis/sacred_deep.json.funcs.json \\
       --out /tmp/analysis/fn_census2.json
 
-Expected output: shared_by_region_label, shared_game_total (≈1,176 functions / 227 KB without STL), particle_slot_stats for
-7 slots, particle_classes_with_vtable=178. Two full disassemblies (fn_match_lib) take several minutes.
+Expected output: shared_by_region_label, shared_game_total, shared_game_nonlib (≈1,176 functions / 227 KB, the game
+area's without those labelled stl or crt), particle_slot_stats for 7 slots, particle_classes_with_vtable=178.
+Two full disassemblies (fn_match_lib) take several minutes.
 The executables are read as is. Dependencies: pefile, capstone.
 """
 import json, sys, bisect, collections, statistics, struct, re, argparse, os

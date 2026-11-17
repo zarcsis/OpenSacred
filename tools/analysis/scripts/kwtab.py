@@ -11,14 +11,16 @@ Two parts:
      (columns opcode, name[, table, index]) the known opcode number is appended to each line.
 
 Purpose (docs/02 §7.3; docs/re/netscript.md, "Keyword resolvers of the compiler"): the compiler's keyword tables in
-.data (file offset 0x54CE78). The .text section is not read.
+.data (file offset 0x54CE78). No code is disassembled; the anchors and the pointers to them are searched for in the
+whole file's bytes.
 
 Examples
   uv run python -I tools/analysis/scripts/kwtab.py --game-dir ./OriginalGame
   uv run python -I tools/analysis/scripts/kwtab.py --game-dir ./OriginalGame --names /path/opcode-names.tsv
 
 Expected output: "anchor offsets: [...]", "pointer hits: []" for each anchor, then "N strings between 0x54cb78
-and 0x54d778" and lines "offset<TAB>name<TAB>op=...". Dependencies: pefile.
+and 0x54d778" and lines "offset<TAB>name<TAB>op=...". Dependencies: pefile, and capstone through sacred_pe (the default
+game directory).
 """
 import sys, struct, argparse, os, csv
 import pefile

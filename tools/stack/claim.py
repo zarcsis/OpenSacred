@@ -12,10 +12,11 @@ that another account filed is refused, naming its author, but for the daily depe
 they hold nothing, and --base on another's pull request is refused. An issue is held when it is assigned (unless
 --mine: this session filed it assigned), when a branch `<type>/<N>-<slug>` exists, locally or on origin, or when an
 open pull request of the account closes it (`Closes #N`) or comes from such a branch; a closed issue, or one without
-exactly one type label, is refused too. Otherwise origin is fetched, the issue assigned to the account, the branch
-`<label>/<N>-<SLUG>` made from origin/main (or --base) in the worktree `.claude/worktrees/<N>-<SLUG>` of the main
-checkout, and pushed at once, so that a session that looks next sees it; a branch that another session pushed meanwhile
-for the same issue is reported. CI runs on pull requests and on `main` alone, so the pushed branch costs no run.
+exactly one type label, is refused too. Origin is fetched before these checks. Otherwise the issue is assigned to the
+account, the branch `<label>/<N>-<SLUG>` made from origin/main (or --base) in the worktree
+`.claude/worktrees/<N>-<SLUG>` of the main checkout, and pushed at once, so that a session that looks next sees it; a
+branch that another session pushed meanwhile for the same issue is reported. CI runs on pull requests and on `main`
+alone, so the pushed branch costs no run.
 
 Example
   uv run python -I tools/stack/claim.py 1401 claim              # then EnterWorktree with the path it prints

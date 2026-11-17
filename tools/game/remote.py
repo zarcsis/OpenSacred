@@ -26,10 +26,10 @@ Example
   uv run python -I tools/game/remote.py --port 15703 shell         # a line a command: "cell 3296,2528", ":state", ":quit"
 
 Expected output: `exec` prints the command's lines; `state` the overlay's lines (`--json` the snapshot); `logs` a
-record a line, `sequence seconds LEVEL target: message`; the waits print the state they waited for; an error goes
-to the standard error with the exit code 1. `shell` reads lines until `:quit` or the input's end: a line is a command
-of the game, a line starting with `:` one of this client's own (`:help` lists them), and an error ends the line
-rather than the shell. Dependencies: the standard library.
+record a line, `sequence seconds LEVEL target: message`; `wait-ready` and `wait-state` print the state they waited
+for, `wait-log` its record; an error goes to the standard error with the exit code 1. `shell` reads lines until
+`:quit` or the input's end: a line is a command of the game, a line starting with `:` one of this client's own
+(`:help` lists them), and an error ends the line rather than the shell. Dependencies: the standard library.
 """
 import argparse, glob, json, os, re, shlex, sys, tempfile, time, urllib.error, urllib.request
 

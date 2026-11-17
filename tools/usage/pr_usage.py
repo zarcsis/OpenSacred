@@ -2,7 +2,7 @@
 """Claude Code usage of a pull request from the transcripts: tokens, cost at API prices and agent-hours, as a
 block for the pull request's description (docs/usage.md).
 
-Purpose (PLAN.md §9 and §10, step 8; docs/usage.md): every pull request carries what it cost. Claude Code records
+Purpose (PLAN.md §9; docs/usage.md): every pull request carries what it cost. Claude Code records
 the Git branch of every message in its transcripts (`~/.claude/projects/<project>/<session>.jsonl`, the subagents'
 under `<session>/`), so a pull request's usage is that of the messages on its branch, in every session and worktree
 of the repository. A message on `main` counts toward the session's next branch, where the task it reads or the
@@ -18,7 +18,7 @@ a path in it), with their results. A branch the session renamed (`git branch -m`
 responses are taken once each (by message.id), and the cost is computed at prices per 1M tokens (cache write:
 5 minutes = 1.25× input, 1 hour = 2× input). The cost is what the tokens would cost at API prices: development runs
 on a Claude subscription, so the dollar figures are hypothetical, not money spent. Agent-hours are the time from an
-owner's prompt to the agent's last action; pauses longer than 10 minutes are not counted.
+owner's prompt to the agent's last action; a pause longer than 10 minutes counts as 10.
 
 Example
   uv run python -I tools/usage/pr_usage.py 17            # print the usage of pull request #17

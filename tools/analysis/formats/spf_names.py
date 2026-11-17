@@ -10,7 +10,8 @@ Example
   uv run python -I tools/analysis/formats/spf_names.py OriginalGame/PAK/sndProfiles.pak
 
 Expected output: "used 175", "prefix groups: ...", "sample id range: ... distinct 2355", then one line per profile
-(index, name, v, number of ids, first 12 ids). Dependencies: standard library.
+(index, name, v, number of ids, first 12 ids). Dependencies: standard library, and pefile and capstone through
+sacred_pe (the default game directory).
 """
 import sys, struct, collections, argparse, os
 

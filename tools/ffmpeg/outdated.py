@@ -6,7 +6,8 @@ update runs it (CLAUDE.md, "Work order"): a source with a newer release gets a `
 Example
   uv run --no-project python -I tools/ffmpeg/outdated.py
 
-Prints each source, its pin and its newest release; exits with 1 when one is behind.
+Prints each source with its pin, then `up to date` or `newer:` and its newest release; exits with 1
+when one is behind.
 Dependencies: standard library.
 """
 import json, re, sys, tomllib, urllib.request

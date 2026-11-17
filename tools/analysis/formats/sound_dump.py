@@ -24,7 +24,7 @@ Example
 Expected output (2.28): every check passes on all of its items; statistics follow. --samples writes a row per used
 sound.pak slot (id, flags, size, kind, crc of the record); --profiles a row per used profile (slot, name, the groups'
 variants as space-separated ids joined by ";"); --names a row per name of the table in Sacred.exe (id, name), in its
-order. Dependencies: numpy (pyproject.toml).
+order. Dependencies: numpy (pyproject.toml), and pefile and capstone through sacred_pe (the default game directory).
 """
 import argparse
 import collections

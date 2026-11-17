@@ -6,14 +6,18 @@ height/light maps for three of them.
 
 Purpose (docs/02 §5.2–5.3): the terrain is a vertex-shared
 int8 heightfield (step 5, 78.4% flat cells), the cell layout is 32 B. keyx record format: 768 B, with
-+0x20 (idx, ordinal), +0xEC (offset, csize), +0x108 (usize); sector data is zlib; cells from +0x120, 64×64×32 B.
++0x20 (idx, ordinal), +0xEC (offset, csize), +0x108 (usize); sector data is zlib; the script takes 64×64×32 B from
++0x120 as the cells, an early guess: the cells start at +0x20 (docs/02 §5.2, checked on every sector by
+world_dump.py), so it reads them eight cells late: its cell k is the sector's cell k + 8, and its last eight are the
+256 bytes after the cells. Its statistics are to be measured again where they matter (docs/02, "Open questions", 1).
 
 Example
   uv run python -I tools/analysis/world/sector_stats.py --game-dir ./OriginalGame --out /tmp/analysis/geom          # all 6050 sectors (~2–4 min)
   uv run python -I tools/analysis/world/sector_stats.py --game-dir ./OriginalGame --out /tmp/analysis/geom --max-sectors 300
 
 Reads World/sectors.keyx (4.6 MB) and World/sectors.wldx (64 MB). Output: <out>/sector_stats.txt,
-<out>/sector<N>_height.png, sector<N>_light.png. Dependencies: numpy, pillow (PNG optional).
+<out>/sector<N>_height.png, sector<N>_light.png. Dependencies: numpy, pillow (PNG optional), and pefile and capstone
+through sacred_pe (the default game directory).
 """
 import sys, os, struct, zlib, collections, argparse
 import numpy as np

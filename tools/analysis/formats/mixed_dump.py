@@ -3,7 +3,7 @@
 PAK/mixed.pak (the sprites of the static objects, assembled from pieces of texture.pak atlases): layout checks over
 every record and per-record tables for cross-checking the Rust readers.
 
-Purpose (docs/02 §3.3, §6.1; PLAN.md §10, step 6): the reference prototype for `opensacred_formats::items` and
+Purpose (docs/02 §3.3, §6.1): the reference prototype for `opensacred_formats::items` and
 `opensacred_formats::mixed`. The layout follows openheilig (engine `formats/mixed.gd`, MIT; formats/world-sectors.md, CC
 BY-SA 4.0), measured on the GOG files on 2026-10-17.
 
@@ -38,7 +38,8 @@ height, crc of the record). --alpha also decodes the atlases' alpha from texture
 texels against its size. --assembled DIR assembles every sprite with pieces from the atlases of texture.pak, its pieces
 copied one to one over its rectangle (from its pieces' smallest corner, cut to its width and height), and compares it
 texel for texel with DIR/<record>.png, the image that `opensacred-convert world` writes (#838; DIR is
-<assets-src>/world/sprites; a few minutes). Dependencies: numpy, Pillow for --assembled (pyproject.toml).
+<assets-src>/world/sprites; a few minutes). Dependencies: numpy, Pillow for --assembled (pyproject.toml), and pefile
+and capstone through sacred_pe (the default game directory).
 """
 import argparse
 import collections

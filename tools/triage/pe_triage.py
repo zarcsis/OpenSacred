@@ -1,3 +1,18 @@
+#!/usr/bin/env python3
+"""A first look at a PE file (docs/01 §1–2): its headers, its sections with their entropy, the debug directory, the
+imports and exports, the version resource and the RTTI type descriptors found in its bytes.
+
+Purpose: the triage of `Sacred.exe` and the other executables of the installation before any deeper analysis; the
+numbers of docs/01-binary-analysis.md §1–2 come from it. Read-only.
+
+Example
+  uv run python -I tools/triage/pe_triage.py OriginalGame/Sacred.exe OriginalGame/GameServer.exe
+
+Expected output: for each file a block of lines: the machine, the link time, the linker's version, the image base and
+the entry point; a line a section (addresses, sizes, entropy, flags); the debug entries; the imports by library; the
+exports; the version strings; the count of RTTI type descriptors and the first 600 of their names. Dependencies:
+pefile.
+"""
 import sys, math, datetime, collections, re
 import pefile
 

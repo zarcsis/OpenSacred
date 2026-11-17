@@ -2,7 +2,7 @@
 """MDL model containers (PAK/models.pak, PAK/models03.pak) and the Granny 1.2b container of their records:
 layout checks over every record, a census of chunk tags, and a per-record table for cross-checking the Rust readers.
 
-Purpose (docs/02 §4.1–4.2; PLAN.md §10, step 5): the reference prototype for `opensacred_formats::mdl` and the GRN container
+Purpose (docs/02 §4.1–4.2): the reference prototype for `opensacred_formats::mdl` and the GRN container
 reader. The layout below was measured on the GOG files on 2026-10-16; the script checks every statement on every record
 and prints how many records satisfy it.
 
@@ -84,7 +84,8 @@ KIND_NAME = {KIND_MODEL: 'model', KIND_MOTION: 'motion'}
 GRN_SIGNATURE_SIZE = 0x40
 TAG_ROOT, TAG_END = 0xCA5E0000, 0xCA5EFFFF
 SECTION_TAGS = (0xCA5E0102, 0xCA5E0103, 0xCA5E0101)
-# motions: the nonzero ModelDesc motion slots as "slot:ordinal" joined by ";"; grn: "ok", "empty" or the failed part;
+# motions: the nonzero ModelDesc motion slots as "slot:ordinal" joined by ";"; scale: the three floats of ModelDesc
+# +0x470 as the hexadecimal of their bits, joined by ","; grn: "ok", "empty" or the failed part;
 # section_nodes: node counts of the three sections, terminators included; tree_crc: CRC-32 of the u32 LE triples
 # (tag, own data length, descendants) of every node but the terminators, all sections in order, a fingerprint of the
 # whole tree; bones, meshes, tracks: counts of the tags below; skeleton_crc: CRC-32 over the bones in order of the name,

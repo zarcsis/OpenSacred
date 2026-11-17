@@ -4,7 +4,7 @@ metrics (gradient smoothness, channel correlation, alpha distribution) and PNG o
 partial decoding of a single TEX entry from a truncated copy (--entry), e.g. the head of a texture.pak record.
 
 Purpose (docs/02 §3.1): the 16-bit format is
-ARGB4444 (fmt 4), 256×256, without mipmaps/DXT/color key. Layout: directory 0x100 + count×12 (fmt, offset, size);
+ARGB4444 (fmt 4), mostly 256×256, without mipmaps/DXT/color key. Layout: directory 0x100 + count×12 (fmt, offset, size);
 an entry is an 80-byte header (name[32], u16 w, u16 h, u8 fmt, u32 csize @37) + a zlib stream of w×h×2 bytes.
 
 Examples
@@ -13,7 +13,8 @@ Examples
   uv run python -I tools/analysis/formats/tex_decode.py --entry /tmp/analysis/tex_entry.bin --out /tmp/analysis/tex # truncated entry
 
 Output: <out>/tex_decode.txt, <out>/tex_<name>_{4444,565,1555}.png and _compare.png. The PNGs are derived from the
-game assets; do not commit. Dependencies: numpy, pillow.
+game assets; do not commit. Dependencies: numpy, pillow, and pefile and capstone through sacred_pe (the default game
+directory).
 """
 import struct, zlib, sys, os, argparse
 import numpy as np
@@ -64,7 +65,7 @@ def analyse(name, raw, wd, ht):
         g, c, a255, a0, am = metrics(rgba)
         w('   %-5s gradient=%.2f (lower=smoother) channel-corr=%.3f alpha==max %.1f%% alpha==0 %.1f%% mean alpha %.1f' % (lbl, g, c, 100 * a255, 100 * a0, am))
         im = Image.fromarray(rgba, 'RGBA'); im.save(OUT + 'tex_%s_%s.png' % (name, lbl)); imgs.append(im)
-    # composite on checker background
+    # the three decodings side by side, each composited on a magenta background
     W = sum(i.width for i in imgs) + 20; H = max(i.height for i in imgs)
     comp = Image.new('RGBA', (W, H), (90, 90, 90, 255))
     xo = 0

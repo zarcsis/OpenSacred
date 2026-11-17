@@ -12,7 +12,7 @@ Example
   uv run python -I tools/analysis/world/static_stats.py --game-dir ./OriginalGame --out /tmp/analysis/geom
 
 Reads World/Static.PAK (79 MB) and PAK/Items.pak. Output: <out>/static_stats.txt (+ stdout).
-Dependencies: numpy.
+Dependencies: numpy, and pefile and capstone through sacred_pe (the default game directory).
 """
 import struct, collections, sys, os, argparse
 import numpy as np

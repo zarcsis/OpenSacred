@@ -2,7 +2,8 @@
 """Call arguments of granny.dll imports in Sacred.exe: references to IAT slots are found by byte patterns
 (`call [iat]`, `mov reg,[iat]`, `jmp [iat]` thunk) and each host function is disassembled from its start
 (boundaries from pe_deep.py <out>.funcs.json), so that desynchronization of the linear disassembler does not hide sites.
-For each site, the push arguments (strings, f32 constants, numbers) are printed in declaration order.
+For each site, the push arguments (strings, f32 constants, numbers) are printed in the code's order, the last
+argument's push first.
 
 Purpose (docs/02 §4.3, the runtime contract): GetAnimationParameter ×175,
 SetAnimationParameter ×72, GetBoneState ×61, AddControlledPose with FLT_MAX on Bip01, AttachSequence with mask 0x1FF.

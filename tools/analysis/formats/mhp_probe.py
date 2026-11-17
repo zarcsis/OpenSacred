@@ -9,7 +9,8 @@ Example
   uv run python -I tools/analysis/formats/mhp_probe.py --game-dir ./OriginalGame
 
 Expected output: "count 3423 stride 198 exact True", "id==index: 3423 / 3423", a list of float columns, "Models.tmp
-size check: ... ". Dependencies: standard library.
+size check: ... ". Dependencies: standard library, and pefile and capstone through sacred_pe (the default game
+directory).
 """
 import sys, struct, collections, math, argparse, os
 
