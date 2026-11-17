@@ -40,6 +40,7 @@ A block that would hold fewer tokens than the one in the description is not writ
   The time from a prompt of the maintainer to the agent's last action; a pause longer than 10 minutes counts as 10.
 * **The block.**
   A table for people and a comment `<!-- usage {...} -->` with the same figures for scripts, between the markers `<!-- usage:begin -->` and `<!-- usage:end -->`, which a rerun replaces.
+  The description is written with LF line ends, and one whose block did not change is not written again; until #2853 each run on Windows added a carriage return to every line, which the next run of a pull request drops.
 * **The badge.**
   `pr_usage.py --update` then runs the Usage workflow (`.github/workflows/usage.yml`; also daily).
   It sums the blocks of the maintainer's pull requests and the sessions below (`tools/usage/usage_badge.py`), lists the pull requests in its run summary, and publishes `usage.json`, a shields.io endpoint, on the branch `badges`: the ruleset on `main` takes no commit from a workflow.

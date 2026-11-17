@@ -91,10 +91,18 @@ ATTRIBUTION = '🤖 Generated with'
 WORKFLOW = 'usage.yml'
 
 def run(argv, stdin=None):
-    r = subprocess.run(argv, input=stdin, capture_output=True, text=True, encoding='utf-8')
+    """A command's output. Its input goes to it as it is, in UTF-8: a pipe in text mode writes every line end as
+    CRLF on Windows, which added a carriage return to each line of a description on every run (#2853)."""
+    r = subprocess.run(argv, input=None if stdin is None else stdin.encode('utf-8'), capture_output=True)
     if r.returncode:
-        sys.exit('%s: %s' % (' '.join(argv[:3]), r.stderr.strip()))
-    return r.stdout
+        sys.exit('%s: %s' % (' '.join(argv[:3]), r.stderr.decode('utf-8', 'replace').strip()))
+    return r.stdout.decode('utf-8')
+
+
+def unix(text):
+    """A text with LF line ends: the carriage returns before a line end dropped, however many the runs of
+    before #2853 left there."""
+    return re.sub(r'\r+\n', '\n', text)
 
 
 def main_checkout():
@@ -636,7 +644,8 @@ def main():
         unpriced |= {str(m) for m in c.per_model if m not in PRICES}
         if not args.update:
             continue
-        before, body = figures(pr['body']), spliced(pr['body'], block)
+        described = unix(pr['body'] or '')
+        before, body = figures(described), spliced(described, block)
         if before and tokens(data) < tokens(before) and not args.lower:
             # The transcripts are kept 30 days, and a branch's messages count elsewhere once its worktree is
             # another branch's or its name another's.
@@ -644,7 +653,7 @@ def main():
                           'names another branch of its work, --lower writes the smaller block'
                           % (number, tokens(before) / 1e6, tokens(data) / 1e6))
             print('not written: the block in the description holds more\n')
-        elif body == (pr['body'] or ''):
+        elif body == (pr['body'] or ''):  # as it is stored: one with carriage returns is written once more, without
             print('unchanged in %s\n' % url)
         else:
             run(['gh', 'pr', 'edit', str(number), '--body-file', '-'], stdin=body)
