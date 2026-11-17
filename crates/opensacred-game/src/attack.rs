@@ -2,7 +2,8 @@
 //! creature sends the hero at it (`0x6172C0`, the AI's states 1 and 4): it comes into the band of
 //! its reach and strikes once, again while the button stays held or for each click during a
 //! strike (#705), until the creature dies or the player sends it elsewhere; with Ctrl held it
-//! strikes once, at once, where it stands, and a click on the ground strikes the air there. Its hits resolve as the creatures' (`fight`). Where it stands, when it strikes and when
+//! strikes once, at once, where it stands, and a click on the ground strikes the air there. Its
+//! hits resolve as the creatures' (`fight`). Where it stands, when it strikes and when
 //! its hits land are the rules' (`opensacred_rules::minds`). With a bow it shoots arrows
 //! (`arrows`), and with the Seraphim's effects of 1018 and 1019 bolts (`bolts`).
 

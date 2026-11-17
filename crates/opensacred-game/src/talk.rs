@@ -8,6 +8,14 @@
 //! where the hero stands farther than 1,500 from the creature. Its voice-over ends as it closes.
 //! The world runs on meanwhile, the hero's clicks on it held back while the window shows
 //! (docs/decisions/interface.md, "Dialogue window holds back world clicks").
+//!
+//! In a dialogue's place a talk opens the smith's, the merchant's or the combat master's window
+//! for such a creature without a dialogue, and the horse window for a horse trader or a stable's
+//! horse ([`Speech`], [`speech_of`]). The scripts begin talks too ([`popups`]: the hero's own of
+//! a `Popup`, and one with the creature of an `NPC_TalkTo`), show their `InfoPlayer`s' texts as
+//! lines ([`notices`], #1033) and play their `PlaySound`s outside a window ([`lines()`], #1826).
+//! The module also reads the creatures' portraits ([`Portraits`], #1032) and carries out the
+//! commands `talk` and `answer` ([`talk_to`], [`answer()`]).
 
 use bevy::picking::Pickable;
 use bevy::picking::events::{PointerClick, PointerOut, PointerOver};
@@ -32,7 +40,7 @@ use crate::scripts::{self, SHOWN};
 use crate::sfx::Sfx;
 use crate::voices;
 
-/// How far, past 1.5 times the two creatures' reach, the talk opens (`0x529C60`).
+/// Within how many times the two creatures' reach the talk opens at once (`0x529C60`).
 const OPENS_WITHIN: f32 = 1.5;
 /// How far apart the hero and the creature end their talk (`0x5370B0`).
 const ENDS_BEYOND: f32 = 1_500.0;
@@ -1185,8 +1193,9 @@ fn dismiss(
 }
 
 /// Shows the scripts' `InfoPlayer`s' texts (#1033): of a mode that shows one, each, as lines
-/// under those that show (`info_lines`, #2499); the other modes (an image, an event, the
-/// interface's states) are not followed.
+/// under those that show (`info_lines`, #2499); of the other modes `fades`, `movies` and
+/// `statistics` take theirs before it, and the rest (an image, an event, the interface's states)
+/// are not followed.
 pub(crate) fn notices(
     mut infos: ResMut<scripts::Infos>,
     texts: Option<Res<Texts>>,
@@ -1214,8 +1223,10 @@ pub(crate) fn notices(
     }
 }
 
-/// Begins the hero's own talk of each dialogue the scripts' `Popup`s give it (`0x4A7760`,
-/// `0x54CBB0`; #1033), one at a time, once no window shows: its window without a name.
+/// Begins the talks that the scripts ask for (`scripts::Popups`), one at a time, once no window
+/// shows: the hero's own of a dialogue that a `Popup` gives it (`0x4A7760`, `0x54CBB0`; #1033),
+/// its window without a name, and the hero's with the creature that an `NPC_TalkTo` gives a
+/// dialogue (`0x49DCF0`, #1037), as a click on it begins one.
 pub(crate) fn popups(
     mut commands: Commands,
     mut popups: ResMut<scripts::Popups>,
@@ -1256,9 +1267,9 @@ pub(crate) fn popups(
     }
 }
 
-/// Sends the hero to speak to `creature`, or to the creature of a dialogue or the combat master
-/// nearest it (the
-/// command `talk`), as a click on it does: a line of which.
+/// Sends the hero to speak to `creature`, or to the nearest creature that a talk opens something
+/// for ([`Speech`]: a dialogue, a dead one's that holds its body among them, a trader's window or
+/// the horse window; the command `talk`), as a click on it does: a line of which.
 pub fn talk_to(world: &mut World, creature: Option<Entity>) -> Result<String, String> {
     let mut heroes = world.query_filtered::<(Entity, &Transform), With<Body>>();
     let (hero, here) = heroes
@@ -1328,10 +1339,11 @@ pub fn talk_to(world: &mut World, creature: Option<Entity>) -> Result<String, St
     Ok(format!("the hero goes to speak to {creature} ({dialogue})"))
 }
 
-/// The new game's first windows that the command `new-game` closes, as the original's driver
-/// does (#1343): the start's `Pre_Tutorial`, which every hero's start script's `Popup` gives, by
-/// its OK (`Tutorial_Trigger`), then the tutorial's first tip by its No more Tips
-/// (`TT_KEINEMEHR`), after which no tip comes.
+/// The new game's first windows that the command `new-game` and a game that the command line
+/// names close, unless `--leave-open` is given, as the original's driver does (#1343): the
+/// start's `Pre_Tutorial`, which every hero's start script's `Popup` gives, by its OK
+/// (`Tutorial_Trigger`), then the tutorial's first tip by its No more Tips (`TT_KEINEMEHR`),
+/// after which no tip comes.
 #[derive(Resource, Default)]
 pub struct CloseFirst;
 
@@ -1339,7 +1351,7 @@ pub struct CloseFirst;
 const FIRST_OK: &str = "Tutorial_Trigger";
 const NO_MORE_TIPS: &str = "TT_KEINEMEHR";
 
-/// Closes the first windows of a new game of the command `new-game` ([`CloseFirst`]): the window
+/// Closes the first windows of a new game that asks for it ([`CloseFirst`]): the window
 /// whose button runs [`FIRST_OK`] by it, then the first whose button runs [`NO_MORE_TIPS`] by
 /// it, which ends the closing.
 fn close_first(world: &mut World) {

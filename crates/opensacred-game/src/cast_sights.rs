@@ -1,9 +1,10 @@
-//! The sights of the casts in their casters' hands (791, `FX_CAST_SPELL`, #1092; docs/re/effects.md,
-//! "The casts' sights"): as a spell's clip starts (`0x51E110`), the hero's or a creature's, or the
-//! Daemon's arts' (`0x51B46E`),
-//! each of its sights follows its bone, its particles left where they are born along the hand's
-//! way, or a glow swelling and shrinking at it, or the twirls on the ground, all untinted by the
-//! night (`opensacred_rules::particles::{CastSight, cast_sights, art_sights}`).
+//! The sights of the casts in their casters' hands (791, `FX_CAST_SPELL`, #1092;
+//! docs/re/effects.md, "The casts' sights"): as a spell's clip starts (`0x51E110`), the hero's or
+//! a creature's, or the Daemon's arts' (`0x51B46E`), or as a script's queued `Partikel` of `n0` −2
+//! comes to its turn (`0x59CE78`, #1890), each of its sights follows its bone, its particles left
+//! where they are born along the hand's way, or a glow swelling and shrinking at it, or the twirls
+//! on the ground, all untinted by the night
+//! (`opensacred_rules::particles::{CastSight, cast_sights, art_sights, ritual_sights}`).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -353,7 +354,7 @@ fn run(
     }
 }
 
-/// The hero's casts' sights.
+/// The casts' sights.
 pub struct CastSightsPlugin;
 
 impl Plugin for CastSightsPlugin {

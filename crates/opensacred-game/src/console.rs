@@ -392,8 +392,8 @@ fn spawn(mut commands: Commands) {
 #[derive(Default, PartialEq)]
 struct Shown(Option<(u64, String, usize, usize)>);
 
-/// Shows the console as it is: its last records of the log, a span a record in its level's
-/// colour, and the line with its cursor.
+/// Shows the console as it is: the last lines of the log's records, a span each in its record's
+/// level's colour, and the line of input with its cursor.
 fn draw(
     mut commands: Commands,
     (console, journal): (Res<Console>, Res<Journal>),

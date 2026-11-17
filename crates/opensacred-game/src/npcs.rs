@@ -42,6 +42,21 @@
 //! in place of the GRN's own (docs/02 §6.1): the chests, vases and coffins of `chest.grn`,
 //! `vase_01.grn` and `coffin_01.grn` have none of their own, and the soldiers, horses, wolves
 //! and citizens wear their record's variant of their model's skin.
+//!
+//! The module carries the creatures and the objects on through the play as well: the records of
+//! the world that the scripts run during it are placed as they run (`script_records`,
+//! `Npcs::add`), with their `SetNPCState`s, `SetGroupState`s, `DelNPC`s, `EquipNPC`s, `SetHP`s,
+//! `SetObjState`s, `RegionChange`s and `Morph`s, and under the anim mode a creature's records
+//! wait their turns in its queue (`ScriptQueue`, `take_steps`; docs/re/netscript.md, "The anim
+//! mode and the creatures' queues"); the creatures walk, strike and die, the bosses and champions
+//! level at their first fight, and a killer earns its victim's experience (`walk`, `strike`,
+//! `die`, `first_fight`, `earn`); the doors swing (`swing`); a sector keeps its creatures as it
+//! goes and puts them back as it comes in (`Kept`, `keep`; docs/re/spawning.md, "The sectors'
+//! functions"); a fill's black horse brings its rider (`black_rider`) and the waters their crabs
+//! and fish (`swimmers`); the command `spawn` makes creatures (`spawn_creatures`); the hero and
+//! the figures of its choice hold and wear their items as an NPC does (`Npcs::hero_gear`,
+//! `figure_gear`, `equip`, `bind_worn`); and a save keeps the scripts' placements, the creatures
+//! and the hero's followers (`Saved`, `Creatures`, `Following`).
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -82,7 +97,7 @@ use crate::{
     sectors, sfx, shadows, spawning,
 };
 
-/// Record types of the scripts (`opensacred_formats::netscript::KEYWORDS`).
+/// Record types of the scripts (`opensacred_data::netscript::KEYWORDS`).
 const CREATE_NPC: u16 = 1;
 const CREATE_OBJ: u16 = 8;
 /// The record that puts items on a creature (`EquipNPC`, `0x481D80`; #2752).
@@ -144,7 +159,8 @@ const GROUP: u8 = 0x11;
 pub(crate) const SCRIPT_GROUP: u32 = 0x8000_0000;
 /// The tags of a creature's death's function (`CreateNPC`, `SetNPCState`; #656), `0x05`, and of
 /// its sight function, `0x60`, kept as `See:` and its name (#1025), which also sets the flags
-/// word's bit `0x400000` (its reader not read, not followed).
+/// word's bit `0x400000`, by which the creature's first sight of the hero runs it
+/// ([`minds::SIGHT`], #2475).
 const ON_DEATH: u8 = 0x05;
 const ON_SIGHT: u8 = 0x60;
 /// The tags of `CreateNPC` and `SetNPCState` that hire their creature as the hero's follower or
@@ -339,12 +355,13 @@ struct Placement {
     /// refuses its cell to a creature of id above 16, not to the hero; `crowd`).
     blocks: bool,
     /// Whether it is a door, an object of category 10, which the townsfolk go in and out by
-    /// (`0x428130`; `ai`), and the trigger it names (`CreateObj`'s `0x29`), whose cells it opens
-    /// and closes (#372).
+    /// (`0x428130`; `ai`).
     door: bool,
     /// Whether it is a special, an object of category 15 (`cSpecial3D`: the signposts), which takes
     /// a label while Alt is held (`labels`, #1425).
     special: bool,
+    /// The trigger that a door or a container names (`CreateObj`'s `0x29`), whose cells a door
+    /// opens and closes (#372).
     trigger: Option<String>,
     /// A fire of the FX objects (`items.pak` category 12), its variant of the smoke class and its
     /// height in the models' units, the record's `0x7E` (`fx`, #1092).
@@ -401,8 +418,7 @@ struct Placement {
     ranged: bool,
     size: f32,
     /// Whether a sector's `Enter` function made it, and whether `CreateNPC` did rather than a
-    /// fill; its group, if it is in one; whether it has a dialogue, a `CreateNPC` with one
-    /// (the operand `0x09`; **hypothesis**: the one `0x483AFA` stamps; `ai::Mind`).
+    /// fill.
     made: (bool, bool),
     /// Whether the start made it, its script or a quest it entered rather than a sector's
     /// function: its creature takes its level as the game starts ([`place`]).
@@ -413,11 +429,14 @@ struct Placement {
     /// start's tree gives it as a game loads; a save keeps no placement of the start's.
     #[serde(skip)]
     made_again: bool,
+    /// Whether it has a dialogue, a `CreateNPC` with one (the operand `0x09`; **hypothesis**: the
+    /// one `0x483AFA` stamps; `ai::Mind`).
     dialogue: bool,
     /// Its trades, by its tags ([`TRADES`]; `opensacred_rules::minds::Mind::trader`), and whether
     /// its tags keep it out of its first update's flags ([`KEEPS`]).
     trades: u32,
     kept: bool,
+    /// Its group, if it is in one.
     group: Option<u32>,
     /// Whether the scripts hire it as the hero's follower, or let it go ([`hire_of`]; #657).
     hire: Option<crate::followers::Hire>,
@@ -440,7 +459,8 @@ struct Placement {
     /// The clips an NPC plays.
     clips: ClipNames,
     /// An NPC's or an object's name in the scripts (`CreateNPC`'s or `CreateObj`'s `0x01`,
-    /// lower-cased), by which their records name it (an object's a `DelNPC`'s, #2758), and the share of its most health that a `SetHP` gave it, in per cent (#1001).
+    /// lower-cased), by which their records name it (an object's a `DelNPC`'s, #2758), and the
+    /// share of its most health that a `SetHP` gave it, in per cent (#1001).
     name: Option<String>,
     health_share: Option<u32>,
     /// An NPC's dialogue, its name in the dialogues' table, which the hero speaks to it by (`+0x245`,
@@ -1095,12 +1115,13 @@ pub struct Npcs {
     /// The trigger of each object that the scripts name (`CreateObj`'s `0x01` and `0x29`), by
     /// the object's name lower-cased, which `SetObjState` sets (#952).
     named: HashMap<String, String>,
-    /// What the scripts' records are placed with, the places that their `DefPos`s name, and the
-    /// placements that the play's records made whose sectors were in the world (#1014).
+    /// What the scripts' records are placed with.
     makers: Makers,
     /// The horse data's rows, each its class and its seven words (`Balance.bin`'s tail table 4,
     /// #2299).
     horses: Vec<(u32, [u32; 7])>,
+    /// The places that the scripts' `DefPos`s name, and the placements that the play's records
+    /// made whose sectors were in the world (#1014).
     places: Places,
     pending: Vec<usize>,
     /// The placements that the play's records made, which live wherever they stand from then on
@@ -1109,8 +1130,8 @@ pub struct Npcs {
     /// The play's records of the world in the batches that [`script_records`] placed, in order,
     /// which a save keeps and its load places again ([`Self::resume`], #1958).
     records: Vec<Vec<Record>>,
-    /// The placements of the quests' items that the hero took, which their sectors do not place
-    /// again ([`QuestItem`], #1256).
+    /// The placements of the quests' items and of the scripts' other lying items that the hero
+    /// took, which their sectors do not place again ([`QuestItem`], #1256; [`ScriptItem`], #1296).
     taken: HashSet<usize>,
     /// The placements of the objects that a play's `DelNPC` removed by their names, which their
     /// sectors do not place again (#2758); a save's records remove them again as it loads.
@@ -1129,7 +1150,7 @@ pub struct Npcs {
     /// The dialogue of each creature type that the start's `SetRgnDialog`s give, all of the
     /// region 0 (`0x465280`, #1028).
     region_talks: HashMap<u32, String>,
-    /// The sectors' values, which their creatures' levels take, and their fills ([`sectors`]),
+    /// The sectors' values, which their creatures' levels take, and their fills ([`sectors()`]),
     /// and what each type they make is placed as.
     values: HashMap<(u32, u32), spawning::SpawnValues>,
     fills: HashMap<(u32, u32), Vec<spawning::Fill>>,
@@ -1464,7 +1485,6 @@ pub(crate) struct Hits {
 }
 
 impl Npc {
-    /// The factor of its walk and run speeds and of their clips' rate ([`repace`]).
     /// The slot of the clip that its fidget `fidget` plays (`0x54EA30`, #1364): a fun clip's own,
     /// or its attack's first.
     pub(crate) fn fidget_slot(&self, fidget: minds::Fidget) -> u16 {
@@ -1480,6 +1500,7 @@ impl Npc {
         !self.names.unfallen
     }
 
+    /// The factor of its walk and run speeds and of their clips' rate ([`repace`]).
     pub fn pace(&self) -> f32 {
         self.pace
     }
@@ -1576,8 +1597,8 @@ impl Clips {
 }
 
 /// An NPC walking where a script sent it (`NPC_Goto`, `0x49E210`, which orders the creature to
-/// walk there): the point, the level it walks on, and its walk speed in world units a second,
-/// before the game's speed.
+/// walk there) or where its mind orders it (`ai`, `followers`, `flight`): the point, the level it
+/// walks on, and its speed in world units a second, before the game's speed.
 #[derive(Component)]
 pub struct Walk {
     target: Vec3,
@@ -1842,7 +1863,7 @@ fn start_records(tree: &Tree) -> Vec<&Record> {
     records
 }
 
-/// What the sectors' `Enter` functions hold for their creatures ([`sectors`]).
+/// What the sectors' `Enter` functions hold for their creatures ([`sectors()`]).
 #[derive(Debug, Default)]
 struct Sectors {
     /// Each sector's `SpawnValues`, which its `Init` repeats in every tree.
@@ -2019,8 +2040,8 @@ fn rules(tree: &Tree) -> HashMap<(u32, u32), Vec<Rule>> {
     out
 }
 
-/// The items 1800 to 1804, which a rule's first item becomes 1723, 1720, 1759, 1729 and 1752 for
-/// most types (`0x47F8E0`).
+/// What a rule's first item of 1800 to 1804 becomes, 1723, 1720, 1759, 1729 and 1752, for most
+/// types (`0x47F8E0`).
 const SWAPPED: [u32; 5] = [1723, 1720, 1759, 1729, 1752];
 /// The weapon kinds after which a creature takes no second item: the two-handed, the staves, the
 /// bows and the crossbows (**hypothesis** for the names).
@@ -2031,7 +2052,7 @@ const ONE_ITEM: [u8; 5] = [2, 3, 4, 7, 12];
 /// items, the first swapped ([`SWAPPED`]), and a crossbow or a musket first that its model of the
 /// shots `shots` cannot shoot replaced by `weapon` of the kind it asks for, none if it gives none
 /// (`spawning::filled_weapon`, `0x480547`, #1217); the second only after a weapon of a kind that
-/// leaves a hand free; the third, a worn piece, is left out, the game drawing no worn models.
+/// leaves a hand free; the third, a worn piece, is [`worn_of`]'s (#2286).
 fn gear_of<'a>(
     rules: &[Rule],
     creature: u32,
@@ -2241,9 +2262,6 @@ fn name_of(ops: &[opensacred_data::netscript::Operand]) -> Option<String> {
     })
 }
 
-/// A `CreateNPC`'s level tag ([`LEVEL`]), the last of its operands', as `CreateNPC` keeps the
-/// last (`0x482510`); 0 for none, or for a variable or a number below 0 in its place, which no
-/// `CreateNPC` of the scripts carries.
 /// The group of a `CreateNPC` of the operands `ops` (#669): its last tag [`GROUP`]'s number, if
 /// it is not 0, kept apart from the fills' packs, whose numbers stay below [`SCRIPT_GROUP`].
 fn script_group(ops: &[opensacred_data::netscript::Operand]) -> Option<u32> {
@@ -2257,7 +2275,6 @@ fn script_group(ops: &[opensacred_data::netscript::Operand]) -> Option<u32> {
         .map(|n| SCRIPT_GROUP | (n & !SCRIPT_GROUP))
 }
 
-/// A `CreateNPC`'s horse class, its tag `0x90` (`SetHorseClass:`), held to a byte; 0 for none.
 /// The trader of a stable's horse named by `name` (`0x63`, `SetOwner:`; `0x4624FC`): none for
 /// an empty name, nor for `hero`, which gives the horse to the player (not followed).
 fn trader_of(name: &str) -> Option<String> {
@@ -2273,6 +2290,7 @@ fn stock_of(ops: &[opensacred_data::netscript::Operand]) -> Option<String> {
     })
 }
 
+/// A `CreateNPC`'s horse class, its tag `0x90` (`SetHorseClass:`), held to a byte; 0 for none.
 fn horse_class(ops: &[opensacred_data::netscript::Operand]) -> u8 {
     ops.iter()
         .find(|o| o.tag == HORSE_CLASS)
@@ -2284,6 +2302,9 @@ fn horse_class(ops: &[opensacred_data::netscript::Operand]) -> u8 {
 /// The tag of a horse's class (`SetHorseClass:`, docs/re/horses.md).
 const HORSE_CLASS: u8 = 0x90;
 
+/// A `CreateNPC`'s level tag ([`LEVEL`]), the last of its operands', as `CreateNPC` keeps the
+/// last (`0x482510`); 0 for none, or for a variable or a number below 0 in its place, which no
+/// `CreateNPC` of the scripts carries.
 fn level_tag(ops: &[opensacred_data::netscript::Operand]) -> u32 {
     ops.iter()
         .rev()
@@ -2334,7 +2355,7 @@ struct State {
     stock: Option<String>,
     /// Whether it hires its creature as the hero's follower, or lets it go ([`hire_of`]; #657).
     hire: Option<crate::followers::Hire>,
-    /// Whether its `0x6B` sets `+0x2B7` bit 8, above 0, or clears it, for 0 ([`RISES`]), which
+    /// Whether its `0x6B` sets `+0x2B7` bit `0x08`, above 0, or clears it, for 0 ([`RISES`]), which
     /// keeps a dead follower of the hero to rise ([`RisesAgain`], #2459).
     rises: Option<bool>,
 }
@@ -2396,7 +2417,8 @@ impl State {
     }
 
     /// Whether it gives a creature made before what the game follows on one (#656, #658): its
-    /// flags word (#2426), its death's functions, its heading, its group or a trader's stock.
+    /// flags word (#2426), its hostility, its death's functions, its heading, its group, a
+    /// trader's stock, a dialogue (#1028), a hire (#657) or its rise (#2459).
     fn restates(&self) -> bool {
         self.word != 0
             || !self.deaths.is_empty()
@@ -2441,8 +2463,9 @@ impl State {
         }
     }
 
-    /// Gives `placement` its death's functions, its heading, its group and, joining a stock, no
-    /// dialogue ([`Self::restates`]).
+    /// Gives `placement` its death's functions, its heading, its group, its stock's trader, its
+    /// dialogue (none for one joining a stock), its hire, its sight function's bit and its rise
+    /// ([`Self::restates`]).
     fn restate_placement(&self, placement: &mut Placement) {
         self.restate(&mut placement.on_death);
         if let Some(heading) = self.heading {
@@ -2823,8 +2846,9 @@ enum Whither {
     Creature(Option<String>),
 }
 
-/// A creature that the play's `NPC_Goto` sends walking (`walks`) or its `Teleport` puts somewhere
-/// ([`Npcs::moves`]), at once or in its turn of its queue under the anim mode (`queued`).
+/// A creature that a record of the play acts on, by its name, and the act ([`Act`]): an
+/// `NPC_Goto`'s walk, a `Teleport`'s put or another's ([`Npcs::moves`]), at once or in its turn of
+/// its queue under the anim mode (`queued`).
 #[derive(Clone, Debug, PartialEq)]
 struct Moved {
     name: String,
@@ -2872,8 +2896,9 @@ enum Act {
     /// `Attack` of a spell's art: the creature's cast of the spell at its target, at once or at its
     /// turn (the event `0x105`; #1871).
     Cast { spell: u16, at: CastAt },
-    /// Another record that waits its turn under the anim mode, of the kind: its turn taken, the
-    /// record itself carried out elsewhere or not yet (#1278 to #1281).
+    /// Another record that waits its turn under the anim mode, of the kind ([`QUEUED_OTHERS`]):
+    /// its turn taken and no more, an `Attack` that neither teleports nor casts, which under the
+    /// mode fights not (#1830).
     Other(u16),
     /// `SetCinemaMode`'s stop of the hero where its queue is empty (`0x47740E`, `0x54E6D0(1, 0)`;
     /// #1280).
@@ -2903,7 +2928,9 @@ const HERO: &str = "hero";
 
 /// A `PlayAnim` of the operands `ops` (`0x4A2550`): the creature of its first `0x01`, the slot of
 /// its first `0x0B` and the count of its second, 1 by default; none for the hero, for no creature
-/// or slot above 0, or for the name `schmiede`, which opens the smith's window instead. Under the
+/// or slot above 0, or for the name `schmiede`, which opens the smith's window instead. Of another
+/// kind, what its record does to the creature it names, as told at each below: a deferred
+/// `CallFunktion`, a `PlaySound`, a `Partikel`, a `Morph`, an `ActObj` or a `Wait`; else, under the
 /// anim mode (`queued`), another record that waits its turn there and names a creature
 /// ([`QUEUED_OTHERS`]).
 fn played(
@@ -3253,8 +3280,8 @@ fn goto_targets(records: &[&Record]) -> HashMap<String, (i32, i32, i32)> {
 /// state's open bit, [`OPEN`] sets it, the last of them counting (a trigger of neither is open,
 /// **hypothesis**, as the sector files' are). The client's cell test (`0x4EBCA0`) refuses such a
 /// cell to every creature, the chests' and the barrels' among them (docs/re/movement.md, "The
-/// chests' cells"); no script of the start opens them, but a door that names its trigger does
-/// as it opens (#372). Each with its trigger's name, lower case.
+/// objects in the way"); no script of the start opens them, but a door that names its trigger
+/// does as it opens (#372). Each with its trigger's name, lower case.
 fn trigger_cells(records: &[&Record]) -> Vec<(String, Spot)> {
     let ops = |kind| {
         records
@@ -3455,7 +3482,8 @@ pub type Equipped = (usize, Vec<u32>, Vec<u32>);
 /// What the play changed of the scripts' placements and triggers, as a save keeps it (#1958):
 /// the play's records of the world in the batches that [`script_records`] placed, in order, which
 /// a load places again ([`Npcs::resume`]); the triggers open, those a hero turned and those
-/// locked; the placements of the quests' items taken and of the containers emptied.
+/// locked; the placements of the items taken and of the containers emptied, and the levels that
+/// the lying items were made at (#1125).
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 // Named apart from another saved type of its name, which the saves' layout test traces by
 // name (#2306); postcard writes no names.
@@ -4057,7 +4085,8 @@ impl Makers {
             };
             worn.push((item, category));
             // A horse's bridle goes into its slot 1, which no draw reads (`0x54ACC0`; a stable's
-            // horses stand bare, docs/re/horses.md, "The bridle"); its values count.
+            // horses stand bare, docs/re/horses.md, "The horse's button, the call and the horse
+            // left alone"); its values count.
             if category == crate::riding::BRIDLES {
                 continue;
             }
@@ -4076,7 +4105,8 @@ impl Makers {
 
     /// The model that a creature wears of the item `item` of the record `record` on its
     /// skeleton, in the first slot of its category; none for a ring, an amulet or the back's,
-    /// which a creature carries on no bone of its skeleton, or without a model.
+    /// which a creature carries on a bone of its own, not on its skeleton ([`ATTACHED`]), or
+    /// without a model.
     fn worn_model(&self, item: u32, record: &Item) -> Option<Held> {
         let category = category(record);
         if ATTACHED.contains(&category) {
@@ -4828,8 +4858,6 @@ impl Npcs {
         (class_of(&holding), held)
     }
 
-    /// The model and texture of the arrows of type `kind`, relative to the asset directory, and
-    /// their size, where their model was converted.
     /// The model, the texture and the size of the item of type `item` in a hand, if it has a
     /// model (a thrown dagger's, #2575).
     pub fn held_model(&self, item: u32) -> Option<(&str, Option<&str>, f32)> {
@@ -4837,6 +4865,8 @@ impl Npcs {
         Some((gear.model.as_deref()?, gear.texture.as_deref(), gear.size))
     }
 
+    /// The model and texture of the arrows of type `kind`, relative to the asset directory, and
+    /// their size, where their model was converted.
     pub fn arrow(&self, kind: u32) -> Option<(&str, Option<&str>, f32)> {
         self.arrows
             .get(&kind)
@@ -5017,7 +5047,8 @@ fn showcase(gear: &HashMap<u32, Gear>, slots: &[(u8, u32)]) -> (u8, Vec<Held>) {
 
 /// The items of `worn` that their wearer wears on its skeleton: those not in its hands
 /// (`holding`) whose categories it does not carry on a bone ([`ATTACHED`]), each with its model
-/// and texture (#1131), in the first slot that takes its category (#1307). A template's are the class's own cosmetic items, which its default
+/// and texture (#1131), in the first slot that takes its category (#1307). A template's are the
+/// class's own cosmetic items, which its default
 /// (`0x426580`) also gives: the Seraphim's hair, the Gladiator's belt, the Battle Mage's hood, the
 /// Vampiress's hair and the Dwarf's goggles (docs/re/equipment.md).
 fn worn_gear(gear: &HashMap<u32, Gear>, worn: &[Worn], holding: &[InHand]) -> Vec<Held> {
@@ -5144,7 +5175,7 @@ impl Npcs {
             return level;
         }
         let raise = if horse {
-            // The hero's skills stay at level 1 (`fight::skills`), an eighth of which is none.
+            // The hero's riding is not read here: 0, an eighth of which is none.
             fight::Raise::Horse { riding: 0 }
         } else {
             fight::Raise::Played(played)
@@ -5303,7 +5334,7 @@ fn place_index(
     (armoury, made): (Option<Armoury>, Option<Laying>),
     streamer: &mut Streamer,
 ) {
-    // A quest's item that the hero took lies no more (#1256), nor an object that a `DelNPC`
+    // An item that the hero took lies no more (#1256, #1296), nor an object that a `DelNPC`
     // removed (#2758).
     if npcs.taken.contains(&index) || npcs.removed.contains(&index) {
         return;
@@ -6206,9 +6237,11 @@ const PLAIN_LEVEL: u32 = 1;
 const PLAIN_HEALTH: u32 = 100;
 
 /// Spawns the crabs and fish of the waters of sector `at`, come in with no creatures kept
-/// (`0x4939F0`, `spawning::swimmers`): of its liquid materials, its area and whether it is a dungeon, the
-/// cells of the loaded sectors alone, each at level 1, peaceful, facing its way. A crab, which
-/// no `Creature.pak` record describes, the game has no template of, and makes none.
+/// (`0x4939F0`, `spawning::swimmers`): of its liquid materials, its area and whether it is a
+/// dungeon, the cells of the loaded sectors alone, each at level 1, peaceful, facing its way. A
+/// crab, which no `Creature.pak` record describes, is made of the record that [`Npcs::read`] makes
+/// its type (`opensacred_rules::fight::recordless`, #664); a type that the game has no template
+/// of is left out.
 fn swimmers(
     commands: &mut Commands,
     npcs: &mut Npcs,
@@ -6819,7 +6852,9 @@ fn raised(spot: Vec2, height: f32) -> Vec3 {
 
 /// Spawns the NPC or the object of `placement`: its model on its cell and level, an object's at
 /// its drawn position (`model_position`), turned to its heading, with its texture, its items, its
-/// shadow, its clips, its walk and its place in the others' way.
+/// shadow, its clips, its walk and its place in the others' way. An object that has no model (an
+/// effect, a piece of the Pong, a summoning, an element of the forge, a dwarves' magic, a prison,
+/// a sound's loop) is spawned as its own component at its point instead.
 fn spawn(
     commands: &mut Commands,
     placement: &Placement,
@@ -7391,7 +7426,6 @@ fn bones(hand: Hand, mount: Mount) -> (&'static str, Option<&'static str>, &'sta
     }
 }
 
-/// Marks an NPC's equipment as ready to attach once its scene has spawned.
 /// The equipment of the items `held`, their models and textures loading, to attach once its
 /// holder's scene is ready ([`equip`]).
 pub fn equipment(assets: &AssetServer, held: &[Held]) -> Equipment {
@@ -7435,6 +7469,7 @@ impl Equipment {
     }
 }
 
+/// Marks an NPC's equipment as ready to attach once its scene has spawned.
 pub fn equipment_ready(ready: On<WorldInstanceReady>, mut npcs: Query<&mut Equipment>) {
     if let Ok(mut equipment) = npcs.get_mut(ready.entity) {
         for item in &mut equipment.0 {
@@ -7630,14 +7665,16 @@ fn pose(gltf: &Gltf, nodes: &Assets<GltfNode>, name: &str) -> Option<Transform> 
 /// Gives the meshes of a placed model that has just spawned its item's texture, each glTF
 /// material copied once per texture with that texture as its base colour; a worn or held item's
 /// model of an effect of the kind 9 its first primitive drawn by its effect instead, which the
-/// type's texture never reaches (`0x406510`, `model_effects`; #1309); and the meshes of a model
-/// of an effect of the kind 1, a creature's, an object's or an item's, its effect and its glow
-/// under them (`models::Effect`, #1834). A model finds its effect by its model's file, a worn or
-/// held item's, a creature's, else its glTF's: an item on the ground, the interface's, a figure
-/// of the choice of the hero (#1875); the interface's, which the original draws orthographic
-/// (`0x40F270`), has the kinds 1 to 4 alone. At the options' detail 0 a model of a game has no
-/// effect as it spawns: the world's drawn plain by `cGranny::render` (`0x44A8C0`, #2352), the
-/// interface's by the orthographic draw's plain path (`0x40E9C0` at `0x40EA06`, #2377).
+/// type's texture never reaches (`0x406510`, `model_effects`; #1309); the meshes of a model of
+/// an effect of the kinds 1 to 4 or 8, a creature's, an object's or an item's, its effect under
+/// them, with the kind 1's glow (`models::Effect`, #1834, #1848, #1850); and those of a model of
+/// an effect of the kind 5 its pulse over them (`models::Pulse`, #1850). A model finds its effect
+/// by its model's file, a worn or held item's, a creature's, else its glTF's: an item on the
+/// ground, the interface's, a figure of the choice of the hero (#1875); the interface's, which
+/// the original draws orthographic (`0x40F270`), has the kinds 1 to 4 alone. At the options'
+/// detail 0 a model of a game has no effect as it spawns: the world's drawn plain by
+/// `cGranny::render` (`0x44A8C0`, #2352), the interface's by the orthographic draw's plain path
+/// (`0x40E9C0` at `0x40EA06`, #2377).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's query names the components it reads"
@@ -7685,7 +7722,8 @@ pub fn retexture(
     let effect = effects_of
         .map(|(effect, _)| effect)
         .filter(|&(kind, _)| !flat && kind == crate::model_effects::RUNNING_BANDS);
-    // The kinds 1 to 4's effect, and the kind 1's glow, under every mesh.
+    // The kinds 1 to 4's effect, and the kind 1's glow, under every mesh, and the kind 8's
+    // outside the interface (#1850).
     let under = effects_of
         .filter(|&((kind, _), _)| {
             crate::model_effects::under(kind) || (!flat && kind == crate::model_effects::HOLOGRAM)
@@ -7739,7 +7777,8 @@ pub fn retexture(
 }
 
 /// Gives each NPC's animation player its clips (`ClipNames`): the one it stands in, else its
-/// model's first, and its walk and run clips, which play while the NPC walks or runs.
+/// model's first, its walk and run clips, which play while the NPC walks or runs, and its
+/// flight, stance, talk, fun, attack and dying clips, each where its model has it (`Clips`).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -8149,7 +8188,9 @@ const STANCE_WITHIN: f32 = 550.0;
 /// Puts each walking NPC in its walk or run clip, and each standing NPC whose model has a fight
 /// stance into it while the hero's nearest hostile is within 550 units, wherever the NPC stands,
 /// and back into its idle otherwise, blending over 0.15 s (`0x5467A0`, which a standing creature
-/// asks at every update, `0x544890`; docs/re/motions.md, "The fight stance").
+/// asks at every update, `0x544890`; docs/re/motions.md, "The fight stance"). A standing one
+/// that talks ([`Talks`]) or plays its instrument ([`Plays`]) plays that clip first, a flyer
+/// aloft its flight's, and a horse under its rider its walk or its run as [`Steered`] tells.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -8250,10 +8291,12 @@ const CLIP_IN: Duration = Duration::from_millis(250);
 const DEFENDING_BACK: f32 = 0.2;
 
 /// Plays each creature's scripts' clip ([`ScriptClip`]): its slot's clip of its model, added to
-/// its graph the first time, blended in over 0.25 s at its attack speed's hundredth (`0x584FE0`;
-/// 1.0 for a creature of none), looped its count of times; it ends at the clip's end, or 0.2 s
-/// before it for the slots 53 to 65 (`0x545204`), and the creature stands again (`stance`). A
-/// slot its model lacks plays nothing.
+/// its graph the first time, blended in over 0.25 s at its own rate, else its attack speed's
+/// hundredth (`0x584FE0`; 1.0 for a creature of none), looped its count of times; it ends at the
+/// clip's end, or 0.2 s before it for the slots 53 to 65 (`0x545204`), and the creature stands
+/// again (`stance`). As the clip passes their shares, a cast's act is marked ([`ClipActs`]) and
+/// an art's hits are sent ([`ArtHit`]). A slot its model lacks plays nothing, a cast of one
+/// acting at once.
 fn script_clips(
     mut commands: Commands,
     data: Res<Npcs>,
@@ -8461,9 +8504,11 @@ impl Npcs {
     /// are in the world ([`place`]), else as they come in, each `CreateNPC` of the type that its
     /// sector's area's `RegionChange` list gave it as it ran (`area` the area of a sector, #1063);
     /// their `RegionChange`s on the creatures kept away from the world that they reach, in order
-    /// among them (#1064, [`Self::change_kept`]); their `SetNPCState`s on the creatures they make.
-    /// How many they placed, and the `RegionChange`s for the creatures in the world
-    /// ([`region_changes`]).
+    /// among them (#1064, [`Self::change_kept`]); their `SetNPCState`s and `EquipNPC`s on the
+    /// creatures they make ([`set_states`], #2752), and their `EquipNPC`s on those that earlier
+    /// records made ([`Self::equip_made`], #2756). How many they placed, each placement made,
+    /// what those `EquipNPC`s changed, and the `RegionChange`s for the creatures in the world
+    /// ([`region_changes`]; [`Added`]).
     pub fn add(
         &mut self,
         records: &[Record],
@@ -8563,7 +8608,8 @@ impl Npcs {
     /// [`script_records`] placed them on the placements (their creatures and objects, places,
     /// objects' triggers, icons, states, groups and moves), none in the world yet, their
     /// creatures placed as their sectors come in (`area` the area of a sector); then the triggers
-    /// open, marked and locked, the quests' items taken and the containers emptied as they stood.
+    /// open, marked and locked, the quests' items taken and the containers emptied as they stood,
+    /// and the levels that the lying items were made at (#1125).
     pub fn resume(&mut self, saved: Saved, area: impl Fn((u32, u32)) -> Option<u8>) {
         for records in &saved.records {
             let born = match self.add(records, &area) {
@@ -8698,7 +8744,10 @@ impl Npcs {
     /// the creatures in the world and the hero ([`script_records`]), those between a
     /// `SetAnimMode` or a `SetCinemaMode` and a `SetPlayMode` queued (#1220; a `SetPlayMode`
     /// naming a creature, which ends the mode as that creature's queue reaches it, ends it at
-    /// once); a `SetCinemaMode` stops the hero first (#1280).
+    /// once); a `SetCinemaMode` stops the hero first (#1280). With them, in the same order, what
+    /// the other records do to the creatures they name ([`Act`]): an `Attack`'s teleport or cast
+    /// ([`phased`], [`cast_by`]), a `PlayAnim` and the other records of [`played`], and under the
+    /// mode a `CreateObj` made at a creature's turn ([`maker`]).
     fn moves(&mut self, records: &[Record], now: f64) -> Vec<Moved> {
         let mut moves = Vec::new();
         let mut queued = false;
@@ -8906,7 +8955,8 @@ impl Npcs {
     /// What the play's `SetGroupState`s and `DelNPC`s do (#1021): each given to the placements
     /// of its group or name here, but those that the records after it made (`born`, [`Added`]),
     /// a removal keeping them from being placed again, an object's of its name too (#2758), and
-    /// returned, in order, for the creatures and the objects in the world ([`script_records`]). Quest 45's `Init45` removes Prince Valor and its
+    /// returned, in order, for the creatures and the objects in the world ([`script_records`]).
+    /// Quest 45's `Init45` removes Prince Valor and its
     /// `QIS_OnEnter45` makes him again at once, who stands so (#2448).
     fn regroup(&mut self, records: &[Record], born: &[(usize, usize)]) -> Vec<Regrouped> {
         let mut regrouped = Vec::new();
@@ -9197,9 +9247,9 @@ fn door_clips(
     }
 }
 
-/// Opens or closes each door that `ai` swings, playing its clip once, and its sound of opening
-/// or closing before it, at the door, at a rate's factor of 0.45 and a tenth's roll (`0x44BCD0`,
-/// `0x695800`; #1166).
+/// Opens or closes each door that `ai`, the hero or the scripts swing ([`Swing`]), playing its
+/// clip once, and its sound of opening or closing before it, at the door, at a rate's factor of
+/// 0.45 and a tenth's roll (`0x44BCD0`, `0x695800`; #1166).
 fn swing(
     mut commands: Commands,
     mut doors: Query<(Entity, &mut Door, &Swing)>,
@@ -9581,7 +9631,8 @@ enum Queued {
     /// A clip of the slot `slot` (`PlayAnim`, the kind 3): waits while a one-off clip of the
     /// creature plays, then starts and is done (#1277).
     Clip { slot: u16 },
-    /// Another record's turn, of its kind, done at once (#1277; their own steps #1279 to #1281).
+    /// Another record's turn, of its kind, done at once (#1277): an `Attack` that neither
+    /// teleports nor casts ([`QUEUED_OTHERS`], #1830).
     Other(u16),
     /// A `PlaySound`'s sound of the id, played once in the middle at its sample's rate and the
     /// volume 1 (the step `0x59ED41`, `playSFX` `0x693510`), done at once (#1826).
@@ -9836,9 +9887,9 @@ const QUEUED_MOVED: f32 = 1.0;
 /// (`0x5375C0` calling `0x59A840`): a walk runs to its target, waiting while the creature fights
 /// or moves, and ends once it stands within 40 of the target along each axis on the walk's
 /// level, or once it was ordered more than five times without the creature moving; a teleport
-/// puts the creature there at once. An entry done with more waiting leaves the creature's fight,
-/// unless it casts (`0x59F34A`, the AI's state 0 but in the states 6 and 11; #1874). The queue
-/// goes once empty.
+/// puts the creature there at once; the other steps as [`Queued`] tells each. An entry done with
+/// more waiting leaves the creature's fight, unless it casts (`0x59F34A`, the AI's state 0 but
+/// in the states 6 and 11; #1874). The queue goes once empty.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -10530,8 +10581,7 @@ fn morph(
 /// What an `ActObj` does to the trigger of the object `object`'s door, as a `SetObjState` would
 /// (`0x4A4310`, the step `0x59E9D5`; #1827): opening, the trigger's bar (`0x8000`) cleared and its
 /// open bit set, the door swinging open (the object's slot 170); closing, the open bit cleared, the
-/// door swinging shut (171). A mount mounted or left (`0x4266F0`) is not followed: the game has no
-/// mounts yet (#1822).
+/// door swinging shut (171). A mount mounted or left (`0x4266F0`) is not followed.
 fn act_on(object: &str, open: bool) -> crate::scripts::ObjState {
     crate::scripts::ObjState {
         name: object.to_owned(),
@@ -10614,7 +10664,9 @@ fn partikel_turn(
 /// from where it stands at each tick, [`hero::Body::steer`]), and ends once it stands
 /// within 40 of the target along each axis on the walk's level, or once it was ordered more than
 /// five times without the hero moving; a teleport puts it there as the scripts' `Teleport` puts a
-/// player. The Sacred campaign queues no other step for the hero. The queue goes once empty.
+/// player; a `PlaySound`'s sound, a `Partikel`'s effect and an `ActObj`'s door are done at their
+/// turns as a creature's ([`take_steps`]). The Sacred campaign queues no other step for the hero.
+/// The queue goes once empty.
 fn take_hero_steps(
     mut commands: Commands,
     (tick, mut plays, mut states): (
@@ -10701,7 +10753,11 @@ fn take_hero_steps(
 }
 
 /// Places the records of the world that the scripts ran during the play (#1014,
-/// [`Npcs::add`]).
+/// [`Npcs::add`]), and carries out on the creatures and the objects in the world what their
+/// other records do to them: their `EquipNPC`s, their `SetNPCState`s ([`Npcs::restate`]), their
+/// `SetGroupState`s and `DelNPC`s ([`Npcs::regroup`]) and their moves ([`Npcs::moves`]), at once
+/// or as steps of the creatures' queues under the anim mode ([`ScriptQueue`]); their `Morph`s
+/// and their `Attack`s without an art it hands on ([`Morphs`], [`ScriptAttacks`]).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -11590,7 +11646,9 @@ fn put(
 pub struct Dies {
     pub choice: u32,
     played: bool,
-    /// Whether a creature killed it, not the hero: it drops nothing (`0x533BA8`, #630).
+    /// Whether a creature killed it, not the hero: it drops nothing (`0x533BA8`, #630). The
+    /// original drops where the killer is in the hero's list `+0x39C` (`0x4FC900`), which this
+    /// does not tell apart (`drops`).
     pub by_creature: bool,
     /// Whether anyone killed it: a `SetHP` of 0, a summoned follower replaced or a lifetime's
     /// end kills nobody's, which the scripts' kills do not count (`0x534F60`, #1021).
@@ -11661,8 +11719,9 @@ pub struct Corpse {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct RisesAgain;
 
-/// What a dead creature that may rise again ([`RisesAgain`]) laid down as it died, which its
-/// rising takes up again: its mind and its place in the way, and how long it has lain, in seconds.
+/// What a dead creature that may rise again ([`RisesAgain`]) or that the scripts name, which a
+/// `SetHP` or its queue may lift ([`lift`], #2477), laid down as it died, which its rising takes
+/// up again: its mind and its place in the way, and how long it has lain, in seconds.
 #[derive(Component, Clone, Debug)]
 pub struct Stashed {
     pub mind: ai::Mind,
@@ -11672,7 +11731,7 @@ pub struct Stashed {
 
 /// Lays each dying NPC down: its dying clip once, its walk, its strike, its mind and its place in
 /// the way gone, what it was kept ([`Corpse`]), and its mind and place kept aside where it may
-/// rise again ([`Stashed`]).
+/// rise again or the scripts name it ([`Stashed`]).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -11799,11 +11858,11 @@ fn hits_within(size: u32, other: u32) -> f32 {
 }
 
 /// Plays each striking NPC's attack once, and at the first tick of the world past the clip's
-/// fractions (0.5 for a first of 0; a second when it is above 0), or at its end, sends a hit of
-/// its share when the target is then within reach, as the action steps at the ticks alone (#617);
-/// a walk ends the strike (`0x4E4CF0`, `0x4EA1F0`). A shot plays its clip at its attack speed
-/// times its chain, and at the first tick past the clip's first fraction, or at its end, looses
-/// its arrow (`arrows::Loose`, `0x4DD90E`).
+/// fractions (0.5 for a first of 0; a second when it is above 0, or with two weapons whatever
+/// the clip, #2748), or at its end, sends a hit of its share when the target is then within
+/// reach, as the action steps at the ticks alone (#617); a walk ends the strike (`0x4E4CF0`,
+/// `0x4EA1F0`). A shot plays its clip at its attack speed times its chain, and at the first tick
+/// past the clip's first fraction, or at its end, looses its arrow (`arrows::Loose`, `0x4DD90E`).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -12559,8 +12618,8 @@ impl Rearms {
 /// model's place, the item with its values ([`crate::drops::throw_disarmed`]); a living one's
 /// values are made anew of what it holds then, of which it keeps a share
 /// (`opensacred_rules::fight::disarmed`), a dying one's model alone goes. Its items of the slots
-/// 1 and 0, which the original takes where its hands are empty, are not followed: no NPC of the
-/// game holds an item in them.
+/// 1 and 0, which the original takes where its hands are empty, are not followed: what it wears
+/// stays on it.
 pub(crate) fn disarm(world: &mut bevy::prelude::World, entity: Entity) {
     if world.get::<crate::followers::Follower>(entity).is_some() {
         return;
@@ -12614,10 +12673,11 @@ pub(crate) fn disarm(world: &mut bevy::prelude::World, entity: Entity) {
 }
 
 /// Changes the weapons of each NPC that rearms ([`Rearms`]): the items it puts away leave its
-/// hands and their models go, the new item, made at its level (`0x5D5080`), goes into its hand
-/// with its model, and its attack, defence, damage and resistances, its hits' share, its clips by
-/// the class of what it holds (`motions::Slots::stance`, `attacks`) and whether it fights at range
-/// are made anew.
+/// hands and their models go, the new item, made at its level (`0x5D5080`) unless it comes with
+/// its values or was held before, goes into its hand with its model, what it puts on that goes
+/// in no hand is worn, and its attack, defence, damage and resistances, its hits' share, its
+/// clips by the class of what it holds (`motions::Slots::stance`, `attacks`) and whether it
+/// fights at range are made anew, a disarmed one keeping a share of its values alone.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -12815,7 +12875,8 @@ fn instrument(
 #[derive(Component)]
 pub struct Talks;
 
-/// Notes the quests' items that the hero took, which their sectors place no more (#1256).
+/// Notes the quests' items and the scripts' other lying items that the hero took, which their
+/// sectors place no more (#1256, #1296).
 fn taken_items(
     (mut taken, mut items): (
         MessageReader<crate::pickup::TakenForQuest>,

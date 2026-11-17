@@ -15,11 +15,12 @@
 //! its kind (`opensacred_rules::potions::Drink`, #1353): a healing potion, where the drinker's
 //! health is below its most, gives back its share of the most health; a purple or a blue one gives
 //! the drinker its effect 33, one alone of its whole value; a green one cures its effects 30; a
-//! yellow one waits for the combos (#1090). Each is then used up, with the sound of an item used
-//! up (`0x5D8000`); a healing potion at full health is not.
+//! yellow one sets every combo's regeneration to its cocktail's factor of the combo's time
+//! (#1531). Each is then used up, with the sound of an item used up (`0x5D8000`); a healing
+//! potion at full health is not.
 //!
-//! The slots' sparkles are `sparkles`' (#1272). Not followed: the hero's horse healed with it; the
-//! slots' tooltips (#1273).
+//! The slots' sparkles are `sparkles`' (#1272), their tooltips `bar_tips`' (#1684). Not followed:
+//! the hero's horse healed with it.
 
 use bevy::input::ButtonState;
 use bevy::input::keyboard::KeyboardInput;

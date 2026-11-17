@@ -213,7 +213,7 @@ const EXIT: u8 = 10;
 /// The low nibble of the ground byte of the cells that may not be walked on but that an arrow
 /// flies over: the ponds, the fences and the walls (`0x5BAA60`, docs/re/fight.md, "The archers").
 const FLOWN_OVER: u8 = 2;
-/// The natures of the two liquids, `WATERA` and `WATERB`, and of a bridge (docs/02 §5.2).
+/// The natures of the two liquids, `WATERA` and `WATERB` (docs/02 §5.2).
 const LIQUIDS: [u8; 2] = [9, 10];
 /// The natures' names, by the high nibble of the ground byte, as the client's debug line names
 /// them (`0x6CD702`, docs/02 §5.2).
@@ -235,6 +235,7 @@ pub const NATURES: [&str; 16] = [
     "IND-WOOD",
     "KIES",
 ];
+/// The nature of a bridge, `BRIDGE` (docs/02 §5.2).
 const BRIDGE: u8 = 7;
 
 /// Units of the models' height a step of a cell's second corner heights (`+0x18`) is: the client
@@ -301,7 +302,7 @@ struct LoadedCell {
 /// Whether a cell of the ground or of an inside layer may be walked on, by its flags and ground
 /// byte, by the client's test (`0x636C10`, docs/re/movement.md): not when the low nibble of its
 /// ground byte is 1 or 2, or its flags have bit 3, but a door (flag bit 2), which its trigger's
-/// state opens (**hypothesis**: the game has no states, and the doors are open). A building is
+/// state opens (the cells of the closed triggers are [`Heights::occupy`]'s). A building is
 /// its mass on the ground, 1 in the low nibble, and its inside a layer of its own.
 fn walkable(flags: u8, ground: u8) -> bool {
     flags & DOOR != 0 || !(matches!(ground & 0xF, 1 | 2) || flags & 0x8 != 0)
@@ -602,9 +603,9 @@ impl Heights {
 
     /// Marks a cell at a level as closed to every creature: a cell that a start script's
     /// `TriggerPatch` puts under a closed trigger, the chests' and the barrels' among them
-    /// (`0x4EBCA0`, docs/re/movement.md, "The chests' cells"), which the ways go round and the
-    /// steps stop at. It stays closed while the game runs: no script of the start opens them,
-    /// and a sector that comes in again closes them again.
+    /// (`0x4EBCA0`, docs/re/movement.md, "The objects in the way"), which the ways go round and
+    /// the steps stop at. It stays closed until its trigger opens ([`Self::free`]), and a sector
+    /// that comes in again closes the cells of the triggers still closed again.
     pub fn occupy(&mut self, cell: (i32, i32), level: Level) {
         self.occupied.insert((cell, level));
     }
@@ -1022,7 +1023,7 @@ impl Heights {
     }
 
     /// The nature of the ground's cell at world `(x, z)` (its ground byte's high nibble,
-    /// `+0x1F`), which the gust's dust takes its colour by (`fx_twisters`); `None` outside the
+    /// `+0x1F`), which the gust's dust takes its colour by (`twisters`); `None` outside the
     /// loaded sectors.
     pub fn nature(&self, x: f32, z: f32) -> Option<u8> {
         self.cell(x, z).map(|(cell, _, _)| cell.nature)

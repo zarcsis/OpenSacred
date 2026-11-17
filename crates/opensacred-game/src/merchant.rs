@@ -481,8 +481,8 @@ fn select(
     }
 }
 
-/// The item of the page that the window shows under the pointer, with where its grid starts:
-/// its key, its place and its item, for the tooltip.
+/// The item of the page that the window shows under the pointer: its key, its place and its
+/// item, for the tooltip, which sets it from where the grid starts ([`GRID`]).
 pub(crate) fn hovered(
     (merchant, showing, wares): (Option<&Merchant>, &Showing, &Wares),
     (pointer, ui_scale, windows): (&Pointer, &UiScale, &Query<&Window>),

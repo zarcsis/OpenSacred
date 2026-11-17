@@ -241,7 +241,7 @@ impl Material for ShadowMaterial {
     }
 }
 
-/// Every model's root by the slot its root holds of the [`Anchors`], for the shader by its
+/// Every caster's root by the slot its root holds of the [`Anchors`], for the shader by its
 /// meshes' tags: the height of the plane of its shadow.
 #[derive(Resource)]
 pub struct Grounds {

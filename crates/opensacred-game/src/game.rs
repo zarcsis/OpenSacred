@@ -67,7 +67,7 @@ impl Class {
         }
     }
 
-    /// The hero's script tree (`netscript/<tree>.nsc`), whose start script places the hero and
+    /// The hero's script tree (`netscript/<tree>/`), whose start script places the hero and
     /// whose scripts the NPCs and the objects (`npcs`).
     fn tree(self) -> &'static str {
         match self {
@@ -92,7 +92,7 @@ impl Class {
     /// The hero's type: its `Creature.pak` record, whose id is also the `items.pak` slot of the
     /// class's own model (1 `SERAPHIM.GRN` … 9 `Daemonia.grn`), and the type of the class's
     /// template (`heroes.ron`; docs/02 §6.2): the Vampiress's by day, 6, her night's form 7 the
-    /// art 1023's (#758).
+    /// art 1022's (#758).
     pub fn creature(self) -> u32 {
         match self {
             Class::Seraphim => 1,
@@ -185,7 +185,7 @@ impl Class {
 }
 
 /// What a game starts from: the hero's class and the options that belong to a game, on the
-/// command line and, later, in the console's `new-game`.
+/// command line and in the command `new-game`.
 #[derive(Args, Clone, Debug, Default)]
 pub struct NewGame {
     /// The hero: its model, clips and footsteps, which the options below override (the
@@ -218,7 +218,7 @@ pub struct NewGame {
     /// The hero's creature record in Creature.pak, for its speeds (by default the class's own)
     #[arg(long)]
     pub creature: Option<u32>,
-    /// The script tree (`netscript/<tree>.nsc`) whose start script places the hero and whose
+    /// The script tree (`netscript/<tree>/`) whose start script places the hero and whose
     /// scripts the NPCs and the objects; by default the class's
     #[arg(long)]
     pub tree: Option<String>,
@@ -229,8 +229,8 @@ pub struct NewGame {
     #[arg(long)]
     pub no_music: bool,
     /// Leave the new game's first window and the tutorial's tips open, which the command
-    /// `new-game` otherwise closes by OK and No more Tips, as the original's driver does (#1343);
-    /// the menu's game and the command line's leave them open
+    /// `new-game` and a game that the command line names otherwise close by OK and No more Tips,
+    /// as the original's driver does (#1343); the menu's game leaves them open
     #[arg(long)]
     pub leave_open: bool,
     /// Send the hero this many cells along X,Y (screen right-down, left-down) at the start
@@ -281,7 +281,9 @@ fn parse_difficulty(text: &str) -> Result<opensacred_rules::drops::Difficulty, S
 
 impl NewGame {
     /// Whether these options name a game rather than leave it to the menu: any but the zoom and
-    /// the music, which are about how it shows.
+    /// the music, which are about how it shows, the first windows left open, and the name, the
+    /// difficulty and a saved or an exported hero's slot, which a game of the menus takes from
+    /// the choice of the hero (`choice`).
     pub fn named(&self) -> bool {
         self.class.is_some()
             || self.sector.is_some()

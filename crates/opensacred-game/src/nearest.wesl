@@ -32,7 +32,7 @@ fn tolerance() -> f32 {
 
 /// Whether the prepass's depth `prepass` over a sample is a model's texel, nearer than `own`, a
 /// model's own depth there, by more than `slack`. A depth beyond the models' part is not a
-/// model's: Bevy's own material, the bolts' and the souls' spheres, writes its true depth.
+/// model's: Bevy's own material writes its true depth.
 fn nearer(prepass: f32, own: f32, slack: f32) -> bool {
     return prepass > own + slack && prepass <= PART;
 }

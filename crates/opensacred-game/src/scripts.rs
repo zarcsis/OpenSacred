@@ -32,6 +32,18 @@
 //! `CreateNPC`s of the area that carry `0x6B` of 0 take (`npcs::AREA_TURN`, [`ScriptAreaTypes`],
 //! #1063, #1102).
 //!
+//! What a run did beyond the state goes on to the modules that carry it out ([`Effects`]): a
+//! dialogue's window ([`Window`], [`speak`], [`answer`]; #1028), the talks of `Popup` and
+//! `NPC_TalkTo` and the texts and movies of `InfoPlayer` ([`Popups`], [`Infos`]), the music and
+//! the lines by name ([`ScriptSound`], [`ScriptLine`]), the `Partikel`s ([`Partikel`]), the
+//! hero's home ([`HeroHome`]), the side quests won, the autosaves and `GameActive`. A creature's
+//! death runs its death's function and counts on `SetOnKill` (#656, #1021), an item picked up
+//! counts on `SetOnCollect`, and an item taken or used runs its `Take:` or `Use:` function
+//! (#1256, #1272). The anim and the cinema modes hold from one run to the next ([`Mode`], #1892),
+//! and a `CallFunktion` that waits its turn in a creature's queue runs as `npcs` tells it due
+//! ([`Due`], #1278). The quest book, the compass, the world map and the hidden stashes read the
+//! state through [`Live`].
+//!
 //! A save keeps the scripts as they stand ([`Saved`], #1958; the original's `sdk_SAVELOAD_SERIAL`,
 //! docs/re/saves.md): a load runs the saved game's start again, of its seed, for the tree and the
 //! placements it made, and its state, its functions done and its `rand()` are the save's
@@ -1061,7 +1073,7 @@ impl Live {
     /// The hero steps onto the global cell `cell` on the layer `layer` (`0x5941A0`, at
     /// `0x597E2C`): the base trigger that holds it runs its functions in order, each of a quest
     /// only while the quest is set up and each of a name written again as often (`0x46BA90`);
-    /// the teleports of the hero they made, in order.
+    /// what they did to the world, the hero's teleports among it.
     pub fn step_on(&mut self, cell: (i32, i32), layer: u8) -> Effects {
         let Some(trigger) = self.state.triggers.at(cell, layer).map(str::to_owned) else {
             return Effects::default();
@@ -1111,8 +1123,9 @@ fn region_entries(entries: usize) -> Vec<usize> {
     }
 }
 
-/// The records of the function `function` of the tree `tree`, the `entry`-th of its name, as it
-/// runs, the scripts' state `state` with it; none where it fails, which the log tells.
+/// The records of the function `function` of the tree of `of`, the `entry`-th of its name, as it
+/// runs, the scripts' state `state` with it; those before its failure where it fails, which the
+/// log tells.
 fn records(
     runtime: &Runtime,
     of: (&str, &HashSet<u32>),
@@ -1789,7 +1802,8 @@ impl Host for Recorder<'_> {
                 Handled::Done
             }
             "teleport" => {
-                // The hero, named `hero` or not at all; another creature is not followed yet.
+                // The hero, named `hero` or not at all; another creature's is `npcs`', by its
+                // record.
                 let hero = tags
                     .texts("_01")
                     .first()
@@ -1978,8 +1992,6 @@ impl Host for Recorder<'_> {
                 }
                 Handled::Done
             }
-            // At once, the anim mode on or not: no record of the Sacred campaign names the second
-            // creature whose queue would take it (`0x4A8E29`).
             // At once, but under the anim mode one of a second name, which waits its turn in that
             // one's queue (the kind 13), `npcs` making it at once where it finds none
             // (`0x4A8BB0`, #1890).
@@ -2253,11 +2265,12 @@ impl Tags<'_> {
     /// type, by the name of its script, `TYPE_NPC_GLADIATOR`, which the quests' `OnEnter` ask
     /// before they place a class's own NPCs); `0x3A` the hero holding the named object in its
     /// list of the main quest's items (#1257), never another creature; `0x96` to `0x9A` the game
-    /// on bronze to niobium, and `0x9B` and `0x9C` the hero's quest bit of the number set and clear, the
-    /// variable `HeroQBit` that `HeroQBit`'s records set and clear (the original keeps it per
-    /// difficulty with the hero, of which a game plays one; #1125); `0x40` the named creature
-    /// among `party`, the hero's followers and its horse, not known at the start (#2440); a test
-    /// of any other tag has no meaning yet.
+    /// on bronze to niobium, and `0x9B` and `0x9C` the hero's quest bit of the number set and
+    /// clear, the variable `HeroQBit` that `HeroQBit`'s records set and clear (the original keeps
+    /// it per difficulty with the hero, of which a game plays one; #1125); `0x40` the named
+    /// creature among `party`, the hero's followers and its horse, not known at the start
+    /// (#2440); `0xA0` a game of one player, which holds, and `0x91` a network game, which does
+    /// not (`0x182EBEC`, #1946); a test of any other tag has no meaning yet.
     fn test(
         &self,
         tree: &str,
@@ -2422,7 +2435,8 @@ fn expanded_tags(
 }
 
 /// A name as the engine expands it as it runs: each `+Var(NAME)` the value of the variable `NAME`
-/// (`grabstein_dialog_+Var(grvarNr)`, docs/02 §7.6; `opensacred_scripts::expand`).
+/// (`grabstein_dialog_+Var(grvarNr)`, docs/re/netscript.md, "Operand reader `FUN_00472BC0`";
+/// `opensacred_scripts::expand`).
 fn expand(name: &str, variables: &quests::Variables) -> String {
     opensacred_scripts::expand(name, |variable| variables.value(variable))
 }
@@ -2854,10 +2868,10 @@ fn party(
 
 /// Runs the death's function of each creature that dies (the AI's state 9, `0x53E7C0`, and the
 /// death's event at `0x52F769`; #656): the first of its list's that is no item's, the others of
-/// its kind taken out ([`quests::DeathFunctions::take`]), by its name ([`Live::die`]), after its
-/// drops and its killer's experience, the hero put where it teleports it. A creature whose
-/// function gives it health back, its `SetHP` above 0, rises at that health (`0x53E460`) before
-/// it is laid down (`npcs::die`).
+/// its kind taken out ([`quests::DeathFunctions::take`]), by its name ([`Live::run_named`]),
+/// after its drops and its killer's experience, the hero put where it teleports it. A creature
+/// whose function gives it health back, its `SetHP` above 0, rises at that health (`0x53E460`)
+/// before it is laid down (`npcs::die`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -4720,7 +4734,7 @@ mod tests {
                 heading: Some(45),
             }]
         );
-        // Quest 201's function waits for its quest; another creature's teleport is not followed.
+        // Quest 201's function waits for its quest; another creature's teleport is not the hero's.
         assert!(live.step_on((3205, 2910), 0).teleports.is_empty());
         assert_eq!(live.state.variables.get("wolves"), None);
         live.state.quests.set_up(201, &mut |_| true);

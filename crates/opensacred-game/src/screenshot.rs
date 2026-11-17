@@ -1,5 +1,5 @@
 //! `--screenshot`: once the hero animates and every sector near it is in place, render a few
-//! more frames, save one to a PNG and exit. The first step toward the screenshot tests of M2.
+//! more frames, save one to a PNG and exit.
 //! The command `screenshot` saves the next frame at once ([`save`]), and `record` records as
 //! `--record` does, going on after it (`command`). A recording into a path ending in `.mkv` goes
 //! into one Matroska file through FFmpeg, its frames' times with them (`mkv`, #1226).
@@ -110,7 +110,7 @@ pub struct Recording {
     waits: bool,
     /// Frames rendered since the scene was ready.
     rendered: u32,
-    /// Frames saved, which the last one's capture counts down.
+    /// Frames saved, which each one's capture adds to: the recording ends with the last's.
     saved: std::sync::Arc<std::sync::atomic::AtomicU32>,
     /// Whether the process ends with the recording.
     exit: bool,

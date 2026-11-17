@@ -3,15 +3,22 @@
 //! the item's point and 25 along both axes, as the AI's state 1 walks a creature to an item
 //! (`0x53A170`); standing, within a hero's reach of 100 and with a straight line of walkable
 //! cells to it (`0x4FCC80`), the hero turns to it and plays its pick-up, taking it once half the
-//! clip has played (#1219), else it gives up. Gold goes into the hero's purse (`0x57FD80`), an
-//! item that the hero may use into the first empty slot of its class that takes it (#1601), and
-//! any other item into its pack; the hands not yet (#1608).
+//! clip has played (#1219), else it gives up. Gold goes into the hero's purse (`0x57FD80`), a
+//! weapon that the hero may use into its hand, a half of the selected weapon set, where both
+//! halves are empty (#1608), another item that it may use into the first empty slot of its class
+//! that takes it (#1601), and any other item into its pack, or onto the empty cursor while the
+//! items' page shows (#1269).
 //!
 //! The bar's Collect button and the key A send the hero collecting (the creature event `0x113`,
-//! the AI's state 12 without a target, `0x4EC560`; #1408, #1591): it walks to the first item about it that it may carry,
+//! the AI's state 12 without a target, `0x4EC560`; #1408, #1591): it walks to the first item about
+//! it that it may carry,
 //! by square rings of cells out to 19, plays its pick-up there and takes every item on the 3 × 3
 //! cells about it at the clip's half, and looks again as the clip ends, until nothing is left;
 //! the items still in flight among them, out of the air (#1646).
+//!
+//! What the hero carries is kept here too ([`Pack`]): its gold, the backpack's items and their
+//! grid, the main quest's items, the item on the cursor, the items worn, the books read and the
+//! laid items' `Use:` functions, and what a save keeps of them ([`Kept`]).
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -111,7 +118,7 @@ const LOOKS_AGAIN: f32 = 0.2;
 const SAME_LAYER: f32 = 20.0;
 
 /// The hero collecting the items about it (the AI's state 12 without a target, `0x4EC560`), as the
-/// bar's Collect button or the command `collect` sends it ([`collect`]).
+/// bar's Collect button, the key A or the command `collect` sends it ([`collect`]).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Collects(Collecting);
 
@@ -1010,8 +1017,9 @@ fn play_pickup(
 #[derive(Component)]
 pub(crate) struct Kneels;
 
-/// Plays each [`Kneels`] hero's pick-up as [`take`] plays it, with nothing to take: unless it
-/// moves or picks something up already, it stops and plays the clip, which [`picking`] ends.
+/// Plays each [`Kneels`] hero's pick-up as [`take`] plays it, with nothing to take: it stops where
+/// it stands and plays the clip, which [`picking`] ends; one that plays a pick-up already waits
+/// for that one's end.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -1174,7 +1182,8 @@ pub fn start_collecting(world: &mut World) -> Result<String, String> {
 /// without a clip, and looks again [`LOOKS_AGAIN`] before the clip's end; nothing about it at
 /// the half, it goes idle. A fight, an art or another clip in its pick-up's place ends it. The
 /// items still in flight count as those at rest: neither the state 12 nor `0x558080` asks after
-/// the flight (`+0x14` bit `0x100000`, which `0x558080` clears as it takes the item; #1646).
+/// the flight (`+0x14` bit `0x100000`, which `0x558080` clears as it takes the item; #1646). It
+/// neither seeks nor takes an item that the options' collect mode leaves ([`Taking::passes`]).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments"

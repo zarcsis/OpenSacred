@@ -30,8 +30,8 @@ pub struct Due(pub u32);
 const POOL: usize = 8;
 /// A flier's life, in seconds (`+0x28`).
 const LIFE: f32 = 20.0;
-/// How far behind the camera and ahead of it along the world's x a flier starts or ends, and how
-/// far to either side along y, in world units.
+/// How far behind the camera and ahead of it along the world's x a flier starts or ends, and the
+/// span along y that it starts and ends in, half of it to either side, in world units.
 const BEHIND: f32 = 1_124.0;
 const AHEAD: f32 = 1_024.0;
 const SIDE: u32 = 1_536;

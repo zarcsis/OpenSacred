@@ -9,15 +9,18 @@
 //! item onto the cursor, where the hero may use it, else the hero refuses it by its line
 //! (`NOTMYITEM`, `NOTMYITEMLVL`); the right button on a worn item puts it into the grid at its
 //! first fit, and on an item of the grid puts it on in the first empty slot that takes it, else
-//! the first, the old item into the cell it left. The worn items are their 3D models centred in
-//! their frames, drawn by a camera of their own as the grid's are (`backpack`).
+//! the first, the old item into the cell it left; a bridle of the grid, which no slot takes, goes
+//! onto the hero's own horse (`riding::PutBridle`, #2316). The worn items are their 3D models
+//! centred in their frames, drawn by a camera of their own as the grid's are (`backpack`).
 //!
 //! The tooltips (#1704, `0x6B7700`): an empty slot's its control's text ([`tips`]), a worn
 //! item's its lines at the frame's right (`tooltip`).
 //!
 //! The hero's fight takes the worn items' values (#1290, `0x5796A0`): its attack, defence,
 //! damage, resistances and regeneration made anew with them, its effects, at its level, as its
-//! level-up makes them.
+//! level-up makes them. With them go the bonuses of the items in their sockets (#1661), the
+//! ridden horse's bridle (#2316) and what the sets of the pieces worn, held in the hands and
+//! carried give (#1727, #1808; `opensacred_rules::set_bonuses`).
 //!
 //! The hero wears them (#1307, `GrannyWearSequence`): their models on its skeleton, the wings on
 //! its back, each taking off its template's item in its slot, a class's default, which comes back
@@ -565,8 +568,8 @@ fn refit(
         .collect();
     carried.sort_unstable();
     carried.dedup();
-    // The worn items by their keys and their sockets filled, the hands' items and the statues
-    // carried, which a change of any makes anew.
+    // The worn items by their keys and their sockets filled, the hands' items, the statues
+    // carried, the ridden horse's bridle and the ride itself, which a change of any makes anew.
     let worn: Vec<(u32, usize)> = pack
         .worn
         .iter()

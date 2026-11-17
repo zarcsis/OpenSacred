@@ -10,10 +10,12 @@
 //! spells page selected; a press on the frame gives it back. A left press on a step swaps its art
 //! with the art on the cursor, at the hero's level of it with its bonus, a right press empties
 //! it. Each changed step's price shows under it, the total under the button, in red where the
-//! gold falls short, and the count of the steps that hold an art where more than one does; the
-//! button lights while a step holds an art and the cost is the gold or less, and makes the combo
-//! only where the gold is above the cost (`0x6D26D0`, `0x6D22A0`): the combo set, the gold taken,
-//! the page cleared and the combos page selected (`opensacred_rules::combos`).
+//! gold is not above the cost, and the count of the steps that hold an art where more than one
+//! does; the button lights while a step holds an art and the gold is above the cost, where its
+//! press makes the combo (`0x6D22A0`; the original's lights with the gold equal to the cost too,
+//! `0x6D26D0`: docs/decisions/arts.md, "Combat master's button lit where a press makes the
+//! combo"): the combo set, the gold taken, the page cleared and the combos page selected
+//! (`opensacred_rules::combos`).
 //!
 //! The window and its combos page play the combo master's sound as they show (#1722).
 //!
@@ -790,7 +792,7 @@ fn show(
         (&said(TITLE), TITLE_AT, RIGHT_PANEL.width()),
         (TITLE_COLOUR, FONT_SIZE, centre),
     );
-    // The tab sheet's tabs, the COMBO page's showing.
+    // The tab sheet's tabs, each marked with its page.
     let labels: Vec<String> = TABS.iter().map(|key| said(key)).collect();
     let sheet = commands
         .spawn((

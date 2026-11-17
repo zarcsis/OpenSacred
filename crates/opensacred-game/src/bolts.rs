@@ -1,19 +1,25 @@
-//! The bolts: the Seraphim's (#754; docs/re/arts.md, "Her shots with 1018's and 1019's effects"
-//! and "The Seraphim's bolts") and the Daemon's 1103's (#760, "The Daemon's"). While her effect 17
-//! holds each of her shots makes two railgun bolts, the second [`RAILGUN_SECOND`] after the first,
-//! and while her effect 16 holds a shot beyond 200 makes one BFG bolt (`attack`); his 1103 makes a
-//! fan of them (`making`). A bolt leaves where its shooter stands along its line, at a hand's
-//! height over the ground, flies straight at its speed, which may slow, for its time at most and
-//! ends at a cell that may not be walked on; in each frame it finds the creatures on its level,
-//! alive and hostile to the hero, nearer it than the sum of their sizes, and hits them with its
-//! damages (the fight's hit of fixed damages, which always lands, #854): the railgun's every one it
-//! found and goes, the BFG's those of its first contact and flies on harmless, the Daemon's the
-//! first alone and goes. The Mage's fireball flies as a bolt too, of its own speed and time by its
-//! level, and strikes every creature it found at its first contact and goes (`making`, #872). The
-//! railgun's, the BFG's, the fireball's and the Daemon's look as the original's systems
-//! (`bolt_looks`, #1092), told of each one's end, the whirlwind's and the fire bolt's as their
-//! trails (`bolt_trails`), the splinters' as their icicles (`ice_splinters`), the bubble's as
-//! its bush (`bubble_traps`).
+//! The bolts: the Seraphim's (#754; docs/re/arts.md, "The Seraphim's", her shots with 1018's and
+//! 1019's effects, and "The Seraphim's bolts") and the Daemon's 1103's (#760, "The Daemon's").
+//! While her effect 17 holds each of her shots makes two railgun bolts, the second
+//! [`RAILGUN_SECOND`] after the first, and while her effect 16 holds a shot beyond 200 makes one
+//! BFG bolt (`attack`); his 1103 makes a fan of them (`making`). A bolt leaves its shooter at the
+//! bone that its look names and flies level at that bone's height, or without the bone at a
+//! hand's height over the ground ([`leaving`], #2018), straight at its speed, which may slow, for
+//! its time at most, and ends at a cell that it may not pass (`Heights::passes`), the fireball
+//! and the Daemon's also where the ground rises above them; in each frame it finds the creatures
+//! on its level, alive and hostile to the hero, nearer it than the sum of their sizes (a
+//! creature's bolt the hero alone, #1852), and hits them with its damages (the fight's hit of
+//! fixed damages, which always lands, #854): the railgun's every one it found and goes, the BFG's
+//! those of its first contact and flies on harmless, the Daemon's the first alone and goes. The
+//! Mage's fireball flies as a bolt too, of its own speed and time by its level, and strikes every
+//! creature it found at its first contact and goes (`spells`, #872). Her whirlwinds and ice
+//! splinters and the Wood Elf's bubble fly as bolts that strike what they touch once a beat and
+//! fly on through it ([`Strikes::Passing`]), the bubble bursting as an arrow passes through it
+//! (#2128), and the creatures' fire bolt as one that strikes like the fireball
+//! ([`Course::fire_bolt`]). The railgun's, the BFG's, the fireball's and the Daemon's look as the
+//! original's systems (`bolt_looks`, #1092), told of each one's end, the whirlwind's and the fire
+//! bolt's as their trails (`bolt_trails`), the splinters' as their icicles (`ice_splinters`), the
+//! bubble's as its bush (`bubble_traps`).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{Bolt, EMPEROR_COURSE, RAILGUN_SECOND, bolt_damages};
@@ -28,17 +34,16 @@ use crate::npcs::Dies;
 use crate::terrain::{Heights, Level};
 use crate::{ai, arrows, iso, paths};
 
-/// How high over the ground a bolt of no system's look flies, in world units, and one whose
-/// shooter has not the bone it leaves from (**hypothesis**: about a hand's height, as the arrows
-/// leave a shooter without a hand).
+/// How high over the ground a bolt flies whose shooter has not the bone it leaves from, in world
+/// units (**hypothesis**: about a hand's height, as the arrows leave a shooter without a hand).
 pub(crate) const HEIGHT: f32 = 80.0;
 
-/// The bones that a bolt of a system's look leaves from, by its course's look, which it keeps the
-/// height of (the FX handler's cases `0x5A52C3`, `0x5A52F1`, `0x5A49D3` and `0x5A5900`, the
-/// system flag `0x40` placing it once at the bone, #2018): the railgun's and the Daemon's bolt the
-/// shooter's right hand (bone 2), and the bubble (the event `0x47`), the fireball, the fire
-/// bolt and the splinters the left (bone 1, the events `0x82` and `0x3F`), the BFG the staff's
-/// `weapon_fx01` (bone 15), the whirlwind the shooter's root (bone 0, the event `0x37`).
+/// The bones that a bolt leaves from, by its course's look, which it keeps the height of (the FX
+/// handler's cases `0x5A52C3`, `0x5A52F1`, `0x5A49D3` and `0x5A5900`, the system flag `0x40`
+/// placing it once at the bone, #2018): the railgun's, the Daemon's bolt and the bubble (the
+/// event `0x47`) the shooter's right hand (bone 2), the fireball, the fire bolt and the splinters
+/// the left (bone 1, the events `0x82` and `0x3F`), the BFG the staff's `weapon_fx01` (bone 15),
+/// the whirlwind the shooter's root (bone 0, the event `0x37`).
 fn bone_of(look: usize) -> Option<&'static [&'static str]> {
     use crate::bolt_looks::Kind;
     match (look_of(look), look) {
@@ -96,8 +101,8 @@ pub enum Strikes {
     FirstContact,
     /// The first creature it finds alone, and it goes (the Daemon's 1103's).
     First,
-    /// Every creature it touches, once a second, flying on through them (the Mage's whirlwinds
-    /// and splinters).
+    /// Every creature it touches, once a beat ([`Course::beat`]), flying on through them (the
+    /// Mage's whirlwinds and splinters, once a second, and the Wood Elf's bubble).
     Passing,
 }
 
@@ -115,8 +120,8 @@ pub struct Course {
     pub reach: f32,
     /// How long one passing through waits between its strikes (`+0x11C`).
     pub beat: f32,
-    /// Where it ends at a cell it may not pass, the reach and the factor of its burst (the
-    /// Wood Elf's bubble's, 906).
+    /// The reach and the factor of its burst as an arrow passes through it (the Wood Elf's
+    /// bubble's, 906; #2128).
     pub bursts: Option<(f32, f32)>,
     /// How far it knocks back what it strikes, before its strike, and the level below which
     /// (the Mage's whirlwind's, `opensacred_rules::spells::whirlwind_knocks`).

@@ -1,7 +1,8 @@
 //! The burning bones (788, `FX_BURNING_BONE`, #2061; docs/re/effects.md, "The arrows'
 //! elements"): a hero's burning arrow sets the head of what it hits burning for half a second
-//! (`opensacred_rules::particles::BurningBone`), white flames rising from it, added whole and
-//! untinted by the night, lighting it; one burns on a creature at a time.
+//! (`opensacred_rules::particles::BurningBone`), and the fire skin the head of each one it strikes
+//! (`spells`): white flames rising from it, added whole and untinted by the night, lighting it;
+//! one burns on a creature at a time.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;

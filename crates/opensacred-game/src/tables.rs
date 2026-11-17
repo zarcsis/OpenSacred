@@ -1,6 +1,7 @@
 //! The tables of `tables/` that the start and every game's load read (`items.ron`,
-//! `weapons.ron`, `creatures.ron`, `motions.ron`, `balance.ron`, `stairs.ron`): each read and
-//! parsed once, when first asked for, and shared through `sectors::Shared` (#830).
+//! `weapons.ron`, `creatures.ron`, `motions.ron`, `balance.ron`, `type_names.ron`,
+//! `mercenaries.ron`, `stairs.ron`): each read and parsed once, when first asked for, and shared
+//! through `sectors::Shared` (#830).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

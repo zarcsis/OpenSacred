@@ -31,6 +31,15 @@
 //! four lines of an item worse than its hands' old ones, or of one better, by its name's key
 //! (`mercenaries`, the event (8, `0x10`)), while no line by name plays, the comments' clock set
 //! back.
+//!
+//! On a full backpack (#1324): `CANTCARRYMORE` as an item picked up finds no room in the backpack
+//! (`pickup`, `0x558080`) or one sent into a weapon set finds no half (`sets`), the event (8, 3),
+//! in the fight or out of it, its case's timer made at 2.1 s and letting it speak past 2.0 s,
+//! stopping the line by name.
+//!
+//! On a click (#1674): a press of the left button on a hireling of the types 361, 368 and 224, or
+//! on a companion by its name's text, says one of that creature's four click lines (the event
+//! (9, `0x5C`), `0x67E645`), while no line by name plays.
 
 use std::collections::HashMap;
 
@@ -444,8 +453,9 @@ fn pacified_entry(area: u8) -> Option<u8> {
 /// Asks for the land's remarks as the hero moves (#1247): at a sector of another area, the
 /// region's by the two sectors' levels against the hero's, then the pacified area's where the new
 /// area is pacified and the one before not (`0x6263B0`, the world view's centre sector, here the
-/// hero's); at a cell that comes onto a settlement's ground or leaves it, outside the dungeons,
-/// the settlement's (`0x593CE0`).
+/// hero's); at a cell stepped into near the newest quests' places, the approach's, once until
+/// it is near neither (#1563); at a cell that comes onto a settlement's ground or leaves it,
+/// outside the dungeons, the settlement's (`0x593CE0`).
 fn land(
     mut remarks: ResMut<Remarks>,
     heroes: Query<(&Transform, Option<&Health>), With<Body>>,
@@ -540,9 +550,10 @@ pub(crate) fn calm<'a>(
 }
 
 /// Plays the remarks asked for, each as its case lets it (`Remarks::lets`): one of the class's
-/// lines by `rand()`, by name, at the hero; the settlement's waiting for silence and for its
-/// line's wait, setting the comments' clock back and making the line wait 60 s; the others
-/// stopping the line by name that plays (`0x693FE0`).
+/// lines by `rand()`, by name, at the hero; the settlement's and the approach's waiting for
+/// silence and for their line's wait, setting the comments' clock back and making the line wait
+/// 60 s; a click's and a hireling's only while no line by name plays; the others stopping the
+/// line by name that plays (`0x693FE0`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their filters"

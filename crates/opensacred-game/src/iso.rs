@@ -143,8 +143,10 @@ pub const UNTINTED: usize = 8;
 #[derive(Component, Clone, Copy, Default)]
 pub struct Untinted;
 
-/// A camera of a picture of its own, not of the world: the backpack's items (`backpack`), which
-/// neither follows the hero nor zooms.
+/// A camera of a picture of its own, not of the world, left out of the world's cameras' queries
+/// ([`Eye`]) and of their zoom: the items' pictures' (`item_pictures`), the choice of the hero's
+/// stage's (`choice`), the menus' water's (`ripples`), the interface's layers' (`ui_layers`) and
+/// the shadows' mask's (`shadows`).
 #[derive(Component, Clone, Copy, Default)]
 pub struct Apart;
 

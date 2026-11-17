@@ -2,7 +2,8 @@
 //! rings"): under every champion (a champion's levelling, `+0xB0` bit `0x400`, which the fill's
 //! types 343 and 212 have alone) and every boss (`+0x1F4` bit `0x80000`) alive and hostile to
 //! the hero, with no timer, a square of `UI_DISPLAY_GROUNDSYMBOL03` (a circle of eight
-//! arrowheads) or `04` (of twelve spikes) in red (`0xFFFF0000`), its half side twice half its type's size, flat at its
+//! arrowheads) or `04` (of twelve spikes) in red (`0xFFFF0000`), its half side twice half its
+//! type's size, flat at its
 //! place, laid over by its alpha and its depth tested, unlit (`cCreature_render` `0x599910` at
 //! `0x59A053` and `0x59A0B9`, `0x4087E0`), turning about the upright once in 16.384 s by the
 //! real clock (`opensacred_rules::fight::symbol_turn`); untinted by the night, as the original's

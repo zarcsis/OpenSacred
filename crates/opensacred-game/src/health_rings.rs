@@ -16,8 +16,8 @@
 //! The night tints them as it tints the ground under them, where the original leaves them unlit
 //! (docs/decisions/drawing.md, "The health rings on the ground of the world's pass").
 //!
-//! Not followed: the champions' and the bosses' turning symbols (`UI_DISPLAY_GROUNDSYMBOL03`
-//! and `04`, `0x4087E0`).
+//! The champions' and the bosses' turning symbols (`UI_DISPLAY_GROUNDSYMBOL03` and `04`,
+//! `0x4087E0`) are `rank_symbols`'.
 
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::prelude::*;

@@ -1,6 +1,7 @@
 //! `opensacred-game`: the game on Bevy (PLAN.md §6.2), reading only the converted assets of
-//! `assets/`. The start of M2 (PLAN.md §10, step 7): the original's isometric view of one
-//! sector's ground and the hero model with an animation, at any resolution.
+//! `assets/`. This file keeps the command line, the window, the resources read from the assets
+//! and one line a module's plugin: each module registers its own systems, resources and observers
+//! in a plugin of its own, and the steps of `frame::Step` order the systems across modules.
 
 // The packaged build opens no console window (#1495).
 #![cfg_attr(feature = "packaged", windows_subsystem = "windows")]

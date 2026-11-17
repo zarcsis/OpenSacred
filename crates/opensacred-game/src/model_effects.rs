@@ -3,11 +3,20 @@
 //! "The models' effects"): an effect texture of the type's (`+0x66`) moved by a texture matrix on
 //! the real-time clock, by the type's kind of effect (`+0x6E`).
 //!
-//! The game follows the kind 9, the Seraphim's wings 3111 alone: the model's first primitive, the
+//! Of the kind 9, the Seraphim's wings 3111 alone, the model's first primitive, the
 //! two tubes along the wings, is drawn with the effect texture instead of the type's, unlit, its
 //! colour added to the frame without writing the depth, its texture running along the tubes twice
 //! in each cycle of 2,048 ms and then standing for 1,024 ms (`0x4068B9`). Every pair of wings
 //! glows in step, as the clock is the frame's. `npcs::retexture` gives the primitive its material.
+//!
+//! The kinds 1 to 4 lay the effect texture, drifting on that clock, under every texel of the
+//! model, the kind 1 with the glow `FX_MULTITEXGLOW01` added to it (#1834, #1848;
+//! `models::Effect`, `models::Pass::Effect`). The kind 5 adds the effect texture over the whole
+//! model in a colour that pulses (#1850, `models::Pulse`). The kind 8, the Seraphim's hologram
+//! 135, blends the effect texture at half its alpha, at offsets rolled anew every frame, under
+//! the model's own texture added over it (#1850, `models::Pass::Hologram`). The kind 6, the
+//! flying skull's, has no model to draw over, and the kind 7 no type (docs/re/drawing.md, "What
+//! the game does with it").
 //!
 //! A model finds its type's effect by its model's file ([`Table`]), read at the start, so that the
 //! choice of the hero's figures find theirs as a game's models do (#1875). The original draws an
@@ -248,7 +257,7 @@ pub fn under(kind: u8) -> bool {
 }
 
 /// The kind 8's offsets of a draw (`0x406510`): two fresh `rand() / 32767`, the rolls
-/// `rolls`, below 32,768 each.
+/// `u` and `v`, below 32,768 each.
 pub fn hologram((u, v): (u16, u16)) -> Vec4 {
     Vec4::new(f32::from(u) / 32_767.0, f32::from(v) / 32_767.0, 0.0, 0.0)
 }
@@ -281,8 +290,9 @@ impl Materials {
         )
     }
 
-    /// The effect of the kind `kind` (1 to 4) of the texture `effect`, and the glow `glow` of the
-    /// kind 1 (files, loaded repeated once), which a model's meshes lie over (`models::Effect`).
+    /// The effect of the kind `kind` (1 to 4, or 8) of the texture `effect`, and the glow `glow`
+    /// of the kind 1 (files, loaded repeated once), which a model's meshes lie over
+    /// (`models::Effect`).
     pub fn under(
         &mut self,
         kind: u8,
@@ -380,11 +390,13 @@ pub fn offsets(kind: u8, t: u16) -> Vec4 {
     }
 }
 
-/// Moves the kind 9's textures by the frame's real time, the original's performance counter
-/// (`0x406592`), which runs on in the pause and at any speed of the game: in the model materials
+/// Moves the effects by the frame's real time, the original's performance counter (`0x406592`),
+/// which runs on in the pause and at any speed of the game: the kinds 1 to 4's offsets, the kind
+/// 5's pulse's colour and the kind 8's offsets, rolled anew, in their model materials
+/// (`models::EffectMaterials`); the effects under the models drawn apart from the world, in
+/// theirs ([`Apart`]), as long as they last; and the kind 9's textures, in the model materials
 /// made of them (`models::Converted`), which draw the meshes, and in them, for those still to be
-/// made; and the effects under the models drawn apart from the world, in theirs ([`Apart`]), as
-/// long as they last.
+/// made.
 fn run(
     time: Res<Time<bevy::time::Real>>,
     (effects, converted, under): (

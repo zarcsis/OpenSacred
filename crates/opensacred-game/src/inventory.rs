@@ -5,7 +5,7 @@
 //! window's width, as the bar is (`bar`).
 //!
 //! The sounds (#1767, seen in the original's traces): the windows shown play their tab sheet's
-//! pages' shows ([`page_sounds`]), the items page's `UI_INV_CLOSE01` and the others'
+//! pages' shows ([`show`]), the items page's `UI_INV_CLOSE01` and the others'
 //! `UI_CLICK01`, and the page selected; hidden, nothing; the bar's button its click.
 //!
 //! The inventory's frame is the original's (`0x6C6490`): a top and a bottom edge of ten steps, the
@@ -15,10 +15,10 @@
 //! alpha, framed as the original frames it
 //! (`0x6BAC80`). Clicks over the windows do not reach the world.
 //!
-//! Not followed yet: the grid's cells and the items (#1268), the slots (#1270), the tabs' pages and
-//! their buttons' pressed looks (the spells' and the combos' pages are #1090's), the sort's
-//! button's other mode (#1321), and the camera's shift as the equipment shows. The statistics
-//! window beside them is `statistics`' (#1521).
+//! The grid's cells and the items are `backpack`'s (#1268), the slots `equipment`'s (#1288), the
+//! spells' and the combos' pages `spells_page`'s (#1528) and `combos_page`'s (#1530), and the
+//! statistics window beside them `statistics`' (#1521). Not followed: the tabs' buttons' pressed
+//! looks, and the camera's shift as the equipment shows.
 
 use bevy::input::InputSystems;
 use bevy::prelude::*;
@@ -344,7 +344,7 @@ fn sort_picture(
 /// them; F and C show them on the combat arts' and the combos' pages, the original's
 /// Quickstart's windows, or hide them from those pages (#1596); the keys taken from the game; not
 /// while the world map shows (`0x757840`). The windows shown select their page with its sound
-/// (the items' by `0x729940(0)`), after their tab sheet's ([`page_sounds`]); hidden, they play
+/// (the items' by `0x729940(0)`), after their tab sheet's ([`show`]); hidden, they play
 /// nothing; the button plays its click (seen, #1767).
 pub(crate) fn toggle(
     mut keys: crate::controls::KeysMut,

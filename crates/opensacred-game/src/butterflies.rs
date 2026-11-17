@@ -46,8 +46,8 @@ const GRID: f32 = 8.0;
 /// The seed of the butterflies' `rand()` (**estimate**: any).
 const SEED: usize = 0x369;
 
-/// A swarm: where it is, the way it goes and how fast it turns and goes, whether it glows, its
-/// butterflies, and its meshes of the butterflies and of the glows.
+/// A swarm, at its entity's place: the way it goes and how fast it turns and goes, whether it
+/// glows, its butterflies, and its meshes of the butterflies and of the glows.
 #[derive(Component)]
 struct Swarm {
     way: Vec2,

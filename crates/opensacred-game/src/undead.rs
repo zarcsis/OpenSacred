@@ -72,7 +72,7 @@ pub(crate) struct Destroyed(pub(crate) f32);
 #[derive(Component, Clone, Copy, Debug)]
 pub(crate) struct Bursts;
 
-/// The undead's dice for the health they rise with.
+/// The undead's dice for the health they rise with and the sparks they burn away in.
 #[derive(Resource)]
 struct Dice(Rng);
 

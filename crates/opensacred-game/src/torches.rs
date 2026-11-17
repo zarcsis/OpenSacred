@@ -4,11 +4,14 @@
 //! `cWeapon3D` makes it burn (`0x5CDB60`, `FX_TORCHSMOKE` 787): flames of `PARTICLE_FIRE01` along
 //! the way of its bone `weapon_fx01`, each playing its 4 × 4 frames once
 //! (`opensacred_rules::particles::Torchsmoke`), riding with the torch's holder (the system's flag
-//! 4: its frame's origin the holder's place on the ground, `0x5AA134`), and a glow of `PARTICLE_GLOW01` at the bone, both
+//! 4: its frame's origin the holder's place on the ground, `0x5AA134`), and a glow of
+//! `PARTICLE_GLOW01` at the bone, both
 //! added to the frame and not tinted by the night (`iso::UNTINTED`), with the loop 219 at the bone
 //! at 0.4 of the volume (`hums`). The torch gone, its flames burn out.
 //!
-//! Not followed: the torch's light, which is the hero's rule (`daynight`, #61).
+//! The flame gives the world no light of its own: the torch's light is the hero's rule
+//! (`daynight`, #61). Its system's Direct3D light on the models about it is made with its loop
+//! (`fx_lights`, #2106).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;

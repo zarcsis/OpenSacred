@@ -7,7 +7,10 @@
 //! are drawn (`backpack`), and the system's cursor hides while it is held: the item stays the
 //! cursor (`0x611E70`); the cell it goes to is the one under the cursor less its offset
 //! (`0x655810`). A left click on the world drops it beside the hero, on the cell toward the
-//! click that may be walked on (`cEngine::dropItem`, `0x611620`), and does nothing else.
+//! click that may be walked on (`cEngine::dropItem`, `0x611620`), and does nothing else. Shift
+//! with a left press on a backpack's item, the cursor empty and neither a merchant's window nor
+//! the town stash's showing, drops that item beside the hero, or turns it into its worth in gold
+//! for a hero who wears seven pieces of the set 53 (`drop_shifted`, #1670).
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;

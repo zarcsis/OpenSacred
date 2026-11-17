@@ -30,9 +30,14 @@
 //! information's book (`0x6B04B0`): the books and scrolls read, each in its record's chapter.
 //! Each tab keeps its own chapter, page and selected row.
 //!
-//! Not followed yet: the statistics' book (#1579), the item's model turning in the circle,
-//! the bar's button's pressed look, and the place of a compass on a creature taken where the
-//! creature stands as the book is built, not as the quest was entered.
+//! The statistics' book (#1579, `cUI_StatsTab`), without bookmarks, pages or arrows: the
+//! statistics block (`0x6DEE60`, #1611), the latest and the most frequent foes with their
+//! portraits (`0x6DDCC0`, `0x6DE2B0`, #1612) and the game history's graph (`0x6DE710`, #1613),
+//! of what `statistics` keeps.
+//!
+//! Not followed yet: the item's model turning in the circle, the bar's button's pressed look,
+//! and the place of a compass on a creature taken where the creature stands as the book is
+//! built, not as the quest was entered.
 
 use std::collections::HashMap;
 
@@ -459,8 +464,8 @@ const CLASS_PICTURE: f32 = 256.0;
 const PICTURE_MIDDLE: f32 = 684.0;
 
 /// The picture of a leaf's right page (`0x6B1FF0`): none, an art's icon (an image) at its own size,
-/// the circle of a main quest's item of a height in cells (its model not followed), or the
-/// class's picture.
+/// or the circle of a main quest's item of a height in cells (its model not followed). The
+/// class's picture is its chapter's own ([`Chapter::own`]).
 #[derive(Clone, Debug, PartialEq)]
 enum Picture {
     None,
@@ -843,7 +848,7 @@ enum Over {
 
 /// The book's model: its texts and their pages, as the entries and the measures make them.
 struct Model {
-    /// The chapters' pages, the selected chapter's rows.
+    /// The selected chapter's list's pages, each its rows.
     pages: Vec<Vec<Row>>,
     marked: [bool; CHAPTERS],
     /// Each row's top, of the list's page shown, and its text's lines.

@@ -1,12 +1,12 @@
 // The ground's fragment shader (`terrain::GroundMaterial`). Each texel of the ground is composed
 // of the stack of layers of the cell it lies in, from the pool of tile sheets that the loaded
 // sectors share (`sheet_pool`, #2484): the ground tile, then each overlay's colour through its
-// mask's alpha or its own, in integers, as the atlas's slots were composed before. The shader
-// filters the ground as the one image the original's frame makes of the cells, so that filtering
-// runs across the cells' edges as within the cells. The texel, as stored in sRGB values, is
-// multiplied by the corners' light, as the original multiplies the 8-bit texel by the diffuse
-// colour of its corners (docs/02 §5.3); the product, decoded to linear light for Bevy's last
-// steps, is what the frame holds (`post::post_process`).
+// mask's alpha or its own, in integers. The shader filters the ground as the one image the
+// original's frame makes of the cells, so that filtering runs across the cells' edges as within
+// the cells. The texel, as stored in sRGB values, is multiplied by the corners' light, as the
+// original multiplies the 8-bit texel by the diffuse colour of its corners (docs/02 §5.3); the
+// product, decoded to linear light for Bevy's last steps, is what the frame holds
+// (`post::post_process`).
 
 import bevy_pbr::render::forward_io::VertexOutput;
 import package::post::post_process;

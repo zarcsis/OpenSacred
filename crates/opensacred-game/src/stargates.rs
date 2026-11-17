@@ -2,7 +2,7 @@
 //! docs/re/effects.md, "The stargates"): the scripts' gate objects (`npcs`) stand an upright
 //! window facing the viewer 95 over their point, a world map's picture in it, its edges fading in
 //! a capsule and ripples running out from its middle, its picture changing every 5 s; two whirls
-//! turn about it, drawn with their depth not tested; it grows from nothing as it is made, and
+//! turn about it, their depth not tested in the original; it grows from nothing as it is made, and
 //! lights the ground about it by night (`opensacred_rules::particles::Stargate`). None darkens by
 //! night. All lie at the gate's place in the original's order of drawing (`fx::Orders::at`,
 //! #2220): the window no nearer than a little behind it, the whirls at it whole and after it

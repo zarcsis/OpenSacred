@@ -1,6 +1,9 @@
 //! The commands for testing that read the world (docs/10 §6, #521): the creatures about the hero
 //! and a creature's fight values, as the original's driver prints them (`creatures`, `stats`,
-//! docs/03 §3.8), so that a check reads the same lines from both games.
+//! docs/03 §3.8), so that a check reads the same lines from both games. And those that change a
+//! creature (`effect`, `heal`, `hire`), the cells that `spawn` and a summons stand their
+//! creatures on ([`rings`], [`cells_about`]), and the creature of an id as the lines print it
+//! ([`creature`]).
 
 use bevy::prelude::*;
 

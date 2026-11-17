@@ -1,6 +1,8 @@
 //! The fight as the game plays it (docs/re/fight.md): the creatures' values, health and
 //! regeneration as components, the hero's experience and the balance's values as resources, the
-//! systems that resolve the hits, regenerate the creatures and raise the hero's level, and the
+//! systems that resolve the hits and the strikes from nobody, regenerate the creatures and raise
+//! the hero's level, the terror of the hero's items, which fells the creatures its look takes
+//! (#1125), the Dwarf's frenzy and the Vampiress's bloodlust, the command `kill`, and the
 //! damages' numbers over the targets. The formulas are the rules' (`opensacred_rules::fight`).
 
 use bevy::prelude::*;
@@ -112,8 +114,9 @@ impl Base {
     }
 }
 
-/// What the hero holds and wears, its template's items (`npcs::Npcs::hero_holds`), a component of
-/// the hero's, which its level-up takes.
+/// What the hero holds and wears, a component of the hero's, which its level-up takes: its
+/// template's items as it is made (`npcs::Npcs::hero_holds`), then the items in its hands and in
+/// its equipment's slots as they change (`arsenal`, `equipment::refit`).
 #[derive(Component, Clone, Debug, Default, PartialEq, Deref)]
 pub struct Holding(pub Holds);
 
@@ -1060,8 +1063,9 @@ fn burn(
 }
 
 /// Gives `target`, which lives through a strike of `attacker` of the whole damage `damage`, the
-/// open wound that the rolls `rolls` give (`opensacred_rules::fight::open_wound`; #1727, M15):
-/// the effect 23 of the value `⌊damage/10⌋` from the attacker, unless it bleeds by then.
+/// open wound that the rolls of `items`, `sets` and `wounded` give
+/// (`opensacred_rules::fight::open_wound`; #1727, M15): the effect 23 of the value `⌊damage/10⌋`
+/// from the attacker, unless it bleeds by then.
 #[expect(
     clippy::type_complexity,
     reason = "the rolls' inputs as `open_wound` takes them"
@@ -1114,8 +1118,8 @@ fn whole_damage(damage: u32, factor: f32) -> u32 {
 }
 
 /// Fells `target`, at `health`: it dies, one of its two dying clips at random, and where the
-/// hero killed it, of `worth`, its rank and the hero's bonus (`potions::mentored`), the hero
-/// earns its experience (the event 9, `0x57D860`), twice for a boss and 1.5 times for a
+/// hero killed it, of `worth`, its rank and the hero's bonuses (`potions::mentored`, its sets'),
+/// the hero earns its experience (the event 9, `0x57D860`), twice for a boss and 1.5 times for a
 /// champion; the experience earned. A creature
 /// killed by another (`by_creature`, #630) drops nothing, and its killer earns its experience
 /// through the [`Kill`] that [`resolve`] sends (`npcs::earn`, #690). An undead that `rises`

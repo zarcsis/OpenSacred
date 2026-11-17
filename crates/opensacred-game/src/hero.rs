@@ -1,7 +1,7 @@
 //! The hero: a converted model (`opensacred-convert models`) that stands on the ground and runs or
 //! walks where the left mouse button points, as in the original, playing its idle, walk and run
-//! clips. The `R` key toggles walking and running; the original seems to toggle it from its
-//! interface (the icon `sim_walk.tga`, **hypothesis**).
+//! clips. It walks while Shift is held and runs otherwise, as the original's does ([`pace`]). At
+//! health 0 it falls, lies and rises again ([`fall`]), and the camera follows it ([`follow`]).
 
 use std::f32::consts::FRAC_PI_4;
 use std::time::Duration;
@@ -611,7 +611,7 @@ pub fn spawn(
         clips.extend(dying);
         let dyings = clips.len() - 3 - stances - strikes;
         clips.extend(arts.iter().filter_map(|(_, clip)| clip.clone()));
-        // The bolts' shots, then the pick-up, last.
+        // The bolts' shots, then the pick-up.
         let first_bolt = clips.len();
         clips.extend(bolts.iter().flatten().map(|(clip, _)| clip.clone()));
         let pickup = hero.pickup.as_ref().and_then(|name| clip(name));
@@ -624,7 +624,7 @@ pub fn spawn(
             .map(|name| name.and_then(|name| clip(&name)));
         let mut riding_at = clips.len();
         clips.extend(riding.iter().flatten().cloned());
-        // The rider's strike from the saddle, last (#2302).
+        // The rider's strike from the saddle, after them (#2302).
         let riding_attack = hero
             .riding_attack
             .clone()
@@ -1486,10 +1486,10 @@ const LIES: f32 = 5.0;
 pub struct Fallen(f32);
 
 /// The hero at health 0 (`fight`, the AI's state 9): it stops, its attack ends, it plays one of
-/// its dying clips once and lies there; after five seconds it rises at the game's start with its
-/// health full, paying a share of its gold by the difficulty, the game's (`0x53E4A8`, #976,
-/// #1086), at its home where the scripts gave it one, on its floor (`sdk_ENGINE_TP` at
-/// `0x5413ED`, #974), else at the game's start.
+/// its dying clips once and lies there; after five seconds it rises with its health full, paying
+/// a share of its gold by the difficulty, the game's (`0x53E4A8`, #976, #1086), at its home
+/// where the scripts gave it one, on its floor (`sdk_ENGINE_TP` at `0x5413ED`, #974), else at
+/// the game's start.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"

@@ -1,8 +1,8 @@
 //! The creatures in the lens of the world map and of the overview (#1571; docs/re/maps.md, "The
-//! lens's creatures"; `0x6CEAB9` to `0x6CF10E`): each living or dead creature of the lens's
-//! sectors marked by a dot of 6 × 6 (`WORLDMAP_WAYPOINT`) in a colour by what it is to the hero,
-//! a merchant by its cursor's picture in yellow in a quad of 48 × 48, at its iso point over 12
-//! from the lens's point; within the hero's sight on both axes, beyond it on an explored cell
+//! lens and the fog of war"; `0x6CEAB9` to `0x6CF10E`): each living or dead creature of the
+//! lens's sectors marked by a dot of 6 × 6 (`WORLDMAP_WAYPOINT`) in a colour by what it is to the
+//! hero, a merchant by its cursor's picture in yellow in a quad of 48 × 48, at its iso point over
+//! 12 from the lens's point; within the hero's sight on both axes, beyond it on an explored cell
 //! unless red, a merchant anywhere once its area's region has run its init.
 //!
 //! The sight grows by the hero's items' modifier 853 and its sets' (`fight::sight_bonus`, #1727).

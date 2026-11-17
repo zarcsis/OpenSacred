@@ -8,8 +8,9 @@
 //! of 300 and flash at each arrow they turn aside (`opensacred_rules::particles::{HolyShield,
 //! ShieldWall, Regen}`).
 //!
-//! Not followed: a spell that the shield wall turns aside, which no part of the game turns aside
-//! yet, and the mana's spring of the set 32's seventh piece.
+//! Not followed: a spell that the shield wall turns aside by its effect `0x1A`, which nothing in
+//! the game reads (a spell is turned aside by its target's magic defence alone, `fight`, #2277),
+//! and the mana's spring of the set 32's seventh piece.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;

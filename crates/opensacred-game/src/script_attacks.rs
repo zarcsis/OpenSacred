@@ -1,11 +1,14 @@
-//! The scripts' `Attack`s without an art (92, `0x4A2B40`; #1830; docs/re/netscript.md,
-//! "`Attack`"): outside the anim mode each attacker, a creature or every member of a group, is
-//! sent at its target, the hero, a creature, or one member of a group drawn for each attacker.
-//! Where the pair is hostile neither way, the attacker hostile to the heroes, else the target
-//! hostile to them (or always where a group attacks a group) turns against every side
-//! (`opensacred_rules::minds::attack_sides`), for good; then the attacker fights the target where
-//! it is hostile to it (the event `0x100`), and a pair that stays friendly fights not. The target
-//! is sent nothing: it fights back by its own mind.
+//! The scripts' `Attack`s without an art (92, `0x4A2B40`; #1830; docs/re/netscript.md, "The
+//! other kinds, the waits and the cinema"): outside the anim mode each attacker, a creature or
+//! every member of a group, is sent at its target, the hero, a creature, or one member of a group
+//! drawn for each attacker. Where the pair is hostile neither way, the attacker hostile to the
+//! heroes, else the target hostile to them (or always where a group attacks a group) turns
+//! against every side (`opensacred_rules::minds::attack_sides`), for good; then the attacker
+//! fights the target where it is hostile to it (the event `0x100`), and a pair that stays
+//! friendly fights not. The target is sent nothing: it fights back by its own mind.
+//!
+//! A creature's teleport that an `Attack` of `ECS_TELEPORT` orders ([`Phase`], #1831) is carried
+//! out here too: its cast where it is drawn on the screen, its place at once where it is not.
 
 use bevy::prelude::*;
 use opensacred_rules::minds::{self, AGAINST_EVERY_SIDE, Sided};

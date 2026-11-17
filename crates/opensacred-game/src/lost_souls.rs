@@ -3,9 +3,11 @@
 //! `PARTICLE_DOTS01` behind it as it flies, added by their alpha, from a point that wobbles about
 //! it, over a glow of `PARTICLE_GLOW03` beating once a second at that point, added whole
 //! (`opensacred_rules::particles::LostSoul`); untinted by the night. Its object gone, its dots
-//! fade out and it goes.
+//! fade out and it goes. Its green Direct3D point light follows it on the models (`fx_lights`,
+//! #2106).
 //!
-//! Not followed: its green Direct3D point light on the models.
+//! A dryad ghost (`dryad_ghosts`, #1964) looks as a soul does, with blue dots, for as long as its
+//! object lives (`Ghostly`).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;

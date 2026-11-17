@@ -2,7 +2,8 @@
 //! (`TYPE_NPC_DUMMY`) a sector's fill makes the FX object 1162, which makes a dummy 1249 at its
 //! place and hunts as its caster (`0x480D40`, the FX event `0xA6`). The dummy draws nothing
 //! (`0x44B6F4`), and as the maker returns it past the creature maker's flags (`+0x1F4`) it never
-//! wakes: hostile without the flag 1, the hero's look leaves it idle (`minds`). The ghost rises from the ground and flies at the nearest creature hostile to the
+//! wakes: hostile without the flag 1, the hero's look leaves it idle (`minds`). The ghost rises
+//! from the ground and flies at the nearest creature hostile to the
 //! dummy within about 316, the hero or a follower, at its neck, turning toward it at 3 radians a
 //! second at most, and hovers where it is without one; it turns back from a cell it may not walk
 //! on and off the ground (`0x5A7DBF`). Once a second it strikes every such creature within its

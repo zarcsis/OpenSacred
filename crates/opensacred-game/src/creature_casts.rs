@@ -15,7 +15,14 @@
 //! friends; the black magicians' raising of a dead monster, Anducar's demon's rings of flames
 //! ([`Flame`]) and the terror sprinter mage's aura ([`SprintersAura`]); the casters of marks of
 //! their own: the ice elf's holy light and holy shield, the ice druid's blades of light, the god's
-//! child's chain lightning, Anducar's guard's homing fire and the demon prince's fan of flames.
+//! child's chain lightning, Anducar's guard's homing fire and the demon prince's fan of flames;
+//! the magicians' summon ([`Summoning`], #1869); and the pseudo-spells of what a creature makes of
+//! its own: the medium spider's shot (#2067), the dragons' breath of fire (`dragon_fires`), the
+//! giant spider's, the crab queen's and the flowers' spit (`spits`), the flowers' leap (#2231) and
+//! the lich's and the animated conjurer's traps (#2731).
+//!
+//! A script's `Attack` of a spell's art orders a cast too ([`ScriptCast`], #1871), and the dryad
+//! druid sets its thorns after its blink ([`DruidThorns`], #1883).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;
@@ -30,7 +37,8 @@ use crate::hero::Body;
 use crate::npcs::{ClipActs, Dies, ScriptClip};
 use crate::terrain::{Heights, Level};
 
-/// The spells of the casts that the game follows, the mark 1's and the magicians' of them.
+/// The spells of the casts that the game follows: the mark 1's, the magicians', the creatures'
+/// own and their pseudo-spells (the shot, the spit, the leap, the traps, the dragons' fire).
 const FOLLOWED: [u16; 33] = [
     casts::SPIDER_SHOT,
     casts::SPIT,
@@ -77,8 +85,8 @@ pub fn follows(spell: u16) -> bool {
 }
 
 /// Whether a creature of type `creature` is a caster whose spell the game follows: of the mark 1,
-/// a dragon, a big demon (#1853), a magician of the mark 8 (#1854) or a caster of a mark of its
-/// own (#1855).
+/// a dragon, a big demon (#1853), a magician of the mark 8 (#1854), a caster of a mark of its
+/// own (#1855) or one that makes its own as it comes on (`casts::coming_on`).
 pub fn casts(creature: u32) -> bool {
     casts::coming_on(creature).is_some()
         || casts::own_mark(creature).is_some()
@@ -93,11 +101,12 @@ pub fn casts(creature: u32) -> bool {
 const EYES: [&[&str]; 2] = [&["Left_EyeBone_FX"], &["Right_EyeBone_FX"]];
 const EYES_HIGH: f32 = 165.0;
 
-/// A homing fire of a creature (the big demons' `FX_DAEMONFIRE`, 910, of the spell 50; docs/re/
-/// arts.md, "The creatures' own spells"): held at its caster for its charge, then flying at
-/// [`casts::HOMING_SPEED`] toward its target, turning by at most [`casts::HOMING_TURN`] radians a
-/// second, for [`casts::HOMING_FLIGHT`] seconds; at its first contact with the hero, on its level
-/// and within its size and the hero's, it bursts and strikes it once with its damages.
+/// A homing fire of a creature (the big demons' `FX_DAEMONFIRE`, 910, of the spell 50, and
+/// Anducar's guard's, of 70; docs/re/arts.md, "The creatures' own spells"): held at its caster
+/// for its charge, then flying at [`casts::HOMING_SPEED`] toward its target, turning by at most
+/// [`casts::HOMING_TURN`] radians a second, for [`casts::HOMING_FLIGHT`] seconds; at its first
+/// contact with the hero, on its level and within its size and the hero's, it bursts and strikes
+/// it once with its damages.
 #[derive(Component, Debug)]
 pub struct HomingFire {
     caster: Entity,
@@ -269,8 +278,9 @@ fn begin(
 /// its damage `MagieAll`'s share of the hero's, as the hero's spell acts (`spells`): the
 /// fireball a bolt toward its target's place, the whirlwind a fan of bolts along the line to it,
 /// the lightning a strike on its target, the meteors a hail about its target's place as the cast
-/// was ordered, the stone the effect 15 on the hero for its value 0 in seconds (`0x52494F`),
-/// refused on a hero that an effect of the stone holds already (`0x582B00`).
+/// was ordered, the stone the effect 15 on the hero for 3 s, as a creature casts it (`0x52494F`,
+/// `0x5B5CC8`), refused on a hero that an effect of the stone holds already (`0x582B00`); and each
+/// other spell that the game follows as its arm tells.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -395,7 +405,8 @@ fn act(
             continue;
         }
         if cast.spell == casts::SPIT {
-            // The giant spider's and the crab queen's spit (`0x4E5A2A`; `spits`).
+            // The giant spider's and the crab queen's spit (`0x4E5A2A`; `spits`), and the flowers',
+            // which their own mark's decision sends the same way (#2226).
             spat.write(crate::spits::Spat {
                 spitter: entity,
                 target: cast.target,
@@ -1149,7 +1160,7 @@ const GUARDS_FIRE_CHARGE: f32 = 0.9;
 const GUARDS_FIRE_SIZE: f32 = 50.0;
 const GUARDS_FIRE_SOUND: u32 = 708;
 
-/// Burns each flame of the rings ([`Flame`]).
+/// Burns each flame of the rings and of the fan ([`Flame`]).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their filters"

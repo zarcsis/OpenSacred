@@ -6,8 +6,8 @@
 // through the depth buffer, then the others (`FRINGE`) blended by their alpha over what lies behind
 // them, as the original blends them, a sprite's texels of alpha 64 or less dropped (`ALPHA_TEST`).
 // The sprites standing on an upper storey's floor stay in front of its plane (`fragment_on_floor`).
-// Where the screen shrinks the sprites, their pages' levels stand in for the image (`level_of`,
-// #839).
+// Those of a fading type that are drawn after the hero fade about it (`faded`). Where the screen
+// shrinks the sprites, their pages' levels stand in for the image (`level_of`, #839).
 
 import bevy_pbr::render::mesh_view_bindings::view;
 import package::{order, post::post_process};

@@ -362,8 +362,9 @@ fn open(world: &mut World) {
     open_in(world, Mode::Load);
 }
 
-/// Opens the game's window for saving where it was asked for, the game paused under it: by the
-/// menu over a game, which the window takes the place of, or by the key S.
+/// Opens the game's window for saving as the game pauses where the key S asked for it
+/// ([`s_key`]), the game paused under it; the menu over a game opens it by itself, in its own
+/// place ([`open_saving`]).
 fn open_game(world: &mut World) {
     // Asked until the pause ends, so that the menu over the game, shown on the same entry, sees
     // it whichever runs first.

@@ -1,16 +1,22 @@
 //! The creatures' and the heroes' voices in the fight (#711; docs/re/sound.md, "The fight's
 //! sounds"): a creature speaks through its type's voice (`tables/voices.ron`, `0x6852B0`) at a
 //! strike's start that does not chain (`ATTACK`), at a hit that did damage (`NORMALHIT`, or
-//! `CRITICALHIT` below a quarter of its health) and at its death (`DEATH`). A line plays when its
-//! roll gives 0, the heroes' taking one of their two profiles; it waits for nothing of its sound
-//! id but at a death; it gives way to the creature's own line still playing but at a hit, which
-//! stops that line, and at a death; it records the wait of its id. One line a creature.
+//! `CRITICALHIT` below 26 % of its health) and at its death (`DEATH`). A line plays when its
+//! roll gives 0, the heroes' taking one of their two profiles; it plays only while its sound id
+//! waits for nothing, but at a critical hit and at a death; it gives way to the creature's own
+//! line still playing but at a normal hit, which stops that line, and at a death; it records the
+//! wait of its id. One line a creature.
 //!
-//! The hero speaks lines of its own too, MP3 samples by name (`0x693FE0`, #713): a battle cry at a
-//! combat art, one in three; its death's line; and its comments in the fight on one clock, which
-//! each comment that plays sets back to 0 (`+0xB7E8`, #1175; docs/re/sound.md, "The hero's
-//! comments"): a taunt at a boss's or a champion's hit while the hero's own grunt still sounds,
-//! its kill and its hit, the hero hit near its death, and a foe too weak or too strong for it.
+//! The hero speaks lines of its own too, MP3 samples by name (`0x693FE0`, #713), one at a time
+//! with the dialogues' voice-overs ([`NamedLine`], #1238): a battle cry at a combat art, one in
+//! three; its death's line; its refusal of an item it may not use ([`NotMine`], #1289); and its
+//! comments in the fight on one clock, which each comment that plays sets back to 0 (`+0xB7E8`,
+//! #1175; docs/re/sound.md, "The hero's comments"): a taunt at a boss's or a champion's hit while
+//! the hero's own grunt still sounds, the kind of the foe near it as it attacks, its kill and its
+//! hit, the hero hit near its death, a foe too weak or too strong for it, and the foes on the run
+//! ([`flight`], by the creatures' motions of their last 16 updates, [`Motions`], which the
+//! fights' music weighs too with the foes engaged, [`Engaged`]). The hero breathes, by its sound
+//! id, after a long walk, run or stand ([`breathe`]).
 //!
 //! The line plays at the volume of its place, lowered with the distance from the hero and panned
 //! by its side as the original places it (`sfx::placed`, `0x678260`), and at a rate of its
@@ -714,8 +720,8 @@ fn comment(heard: Heard, hero: HeroState, clock: f64, dice: &mut Rng) -> Option<
     None
 }
 
-/// A line to play: who speaks it, its sound id and file, the wait it records, and what it does
-/// to the speaker's own line.
+/// A line to play: who speaks it, its sound id and file, the wait it records, what it does to
+/// the speaker's own line, and whether it is a line by name.
 struct Said {
     speaker: Entity,
     id: u32,
@@ -735,9 +741,7 @@ fn rolls(n: u8, dice: &mut Rng) -> bool {
     }
 }
 
-/// What a line of `group` does: plays, plays over the creature's own line (stopping it), or
-/// gives way. `speaking` the creature's own line still playing, `waiting` its sound id's wait
-/// still running.
+/// What a line does: plays, plays over the creature's own line (stopping it), or gives way.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Play {
     Plays,
@@ -745,6 +749,8 @@ enum Play {
     GivesWay,
 }
 
+/// What a line of `group` does, `speaking` the creature's own line still playing, `waiting` its
+/// sound id's wait still running.
 fn play(group: u8, speaking: bool, waiting: bool) -> Play {
     match group {
         DEATH => Play::Interrupts,
@@ -1070,13 +1076,13 @@ impl Motions {
 const ENGAGED_WITHIN: i32 = 450;
 const FLEES_WITHIN: i32 = 500;
 
-/// The hero's fight as its comments on the foes on the run see it (`0x68BEA0`): its motions, the
-/// counts of the foes engaged over the last five updates (`+0xD96`, `+0xD98`).
 /// The most foes engaged over the last five updates (`+0xD96`), which the fights' music
 /// weighs (`music`).
 #[derive(Resource, Default)]
 pub(crate) struct Engaged(pub(crate) usize);
 
+/// The hero's fight as its comments on the foes on the run see it (`0x68BEA0`): its motions, the
+/// counts of the foes engaged over the last five updates (`+0xD96`, `+0xD98`).
 #[derive(Default)]
 struct Flight {
     hero: Motions,
