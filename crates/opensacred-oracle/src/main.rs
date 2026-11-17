@@ -2,7 +2,9 @@
 //! the developer's own GOG `Sacred.exe` 2.28 into the Unicorn emulator, runs the fight's formula
 //! functions of docs/re/fight.md and the game's rolls, `rand()` answering a script (#1433), on
 //! sets of inputs, and writes their outputs as JSON vectors to a directory outside the
-//! repository, which `opensacred-rules`' tests compare its formulas with.
+//! repository, which `opensacred-rules`' tests compare its formulas with. Its `fuzz` runs random
+//! inputs through a set's function and through `opensacred-rules`' in this process instead, and
+//! prints the first mismatch, shrunk (#1431).
 //!
 //! Unicorn is GPL-2.0: the emulator is the feature `emulator`, and no crate of the converter or
 //! the game depends on this one, which has no library (docs/08 §4). Without the feature the
@@ -27,7 +29,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::pe::Image;
 
-/// Runs the fight's formulas of your own Sacred.exe in the emulator and writes their vectors.
+/// Runs the fight's formulas and the game's rolls of your own Sacred.exe in the emulator and
+/// writes their vectors.
 #[derive(Parser)]
 #[command(version = None)]
 struct Cli {

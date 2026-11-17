@@ -1,5 +1,5 @@
 //! `world` subcommand: `World/sectors.keyx` and `sectors.wldx` with `Static.PAK`, `Floor.PAK`,
-//! `PAK/tiles.pak`, `PAK/items.pak`, `PAK/mixed.pak` and `PAK/texture.pak` →
+//! `PAK/tiles.pak`, `PAK/Items.pak`, `PAK/mixed.pak` and `PAK/texture.pak` →
 //! `<out>/world/world.ron`, `<out>/world/sectors/<x>-<y>.sector`, `<out>/world/sprites.bin` and
 //! `<out>/world/sprites/<record>.png` (docs/02 §5; the format is [`opensacred_data::world`]). Tile
 //! sheets and the miniatures' atlases are referred to as the PNGs that `opensacred-convert

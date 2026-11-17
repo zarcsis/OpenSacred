@@ -1,10 +1,10 @@
-//! The game's textures (docs/02 §12.3, #700): KTX2 files (Khronos KTX 2.0), each level
+//! The game's textures (docs/02 §12.2, #700): KTX2 files (Khronos KTX 2.0), each level
 //! supercompressed by zstd, of one of two encodings. [`Encoding::Bc7`] is the GPU's block
 //! compression, a byte a texel, for the opaque images that the GPU alone samples;
 //! [`Encoding::Rgba8`] keeps the texels as they are, for the images that the game composes or reads
 //! on the CPU and those with a texel of alpha under 255, whose alpha the game reads
 //! (docs/decisions/drawing.md, "Textures as KTX2 with mipmaps"). The converter's `build` writes
-//! them ([`write`]); the game hands them to Bevy's loader, or reads the 8-bit ones itself
+//! them ([`write()`]); the game hands them to Bevy's loader, or reads the 8-bit ones itself
 //! ([`read`]).
 
 use std::io;

@@ -1,5 +1,5 @@
-//! The client's own changes to its items table as it loads it (`0x4293B0`, docs/02 §6.1, "The
-//! client's changes"; #1136), which `tables` makes to `Items.pak`'s records before it writes
+//! The client's own changes to its items table as it loads it (`0x4293B0`, docs/02 §6.1, the
+//! client's changes; #1136), which `tables` makes to `Items.pak`'s records before it writes
 //! `items.ron`, so that the table is the client's: the heroes' angles, flag bits of some types,
 //! ids, categories, the sound profiles of most of the weapons 3105 to 3174, the gloves' entries and
 //! fields of a few more; and those of its second pass (`0x429950`, #2579): the dummy's fields,

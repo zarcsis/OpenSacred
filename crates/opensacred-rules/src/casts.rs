@@ -4,6 +4,12 @@
 //! does not choose from its arts' list, which `Creature.pak` leaves empty: its spells are its
 //! type's. The mark 1: the mummies, the magic skeletons and the orc shaman; the mark 4's dragons
 //! and big demons; the mark 8's magicians; the casters of marks of their own.
+//! Here too are what the creatures of the mark 4 make as they come on (the spider's shot, the
+//! dragons' fire, the spits, the giant spider's young, the crab queen's cages) and the fight's
+//! other specials (docs/re/ai.md, "The Underworld's bosses' specials"): the weapon arts and the
+//! traps they order, the hornets' flank and circle, the larvae's hiding, the minimummies' blink
+//! and daggers, the dryads' leap, the brain-footers' stare, and the bosses' and champions'
+//! keep-back.
 
 use crate::minds::Spot;
 use crate::spawning::Dice;
@@ -129,7 +135,8 @@ pub const DRAGON_FIRE: u16 = 852;
 pub const FLAME_BREATH: u32 = 11122;
 
 /// The spider's shot, a pseudo-spell of the railgun's FX type (`FX_RAILGUN`, 801), the clip's slot
-/// it plays (`0x593320(0x4F, …)`, the dragons' fire's too), and its sounds as it shoots (`0x4E369E`): in four cases of five
+/// it plays (`0x593320(0x4F, …)`, the dragons' fire's too), and its sounds as it shoots
+/// (`0x4E369E`): in four cases of five
 /// (`rand() % 5` below 4) one of `GIANTSPIDER_FOOTSTEPS01`, `02`, `03` and `04`, at a rate's factor
 /// of 0.5.
 pub const SPIDER_SHOT: u16 = 801;
@@ -868,8 +875,8 @@ pub const TRAP_THROWN: f32 = 1.0 - crate::arts::TRAPS;
 /// weapon art at a special's order (`0x5500D0`, the action of `0x95583C`; #2564, read whole for
 /// #2731): a hero's type below 10 its own; the Gladiator's (2) for 192, 204, 329, 342, 343, 350
 /// and 363; the Magician's (3) for 137 and 701; the Seraphim's (1) for 141; the Wood Elf's (5) for
-/// 218 and 219; the Daemon's (7) for 80; the Dark Elf's (4) for any other, 34, 48, 81, 186 and 202
-/// among them by name.
+/// 218 and 219; the Vampiress's by night (7) for 80; the Dark Elf's (4) for any other, 34, 48, 81,
+/// 186 and 202 among them by name.
 pub fn executor(creature: u32) -> Option<u32> {
     Some(match creature {
         0..=9 => creature,

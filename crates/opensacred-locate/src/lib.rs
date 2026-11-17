@@ -177,7 +177,7 @@ fn steam_roots() -> Vec<PathBuf> {
         .unwrap_or_default()
 }
 
-/// A string value of the registry, none where the key or the value is not there.
+/// A string value of the registry, none where the key or the value is not there or it is blank.
 #[cfg(windows)]
 fn registry_string(root: winreg::HKEY, key: &str, value: &str) -> Option<String> {
     winreg::RegKey::predef(root)

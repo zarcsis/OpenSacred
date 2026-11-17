@@ -4,13 +4,19 @@
 //! switches the stream to the other phase and starts again, a crossfade that runs taking 20 s off
 //! it first. The hero's death and the dusk and the night ask for the ambient loop now, setting the
 //! timer to 200 s in the music's phase; a region's music that cannot open (none before the first
-//! sector of music) keeps the ambient loop, once it plays. The scripts' control (`SetScriptSoundControle`, #1243)
+//! sector of music) keeps the ambient loop, once it plays. The scripts' control
+//! (`SetScriptSoundControle`, #1243)
 //! refuses the switches while it holds, until the scripts give the stream back or 300 s pass.
 //! `opensacred-game`'s `music` and `atmosphere` play what the phase holds.
 //!
 //! The fights' music and jingles ([`Fight`], docs/re/sound.md, "The fights' music and jingles";
 //! #1948): once a second the sound manager weighs the foes about the hero, and plays a jingle
 //! once or cuts in a fight's music, which the fight's end takes off again.
+//!
+//! The ambient loop of a place by the region's music and the sector's nature, by day and by
+//! night ([`ambient_loop`], docs/re/sound.md, "The atmosphere by the region"), each stream's
+//! factor of its volume ([`factor`], docs/re/sound.md, "The factors"), and the music's level at
+//! or below which the music plays nothing ([`SILENT`]).
 
 use crate::spawning::Dice;
 
@@ -38,7 +44,7 @@ pub const AFTER_FIGHT: f64 = 120.0;
 pub const HELD_OFF: f64 = 10.0;
 /// How often the fights are weighed, in seconds (`+0xD68`).
 pub const WEIGHED: f64 = 1.0;
-/// How long the foes must have been away for the jingles of a fight come back to them
+/// How long the foes must have been away for the jingles of a fight to come back to them
 /// (`+0xB7C0`).
 pub const QUIET: f64 = 60.0;
 /// How often the watch after a danger's jingle asks whether the fight is over (`+0xAF78`).
@@ -53,7 +59,7 @@ pub const WRONG_LEVEL_MUSIC: u32 = 6569;
 pub const DESERT: u32 = 0x196E;
 pub const NUKNUK: u32 = 0x1A2F;
 pub const KARIBIK: u32 = 0x1A30;
-/// The fights' music by its index (`0x9DF15C`): `MUSIC_FIGHT01` to `08` but `07`, `09`, `10`,
+/// The fights' music by its index (`0x9DF15C`): `MUSIC_FIGHT01` to `06`, `09`, `08`, `10`,
 /// `07`, `MUSIC_FIGHT_NUKNUK` and `MUSIC_FIGHT_KARIBIK`.
 const FIGHT_TRACKS: [u32; 12] = [
     6530, 6531, 6532, 6533, 6534, 6535, 6564, 6537, 6565, 6536, 6709, 6708,
@@ -149,9 +155,9 @@ impl Stream {
     /// takes [`WAITS`] off it, and a timer still past it switches to the other phase, the music
     /// only where the place has one (`music`), the ambient loop only where [`ambient_loop`] gives
     /// one (`ambient`), nothing while the scripts hold the stream, and starts again
-    /// (`0x69BD5E`); at a music's level below [`SILENT`] (`silent`) the ambient phase takes its
-    /// loop again where the place has one, which plays on, and turns to the music's phase all the
-    /// same (`0x69BDBE`). The phase it switched to, if it did.
+    /// (`0x69BD5E`); at a music's level of [`SILENT`] or below (`silent`) the ambient phase takes
+    /// its loop again where the place has one, which plays on, and turns to the music's phase all
+    /// the same (`0x69BDBE`). The phase it switched to, if it did.
     pub fn frame(
         &mut self,
         seconds: f64,
@@ -667,10 +673,11 @@ fn by_nature(nature: u8, night: bool) -> Option<u32> {
 /// The ambient loop of a region's music (`0x696C6B` by day, `0x696D20` by night): the woods',
 /// the villages', Mascarell's, the cemetery's, the outdoor arena's and the dryads' the wood's;
 /// the dungeons' and the indoor arena's the dungeon's; the desert's, the lava's and the ice's
-/// theirs; by day the mushroom forest's and the Caribbean's and the pirates' pub's their own and
-/// the way to hell's and hell's the hell's; by night the mushroom forest's, Nuknuk's and the
-/// Caribbean's the wood's and the way to hell's and hell's the hell's; none for the others (the
-/// capital's, Nuknuk's by day, the pirates' pub's by night, the dungeon of Nuknuk's).
+/// theirs; by day the mushroom forest's and the Caribbean's their own, the pirates' pub's the
+/// Caribbean's and the way to hell's and hell's the hell's; by night the mushroom forest's,
+/// Nuknuk's and the Caribbean's the wood's and the way to hell's and hell's the hell's; none for
+/// the others (the capital's, Nuknuk's by day, the pirates' pub's by night, the dungeon of
+/// Nuknuk's).
 fn by_music(music: u32, night: bool) -> Option<u32> {
     let (day, dark) = match music {
         6504 | 6509 | 6544 | 6550 | 6560..=6562 | 6705 => (Some(ATMO_WOOD), Some(ATMO_WOOD_NIGHT)),

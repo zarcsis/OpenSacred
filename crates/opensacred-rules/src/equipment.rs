@@ -1,7 +1,9 @@
 //! The equipment window's slots and who may use an item (#1288; docs/re/inventory.md, §4): the
 //! category each slot takes (`0x43EFC0`), each class's layout of the slots' frames (`0x6B7700`
-//! and the class's builder), and the use's test of an item's classes, its weapon's kind and the
-//! level it asks (`0x54ABE0`, `0x5BF810`, `0x5BEB30`).
+//! and the class's builder), and the use's test of an item's classes, its weapon's kind and what
+//! it asks, the level, the attributes and a skill (`0x54ABE0`, `0x5BF810`, `0x5BEB30`). With
+//! them: the slot an item goes into, the slots' glow, the hands a weapon is held in and what a
+//! hireling's hands take (`0x6D6760`), and the armour switch (`0x43CA20`).
 
 /// The slots of a creature's equipment (docs/re/equipment.md).
 pub const SLOTS: u8 = 19;

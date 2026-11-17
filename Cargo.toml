@@ -22,11 +22,13 @@ bcdec_rs = "0.2.1"
 # The engine of the game (ADR-04). The default collections ("2d", "3d", "ui", "audio") minus: the
 # Wayland backend, whose client-side decorations pull the unmaintained ttf-parser (Linux runs
 # through X11 and XWayland); zstd_rust, whose ruzstd 0.8 has RUSTSEC-2026-0344 (zstd_c decodes
-# the KTX2 tone-mapping tables instead); webgl2, the browser version being dropped (PLAN.md
-# §1.1); Bevy's audio (sound goes through Kira, ADR-07); 2D rendering, and the picking of meshes
-# and sprites, until they are needed. Plus png, for the converted interface textures that the HUD loads; the picking of the
-# interface's nodes, which the menus' items take their pointing and clicks from; the Remote
-# Protocol of `--remote` (docs/10 §8); and the system's clipboard, which the console pastes from.
+# the KTX2 tone-mapping tables and the game's textures instead); webgl2, the browser version
+# being dropped (PLAN.md §1.1); Bevy's audio (sound goes through Kira, ADR-07); 2D rendering, the
+# picking of meshes and sprites, and Bevy's UI widgets, until they are needed. Of the picking
+# stays that of the interface's nodes, which the menus' items take their pointing and clicks
+# from; png, which common_api holds already, writes the frames that `--screenshot` and
+# `--record` save. Plus the Remote Protocol of `--remote` (docs/10 §8) and the system's
+# clipboard, which the console pastes from.
 bevy = { version = "0.20.0", default-features = false, features = [
     "async_executor",
     "bevy_anti_alias",
@@ -95,8 +97,9 @@ mlua = { version = "0.12.2", features = ["luau"] }
 miniz_oxide = { version = "0.9.1", features = ["simd"] }
 png = "0.18.1"
 postcard = { version = "1.1.3", default-features = false, features = ["use-std"] }
-# The property tests of the rules (#1428), a dev-dependency: without the forking and the timeouts
-# of a case, which the formulas do not need.
+# The property tests of the rules (#1428) and of the open formats (#1434), a dev-dependency, and
+# the runner of opensacred-oracle's `fuzz` (#1431): without the forking and the timeouts of a
+# case, which the formulas do not need.
 proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 # The open formats' types made at random for their round trips (#1434), a dev-dependency of
 # opensacred-data.
@@ -127,12 +130,14 @@ symphonia = { version = "0.6.1", default-features = false, features = ["mkv", "o
 symphonia-adapter-libopus = "0.3.0"
 thiserror = "2.0.21"
 # The game's settings file (docs/10 §3): read through serde, written key by key keeping the
-# user's comments and order, which the toml crate does not keep.
+# user's comments and order, which the toml crate does not keep. The keys' file is read with it
+# too (`controls.toml`, #1553).
 toml_edit = { version = "0.25.17", features = ["serde"] }
 # The emulator of opensacred-oracle alone (GPL-2.0, docs/04 §2.3), the 32-bit x86 of Sacred.exe.
 unicorn-engine = { version = "2.1.5", default-features = false, features = ["arch_x86"] }
-# The converter's search for the player's installation in the registry on Windows (#1496), on the
-# windows-sys that the tree already holds.
+# The registry on Windows: opensacred-locate's search for the installation (#1496, #1556) and the
+# user's short date's pattern for the game's saves' window (#1990), on the windows-sys that the
+# tree already holds.
 winreg = "0.56.0"
 # The KTX2 textures' supercompression (#700), on the C library (`zstd-sys`) that Bevy's `zstd_c`
 # already builds; Bevy 0.20 binds it through zstd 0.13, so both versions of the binding stay in

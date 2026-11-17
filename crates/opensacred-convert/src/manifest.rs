@@ -1,8 +1,10 @@
 //! The run manifests (PLAN.md §7: "writes a manifest with the source of every output file"):
-//! after a full run, each extraction records under `<assets-src>/manifest/<command>.ron` the converter
-//! that ran, the installation files it read and the files it wrote, each with its SHA-256. `all`
-//! skips a command whose manifest names the same converter and sources and whose outputs are all
-//! in place, and two runs that write the same manifests wrote the same files.
+//! after a full run, each extraction records under `<assets-src>/manifest/<command>.ron` the
+//! converter that ran, the installation files it read and the files it wrote, each with its
+//! SHA-256. `all` skips a command whose manifest names the same converter and sources and whose
+//! outputs are all in place, and two runs that write the same manifests wrote the same files.
+//! `build` records its own in the same form, `<out>/manifest/build.ron`, of the masters it built
+//! from and its archives' entries ([`crate::build`]).
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -35,9 +37,11 @@ pub struct RunManifest {
     pub command: String,
     /// SHA-256 of the converter executable.
     pub converter: String,
-    /// The installation files read, as the reference manifest names them.
+    /// The installation files read, as the reference manifest names them; `build`'s are the
+    /// masters it built from, relative to their directory.
     pub sources: Vec<FileHash>,
-    /// The files written, relative to the output directory.
+    /// The files written, relative to the output directory; `build`'s are its archives' entries,
+    /// `<archive>/<path>`.
     pub outputs: Vec<FileHash>,
     /// `build`'s ways of making its outputs, each with its version (#700): a way whose version
     /// changed makes its outputs again.

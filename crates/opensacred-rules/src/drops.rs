@@ -2,13 +2,19 @@
 //! makes and their bonus, each call's chance and passes, a pass's quality key and kind, the type
 //! of its item by the category, the level and the templates, the item's level and key, gold's
 //! amount and pile, and the item's values by the item maker ([`Templates::make`]) with the sockets
-//! its quality pass rolls ([`Sockets`]); the result is a list of drops. `opensacred-game` makes them in the world; this module is the rules alone, its
-//! rolls taken from a [`Dice`].
+//! its quality pass rolls ([`Sockets`]); the result is a list of drops. `opensacred-game` makes
+//! them in the world; this module is the rules alone, its rolls taken from a [`Dice`].
 //!
-//! The runes come by their own pass (#1183), and the scripts' drops (`SetDrop`) are the game's
-//! (#930). Left out (#1367, #1262): the uniques and the set pieces, whose keys fall back as the
-//! original's do where it finds none; the bosses' drops by their type; the potions of a hero who
-//! wears a set; the party's factor of a network game; and the effects 856 and 868.
+//! The runes come by their own pass (#1183), a unique and a set's piece by the keys 0 and 1
+//! (#2268), the bosses' drops by their type (#2269), the potions of a hero who wears five pieces
+//! of set 22 (#1727) and the healing potion of the killer's effect 868 (#1802); the scripts' drops
+//! (`SetDrop`) are the game's (#930). Left out: the party's factor of a network game. The gold
+//! pile of a hit's effect 856 is [`fight::gold_pile`].
+//!
+//! Beside a death's drops, the module holds the items that a script's `CreateObj`
+//! ([`script_item`], [`scripted`]), a merchant's page ([`keyed`]) and the game's other items
+//! ([`thrown`]: a container's contents, a quest's reward, the command `item`) take from the same
+//! maker, a drop's flight ([`Flight`]) and what the automatic collecting takes ([`collects`]).
 
 use std::collections::{HashMap, HashSet};
 
@@ -113,8 +119,8 @@ pub struct Dropped {
     pub item: u32,
     /// The level the item maker made it at; 0 for an item it does not make (gold, potions).
     pub level: u32,
-    /// The pass's quality key, 0 to 17: at least 16 for potions and gold, and 2 for the key 1,
-    /// whose set piece is left out.
+    /// The pass's quality key, 0 to 17: at least 16 for potions, gold and runes, and 2 for the
+    /// key 1 that takes no set's piece.
     pub key: u8,
     /// The key the item maker took: `16 − key` for the keys 2 to 15, 14 for the key 0 (the
     /// original's where it finds no unique), else 0.
@@ -450,7 +456,6 @@ impl Default for Rules {
 }
 
 impl Rules {
-    /// The rules of the balance `balance`, the original's values where it lacks them.
     /// The rules with the bosses' drops of `drops` (`tables/boss_drops.ron`), their bonuses read
     /// off `balance`: a key's value, or the image's word at an offset; 0 without it (#2269).
     #[must_use]
@@ -488,6 +493,7 @@ impl Rules {
             .find(|boss| boss.types.contains(&creature))
     }
 
+    /// The rules of the balance `balance`, the original's values where it lacks them.
     pub fn of(balance: Option<&Balance>) -> Self {
         let default = Self::default();
         let Some(b) = balance else {
@@ -604,9 +610,10 @@ impl Rules {
     /// The range of the roll of a class rune that a side quest's end or a reward gives the hero
     /// `hero` (`0x5595A0(1000, 1)`, from `0x45FC60`; #1386), with `given` the runes of its class
     /// the quests have given (the player's `+0x5710`): `given` first set to its runes carried and
-    /// its arts' levels where it is 0 or above 10,000, and where those fall below it they count
-    /// as its two thirds and its third; `x = (runes/2 + arts)/H/p`, `p` the runes per level of the
-    /// hero's type 1 to 7 and 1 for the others, `H` its level; `x⁵·1000`, at most 32,767, whole.
+    /// its arts' levels where it is 0 or above 10,000, and where those fall below it the arts
+    /// count as its two thirds and the runes as its third; `x = (runes/2 + arts)/H/p`, `p` the
+    /// runes per level of the hero's type 1 to 7 and 1 for the others, `H` its level; `x⁵·1000`,
+    /// at most 32,767, whole.
     /// The rune comes where a roll of 0 to the range falls below `UpgradeDrop` ([`Self::rune_given`]).
     pub fn quest_rune_range(&self, hero: &Hero, given: &mut u32) -> i64 {
         self.rune_range(hero, given, true)
@@ -1246,22 +1253,22 @@ impl Catalogue {
     }
 
     /// Whether the type `item` is a piece of a set (`sets.bin`), which the item maker leaves out
-    /// and which keeps its record as it stands (#1701).
+    /// and which a drop raises from its record ([`raise_level`], #1701, #2268).
     pub fn set_piece(&self, item: u32) -> bool {
         self.records.get(&item).is_some_and(|record| record.set)
     }
 
     /// Whether the type `item` is a unique, its record's quality bits all set, which a forced
-    /// drop gives as its record holds it (the key 0, #1709).
+    /// drop raises from its record ([`raise_level`]; the key 0, #1709, #2268).
     pub fn unique(&self, item: u32) -> bool {
         self.records
             .get(&item)
             .is_some_and(|record| record.flags & UNIQUE == UNIQUE)
     }
 
-    /// The kind of a drop of type `item`, by its category: gold, a potion, a weapon, armour (the
-    /// Dwarf's cannons too, [`CANNONS`]) or a jewel; `None` for a type of any other category (the
-    /// runes, the blacksmith's upgrades) or none.
+    /// The kind of a drop of type `item`, by its category: gold, a potion, a rune, a weapon,
+    /// armour (the Dwarf's cannons too, [`CANNONS`]) or a jewel; `None` for a type of any other
+    /// category (the blacksmith's upgrades) or none.
     pub fn kind(&self, item: u32) -> Option<Kind> {
         if GOLD.contains(&item) {
             return Some(Kind::Gold);
@@ -1654,8 +1661,8 @@ impl Dropping<'_> {
         self.make(kind, item, key, dice)
     }
 
-    /// What a pass makes, in order (`0x559BF0`): a potion in `DropSaft` ‰; gold in `DropGold` ‰,
-    /// a rune ([`Self::rune`]); gold in `DropGold` ‰, always for the animals, and for the ghosts in
+    /// What a pass makes, in order (`0x559BF0`): a potion in `DropSaft` ‰; a rune
+    /// ([`Self::rune`]); gold in `DropGold` ‰, always for the animals, and for the ghosts in
     /// 600 ‰ of the rest; but for the ghosts a weapon in `DropWaffe` ‰ and armour in
     /// `DropRuestung` ‰ of the rest; else a jewel, unless the creature made the last one
     /// ([`LastJewel`]); the type none where none is found.
@@ -2233,8 +2240,9 @@ fn raised(
 /// `level` with the pass's quality key `key` as a drop's would be (the key 0 at the maker's key
 /// 14, 2 to 15 at `16 − key`, 16 and 17 at 0); a type of no drop's kind as it is, of the kind
 /// [`Kind::Other`], as the original's driver makes any type (a book, a quest's item, #1358);
-/// its sockets rolled by `sockets` on `difficulty`; a set's piece (#1701) and a unique (#1709) as
-/// its record holds it, not raised to a least level (`0x5C29A0`, `0x5C2210`).
+/// its sockets rolled by `sockets` on `difficulty`; a set's piece (#1701) and a unique (#1709)
+/// raised from its record to `level` as a drop's is ([`raise_level`]; `0x5C29A0`, `0x5C2210`;
+/// #2268). The game makes a container's contents and a quest's reward so too.
 /// `None` for a type that the items' table does not hold.
 pub fn thrown(
     (catalogue, templates): (&Catalogue, &Templates),
@@ -2719,7 +2727,7 @@ fn single(value: f64) -> f32 {
 
 /// The element stones (`Elementstein01.grn`, `0x428680`), which every mode collects.
 const ELEMENT_STONES: std::ops::RangeInclusive<u32> = 6008..=6017;
-/// The potions' and the runes' categories (`items.pak +0x01`, `0x426220`).
+/// The potions' and the runes' categories (`items.pak +0x2E`, `0x426220`).
 const POTION_CATEGORY: u8 = 9;
 const RUNE_CATEGORY: u8 = 28;
 

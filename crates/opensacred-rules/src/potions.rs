@@ -121,7 +121,7 @@ pub enum Drink {
 /// `ComboCocktail`, `JumboComboCocktail`, at `0xAD5788`, `0xAD5784` and `0xAD5780`).
 const COCKTAILS: [f32; 3] = [120.0, 200.0, 300.0];
 
-/// A whole count as a float, exact below 2²⁴.
+/// A whole count as a float, 65,535 at most.
 fn to_f32(value: u32) -> f32 {
     f32::from(u16::try_from(value).unwrap_or(u16::MAX))
 }

@@ -1,17 +1,20 @@
 //! `build`, the converter's stage B (PLAN.md ADR-05, #694): the game's assets in `<out>` from the
 //! masters that the extraction commands (stage A) write into `<assets-src>`. It encodes the
 //! textures' PNG masters into KTX2 ([`crate::ktx`], #700), with them the models' references to
-//! them and the images they embed and the world index's, and the cutscenes' masters into AV1 and
-//! Opus WebM (#698); it takes the other masters as they are, but writes the text files as UTF-8
-//! with LF line ends ([`crate::utf8`], #835), while the later sub-issues change the formats one
-//! kind at a time (#696), and packs the outputs into ZIP archives by kind,
-//! [`opensacred_data::archive`]'s (#699): `data.zip` (the tables, texts, scripts and heroes),
-//! `models.zip`, `music.zip`, `sound.zip`, `textures.zip`, `ui.zip`, `video.zip` and `world.zip`,
-//! the entries in the order of their paths. It leaves out the masters that the game never reads
-//! (#2645): the atlases that the sprites' images were assembled from (#838), the menus' tiles
-//! that `ui` assembles its pictures from (#2646), the motion records' files, whose clips
-//! `models` copies into the models' (#2647), the files that no code of the game reads (#2650),
-//! and the scripts' trees, which the game runs in Luau (#726).
+//! them and the images they embed and the world index's, the sound's FLAC masters into Ogg Opus
+//! (#701) and the cutscenes' masters into AV1 and Opus WebM (#698), and compiles the scripts'
+//! Luau sources into bytecode ([`crate::luau`], #723); it takes the other masters as they are,
+//! but writes the text files as UTF-8 with LF line ends ([`crate::utf8`], #835), and packs the
+//! outputs into ZIP archives by kind, [`opensacred_data::archive`]'s (#699): `data.zip` (the
+//! tables, texts, scripts and heroes), `models.zip`, `music.zip`, `sound.zip`, `textures.zip`,
+//! `ui.zip`, `video.zip` and `world.zip`, the entries in the order of their paths. It leaves out
+//! the masters that the game never reads (#2645): the atlases that the sprites' images were
+//! assembled from (#838), the menus' tiles that `ui` assembles its pictures from (#2646), the
+//! motion records' files, whose clips `models` copies into the models' (#2647), the files that no
+//! code of the game reads (#2650), the network games' trees, until M9 (#2648), the original's
+//! dead content ([`crate::dead`], #2649), and the scripts' trees, which the game runs in Luau
+//! (#726). A script's file that several trees share, the same source at one path, is packed once,
+//! and the other trees' indices name the tree that holds it (#2648).
 //!
 //! It records `<out>/manifest/build.ron`: the masters it built from and each archive's entries,
 //! `<archive>/<path>`, each with its SHA-256. An archive whose masters are all the ones recorded
@@ -283,8 +286,9 @@ pub struct Summary {
     pub masters: usize,
     pub built: usize,
     pub kept: usize,
-    /// The masters left out, which the game never reads: the atlases that the sprites' images
-    /// were assembled from (#838) and the others of [`never_read`].
+    /// The masters left out: those the game never reads, the atlases that the sprites' images
+    /// were assembled from (#838) and the others of [`never_read`], and the scripts' files whose
+    /// bytecode another tree holds ([`SharedScripts`]).
     pub left_out: usize,
     pub removed: usize,
     pub archives: usize,

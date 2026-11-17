@@ -1,9 +1,10 @@
 //! The fixed-record tables (docs/02 §6.2, §5.5, §4.1): `PAK/Creature.pak` (`"CIF"` v0),
 //! `PAK/Weapon.pak` (`"WPN"` v8), `PAK/MOTIONS.PAK` (`"MHP"` v1) and `World/Triggers.PAK`
 //! (`"TRG"` v1). A 0x100-byte header with the record count at `+4`, then the records back to back;
-//! no directory but the one entry of `Triggers.PAK`. Fields whose meaning is not known yet are
-//! kept as spans named by their offset, so that nothing of a record is lost. Confirmed on every
-//! record by `tools/analysis/formats/tables_dump.py`.
+//! no directory but the one entry of `Triggers.PAK`. The spans with no name of their own are kept
+//! whole and named by their offset, so that nothing of a record is lost; what is known of their
+//! fields is in those sections of docs/02. Confirmed on every record by
+//! `tools/analysis/formats/tables_dump.py`.
 
 use crate::error::{ErrorKind, Result, field, to_usize};
 use crate::reader::Reader;
@@ -34,7 +35,8 @@ pub struct Creature {
     pub skills: [u8; 2],
     /// `+0x16`: SKILLSX.
     pub skills_extra: [u8; 16],
-    /// `+0x26`: SPEED, a pair (another source calls them walk and run).
+    /// `+0x26`: SPEED, a pair: the walk's and the run's, which `0x4F75F0` takes by the gait
+    /// (docs/re/movement.md).
     pub speed: [u16; 2],
     /// `+0x2A`: six bonuses (kind, target).
     pub bonus: [[u8; 2]; 6],
@@ -83,8 +85,8 @@ pub struct Trigger {
     pub target: u32,
 }
 
-/// The count at `+4` after the magic, and a reader at the records, which start `skip` bytes after
-/// the header and, each with `tail` more bytes after the table, fill the file.
+/// The count at `+4` after the magic, and a reader at the end of the header: the records start
+/// `skip` bytes after it and, each with `tail` more bytes after the table, fill the file.
 fn records<'a>(
     data: &'a [u8],
     magic: [u8; 3],

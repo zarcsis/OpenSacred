@@ -1,10 +1,10 @@
-//! Readers for the original Sacred Gold 2.28 (GOG) formats: PAK containers, TEX textures, GRN
-//! models, world sectors, NetScript, `global.res`, AMH templates, and the tables compiled into
-//! `Sacred.exe`.
+//! Readers for the original Sacred Gold 2.28 (GOG) formats: PAK containers and their tables, TEX
+//! textures, GRN models, world sectors, the sound, NetScript, the tables of `bin/`, `global.res`,
+//! AMH templates and saves, the screens' bitmaps, and the tables compiled into `Sacred.exe`.
 //!
 //! The crate only parses data and writes nothing; reading never panics, errors name the record
 //! and the file offset. Format descriptions are in `docs/02-data-formats.md`, reference Python
-//! prototypes in `tools/analysis/formats/`.
+//! prototypes in `tools/analysis/` (`formats/`, `world/`, `scripts/`, `pe/`).
 
 pub mod amh;
 pub mod arts;

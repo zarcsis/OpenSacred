@@ -1,7 +1,7 @@
 //! The converted cutscenes (docs/02 §10.3): a file of each under the video directory, named by the
 //! name the game uses, lower case (`intro`, `act1`, …): the masters FFV1 and FLAC in Matroska, the
 //! game's AV1 and Opus in WebM. The game names 16, of which the release ships 10; a missing one is
-//! skipped. No index lists them (#828): a cutscene's file follows from its name ([`file`]).
+//! skipped. No index lists them (#828): a cutscene's file follows from its name ([`file()`]).
 
 /// The extension of the game's cutscenes, WebM.
 pub const EXTENSION: &str = "webm";

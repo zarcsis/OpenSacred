@@ -6,7 +6,10 @@
 //! 112 to 117) change their type at a strike's death as they rise, an arm or the head lost each
 //! time, until their last death bursts them; the other types of the class 5 burst or vanish at
 //! their death (`0x532E3C`'s and `0x541653`'s switches, #1260). Any creature's body lies a time
-//! by the options' detail and vanishes, and a hidden one is destroyed later (#2501).
+//! by the options' detail and vanishes, and a hidden one is destroyed later (#2501); some end at
+//! their first tick of lying ([`at_once`], #2514). With them: the bursts' body parts, blood and
+//! puddles by the gib set, the head that a skeleton warrior throws off and its damages (#2730),
+//! and the killer's exorcism ([`exorcised`]).
 
 /// The flags word's bit of an undead that has risen once, by which its next death is its last
 /// (`+0x1F4` bit `0x200`); a boss or a champion takes it at its first fight.
@@ -147,8 +150,8 @@ pub const CLASS: u8 = 5;
 const WARRIOR: u32 = 32;
 const HEADLESS: u32 = 112;
 
-/// The types that burst at their last death (`0x541653`'s cases 0 to 2): the skeleton warriors,
-/// the zombies 33 and 34, and the ghouls 36 and 50.
+/// The types that burst at their last death (`0x541653`'s cases 0 to 2) beside the skeleton
+/// warriors ([`warrior`]): the zombies 33 and 34, and the ghouls 36 and 50.
 const BURSTING: [u32; 4] = [33, 34, 36, 50];
 
 /// The fire ghoul, which burns away once its dying clip has played (`0x541653`'s case 4); not of

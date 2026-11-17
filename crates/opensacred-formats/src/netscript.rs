@@ -58,8 +58,9 @@ pub enum Body {
 }
 
 /// The body of type 40: `{i32 -1; char name[64]; i32 a; i32 b; i32 0}`, the name padded with
-/// zeros. The walker copies it into a table of 80-byte entries; the meaning of `a` and `b` is
-/// not known (`a` 2,502 values, `b` 22).
+/// zeros. The walker copies it into a table of 80-byte entries, the dialogues' table: `b`, the
+/// entry's `+0x48`, is its icon (#1039), and `a`, its `+0x44`, a function's index (**hypothesis**;
+/// docs/re/netscript.md); `a` takes 2,502 values, `b` 22.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Dialog {
     pub name: String,

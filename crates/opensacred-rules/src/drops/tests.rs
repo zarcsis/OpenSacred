@@ -1833,3 +1833,17 @@ fn the_collect_modes_pass_gold_the_valuables_or_everything() {
     assert!(collects(1, (1712, 1), (0, two), 24) && collects(1, (1712, 1), (0, two), 34));
     assert!(!collects(1, (1712, 1), (12, two), 35) && collects(1, (1712, 1), (13, none), 35));
 }
+
+/// The effects' records lie in the balance's image from `+0x9DC` on, six floats each
+/// (`0x5E22B0`); an image that ends before them gives none.
+#[test]
+fn the_effects_records_are_read_from_the_images_0x9dc() {
+    let first = 0x9DC / 4;
+    let mut image = vec![0_u32; first + 6 * names::NORMS];
+    image[first] = 1.5_f32.to_bits();
+    image[first + 6] = 2.5_f32.to_bits();
+    let norms = names::norms(&image);
+    assert_eq!(norms.len(), names::NORMS);
+    assert_eq!((norms[0][0], norms[1][0]), (1.5, 2.5));
+    assert!(names::norms(&image[..image.len() - 1]).is_empty());
+}

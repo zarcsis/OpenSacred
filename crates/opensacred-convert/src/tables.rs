@@ -1,7 +1,8 @@
 //! `tables` subcommand: `Creature.pak`, `Weapon.pak`, `Items.pak` with the overlay
 //! `Items03.pak`, `MOTIONS.PAK`, `Triggers.PAK`, the data tables of `bin/`, and the combat arts'
-//! tables, the creatures' voices and portraits, the weather's rolls and the figures of the choice
-//! of the hero of `Sacred.exe` → one RON file each under `<out>/tables/`
+//! tables, the creatures' voices, idle noises and portraits, the bosses' drops, the drops' runes,
+//! the weather's rolls, the figures of the choice of the hero, the interface's images and the
+//! types' names of `Sacred.exe` → one RON file each under `<out>/tables/`
 //! (docs/02 §6; the format is [`opensacred_data::tables`]).
 
 use std::fs;

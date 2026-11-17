@@ -1,6 +1,6 @@
-//! `ui` subcommand: the loading and save screens of `PAK/*.bmp` → PNG, the main menu's picture
-//! assembled from its twelve tiles of `texture.pak` (#1824), the fonts of `font/` and the
-//! credits → `<out>/ui/` (docs/02 §11), the credits as UTF-8 with LF line ends (#835).
+//! `ui` subcommand: the loading and save screens of `PAK/*.bmp` → PNG, the four menus' pictures,
+//! each assembled from its twelve tiles of `texture.pak` (#1824, #2634), the fonts of `font/` and
+//! the credits → `<out>/ui/` (docs/02 §11), the credits as UTF-8 with LF line ends (#835).
 
 use std::fs;
 use std::path::{Path, PathBuf};

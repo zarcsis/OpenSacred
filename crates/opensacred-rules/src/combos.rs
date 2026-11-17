@@ -1,7 +1,7 @@
 //! A hero's combos (docs/re/arts.md, "A hero's combos"): the four that every hero has, their
 //! steps (an art and its level each), their time, speed and regeneration, and what a combat master
-//! asks for making one. `opensacred-game` (`combos_page`, `art_slots`) keeps them and shows them;
-//! their run in play is #1531's.
+//! asks for making one. `opensacred-game` keeps them and runs them in play (`combos`, #1531) and
+//! shows them (`combos_page`, `art_slots`).
 
 use opensacred_data::tables::Arts as Tables;
 

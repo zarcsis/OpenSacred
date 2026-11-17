@@ -104,7 +104,8 @@ pub struct Found<T> {
     pub mismatch: Option<(T, String)>,
 }
 
-/// The largest attack, defence, damage or resistance taken: twice the vectors' largest.
+/// The largest attack, defence, damage or resistance taken: twice the vectors' largest attack
+/// and defence, 5,000.
 const MOST: f32 = 10_000.0;
 /// The tolerances of `tests/oracle.rs`: a chance within 10⁻⁶, a damage within 10⁻⁵ of itself.
 const CHANCE_WITHIN: f32 = 1e-6;

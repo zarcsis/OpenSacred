@@ -22,10 +22,10 @@ const INTERLEAVED_HEADER: usize = 12;
 /// Frame of an interleaved track: time, translation, rotation, scale/shear.
 const FRAME_SIZE: usize = 68;
 
-/// Animation tracks in file order. Every motion but four has one track per bone; the two
-/// `FX_*_IDLE_BH.GRN` motions have two per bone, a split and an interleaved one. The models have
-/// none, except `WINDSTRAUCH.GRN` (4) and `CITIZEN_MAL.GRN` (56 interleaved tracks without
-/// frames).
+/// Animation tracks in file order. Every motion but four, which have none, has one track per
+/// bone; the two `FX_*_IDLE_BH.GRN` motions have two per bone, a split and an interleaved one.
+/// The models have none, except `WINDSTRAUCH.GRN` (4) and `CITIZEN_MAL.GRN` (56 interleaved
+/// tracks without frames).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Animation {
     pub tracks: Vec<Track>,

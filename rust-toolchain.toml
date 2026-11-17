@@ -1,4 +1,5 @@
-# Bumped together with the dependencies (docs/03 §3.3); CI takes the version from here too.
+# Bumped by a `deps` issue of its own, as a dependency's incompatible release is (docs/03 §3.3);
+# CI takes the version from here too.
 [toolchain]
 channel = "1.100.0"
 components = ["rustfmt", "clippy"]
