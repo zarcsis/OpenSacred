@@ -187,8 +187,9 @@ fn make(
 /// Runs each bleed a frame on (`0x76AEF0`) and draws it (`0x76AFF0`): its droplets facing the
 /// camera, turned by their angles, in its blood at the alpha of their life, where they flew from
 /// its creature's neck; it goes with its last droplet, and then, with the violence on and but
-/// for the gib sets 3 and 4, leaves its blood's splashes on the ground within 15 of its creature
-/// (`0x76AEF0`, `0x5B34A8`; **estimate**: the creature's place for the system's on the ground).
+/// for the gib sets 3 and 4, leaves its blood's splashes on the ground within 15 world units of
+/// its creature along each of the cells' axes (`0x76AEF0`, `0x5B34A8`, #2777; the creature's
+/// place for the bleed's object's, at the creature's height for the ground's there).
 fn bleed(
     mut commands: Commands,
     time: Res<Time>,
@@ -212,7 +213,7 @@ fn bleed(
                 let ground = places
                     .get(sight.target)
                     .map_or(at.translation, GlobalTransform::translation);
-                crate::marks::splashes(&mut commands, ground + world([x, y, 0.0]), sight.colour);
+                crate::marks::splashes(&mut commands, ground + Vec3::new(x, 0.0, y), sight.colour);
             }
             continue;
         }
