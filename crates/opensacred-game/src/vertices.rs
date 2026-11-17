@@ -1,7 +1,10 @@
 //! A model's vertices as last posed, for the systems whose start bursts their particles at them
-//! (`0x767FB0`, `0x44FC30`: the souls' figures, the changeling's, the weapons' sparks): each
-//! mesh's vertices in the world, a skinned mesh's by its joints' places and weights as the
-//! renderer poses it, its worn items' left out.
+//! (`0x767FB0`, `0x44FC30`: the souls' figures, the changeling's, the weapons' and the
+//! level-up's sparks): each mesh's vertices in the world, a skinned mesh's by its joints' places
+//! and weights as the renderer poses it, its worn items' left out. A mesh is the original's, one
+//! of its Granny model's: the converter writes it as a glTF mesh of a primitive per pass that
+//! share its vertices, which Bevy's loader gives each primitive whole, so the primitives of one
+//! mesh count once (#2763).
 
 use bevy::ecs::system::SystemParam;
 use bevy::mesh::VertexAttributeValues;
@@ -19,6 +22,7 @@ pub(crate) struct ModelPoints<'w, 's> {
             &'static Mesh3d,
             Option<&'static SkinnedMesh>,
             &'static GlobalTransform,
+            Option<&'static ChildOf>,
         ),
     >,
     places: Query<'w, 's, &'static GlobalTransform>,
@@ -29,18 +33,31 @@ pub(crate) struct ModelPoints<'w, 's> {
 impl ModelPoints<'_, '_> {
     /// The vertices of each mesh of the model at `root` and its descendants, but its worn items',
     /// in the world, mesh by mesh: a skinned mesh's `Σ wᵢ · (jointᵢ · bindᵢ⁻¹) · v`, another's its
-    /// entity's transform of `v`; the meshes of `meshes`.
+    /// entity's transform of `v`; the meshes of `meshes`. The primitives of one glTF mesh, the
+    /// children of one node whose vertices are the same, count as one mesh.
     pub(crate) fn of(&self, root: Entity, meshes: &Assets<Mesh>) -> Vec<Vec<Vec3>> {
         let mut found = Vec::new();
+        let mut taken: Vec<(Option<Entity>, &[[f32; 3]])> = Vec::new();
         let mut stack = vec![root];
         while let Some(entity) = stack.pop() {
             if entity != root && self.worn.contains(entity) {
                 continue;
             }
-            if let Ok((mesh, skin, place)) = self.shapes.get(entity)
-                && let Some(points) = self.posed(meshes.get(&mesh.0), skin, place)
+            if let Ok((mesh, skin, place, parent)) = self.shapes.get(entity)
+                && let Some(mesh) = meshes.get(&mesh.0)
+                && let Some(VertexAttributeValues::Float32x3(positions)) =
+                    mesh.attribute(Mesh::ATTRIBUTE_POSITION)
             {
-                found.push(points);
+                let node = parent.map(ChildOf::parent);
+                let shared = taken
+                    .iter()
+                    .any(|&(other, vertices)| other == node && vertices == positions.as_slice());
+                if !shared {
+                    taken.push((node, positions));
+                    if let Some(points) = self.posed(mesh, positions, skin, place) {
+                        found.push(points);
+                    }
+                }
             }
             if let Ok(kids) = self.children.get(entity) {
                 stack.extend(kids.iter());
@@ -49,20 +66,15 @@ impl ModelPoints<'_, '_> {
         found
     }
 
-    /// The vertices of the mesh `mesh` in the world, skinned by `skin` where it is skinned, else
-    /// at `place`.
+    /// The vertices `positions` of the mesh `mesh` in the world, skinned by `skin` where it is
+    /// skinned, else at `place`.
     fn posed(
         &self,
-        mesh: Option<&Mesh>,
+        mesh: &Mesh,
+        positions: &[[f32; 3]],
         skin: Option<&SkinnedMesh>,
         place: &GlobalTransform,
     ) -> Option<Vec<Vec3>> {
-        let mesh = mesh?;
-        let Some(VertexAttributeValues::Float32x3(positions)) =
-            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
-        else {
-            return None;
-        };
         let Some(skin) = skin else {
             return Some(
                 positions
@@ -161,6 +173,47 @@ fn bounds_step(count: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_primitives_of_one_mesh_count_once() {
+        use bevy::asset::RenderAssetUsages;
+        use bevy::ecs::system::SystemState;
+        use bevy::mesh::PrimitiveTopology;
+        let mut world = World::new();
+        world.init_resource::<Assets<SkinnedMeshInverseBindposes>>();
+        let triangle = |x: f32| {
+            Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::all())
+                .with_inserted_attribute(
+                    Mesh::ATTRIBUTE_POSITION,
+                    vec![[x, 0.0, 0.0], [x, 1.0, 0.0], [x, 0.0, 1.0]],
+                )
+        };
+        let mut meshes = Assets::<Mesh>::default();
+        // One glTF mesh's two primitives, which hold its vertices each, and another mesh of the
+        // node; a mesh of the same vertices under another node.
+        let [first, second, other, elsewhere] =
+            [0.0, 0.0, 5.0, 0.0].map(|x| meshes.add(triangle(x)));
+        world.insert_resource(meshes);
+        let place = GlobalTransform::IDENTITY;
+        let root = world.spawn(place).id();
+        let node = world.spawn((place, ChildOf(root))).id();
+        let apart = world.spawn((place, ChildOf(root))).id();
+        for (mesh, parent) in [
+            (first, node),
+            (second, node),
+            (other, node),
+            (elsewhere, apart),
+        ] {
+            world.spawn((Mesh3d(mesh), place, ChildOf(parent)));
+        }
+        let mut state = SystemState::<(ModelPoints, Res<Assets<Mesh>>)>::new(&mut world);
+        let (points, meshes) = state.get(&world).expect("the model's points");
+        let model = points.of(root, &meshes);
+        assert_eq!(model.len(), 3);
+        assert_eq!(model.iter().filter(|mesh| mesh[0].x == 0.0).count(), 2);
+        // A burst takes every one of their 9 vertices once.
+        assert_eq!(points.picked(root, &meshes).len(), 9);
+    }
 
     #[test]
     fn the_bounds_take_some_eleven_vertices_of_a_mesh() {
