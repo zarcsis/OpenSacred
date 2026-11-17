@@ -74,6 +74,7 @@ cargo nextest run --workspace --run-ignored only -E 'test(scene)'   # the screen
 UPDATE_SCREENSHOTS=1 cargo nextest run --workspace --run-ignored only -E 'test(scene)'   # new reference
 UPDATE_CODE_MAP=1 cargo nextest run -p opensacred-docs   # docs/11-code-map.md made again from the sources' headers
 cargo deny check                                    # licenses, vulnerabilities, sources
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --document-private-items   # the doc comments' links, as CI checks them
 cargo mutants -p opensacred-rules --jobs 16 --output <scratch>   # the crate's mutants, the missed ones in <scratch>/mutants.out/missed.txt (.cargo/mutants.toml; --iterate skips those caught before, --in-diff FILE keeps to a diff's lines; docs/03 §3.4)
 uv run python -I tools/analysis/formats/<script>.py   # Python prototypes, on OriginalGame/ or the registry's GOG installation (--game-dir another)
 ```
@@ -111,7 +112,7 @@ uv run python -I tools/analysis/formats/<script>.py   # Python prototypes, on Or
 ## Before finishing a task
 
 1. `cargo fmt --all`
-2. `cargo clippy --workspace --all-targets -- -D warnings`
+2. `cargo clippy --workspace --all-targets -- -D warnings`; after changing doc comments, rustdoc with its warnings as errors, as CI runs it: `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --document-private-items` (a link that names nothing, or two items, fails).
 3. `cargo nextest run --workspace`; if the task touches the game files, with `--run-ignored all`.
 4. After changing dependencies, `cargo deny check`.
 5. After changing `opensacred-rules`, `opensacred-data` or `opensacred-formats`, the mutants of the branch's lines, as CI's required Mutants check tests them: `git diff origin/main > <scratch>/branch.diff`, then `cargo mutants --in-diff <scratch>/branch.diff -p opensacred-rules -p opensacred-data -p opensacred-formats --test-package opensacred-rules,opensacred-data,opensacred-formats --output <scratch>`. Kill each missed mutant with a test, or exclude an equivalent one in `.cargo/mutants.toml` with its reason (docs/03 §3.4).

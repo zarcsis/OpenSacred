@@ -65,7 +65,7 @@ struct Cli {
 enum Command {
     /// Run every extraction in order (textures, models, world, sound, text, video, ui, netscript,
     /// tables, heroes) into <ASSETS_SRC>, skipping those whose manifest under
-    /// <ASSETS_SRC>/manifest/ still holds, then build the game's assets into <OUT>
+    /// <ASSETS_SRC>/manifest/ still holds, then build the game's assets into `<OUT>`
     All {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
@@ -80,7 +80,7 @@ enum Command {
         #[arg(long)]
         force: bool,
     },
-    /// Build the game's assets in <OUT> from the masters in <ASSETS_SRC> (stage B), only those
+    /// Build the game's assets in `<OUT>` from the masters in <ASSETS_SRC> (stage B), only those
     /// whose masters changed
     Build {
         /// The masters' directory (stage A)
@@ -204,8 +204,8 @@ enum Command {
         /// The masters' directory (stage A)
         #[arg(long = "assets-src", default_value = "assets-src")]
         out: PathBuf,
-        /// Also write a readable listing of each tree (<tree>.txt) and of its functions'
-        /// structured flow (<tree>.flow.txt), about 130 MB each in all
+        /// Also write a readable listing of each tree (`<tree>.txt`) and of its functions'
+        /// structured flow (`<tree>.flow.txt`), about 130 MB each in all
         #[arg(long)]
         listing: bool,
     },
