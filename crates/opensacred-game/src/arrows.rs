@@ -10,9 +10,13 @@
 //! `opensacred_rules::arrows`. A creature's arrow hits the hero when its shooter is hostile to
 //! the hero, and a creature of a side or type hostile to its shooter's (`0x548F60`, #670): the
 //! arrows of the archers that fight a creature, and those that a creature comes in the way of.
-//! The hero's shot of a special arrow ([`Special`], the Wood Elf's 1004, 1007 and 1008) looses the
-//! art's own arrows, whose hits are the art's strikes, the blades homing on their foes for a time
-//! (docs/re/arts.md, "The Wood Elf's", #756).
+//! The hero's shot of a special arrow ([`Special`], the Wood Elf's 1004, 1006, 1007 and 1008)
+//! looses the art's own arrows, whose hits are the art's strikes, the spider arrow leaving its
+//! spiders with no strike and the blades homing on their foes for a time (docs/re/arts.md, "The
+//! Wood Elf's", #756); its `Rundum`, `Hardhit` and `Attacke` with a bow loose theirs (#2238,
+//! #2275), and a shooter with the multi-shot as many arrows as its value, fanned. A hero with the
+//! effect of deflection may turn an arrow aside (`0x561090`), and the plain arrow, the `Rundum`'s
+//! and the `Attacke`'s pass through a ghost (#2276).
 
 use bevy::prelude::*;
 use opensacred_rules::arrows::{self, Point};
@@ -74,9 +78,10 @@ struct Homing {
 pub struct Size(pub f32);
 
 /// An arrow in flight: its flight, its shooter, its target, the level it flies on, its size, the
-/// share of its hit (1, an arrowproof's value for one it sent back, `0x561090`'s `+0x230`), the
-/// combat art it was shot by, and how long one that passes through what it hits waits before it
-/// may hit again (`+0x240`).
+/// share of its hit (the multi-shot's times its art's factor, 1 for a plain single arrow; an
+/// arrowproof's value for one it sent back, `0x561090`'s `+0x230`), the combat art it was shot
+/// by, a homing blade's own (`Homing`), and how long one that passes through what it hits waits
+/// before it may hit again (`+0x240`).
 #[derive(Component)]
 pub(crate) struct Arrow {
     flight: arrows::Arrow,
@@ -98,7 +103,6 @@ struct Dice(opensacred_rules::spawning::Rng);
 #[derive(Component)]
 struct Stuck(f32);
 
-/// The rules' point of world point `at`.
 /// The spider arrow's `HELF_SPINNENPFEIL` at the creature it hits, at half its rate (`0x5BBF1A`,
 /// a hero's arrow alone, docs/re/sound.md).
 const SPIDER_ARROW_SOUND: u32 = 2070;
@@ -108,6 +112,7 @@ const SPIDER_ARROW_RATE: f32 = 0.5;
 const BURNING_ARROW_SOUND: u32 = 708;
 const BURNING_ARROW_RATE: f32 = 0.4;
 
+/// The rules' point of world point `at`.
 fn point(at: Vec3) -> Point {
     Point::new(Spot::new(at.x, at.z), at.y)
 }

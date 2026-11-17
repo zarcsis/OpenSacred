@@ -7,6 +7,9 @@
 //! horse stops it and takes one strike, any other is knocked back and falls, and each is struck
 //! for a fixed amount, which the trample's damage in all pays for until it is spent. Meanwhile no
 //! creature stops the rider's steps (`hero::run`).
+//!
+//! A black rider's horse takes the same effect, of the value 0, as its rider charges again
+//! (`charge`, #2288): its trample strikes nothing.
 
 use bevy::prelude::*;
 use opensacred_rules::horses;

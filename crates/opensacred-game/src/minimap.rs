@@ -1,4 +1,5 @@
-//! The minimap's ground, which the lens of the world map and the quest book's pictures draw
+//! The minimap's ground, which the lens of the world map and of the overview map (`overview`)
+//! and the quest book's pictures draw
 //! (`0x6CCBD0`; docs/re/questbook.md, "The lens's ground"; #1560): each sector's picture
 //! `MINIMAP<x><y>` of `texture.pak` (a sector's x and y in three digits each), 256 × 256, laid on
 //! the iso plane at a twelfth of its scale, a cell 4 × 2 pixels: the sector (x, y) at

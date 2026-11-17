@@ -1,7 +1,8 @@
 //! The game's commands (docs/10 §6): one set that scripts, the console and the remote protocol run
-//! alike, each giving lines of output or an error. A line is split as a shell splits it and parsed
-//! by clap as a REPL (`multicall`), so that a command takes the options of the command line and
-//! has `help`; it runs between frames with the whole world at hand.
+//! alike, each giving lines of output or an error. A line is split at its blanks, quotes keeping
+//! them within a word and a backslash a plain character (`words`), and parsed by clap as a REPL
+//! (`multicall`), so that a command takes the options of the command line and has `help`; it runs
+//! between frames with the whole world at hand.
 //!
 //! A script is lines of commands: `--exec "A; B"`, `--script FILE` or the command `exec`. Its
 //! `wait` holds the next line until a game is ready, the hero has arrived, or some frames or
@@ -111,7 +112,7 @@ enum Command {
         names: Vec<String>,
     },
     /// The movies that play by themselves (the start's logos, the scripts', GameEnd's) for this
-    /// run, as the settings' [movies] show, which a driven run leaves off
+    /// run, as the settings' `[movies] show` says, which a driven run leaves off
     Movies { on: Switch },
     /// Pause the game without the pause's menu, for a still frame, or go on
     Pause { on: Switch },

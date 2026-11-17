@@ -1,13 +1,15 @@
 //! The particle systems that make their particles once and live while they do (#1261;
 //! docs/re/effects.md, "The undead's effects"): the ring of an undead that rises again and the
 //! dust of a corpse that vanishes, the variants 3 and 4 of 781 (`TYPE_FX_PUZZLE_SOLVED_V`,
-//! `opensacred_rules::particles::{rise_ring, dust}`), drawn as the fires' billboards (`fx`): a
+//! `opensacred_rules::particles::{rise_ring, body_end}`), drawn as the fires' billboards (`fx`): a
 //! quad of each particle facing the camera, of its ramp's colour at its life, not tinted by the
 //! night unless the light at it tints it (a script's smoke, `Burst::tinted`). A ring follows the
 //! creature it rises about; the dust stays where the corpse lay. A burst that streams emits on
 //! from its start for its time (`Burst::stream`, the cloud of a creature's burst, #1264). A
 //! burst whose layer pulls draws its particles back to its place (`Layer::pull`, a shot's
-//! impact, `gun_fires`).
+//! impact, `gun_fires`). A burst made at a creature's model is drawn over it, depth tested against
+//! it ([`spawn_over`], the level-up's sparks, #2762). The other modules' bursts are made here too
+//! (`hit_sparks`, `change_sparks`, `poison_rings`, `lightning_strikes`, `script_particles`).
 
 use std::collections::HashMap;
 

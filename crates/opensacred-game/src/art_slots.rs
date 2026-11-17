@@ -1,4 +1,4 @@
-//! The bar's art slots (#1529; docs/re/interface.md, "The art slots"): each of the five slots at
+//! The bar's art slots (#1529; docs/re/interface.md, "Input"): each of the five slots at
 //! the right holds an art (the inventory entry's records at `+0xC90`), the selected one's the art
 //! that the right button makes (`0x5D9860`, `cEngine +0x5A`; `making::Selected`); a slot is
 //! selected by a click, the right button's or, outside the edit mode, the left's (`0x6E1BC0`), and
@@ -9,11 +9,12 @@
 //! button puts one into the selected slot (the messages 3 and 4); an art on the cursor shows its
 //! vivid picture at the cursor, and goes as the inventory hides. A combo comes onto the cursor
 //! from the combos page (the kind 4) and into a slot as an art does (the message 6, `combos_page`);
-//! a slot that holds one runs it with the right button (`combos`, #1531). The keys F1 to F6 put the arts bound to them
-//! into the selected slot (`spells_page`, #1536).
+//! a slot that holds one runs it with the right button (`combos`, #1531). The keys F1 to F6 put
+//! the arts bound to them into the selected slot (`spells_page`, #1536). A save keeps the slots
+//! (`saves`), and a hero carried from its file brings its own (`carry`, #2370).
 //!
-//! Not followed yet: the Vampiress's second bank of the slots (`+0x1162` bit 1, `0x557040`), the
-//! slots kept in the saves; a slot's tooltip is `tooltip::art`'s (#1694).
+//! Not followed yet: the Vampiress's second bank of the slots (`+0x1162` bit 1, `0x557040`). A
+//! slot's tooltip is `tooltip::art`'s (#1694).
 
 use bevy::prelude::*;
 

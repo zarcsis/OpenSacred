@@ -2,7 +2,8 @@
 // anchor, the centre of a cell at height 0 and its draw list's depth, and a place in the cell.
 // The cell's height has no part in it: the original orders a list's objects by their cells alone
 // (#112).
-// Shared by the sprites' shader (`sprites.wesl`) and the models' (`models.wesl`).
+// Shared by the sprites' shader (`sprites.wesl`), the models' (`models.wesl`) and the models'
+// shadows' (`shadows.wesl`).
 
 import bevy_pbr::render::mesh_view_bindings::view;
 

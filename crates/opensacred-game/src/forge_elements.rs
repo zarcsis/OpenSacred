@@ -63,7 +63,8 @@ impl Default for Dice {
 }
 
 /// An element that shows: its run, its model, its model's material and whether its meshes wear
-/// it, and the meshes of its column, its ring and its glow.
+/// it, the meshes of its column, its ring and its glow, and the entities of those parts and of
+/// its model, which go as it ends.
 #[derive(Component)]
 struct Shown {
     element: ForgeElement,
@@ -72,7 +73,8 @@ struct Shown {
     parts: Vec<Entity>,
 }
 
-/// A beam that shows: its run and the meshes of its core and horizon, its rings and its glow.
+/// A beam that shows: its run and the meshes of its core, its rings and its glow; its horizon's
+/// is [`Horizon`]'s.
 #[derive(Component)]
 struct Beam {
     beam: ForgeBeam,

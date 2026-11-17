@@ -4,8 +4,16 @@
 //! creature's place at the height 60 and flying by the rules (`opensacred_rules::drops::Flight`)
 //! until it lies on the ground, where it stays until the hero picks it up (`pickup`, #911) or the
 //! game ends (docs/decisions/items.md, "Drops lie until the game ends"), and its saves keep it
-//! (#1959); the labels on Alt come later. The `state` command lists the nearest drops, and the command `drop` makes the nearest
-//! hostile creature drop.
+//! (#1959); the labels on Alt are `labels`'. The `state` command lists the nearest drops, the
+//! command `drop` makes the nearest hostile creature drop, and the command `item` throws an item.
+//!
+//! The module makes and lays the world's other items too: a container's contents ([`contained`],
+//! [`throw_to`]), a script's item ([`scripted`]), a quest's reward ([`lay_reward`]), a skeleton
+//! warrior's head ([`fling_head`]), a disarmed weapon ([`throw_disarmed`]), the gold pile of a
+//! hit ([`PileFromHit`]) and the item dropped off the cursor ([`drop_at`]). And [`Tables`] holds
+//! what the game reads of the items' types and of a made item (its values, its level, its price,
+//! its sockets, its set and what it asks of its user), which the inventory, the tooltips, the
+//! merchants and the smith read too.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -50,7 +58,7 @@ pub struct Tables {
     /// Each type's record's classes' bits (`+0x04`), weapon's kind (`+0x1E`) and values, which
     /// the use's test asks (#1288).
     records: HashMap<u32, (u32, u8, fight::ItemValues)>,
-    /// Each type's price, its record's `+0x08` (`Weapon.pak +0x8C`), which a container's run of
+    /// Each type's price, its record's `+0x08` (`Weapon.pak +0x88`), which a container's run of
     /// items takes off its value (`0x4A0C42`; #1381).
     prices: HashMap<u32, i64>,
     /// The types that glitter lying on the ground: their `items.pak` record's first word's bit
@@ -795,7 +803,8 @@ struct Reading(Task<Result<Tables>>);
 #[derive(Resource)]
 pub(crate) struct Dice(pub(crate) Rng);
 
-/// The creature that made the last jewel, which makes no other until another makes one (#610).
+/// The creatures that made the last jewel and the last rune, each of which makes no other until
+/// another creature makes one (#610, #1183).
 #[derive(Resource, Default)]
 struct LastJewel(drops::LastJewel);
 
@@ -1444,7 +1453,9 @@ fn dies(
     let Some(tables) = tables else {
         return;
     };
-    // Killed by a creature that is no player's nor in the hero's list, it drops nothing (#630).
+    // Killed by a creature, not the hero, it drops nothing (#630). Not followed: the original
+    // drops where the killer is in the hero's list `+0x39C` (`0x4FC900`), which the fight's
+    // `by_creature` does not tell apart.
     if dies.by_creature {
         debug!("drops: {} drops nothing: a creature killed it", died.entity);
         return;

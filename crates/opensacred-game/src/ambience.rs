@@ -39,7 +39,8 @@ const LONGER: [(u32, f64); 2] = [(16_202, 60.0), (16_169, 120.0)];
 /// The seed of the ambience's `rand()` (**estimate**: any).
 const SEED: usize = 0x78;
 
-/// The water's loops, their thresholds of `d` and the volume each takes (`0x6906C0`).
+/// The water's loops and their thresholds of `d` (`0x6906C0`); [`water_volumes`] gives the volume
+/// each takes.
 const WATERS: [(u32, f32); 3] = [(216, 30.0), (217, 300.0), (218, 700.0)];
 /// The original's screen at zoom 1, in its pixels, whose tile rows it counts the liquids of.
 const SCREEN: Vec2 = Vec2::new(1_024.0, 768.0);

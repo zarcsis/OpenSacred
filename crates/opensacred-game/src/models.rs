@@ -25,6 +25,11 @@
 //! A model that the original draws under a liquid's surface ([`Sinks`]) lies, while it stands in
 //! a liquid cell ([`Sunk`]), as far back as the liquid cells' miniatures, its translucent texels
 //! in their layer.
+//!
+//! The other passes of [`Pass`] draw what the original lays on a model or in its place: an
+//! effect of its type under or over its texels (`model_effects`: [`Effect`], [`Pulse`]), a skin
+//! in place of its own texture (`skins`), and an effect's own model added to the frame or laid
+//! behind the creature it stands at (`dark_wards`, `dwarf_burrows`, `war_cries`).
 
 use std::collections::HashMap;
 
@@ -129,7 +134,7 @@ pub enum Pass {
     Vision,
 }
 
-/// The models' anchors and floors, which every [`ModelMaterial`] shares, and its pass.
+/// The models' anchors, floors and lights, which every [`ModelMaterial`] shares, and its pass.
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 #[bind_group_data(InOrderKey)]
 pub struct InOrder {
@@ -427,9 +432,9 @@ pub fn vision(
     material
 }
 
-/// The effect of the kinds 1 to 4 that a model's meshes lie over (`model_effects`, #1834,
-/// #1848): its kind, the effect's texture and the glow's, the kind 1's alone, which [`convert`]
-/// puts under each mesh's texels ([`Pass::Effect`]).
+/// The effect of the kinds 1 to 4 and 8 that a model's meshes lie over (`model_effects`, #1834,
+/// #1848, #1850): its kind, the effect's texture and the glow's, the kind 1's alone, which
+/// [`convert`] puts under each mesh's texels ([`Pass::Effect`], the kind 8's [`Pass::Hologram`]).
 #[derive(Component, Clone, Debug)]
 pub struct Effect {
     pub kind: u8,
@@ -443,8 +448,8 @@ pub struct Effect {
 #[derive(Component, Clone, Debug)]
 pub struct Pulse(pub Handle<Image>);
 
-/// The model materials of [`Pass::Effect`] and of the pulses ([`Pulse`]) and their kinds, whose
-/// offsets and colours `model_effects` moves.
+/// The model materials of [`Pass::Effect`] and [`Pass::Hologram`] and of the pulses ([`Pulse`])
+/// and their kinds, whose offsets and colours `model_effects` moves.
 #[derive(Resource, Default)]
 pub struct EffectMaterials(pub Vec<(Handle<ModelMaterial>, u8)>);
 
@@ -746,7 +751,7 @@ pub fn convert(
                     .clone();
                 pulses.push((entity, added));
             }
-            // Over its effect: one opaque pass of every texel (#1834).
+            // Over its effect: one pass of every texel, opaque (#1834) or the hologram's (#1850).
             if let Some(effect) = effect {
                 let over = converted
                     .1

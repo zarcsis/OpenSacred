@@ -22,7 +22,13 @@
 //! for its foe instead of the hero a creature that fights near it; they fight as they fight the
 //! hero, in melee or at range (#670; docs/re/ai.md, "Foes among the creatures").
 //! By night the guards and the townsfolk take torches into their left hands, and put them away by
-//! day (#61; docs/re/ai.md, "The torches by night").
+//! day (#61; docs/re/ai.md, "In `opensacred-game`").
+//! A caster decides its cast before its pursuit (`minds::Mind::cast`, #1852): `creature_casts`
+//! casts its spell, `creature_arts` makes its art, its leap, its daggers and its stare, and its
+//! blink moves it here.
+//! A struck creature raises its group's alarm ([`alarm`], #669), a creature that first sees the
+//! hero runs its sight function ([`sight`], #2475), and one of a dialogue that stands turns to
+//! the hero ([`face`], #2543).
 //! The decisions are the rules' (`opensacred_rules::minds`); this module keeps the minds as
 //! components, reads the world for them and carries them out: the walks, the strikes, the shots,
 //! the doors, the lines and the turns. They decide at each of the world's ticks alone
@@ -259,7 +265,7 @@ impl Default for Minds {
     }
 }
 
-/// A step to `target` on level `level` at `speed`, the idle action's, with the AI's state 0.
+/// A step to `target` on `way`'s level at `speed`, the idle action's, with the AI's state 0.
 fn walk(target: Vec3, speed: f32, way: &InTheWay) -> Walk {
     Walk::to(target, way.level, speed).idle()
 }
@@ -270,7 +276,8 @@ fn sector_of(p: Vec3) -> (f32, f32) {
     ((p.x / side).floor(), (p.z / side).floor())
 }
 
-/// A door as a creature in its way sees it, with its entity, its world point and its points.
+/// A door as a creature in its way sees it, with its entity, its world point, its points and
+/// its type.
 type Seen = DoorSeen<(Entity, Vec3, Option<DoorPoints>, u32)>;
 
 /// The doors that the creatures in their way look at (`0x4D4800`), at their logical positions
@@ -918,8 +925,8 @@ fn pursue(
         .and_then(|&first| creatures.get(first).ok())
         .map(|(_, transform, ..)| spot(transform.translation));
     let seen = doors.seen(&heights);
-    // Where each creature stands, whether it casts, the creature it fights and its size: the
-    // foes.
+    // Where each creature stands, whether it casts, the creature it fights, its size and whether
+    // it fights: the foes.
     let foes: std::collections::HashMap<Entity, (Vec3, bool, Option<Entity>, u32, bool)> =
         creatures
             .iter()
@@ -2058,8 +2065,8 @@ fn behave(
             hero_attacks,
         )))
         .collect();
-    // What the townsfolk visit and take for partners: the farm and wild animals and the humans
-    // of class 3, at the hero's looks.
+    // What the townsfolk visit and take for partners: the farm and wild animals, the humans of
+    // class 3 and the traders, at the hero's looks.
     let [animals, humans, traders]: [Vec<(Entity, Vec3)>; 3] = if nearest.looked {
         let of = |wanted: fn(&Mind) -> bool| -> Vec<(Entity, Vec3)> {
             creatures
@@ -2880,7 +2887,7 @@ fn nearest_foe(entity: Entity, here: Vec3, mind: &Mind, others: &[Other]) -> Opt
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Thinks;
 
-/// The creatures' idle life.
+/// The creatures' life and their way of fighting.
 pub struct AiPlugin;
 
 /// Turns each creature of a dialogue that stands to the hero at each tick, wherever the hero is

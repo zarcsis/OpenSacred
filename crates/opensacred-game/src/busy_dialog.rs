@@ -1,9 +1,10 @@
 //! The interface's busy dialog (`DEFAULT_BUSYDLG`, `cUI_BusyDlg`; docs/re/menus.md, "The busy
 //! dialog"): the screen darkened, its framed box, a line in white in its middle and its buttons
 //! under it, laid out on the original's screen centred along the window's width as the bar is.
-//! The menu over a game's Quit asks in it (`esc_menu`), and since #1687 the key P pauses the game
-//! under it (`0x618090`): the line `UI_BUSY_PAUSE` over an OK alone, the OK or P again going on,
-//! Esc doing nothing (seen).
+//! The menu over a game's Quit asks in it (`esc_menu`), as the saves' window and the choice of
+//! the hero ask their questions (`saves_window`, `choice`), and since #1687 the key P pauses the
+//! game under it (`0x618090`): the line `UI_BUSY_PAUSE` over an OK alone, the OK or P again going
+//! on, Esc doing nothing (seen).
 
 use bevy::picking::events::PointerClick;
 use bevy::prelude::*;

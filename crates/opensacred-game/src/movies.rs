@@ -65,7 +65,8 @@ const BEFORE: f64 = 0.5;
 const AFTER: f64 = 0.25;
 /// How many decoded frames wait for their time, ahead of the one shown.
 const AHEAD: usize = 4;
-/// The decoder's threads: the movies are 640 × 480 at 25 frames a second, and the game stands.
+/// The decoder's threads: the movies are 854 × 480 at the most (#2413), at 25 frames a second,
+/// and the game stands.
 const THREADS: u32 = 2;
 /// The movies' layer of the interface: over the windows, the cursor's item (`held::OVER_ALL`) and
 /// the art slots' choice, under the tools (`journal`, `overlay`, `help`, `console`).

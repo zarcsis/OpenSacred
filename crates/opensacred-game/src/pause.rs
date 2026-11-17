@@ -1,8 +1,14 @@
-//! The pause (docs/10 §4): Esc in the game stops it under the original's Esc menu (`esc_menu`), and again goes
-//! on; P under the busy dialog's pause window (`busy_dialog`, #1687). Bevy's virtual time stops, so that everything on the game's time stands still: the hero,
+//! The pause (docs/10 §4): Esc in the game stops it under the original's Esc menu (`esc_menu`), and
+//! again goes
+//! on; P under the busy dialog's pause window (`busy_dialog`, #1687). Bevy's virtual time stops, so
+//! that everything on the game's time stands still: the hero,
 //! the NPCs and their clips, the clock, the liquids. The world takes no keys or clicks
 //! (`frame::Unpaused`), and the sound pauses, fading out, to go on from where it stopped: paused
 //! rather than muted, so that no track runs on unheard.
+//!
+//! The module also keeps the pauses that show no menu, a still frame's, a movie's and the world
+//! map's ([`Still`]) and the scripts' `GameActive`'s ([`Halt`], #2425), which ends only its own,
+//! and the choice of the hero in its export mode over the paused game ([`Exporting`], #2554).
 
 use std::time::Duration;
 
@@ -33,7 +39,8 @@ pub enum Exporting {
     Shown,
 }
 
-/// A pause without the pause's menu, for a still frame (the command `pause on`).
+/// A pause without the pause's menu: a still frame's (the command `pause on`), a movie's
+/// (`movies`), the world map's (`world_map`) and the scripts' ([`Halt`]).
 #[derive(Resource, Default)]
 pub struct Still(pub bool);
 

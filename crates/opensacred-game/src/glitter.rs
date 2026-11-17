@@ -3,9 +3,10 @@
 //! (`drops::Tables::glitters`) draws, as the objects' draw calls
 //! `sdk_GLOW` (`0x408B70`), its sparks wandering about it (`opensacred_rules::particles::glitter`):
 //! each a camera-facing square of `PARTICLE_SPARK04` in a hue that turns, and over it a grey one
-//! of `PARTICLE_SPARK07`, both added to the frame and not tinted by the night. The sparks of
-//! `DETAILLEVEL` 2, the installation's, and each item's time its object's phase, a hundred
-//! milliseconds a step of its entity's index (**hypothesis**: the original's object's id).
+//! of `PARTICLE_SPARK07`, both added to the frame and not tinted by the night. The sparks of the
+//! options' detail (`settings::detail`: 3, 5 or 8 of them), and each item's time its object's
+//! phase, a hundred milliseconds a step of its entity's index (**hypothesis**: the original's
+//! object's id).
 //!
 //! The mouse events that neither hide nor blink (the cursed gold, #1587) draw the same squares
 //! by `0x409D00` (`opensacred_rules::particles::event_sparks`): at their cell's centre on its

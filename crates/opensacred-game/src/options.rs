@@ -34,7 +34,7 @@ pub enum Mode {
 /// `UW_option_1_12.tga` four to a row (`opensacred-convert ui`, #2634).
 const PICTURE: &str = "ui/screens/options.ktx2";
 
-/// The rectangle of `size` at `at`.
+/// The rectangle `width` by `height` whose corner is at (`x`, `y`).
 const fn boxed(x: f32, y: f32, width: f32, height: f32) -> Rect {
     Rect {
         min: Vec2::new(x, y),

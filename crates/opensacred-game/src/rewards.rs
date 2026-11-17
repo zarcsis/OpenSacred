@@ -66,7 +66,7 @@ impl RunesGiven {
 }
 
 /// What laying a reward's item takes: the drops' tables and rolls, the assets, the hero's arts,
-/// and the runes of its class given.
+/// the runes of its class given and the difficulty.
 #[derive(SystemParam)]
 struct Laying<'w> {
     tables: Option<Res<'w, crate::drops::Tables>>,

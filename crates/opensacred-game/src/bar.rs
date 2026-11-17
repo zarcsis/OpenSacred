@@ -7,18 +7,20 @@
 //!
 //! The bar: the disc of day and night turned by the clock (`0x6E3E00`) under its housing, the
 //! rail's ends and middle pieces, the weapon sets' slots at the left and the combat arts' at the
-//! right, 1 to 5 a side by the hero's level, the selected art's icon split by its regeneration,
-//! the inventory's, the options', the map's, the book's and the collecting's buttons, and the
-//! potions' belt. The column: the health's ring, red below and grey above as the health drains,
-//! the portrait by the hero's type, the bonuses' "+" and the experience's bar, and below them up
-//! to four followers' entries, each its ring and its portrait. Clicks over the bar's area and the
+//! right, 1 to 5 a side by the hero's level, each art slot's art's icon split by its
+//! regeneration, the inventory's, the options', the map's, the book's and the collecting's
+//! buttons, and the potions' belt. The column: the health's ring, red below and grey above as the
+//! health drains, the portrait by the hero's type, the bonuses' "+" and the experience's bar, the
+//! mount's bar and the horse's button while the hero owns a horse (#2301), and below them up to
+//! four followers' entries, each its ring and its portrait. Clicks over the bar's area and the
 //! portraits do not reach the world (`0x6E1BC0`). The low health's glow and alarm are
-//! `low_health`'s.
+//! `low_health`'s, the weapon sets' items, their choice and their edit mode `sets`', the art
+//! slots' arts and their choice `art_slots`', the buttons' windows their own modules', the
+//! controls' glow under the pointer `control_glow`'s, the tooltips `bar_tips`' and `tooltip`'s,
+//! and the points' "+" `points`'.
 //!
-//! Not followed yet: the buttons' windows and their pressed images, the slots'
-//! selection and their edit mode, the weapons' models and damage icons in the left slots, the
-//! glows, the sparkle of the flag `0x20000000` (the potions' are `sparkles`'), the tooltips, the
-//! points' "+", the followers' rings' glow and the mount's bar.
+//! Not followed yet: the buttons' pressed images, the damage icons in the left slots, the sparkle
+//! of the flag `0x20000000` (the potions' are `sparkles`') and the followers' rings' glow.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -549,9 +551,10 @@ pub(crate) fn spawn(
 
 /// The slots and the rail for the hero's level, made again only as a side's count changes
 /// (`0x6DFD60`, `0x6E0070`, `0x6E01F0`): the left's weapon sets, the selected one's orb and ring,
-/// and the right's art slots, the first holding the selected art; the rail's ends at their places
-/// and the middle pieces between, each chosen at random once ([`rail_pieces`]), composed into one
-/// picture ([`compose`]). A set's choice changes its orbs alone ([`set_orbs`]).
+/// and the right's art slots, each its icon's two pieces and its ring, which [`art_icon`] sets;
+/// the rail's ends at their places and the middle pieces between, each chosen at random once
+/// ([`rail_pieces`]), composed into one picture ([`compose`]). A set's choice changes its orbs
+/// alone ([`set_orbs`]).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources and queries as arguments"
@@ -1247,7 +1250,7 @@ fn slot_icon(
 fn ratio(part: u64, whole: u64) -> f32 {
     let narrow = |n: u64| f32::from(u16::try_from(n.min(u64::from(u16::MAX))).unwrap_or(u16::MAX));
     if whole > u64::from(u16::MAX) {
-        // Large numbers in thousandths, which a bar of 73 pixels does not tell apart.
+        // Large numbers scaled down to 16 bits, which a bar of 73 pixels does not tell apart.
         let scale = whole / u64::from(u16::MAX) + 1;
         return (narrow(part / scale) / narrow(whole / scale)).clamp(0.0, 1.0);
     }
@@ -1289,8 +1292,8 @@ pub(crate) fn entry_under(at: Vec2, entries: usize) -> Option<usize> {
 
 /// Whether the pointer is off the bar's and the portraits' areas, where the original's windows
 /// take the mouse (`0x6E1BC0`: x 384 − 80n to 640 + 80n and y from 676 for `n` slots a side; the
-/// hero's portrait and ring, the followers' entries below, and the points' "+" while it shows): a
-/// click there does not reach the world.
+/// belt's slots above it; the hero's portrait and ring, the followers' entries below, and the
+/// points' "+" while it shows): a click there does not reach the world.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources as arguments"

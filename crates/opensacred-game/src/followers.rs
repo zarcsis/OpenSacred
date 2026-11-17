@@ -9,11 +9,18 @@
 //! (`npcs::Spawn::roams`); it stays by a fallen hero and takes its health back as the hero rises
 //! (`0x53E460`). The decisions are `opensacred_rules::minds`'.
 //!
+//! The Vampiress's arts make followers too: her awakening (1034) raises a dead creature for its
+//! seconds (`raise`), whose kills raise their victims in one case of two (`chain`), and her bats
+//! (1035 to 1037) come beside her and never step off (`bats`). The spider arrow's spiders (1006,
+//! `spiders`) are made here as well, though they follow no one. A follower of the hero takes the
+//! hero's pace (`paces`), and a dead one that a script keeps to rise stands again 20 s later
+//! (`rise_again`, #2459).
+//!
 //! The scripts hire too (#657, docs/re/ai.md, "The scripts' hired followers"): a `CreateNPC` or
 //! a `SetNPCState` of the tag `0x4B` a follower as above, of `0x37` or `0x71` one of the flag 4,
-//! which never fights and runs from a creature that comes at its master, and `0x39` and `0x65`
-//! let it go. The hire's levels, the flag 4's stand in danger far from its master, `0x71`'s mark
-//! in its quest and the quests' hook of the letting go are not followed.
+//! which never fights, runs from a creature that comes at its master and stands while the hero is
+//! in danger far from it (#1061), and `0x39` and `0x65` let it go. The hire's levels, `0x71`'s
+//! mark in its quest and the quests' hook of the letting go are not followed.
 
 use bevy::prelude::*;
 use opensacred_rules::minds::{self, Keeps, OnTheWay, Spot};
@@ -205,7 +212,7 @@ fn hire_summoned(world: &mut World, summoning: Summoning, at: Vec3) {
 
 /// A summoned follower's flags word takes bit 0 after its hiring (`0x5B4216`; seen in the
 /// original, #1013: the Vampiress's wolf of the flags `0x101`), so that it stops its master's
-/// steps as a hostile creature does (`0x4F7E10`, docs/re/movement.md, "The creatures in the
+/// steps as a hostile creature does (`0x4F7E10`, docs/re/movement.md, "The objects in the
 /// way"); the hero's hostiles are taken by their sides (`crowd::look`), which it is not of.
 fn summoned(world: &mut World, entity: Entity) {
     let Ok(mut creature) = world.get_entity_mut(entity) else {

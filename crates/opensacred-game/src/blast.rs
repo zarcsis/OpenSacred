@@ -1,9 +1,11 @@
 //! The Daemon's blast as his charge 1091 lands, the object 1168 (`FX_KAMIKAZE`, #760;
-//! docs/re/arts.md, "The objects 1168 and 842"): about where he landed, for 3 s, its radius grows
-//! with its time to three quarters of its most and then falls (`opensacred_rules::arts::Blast`).
+//! docs/re/arts.md, "The Daemon's", the objects 1168 and 842): about where he landed, for 3 s,
+//! its radius grows with its time to three quarters of its most and then falls
+//! (`opensacred_rules::arts::Blast`).
 //! At each frame each hostile creature alive on its level nearer it than its size and the radius,
 //! once, takes the Daemon's strike of the charge's art and the share by his distance from it,
-//! while he lives (`Blast::share`; seen, #856), and then, by the kicks' roll of the charge's level (**hypothesis**: the
+//! while he lives (`Blast::share`; seen, #856), and then, by the kicks' roll of the charge's level
+//! (**hypothesis**: the
 //! object's level word, which the original leaves as it finds it), is knocked back by the blast's
 //! strength (`making::Knocked`) (docs/decisions/arts.md, "Daemon's blast edge and level"). It
 //! looks as its system, the ring of poison's with its own reach and colours (`poison_rings`,

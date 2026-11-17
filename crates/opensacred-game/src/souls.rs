@@ -43,8 +43,8 @@ struct Soul {
     heals: u32,
 }
 
-/// A soul that reached the Dark Elf, fading: his entity, and the seconds until his soulcatcher
-/// absorbs it.
+/// A soul that reached the Dark Elf, or that a cell stopped, fading: his entity, and the seconds
+/// until his soulcatcher absorbs it.
 #[derive(Component)]
 struct Fading {
     to: Entity,
@@ -53,7 +53,7 @@ struct Fading {
 
 /// Sends a soul from each creature that dies within [`SOUL_REACH`] of the hero while his
 /// effect 35 holds, of the health that his 1044 at its level in play gives; an undead that rises
-/// again sends none (#1199).
+/// again sends none (#1199), nor a body put back lying, which died before (#2457).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"

@@ -93,7 +93,8 @@ const FADE: Duration = Duration::from_secs(7);
 #[derive(Resource)]
 pub struct Channel;
 
-/// The channel of a music played once over the stream, the death's (the once-stream `+0x60C`).
+/// The channel of what plays once over the stream: the death's music, the jingles and the
+/// fanfares (the once-stream `+0x60C`).
 #[derive(Resource)]
 pub struct Once;
 
@@ -119,11 +120,12 @@ pub struct Music {
     sector: Option<(u32, u32)>,
     /// The music that the scripts' `PlayMusic` put on the stream, until the stream turns.
     scripted: Option<u32>,
-    /// The rolls of the fanfares and of the peace stream's first phase.
+    /// The rolls of the fanfares, of the peace stream's first phase and of the fights' music and
+    /// jingles.
     dice: Rng,
     /// The track on the music's channel.
     playing: Option<Playing>,
-    /// The death's music, held while it plays.
+    /// The music played once over the stream, held while it plays.
     once: Option<Handle<AudioSource>>,
     /// The music of the hero's sector, its overrides applied (`+0x692`), and its nature
     /// (`+0xA36`), the last sector's of music in a sector without.
@@ -369,8 +371,9 @@ pub fn sector_of(x: f32, z: f32) -> (u32, u32) {
     ((x / side).max(0.0) as u32, (z / side).max(0.0) as u32)
 }
 
-/// What the music's channel plays where the hero stands: a sector's spot loop, held whatever
-/// the phase, else in the music's phase the sector's music, none without one.
+/// What the music's channel plays where the hero stands: a fight's music cut in, else the
+/// scripts' music, else a sector's spot loop, held whatever the phase, else in the music's phase
+/// the sector's music, none without one.
 fn wanted(music: &Music, id: Option<u32>) -> Option<u32> {
     if music.fighting.is_some() {
         return music.fighting;
@@ -562,8 +565,9 @@ pub fn alternate(
 }
 
 /// Plays on the music's channel what the stream asks of it ([`wanted`]): a track that changes
-/// crossfades over 7 s, the one before falling as the new one rises, both linear; the tracks
-/// loop. While the scripts hold the stream, only their music and the spot loops change it.
+/// crossfades over 7 s, the one before falling as the new one rises, both linear, but a fight's
+/// music, which cuts in at once; the tracks loop. While the scripts hold the stream, only their
+/// music and the spot loops change it.
 pub fn play(
     mut music: ResMut<Music>,
     audio: Res<AudioChannel<Channel>>,
@@ -757,7 +761,8 @@ pub fn leave(audio: Res<AudioChannel<Channel>>, once: Res<AudioChannel<Once>>) {
     once.stop();
 }
 
-/// The peace stream and the death's music, in a game whose music is on (`game`).
+/// The peace stream, the scripts' and the fights' music, the jingles and the death's music, in a
+/// game whose music is on (`game`).
 pub struct MusicPlugin;
 
 impl Plugin for MusicPlugin {

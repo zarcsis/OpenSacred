@@ -421,8 +421,9 @@ const _: () = assert!(LIST_2_BACK < LIST_1_BACK && LIST_1_BACK < LIST_0_BACK);
 /// pixel of its cell's height takes a quad 0.46 units further back (counted on the sector files
 /// 2026-10-18).
 pub const UNDER_LIQUIDS_BACK: f32 = 4_600.0;
-/// How far forward the objects of list 4 come: over the sprites of list 3 around them. Whether
-/// the original draws them over the characters too is not known.
+/// How far forward the objects of list 4 come: over the sprites of list 3 around them and the
+/// characters among them, as the original's list 4 always covers the hero (docs/re/drawing.md,
+/// "The trees about the heroes").
 const LIST_4_FORWARD: f32 = 1_000.0;
 
 /// The original's order of drawing as the sprites' shader has it (`order.wesl`): how far forward

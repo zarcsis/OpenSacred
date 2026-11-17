@@ -114,7 +114,8 @@ const BED_CELLS: f32 = 2.0;
 /// (counted on the sector files 2026-10-19, #103).
 pub const BACK: f32 = 4_450.0;
 /// Cells per side of a surface's mesh: a sector's liquid is cut into pieces so that each sorts
-/// among the blended objects (the shadows) by its own depth, not by the middle of a whole sector.
+/// within the liquids' layer (`blended::Layer::Liquids`) by its own depth, not by the middle of a
+/// whole sector.
 const CHUNK: usize = 16;
 
 /// The liquids of a sector, built off the main thread: the surfaces' meshes and the clear

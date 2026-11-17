@@ -1,7 +1,8 @@
-//! Sector streaming: the sectors around the hero's are built in the background (ground image,
-//! mesh, liquid surfaces and sprite quads, `terrain`, `liquids` and `statics`) and spawned when
-//! ready; those far away go. A hero that arrives somewhere (the game's start, a teleport, a
-//! command, its rise) finds the sectors in view about it whole: its frame waits for them (#1650).
+//! Sector streaming: the sectors around the hero's are built in the background (the ground's
+//! tile sheets, stacks and mesh, liquid surfaces and sprite quads, `terrain`, `liquids` and
+//! `statics`) and spawned when ready; those far away go. A hero that arrives somewhere (the
+//! game's start, a teleport, a command, its rise) finds the sectors in view about it whole: its
+//! frame waits for them (#1650).
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -37,9 +38,10 @@ const BUILDING_AT_ONCE: usize = 2;
 /// written before #1656): the most of the 6,050 sectors.
 const MOST_REACH: [u16; 4] = [2_034, 841, 1_139, 1_080];
 /// The bytes of a sector's textures that go ahead of it in a frame, and one texture more, while
-/// it comes in out of view ([`Built::stage`]): an overworld sector brings 30 to 110 MB of its
-/// ground's atlas and its sprites' pages, which made the frame it came in some 40 to 70 ms when
-/// they all went at once (#1651).
+/// it comes in out of view ([`Built::stage`]): its ground's tile sheets that the pool does not
+/// hold yet and its sprites' pages. An overworld sector brought 30 to 110 MB of its ground's
+/// atlas, which the pool's sheets stand for since #2484, and its sprites' pages, which made the
+/// frame it came in some 40 to 70 ms when they all went at once (#1651).
 const UPLOAD_PER_FRAME: usize = 8 << 20;
 
 /// What every build reads: the asset directory, the world index, the sprite table and the
@@ -278,12 +280,13 @@ impl Streamer {
     }
 
     /// Builds every sector that `view` about world point `hero` shows ([`in_view`]) that is neither
-    /// in place nor ready, all at once, and waits for them, those building already among them; answers how
-    /// many it waited for. The original's view takes the 3 × 3 about its centre whenever the
-    /// centre changes (`0x62A5C0`) through its sector cache (`0x634340`), which reads a sector not
-    /// in memory on the spot (`0x637790`), so that its frame waits for them; here a sector's
-    /// ground is a picture to upload, and those out of view follow in the background. Those not
-    /// building yet are built at once over the pool of the frame's wait ([`parallel`]).
+    /// in place nor ready, all at once, and waits for them, those building already among them;
+    /// answers how many it waited for. The original's view takes the 3 × 3 about its centre
+    /// whenever the centre changes (`0x62A5C0`) through its sector cache (`0x634340`), which reads
+    /// a sector not in memory on the spot (`0x637790`), so that its frame waits for them; here a
+    /// sector's tile sheets and sprites' pages are textures to upload, and those out of view
+    /// follow in the background. Those not building yet are built at once over the pool of the
+    /// frame's wait ([`parallel`]).
     fn complete(&mut self, hero: Vec3, view: View) -> usize {
         let wanted: Vec<_> = in_view(hero, view, |at| self.reach(at))
             .filter(|&at| !self.holds(at) && !self.ready.iter().any(|(ready, _)| *ready == at))

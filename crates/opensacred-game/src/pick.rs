@@ -39,7 +39,7 @@ pub struct Picked {
 
 /// The cell under `ray`, the line of sight of a point of the screen, for a hero standing at
 /// height `y` on `level`: of the cells the walk passes, on the ground and on each floor of a
-/// building there that counts, the walkable one whose point at its height lies nearest the
+/// building there that counts, the walkable one whose point at its height lies near the
 /// line's crossing of that height, the nearest the eye; `None` when none does.
 ///
 /// A floor `n` counts when its building is open to the sky, when `n` is 1 and the hero is on the

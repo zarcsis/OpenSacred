@@ -45,9 +45,9 @@ struct Ring {
     light: Entity,
 }
 
-/// A raising's pentagram that shows: its creature, its look, its place, the depth of its place
-/// in the order while its creature is there, and its meshes (the pentagram's, the ring's, and
-/// their glows').
+/// A raising's pentagram that shows: its creature, its look, its place, its depth in the order
+/// (just behind its creature while that is there, else its place's), and its meshes (the
+/// pentagram's, the ring's, and their glows').
 #[derive(Component)]
 struct Pentagram {
     target: Entity,

@@ -3,7 +3,12 @@
 //! sector shares, and their levels moving toward what the choice wants as the game runs
 //! (`opensacred_rules::weather`), the rolls `Sacred.exe`'s (`tables/weather_rolls.ron`). `skies`
 //! draws and plays it (#1073); the overlay (F7) and `state` show it, and the console's
-//! `setrain`, `setfog` and `setsnow` set it, as the original's do (`0x614230`).
+//! `setrain`, `setfog` and `setsnow` set it, as the original's do (`0x614230`). It takes the
+//! screen's quakes and jolts too, which the arts, the spells and the steps send
+//! ([`Weather::set`]), dropped while the settings' `[graphics] screen_quake` is off (#1096),
+//! counts the storm's lightnings and the quakes for `skies`, sends `fliers` the crow or the bat
+//! due over the camera by the sector's nature, and tells `butterflies` the sector's entries of
+//! them.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -84,9 +89,11 @@ impl Weather {
         }
     }
 
-    /// The console's `setrain`, `setfog` and `setsnow` (`0x614230`): their kinds' events of the
-    /// value `value`, at most 100. A quake or a jolt is dropped, its sound with it, while the
-    /// screen quakes not (`SCREEN_QUAKE` off, `0x81DDE0` at `0x419CD1` and `0x419D42`).
+    /// The weather takes `event`: the console's `setrain`, `setfog`, `setsnow` (`0x614230`) and
+    /// `setquake`, their kinds' events of their values, at most 100, and the quakes and jolts
+    /// that the arts, the spells and the steps send. A quake or a jolt is dropped, its sound with
+    /// it, while the screen quakes not (`SCREEN_QUAKE` off, `0x81DDE0` at `0x419CD1` and
+    /// `0x419D42`).
     pub fn set(&mut self, event: Event) {
         if !self.screen_quake && matches!(event, Event::Quake(_) | Event::Jolt(_)) {
             return;

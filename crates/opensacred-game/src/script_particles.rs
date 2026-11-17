@@ -1,12 +1,12 @@
-//! The scripts' `Partikel`s (99, `0x4A8BB0`; #1828; docs/re/netscript.md, "`Partikel`"): each
-//! makes the generic system 856 and starts it with the FX event `0x50` in the record's colour and
-//! of its variant, at the creature that its first name names (`hero` the hero), else at the centre
-//! of its cell on the ground, else nowhere. The game makes the variants 1 and 4, a ring of sparks
-//! rising about the place, the variant 4 with `SOUND_FX_SPAWN` (`opensacred_rules::particles::
-//! generic_ring`), and the variant 10, puffs of smoke that the night darkens (`particles::
-//! generic_smoke`), drawn as the other bursts (`puffs`), and the variant 3, a gold arrow that
-//! marks the place for good (`beacons`); at a creature the system stands where it stood, as the
-//! original places it once at the creature's root.
+//! The scripts' `Partikel`s (99, `0x4A8BB0`; #1828; docs/re/netscript.md, "The other kinds, the
+//! waits and the cinema"): each makes the generic system 856 and starts it with the FX event
+//! `0x50` in the record's colour and of its variant, at the creature that its first name names
+//! (`hero` the hero), else at the centre of its cell on the ground, else nowhere. The game makes
+//! the variants 1 and 4, a ring of sparks rising about the place, the variant 4 with
+//! `SOUND_FX_SPAWN` (`opensacred_rules::particles::generic_ring`), and the variant 10, puffs of
+//! smoke that the night darkens (`particles::generic_smoke`), drawn as the other bursts (`puffs`),
+//! and the variant 3, a gold arrow that marks the place for good (`beacons`); at a creature the
+//! system stands where it stood, as the original places it once at the creature's root.
 //!
 //! The statues' power-up (`statue_ok`, `Partikel`'s two numbers and no name, `0x4A9502`; #1846)
 //! gives the hero the effect 33 of the whole value of the first number for the seconds of the

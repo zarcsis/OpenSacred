@@ -2,6 +2,10 @@
 //! the pointer rests on an item of the backpack's grid, its tooltip shows at the item's right edge
 //! and 16 and its top and 16 (`0x6C1480`, the manager's tooltip of the style `0xB`), kept 16
 //! pixels within the screen (`0x6E7AF0`, the style's bit 8), until the pointer leaves the item.
+//! The same window tells the items of a merchant's page (#1618), of the bar's weapon sets (#1689),
+//! of the equipment window (#1704), of the smith's window (#1821) and of the combat master's
+//! EXCHANGE page (#1895), and the arts of the bar's art slots (#1694) and of the spells page
+//! (#1696, `art`), each at its own place (`grid`).
 //!
 //! The window (`cUI_Tooltip`, `0x6E76C0`, `0x6E7AF0`, its border `0x727B30`): a black panel at
 //! half alpha (**measured**), its text 4 pixels in, a line of 20 pixels, the font's height; its
@@ -19,6 +23,11 @@
 //!
 //! The equipment window's set icon under the pointer shows the list of the sets worn (#1670,
 //! `0x6B7F0F`, `set`) with its top left at (512, 256), of the style `0x8B`.
+//!
+//! The controls' tooltips (docs/re/interface.md, "The bar's and the column's tooltips"): a
+//! control's text in the same panel, which the control's own module shows once the pointer has
+//! rested on it (`Rest`, `spawn_tip` and its kin), and which `centre_tips` centres on its point or
+//! puts at its corner, by its style, 16 pixels within the screen.
 
 pub(crate) mod art;
 mod lines;
@@ -71,7 +80,6 @@ const IMAGE_ALPHA: u32 = 0x5F;
 /// The render layer of the sockets' items' models.
 const MODELS: usize = 19;
 
-/// A colour of an ARGB word, in the frame's sRGB values (`hud`).
 /// The colour of `dropped`'s name, as its tooltip's first line and the name beside the cursor
 /// take it (`0x5C13C0`, the item's query 2; #1777): its set's, its rune's class's or its
 /// quality's, its record's quality where it holds none of its own.
@@ -90,6 +98,7 @@ pub(crate) fn name_colour(tables: &Tables, dropped: &Dropped) -> u32 {
     )
 }
 
+/// A colour of an ARGB word, in the frame's sRGB values (`hud`).
 pub(crate) fn argb(colour: u32) -> Color {
     let [a, r, g, b] = colour.to_be_bytes().map(|c| f32::from(c) / 255.0);
     Color::linear_rgba(r, g, b, a)
@@ -392,8 +401,10 @@ struct Root;
 struct Scene;
 
 /// Where the item that a tooltip shows lies: the backpack's grid, a page of a merchant's (#1618),
-/// a weapon set's slot of the bar (#1689) or a slot of the equipment window (#1704); or the art
-/// slot of the bar whose art it shows (#1694).
+/// a weapon set's slot of the bar (#1689), a slot of the equipment window (#1704), the smith's
+/// window (#1821) or the combat master's EXCHANGE page (#1895); or the art slot of the bar
+/// (#1694) or the spells page's icon (#1696) whose art it shows; or the equipment window's set
+/// icon, whose list of the sets worn it shows (#1670).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Source {
     Backpack,
@@ -459,9 +470,11 @@ type Merchant<'w> = (
 /// merchant's page's item with its price as bought (`0x6DAA70`), made as the pointer comes to an
 /// item and taken away as it leaves it (`0x6C1480`); and of a weapon set's slot's item of the
 /// bar, the hand by the half the pointer is on, whether the inventory shows or not (`0x6E4560`,
-/// #1689); of an item worn in the equipment window (`0x6B7700`, #1704); of an art slot's art
-/// (`0x5893B0`, #1694); and of the smith's window's grid's item, buttons' upgrades and sockets'
-/// items (`0x6A33A0`, #1821); and of the combat master's EXCHANGE page's runes (`0x6D49A0`, #1895).
+/// #1689); of an item worn in the equipment window (`0x6B7700`, #1704); of the sets worn, over
+/// the equipment window's set icon (`0x6B7F0F`, #1670); of an art slot's art (`0x5893B0`, #1694)
+/// and of a spells page's art with its next level (`0x6C25A0`, #1696); and of the smith's
+/// window's grid's item, buttons' upgrades and sockets' items (`0x6A33A0`, #1821); and of the
+/// combat master's EXCHANGE page's runes (`0x6D49A0`, #1895).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -1124,7 +1137,7 @@ fn kept(at: Vec2, size: Vec2) -> Vec2 {
 }
 
 /// A control's tooltip of the style `0x209` (the combos page's symbols, the master's controls):
-/// its window, and the centre of its top on the original's screen.
+/// its window, and its centre on the original's screen.
 #[derive(Component)]
 struct Tip(Vec2);
 
@@ -1480,7 +1493,7 @@ fn kept_corner(corner: Vec2, size: Vec2) -> Vec2 {
         .max(Vec2::splat(MARGIN))
 }
 
-/// The items' tooltip.
+/// The items' and the arts' tooltip, and the controls' tooltips' places.
 pub struct TooltipPlugin;
 
 impl Plugin for TooltipPlugin {

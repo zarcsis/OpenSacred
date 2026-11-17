@@ -2,6 +2,8 @@
 //! stop another's step into it (`0x4F7E10`, docs/re/movement.md, "The objects in the way"): the
 //! cells the creatures stand on, at their levels, which the hero's and the walking NPCs' steps
 //! and ways go round. Who stops whose step is the rules' (`opensacred_rules::ways::InTheWay`).
+//! Beside them, the hero's list of its hostile creatures, nearest first, which its look about
+//! makes anew every 0.3 s of the world's ticks ([`Nearest`]).
 
 use std::collections::HashMap;
 

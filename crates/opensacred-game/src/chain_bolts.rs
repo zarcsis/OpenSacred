@@ -5,10 +5,11 @@
 //! bulges between its ends (`opensacred_rules::particles::ChainBolt`), with a glow of
 //! `PARTICLE_GLOW06` at its start and a light at each segment; and its impact at its end
 //! (`cParticleSystem_freeze_impact`, 872), blue sparks flying off and drawn back over a glow
-//! (`particles::ChainImpact`). All untinted by the night.
+//! (`particles::ChainImpact`). All untinted by the night. Its first segment and its impact light
+//! the models about them too, their Direct3D point lights of (0.7, 0.7, 1.0) (`fx_lights`, #2106).
 //!
 //! Not followed: the bolt's end at the first cell it crosses that may not be walked on
-//! (`0x636A60`), and the Direct3D point lights of its first segment and its impact on the models.
+//! (`0x636A60`).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;

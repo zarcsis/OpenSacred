@@ -1,8 +1,10 @@
 //! The debug overlay (docs/10 §5): F7 shows and hides, in the upper left, the frame rate and
-//! times, where the hero is and what it does, the clock, the zoom, the sectors, the NPCs and the
-//! objects, the entities, the version, the GPU, the window and the seeds of the rolls, refreshed
-//! four times a second in Bevy's monospaced default font. Whether it shows is kept in the settings
-//! (`[debug] overlay`).
+//! times, the state and the movie that plays, where the hero is and what it does, the clock, the
+//! zoom, the sectors, the cursor's look, the NPCs and the objects, the entities, the creature
+//! nearest the hero, the hero's level, health, experience and gold, the drops nearest it, the
+//! weather, the arts' times, the compass's targets, the version, the GPU, the window and the seeds
+//! of the rolls, refreshed four times a second in Bevy's monospaced default font. Whether it shows
+//! is kept in the settings (`[debug] overlay`).
 //! The same values, a [`Snapshot`], are what the command `state` and the remote protocol give.
 
 use std::collections::VecDeque;
@@ -137,7 +139,7 @@ pub struct Snapshot {
     /// #1072).
     pub weather: Option<(u32, u32, u32)>,
     /// The cursor's look in a game (`cursors`, #1147): `arrow`, `hand`, `sword`, `bow`, `gun`,
-    /// `talk`, `merchant`, `combo`, `smith` or `horse-trader`.
+    /// `talk`, `merchant`, `combo`, `smith`, `horse-trader` or `pushpin`.
     pub cursor: Option<&'static str>,
     /// Whether the cursor glows, its right button's art ready for what lies under it (#1461).
     pub glowing: bool,

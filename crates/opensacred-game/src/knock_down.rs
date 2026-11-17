@@ -1,6 +1,6 @@
 //! A player's hero knocked down by a heavy blow (#2311; docs/re/fight.md, "A knock-down"): the
-//! strike's resolution marks it ([`fight::Downed`], `0x56E366`–`0x56E8CC`); here it falls by its
-//! slot 228 at the rate 1.0, its near hostiles' strikes stopping (`0x54E6D0` on each of
+//! strike's resolution marks it ([`crate::fight::Downed`], `0x56E366`–`0x56E8CC`); here it falls
+//! by its slot 228 at the rate 1.0, its near hostiles' strikes stopping (`0x54E6D0` on each of
 //! `0xAD3CE0`), is thrown 150 back from its attacker where it may stand, and lies 5 s, doing
 //! nothing else meanwhile (`hero::run`, `attack`, `making`); its marks clear while it stands in a
 //! settlement at its whole health (`0x54808A`).

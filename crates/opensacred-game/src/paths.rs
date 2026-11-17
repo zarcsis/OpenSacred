@@ -4,7 +4,9 @@
 //! does the same (`opensacred_rules::ways`), at each order and again as the walker moves
 //! ([`Planned`]), and heads for the farthest cell of the way on its layer that it reaches in a
 //! straight line over the way's own cells, so that the hero does not zigzag from cell centre to
-//! cell centre.
+//! cell centre. The creatures' ways are searched and walked the same (`npcs`), a far target's a leg
+//! at a time ([`leg`]), and the straight lines' tests ([`straight`], [`clear`], [`laser_reaches`])
+//! serve the other modules.
 
 use std::collections::HashSet;
 use std::hash::Hash;

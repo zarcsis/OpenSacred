@@ -3,13 +3,17 @@
 //! samples, and a sound's volume and pan by its place; and the weapons' sounds: a strike's swing
 //! (`WOOSH`) by the class of what the striker holds, at its hit moment within reach or in the
 //! air; at the target, the striker's weapon's `HIT` when the hit did damage, else its `PARADE`,
-//! by the item's sound profile (`items.pak +0x24`), the fist's for bare hands; and a shot's
-//! `SHOOT` by the bow's profile. The world's other sounds that the modules ask for ([`Play`]):
-//! the doors', the items' taken and the level-up's (#1166, #1167; docs/re/sound.md, "The
-//! sources").
+//! by the item's sound profile (`items.pak +0x24`), the fist's for bare hands, an animal that
+//! takes no damage hearing a sword's, a mace's, an axe's or a dagger's miss instead and nothing
+//! of another weapon ([`Missing`], #1168); a shot's `SHOOT` by the bow's profile; and a gun's
+//! fire at each of its shots ([`Gunfire`], #1963). The world's and the interface's other sounds
+//! that the modules ask for, at an entity or in the middle ([`Play`]) or at a point ([`PlayAt`],
+//! #1173): the doors', the items' taken and the level-up's among them (#1166, #1167;
+//! docs/re/sound.md, "The sources").
 //!
 //! The volume falls and the pan follows the place from the hero as the original's `0x678260`
-//! gives them (docs/re/sound.md, "A sound's place", #731).
+//! gives them (docs/re/sound.md, "A sound's place", #731), by the volume at the listener that the
+//! camera's zoom sets ([`Listener`], #1181).
 
 use std::collections::HashMap;
 

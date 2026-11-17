@@ -14,10 +14,11 @@
 //!
 //! The purchase pays the asking price (`opensacred_rules::horses::asking`) and makes the horse
 //! the hero's own, no stable's any longer; the sale gives the trader the hero's horse, a stable's
-//! again, for two thirds of its asking price (`horses::sale`), a dead one for nothing; the healing
-//! makes the horse whole for its price (`horses::healing`). The window closes by its leave and by
-//! any deal; a press within it does not reach the world. It plays no sound of its own (its
-//! events (9, `0x20`) to (9, `0x24`) have no case), the gold its coin.
+//! again, for 0.66 of its asking price (`horses::paid_for`, the sheet's price `horses::sale`), a
+//! dead one for nothing; the healing makes the horse whole for its price (`horses::healing`). The
+//! window closes by its leave and by any deal; a press within it does not reach the world. It
+//! plays no sound of its own (its events (9, `0x20`) to (9, `0x24`) have no case), the gold its
+//! coin.
 //!
 //! A stall that a purchase empties its trader fills again ([`restock`]) once the horse bought
 //! is gone or stands 500 or more from it, the trader in the world.
@@ -183,7 +184,7 @@ const FONT_SIZE: f32 = 20.0;
 const RESISTANCES: [u32; 4] = [209, 210, 211, 212];
 /// The texts: the class's label and names from `9069 + 1`, the level's, the pace's, the riding's,
 /// the healing's and the price's labels; the buttons' (the healing, the purchase, the sale, the
-/// leave, the leave of the states without a sheet); the states' texts.
+/// theft, the leave, the leave of the states without a sheet); the states' texts.
 const CLASS_NAMES: u32 = 9069;
 const CLASS_LABEL: &str = "9069";
 const LEVEL_LABEL: &str = "1070";
@@ -353,7 +354,7 @@ fn opened(world: &mut World, horse: Option<Entity>, trader: Option<Entity>) -> O
 
 /// Whether the window shows the button `i` in its state, of the hero's gold `gold`
 /// (`0x6BE6E0`, `0x6BEB90`): the healing on the trader's sheet where its price and the gold are
-/// above 0; the deal to buy where the gold pays the price, and to sell; the leave always.
+/// above 0; the deal to buy where the gold pays the price, to sell and to steal; the leave always.
 fn shown(opened: &Opened, i: usize, gold: u32) -> bool {
     let sheet = opened.sheet.as_ref();
     match i {
@@ -586,7 +587,7 @@ fn draw(
                     );
                 }
             }
-            // The price: the sale's two thirds of the asking price on the trader's sheet, else the
+            // The price: the sale's 0.66 of the asking price on the trader's sheet, else the
             // asking price, red where the gold falls short (`0x6BDE64`).
             let (price, colour) = if opened.state == State::Sell {
                 (horses::sale(sheet.asking), YELLOW)
@@ -826,7 +827,7 @@ fn provoke(heroes: Query<&crate::effects::Effects, With<Body>>, mut minds: Query
 }
 
 /// The sale: the hero's horse let go and the trader's stable's again, its sector's once more, for
-/// two thirds of its asking price; a dead one lost for nothing.
+/// 0.66 of its asking price (`horses::paid_for`); a dead one lost for nothing.
 fn sell(world: &mut World, opened: &Opened) {
     let (Some(horse), Some(trader)) = (opened.horse, opened.trader) else {
         return;

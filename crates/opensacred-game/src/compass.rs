@@ -25,7 +25,8 @@ use crate::{hud, iso, paths, scripts};
 const NEEDLE: u32 = 101;
 const PIN: u32 = 136;
 const OUTER_PIN: u32 = 137;
-/// The compass's centre on the screen of 1024 × 768, and the inner pins' ellipse's half axes.
+/// The compass's centre on the screen of 1024 × 768, and the inner and the outer pins' ellipses'
+/// half axes.
 const CENTRE: Vec2 = Vec2::new(512.0, 710.0);
 const INNER: Vec2 = Vec2::new(30.0, 15.0);
 const OUTER: Vec2 = Vec2::new(58.0, 29.0);
@@ -48,7 +49,7 @@ struct OuterPin;
 #[derive(Component, Default)]
 struct Ring(Option<f32>);
 
-/// The needle and the pin, hidden, and the sonars' rings on the bar.
+/// The needle and the two pins, hidden, and the sonars' rings on the bar.
 fn spawn(
     mut commands: Commands,
     images: Res<UiImages>,

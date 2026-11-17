@@ -6,8 +6,9 @@
 //!
 //! The game picks the door nearest the cursor's line of sight as it picks a creature
 //! (`attack::from_line`); the hero walks where the click sends it, beside the door's closed cells
-//! (`hero::steer`), rather than to the door's outer point, which #273 has yet to give, and turns
-//! the door once it stands within 300 of it.
+//! (`hero::steer`), rather than to the door's outer point, which the creatures alone walk to
+//! (`opensacred_rules::ways::DoorPoints`, #273), and turns the door once it stands within 300 of
+//! it.
 
 use bevy::prelude::*;
 

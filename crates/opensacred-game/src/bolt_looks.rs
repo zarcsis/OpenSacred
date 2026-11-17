@@ -1,6 +1,5 @@
-//! The bolts' looks (#1092's first family; docs/re/effects.md, "The bolts"), in place of the
-//! stand-ins' balls, drawn as the original's particle systems and untinted by the night
-//! (`iso::UNTINTED`):
+//! The bolts' looks (#1092's first family; docs/re/effects.md, "The bolts"), drawn as the
+//! original's particle systems and untinted by the night (`iso::UNTINTED`):
 //!
 //! - the railgun's (801, `cParticleSystem_railgun`): two crossed quads of `FX_PLASMA_CENTER`
 //!   along its flight, laid over by their alpha, and for the hero's bolt a line of eight dim blue
@@ -16,9 +15,9 @@
 //! Each look is an entity of its own that follows its bolt and outlives it as its system does;
 //! sizes in the models' units are drawn at the world's scale (`iso::MODEL_SCALE`). The railgun's,
 //! the BFG's and the fireball's light the night by their systems' radii while they live, at their
-//! places on the ground at height 0 (`0x5AA26E`, `0x41B200`; #61). Not followed: the fireball's
-//! Direct3D point light on the models, and the looks of a caster gone (`+0xA9` 1: a black
-//! railgun, a green fireball).
+//! places on the ground at height 0 (`0x5AA26E`, `0x41B200`; #61), and the fireball's Direct3D
+//! point light lights the models about it (`fx_lights`, #2106). Not followed: the looks of a
+//! caster gone (`+0xA9` 1: a black railgun, a green fireball).
 
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;

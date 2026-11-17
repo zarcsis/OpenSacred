@@ -283,9 +283,10 @@ fn show(
 }
 
 /// Runs each breath's look a frame on (`0x7AE290`, `0x7AE4F0`): while its breath flies, its flames
-/// and smoke left along the way it went, and its glow at it; once its breath stopped no more,
-/// and once its breath is gone and its last flame has died it goes, its lamp with it. The whole
-/// look lies at its breath's place in the order, where its object draws it (#2220).
+/// and smoke left along the way it went, once its breath stopped no more; its glow at its place
+/// while the look lives; and once its breath is gone and its last flame has died it goes, its lamp
+/// with it. The whole look lies at its breath's place in the order, where its object draws it
+/// (#2220).
 fn glow(
     mut commands: Commands,
     time: Res<Time>,

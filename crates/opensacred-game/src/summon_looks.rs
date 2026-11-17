@@ -24,7 +24,7 @@ use crate::game::{AppState, Data};
 use crate::iso;
 use crate::spawning::Rng;
 
-/// How far over the ground the runes lie, and how wide a bolt's line is, in world units.
+/// How far over the ground the runes lie, and half the width of a bolt's line, in world units.
 const GROUND_LIFT: f32 = 0.5;
 const BOLT_WIDTH: f32 = 0.75;
 

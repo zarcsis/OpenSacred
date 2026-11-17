@@ -2,10 +2,12 @@
 //! Wood Elf's sights"): a square of a texture flat on the ground at a turn at random, laid over
 //! by its alpha in the light's colour, which holds for its seconds and then fades over 4 s
 //! (`opensacred_rules::particles::Mark`): the lost souls' dark star of streaks at each soul's
-//! starting point. The night tints it as it does the ground under it. A body's blood puddle (907,
-//! `opensacred_rules::particles::Puddle`, #2516) is laid so too, unturned, growing and fading by
-//! its own clock, and a blow's blood splashes (903, `opensacred_rules::particles::Splashes`,
-//! #2773), small blobs of the blood's colour that fall about a place for a second and lie twelve.
+//! starting point, the blood decals of a burst's body parts (`body_parts`) and the mark of blood
+//! where a creature's spit lands (`spits`). The night tints it as it does the ground under it. A
+//! body's blood puddle (907, `opensacred_rules::particles::Puddle`, #2516) is laid so too,
+//! unturned, growing and fading by its own clock, and a blow's blood splashes (903,
+//! `opensacred_rules::particles::Splashes`, #2773), small blobs of the blood's colour that fall
+//! about a place for a second and lie twelve.
 
 use std::collections::HashMap;
 
@@ -19,16 +21,15 @@ use crate::game::{AppState, Data};
 use crate::iso;
 use crate::spawning::Rng;
 
-/// A mark to lay: its texture, and its seconds before it fades and its half side, or a puddle's
-/// clock.
+/// A mark to lay: its texture, and what is laid ([`Kind`]).
 #[derive(Component)]
 struct Unmade {
     texture: &'static str,
     kind: Kind,
 }
 
-/// What is laid: a mark of its seconds before it fades and its half side, or a body's puddle,
-/// of its body.
+/// What is laid: a mark of its seconds before it fades and its half side, a body's puddle, of
+/// its body, or a blow's splashes, of the blood's colour.
 #[derive(Clone, Copy, Debug)]
 enum Kind {
     Mark { hold: f32, half: f32 },
@@ -142,7 +143,7 @@ pub(crate) fn splashes(commands: &mut Commands, place: Vec3, colour: [f32; 3]) {
 }
 
 /// Gives each new mark its look, its turn at random (`rand()/32767 · 2π`), its mesh and its
-/// material (`0x76DD40`); a puddle none (`0x76E150`).
+/// material (`0x76DD40`); a puddle and a blow's splashes none (`0x76E150`, `0x7A5C30`).
 fn make(
     mut commands: Commands,
     unmade: Query<(Entity, &Unmade)>,

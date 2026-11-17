@@ -25,8 +25,8 @@
 //! (`cursors`). While the hero's sets know the enemies (set 3 at 4 pieces, `UI_KNOW_ENEMY`), the
 //! foe that the cursor picks tells its values under its name ([`foe_values`]).
 //!
-//! Not followed yet: the mounts' labels (#1822) and the stargate 1180's; the townsfolk's doings'
-//! icons under Alt are `icons`' (#2234).
+//! Not followed: the mounts' labels and the stargate 1180's; the townsfolk's doings' icons under
+//! Alt are `icons`' (#2234).
 
 use std::collections::{HashMap, HashSet};
 
@@ -393,7 +393,7 @@ fn label(
         let near = |point: Vec2| {
             point.cmpge(Vec2::splat(-BEYOND)).all() && point.cmplt(size + BEYOND).all()
         };
-        // An item's or a container's box: the least square about its point.
+        // An item's box: the least square about its point.
         let small = |at: Vec3| {
             let point = project(at).filter(|&point| near(point))? / scale;
             Some(corner_of(point, point))
@@ -684,7 +684,7 @@ fn label(
     }
 }
 
-/// The items' labels on Alt.
+/// The labels on Alt.
 pub struct LabelsPlugin;
 
 impl Plugin for LabelsPlugin {

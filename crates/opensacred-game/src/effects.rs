@@ -3,8 +3,11 @@
 //! that two of one id stack, and counted down on the world's tick; whenever the list changes the
 //! creature's fight values are made anew with it (`0x5796A0`, `opensacred_rules::fight::Effect`):
 //! the hero's attack, defence, damage, resistances, attack speed and regeneration, an NPC's with
-//! its pace and its hits' share too. The effects' own side effects at their adding (#761) are left
-//! out.
+//! its pace and its hits' share too. Of the adder's own cases by the effect's id (#761), the
+//! module follows the poison's merging (30, #1354) and its cure and the potions' 33 held alone
+//! (#1353), and the conversion's turn of sides (14); the others are followed where a feature
+//! reads them, else left out. At each tick an NPC's bleeding (23) and a creature's poison (30)
+//! strike their bearer, and an NPC whose time (29) is out dies.
 
 use bevy::prelude::*;
 use opensacred_rules::fight::{Effect, combat_with, regeneration_with};
@@ -45,8 +48,8 @@ impl Effects {
     /// the longer time and the source the larger dose's, its whole value as it was
     /// (`opensacred_rules::fight::poison_added`); else at the list's end, slowing by its whole
     /// value and gathering from its key (`Effect::art`, `+0x1C`). Whether it changed the list.
-    /// A bearer immune to poison (the stats' `+0x148` bit `0x10`, which the items' effects set)
-    /// is not followed: the items' effects are not.
+    /// A bearer immune to poison (the stats' `+0x148` bit `0x10`, which set 56 sets at seven
+    /// pieces, `opensacred_rules::set_bonuses`) is not followed: nothing reads the flag.
     pub fn poison(&mut self, poison: opensacred_rules::fight::Poison, source: Entity) -> bool {
         let held = self
             .0

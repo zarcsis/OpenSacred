@@ -1,6 +1,8 @@
 //! The game's settings, `settings.toml` in the user's configuration directory (docs/06 §6,
-//! docs/10 §3): for now the display, borderless full screen on the monitor or a window of a given
-//! size, which F11 switches between, and which debug panels show.
+//! docs/10 §3): the display, borderless full screen on the monitor or a window of a given size,
+//! which F11 switches between; the graphics, the interface, the sound, the movies, the gameplay
+//! and the multiplayer's data flow, their keys the original's of `Settings.cfg`, most of them set
+//! by the options window (#2340); and which debug panels show.
 //!
 //! The file is read once, at the start. A key the game sets is written back at once, alone, into
 //! the document as it was read, so that the user's comments, order and unknown keys stay; a file
@@ -237,8 +239,10 @@ pub struct Gameplay {
     /// of `Settings.cfg`, off as it writes it where the file lacks it (`0x81B6F0`).
     pub autosave: bool,
     /// Whether the creatures bleed as they die (`blood_fountains`, #1964; their bodies' puddles,
-    /// `bodies`, #2516), the original's `VIOLENCE` of `Settings.cfg`, off as the GOG
-    /// installation's file holds it and as it reads where the file lacks it (`0x819FD0`).
+    /// `bodies`, #2516; a burst's body parts, `body_parts`, #1935) and a blow's bleed leaves its
+    /// splashes on the ground (`blow_sights`, #2773), the original's `VIOLENCE` of
+    /// `Settings.cfg`, off as the GOG installation's file holds it and as it reads where the file
+    /// lacks it (`0x819FD0`).
     pub violence: bool,
     /// Whether the hero takes items up, mounts and dismounts by its clips, the original's
     /// `PICKUPANIM` (the atmospheric animation), on as the installation's (`0x81A690`; the

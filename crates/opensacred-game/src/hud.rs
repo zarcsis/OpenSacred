@@ -28,7 +28,7 @@ use crate::files;
 const SCREEN_HEIGHT: f32 = 768.0;
 
 /// The original's cursors (`cursors::Look`): each picture in the top left 32 × 32 of its 64 × 64
-/// image, its point at the corner.
+/// image, its point at the corner, the pin's in its middle (`Look::spot`).
 const CURSOR_SIDE: usize = 32;
 
 /// The interface's images.
@@ -317,9 +317,10 @@ fn scaled_point(value: u16, percent: u32) -> u16 {
 }
 
 /// Puts the original's cursor that `cursors` chooses on the window, scaled with the system's
-/// display scale, its point at the top left (`0x6548A0`), and makes it again when either changes:
-/// the scale is not known yet at the start, and a window moved to another monitor takes that
-/// monitor's. A picture made is kept for its scale; one whose texture is missing shows the arrow.
+/// display scale, its point at the top left (`0x6548A0`), the pin's in its middle (`Look::spot`),
+/// and makes it again when either changes: the scale is not known yet at the start, and a window
+/// moved to another monitor takes that monitor's. A picture made is kept for its scale; one whose
+/// texture is missing shows the arrow.
 fn cursor(
     mut commands: Commands,
     hud: Res<Hud>,

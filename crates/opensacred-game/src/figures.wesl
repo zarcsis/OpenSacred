@@ -1,6 +1,7 @@
-// The heroes' figures of the choice of the hero (`choice`), drawn by their own camera into a
-// texture that holds linear light, laid on the interface in the frame's sRGB values
-// (`srgb::Frame`): each texel unmultiplied from the coverage of the edges, then encoded.
+// The heroes' figures of the choice of the hero and the interface's pictures of the items' models
+// (`choice::Layer`, `item_pictures`), each drawn by a camera of its own into a texture that holds
+// linear light, laid on the interface in the frame's sRGB values (`srgb::Frame`): each texel
+// unmultiplied from the coverage of the edges, then encoded.
 
 import bevy_ui_render::ui_vertex_output::UiVertexOutput;
 import bevy_render::color_operations::linear_to_srgb;

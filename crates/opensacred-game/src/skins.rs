@@ -14,11 +14,15 @@
 //! state 9 with the texture `FREEZE_STONE01` that the stone's action 7 asks for its hold's
 //! seconds, its model drawn again with that texture, lit, laid over by its alpha (`0x44AD50`,
 //! `0x40D060`), which, the texture opaque, hides the model under it: here the model's own
-//! materials take the stone's texture while it lasts, and give it back. A vision, Valor's ghost
-//! or the Daemon's vision (`opensacred_rules::spells::VISIONS`, #2519), wears its look for good,
-//! its model never drawn plain (`0x44A9D0`'s state 22 or 23, `0x40C320`): its texture in a grey
-//! that pulses by the real clock, times twice the vision's texture taken by its normals, unlit and
-//! added to the frame (`models::Pass::Vision`). The items it wears,
+//! materials take the stone's texture while it lasts, and give it back. The water form's look is
+//! worn so too (#1092; "The light strikes"), the state 1 as its strike ends: the model drawn
+//! instead, lit, blended by its alpha, in `GRN_SHADETEXTURE02` taken by its normals (`0x44AB44`,
+//! `0x40BD70`; `models::Pass::Water`), then the state 3 for 2 s, that look and the plain model in
+//! turns every 0.2 s. A vision, Valor's ghost or the Daemon's vision
+//! (`opensacred_rules::spells::VISIONS`, #2519), wears its look for good, its model never drawn
+//! plain (`0x44A9D0`'s state 22 or 23, `0x40C320`): its texture in a grey that pulses by the real
+//! clock, times twice the vision's texture taken by its normals, unlit and added to the frame
+//! (`models::Pass::Vision`). The items it wears,
 //! merged onto its model (`GrannyWearSequence`), take the skin with it; those it holds in a hand or
 //! carries on its back, objects of their own, keep their looks.
 
@@ -83,7 +87,7 @@ impl Overlay {
     }
 }
 
-/// An ask for a bearer's skin, of its seconds (`spells`, `stones`).
+/// An ask for a bearer's skin, of its seconds (`spells`, `stones`; a vision's for good, `npcs`).
 #[derive(Component, Clone, Copy)]
 pub(crate) struct Asked(pub Overlay, pub f32);
 
@@ -178,8 +182,8 @@ fn ask(mut commands: Commands, mut asked: Query<(Entity, &Asked, Option<&mut Ski
     }
 }
 
-/// The texture of `overlay`, loaded, where the assets have it: the stone's as a model's own; an
-/// added skin's repeated along both its axes, as the crosses' and the glow's coordinates run past
+/// The texture of `overlay`, loaded, where the assets have it: the stone's as a model's own; any
+/// other skin's repeated along both its axes, as the crosses' and the glow's coordinates run past
 /// its edges, and without its smaller levels, as the original's textures have one, so that its
 /// streaks and crosses keep their contrast on a small model rather than averaging out (#2169).
 fn texture(data: Option<&Data>, server: &AssetServer, overlay: Overlay) -> Option<Handle<Image>> {
@@ -212,7 +216,8 @@ fn texture(data: Option<&Data>, server: &AssetServer, overlay: Overlay) -> Optio
 /// the crosses and the glow draw a copy of each, the same mesh skinned to the same joints, tagged
 /// with the same slot, added in the objects' layer of the blended things; the stone gives each its
 /// material with the stone's texture, lit, a material of the stone for each material the model
-/// wears.
+/// wears; the water form and a vision give each a material of their looks so (`models::water`,
+/// `models::vision`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries name their components"

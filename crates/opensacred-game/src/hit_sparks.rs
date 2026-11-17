@@ -11,8 +11,9 @@
 //! The Dwarf's `Attacke` and `Hardhit` with a gun make none (`0x514DC4` to `0x515011`). Not
 //! followed: the variants of the sparks' classes that are not hits (the Gladiator's rings of 1015
 //! and 1016, the Seraphim's 1003, the Vampiress's 1030, 1031 and 1033, the Dark Elf's 1042, 1046 to
-//! 1048, a horse's floops, #2329), and the sparks of the thrown weapons' and the Wood Elf's arrows'
-//! hits. A horse's trample sends the awe's at each creature it knocks and at the horse (`trample`).
+//! 1048), and the sparks of the thrown weapons' and the Wood Elf's arrows' hits; a horse's floops
+//! are `floops`' (#2329). A horse's trample sends the awe's at each creature it knocks and at the
+//! horse (`trample`), and a riding creature's strike in passing the same at its target (`ai`).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{DWARF_ATTACKE, DWARF_HARDHIT};
@@ -22,7 +23,8 @@ use opensacred_rules::spawning::Rng;
 use crate::frame::Playing;
 use crate::game::AppState;
 
-/// A strike of the hero's art `art` at the creature `on`, which `making` sends with each strike.
+/// A strike of the art `art` by `by` at the creature `on`: `making` sends one with each strike of
+/// a hero's art, `trample` and `ai` the awe's for a horse's trample and a rider's passing strike.
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Spark {
     pub art: u16,

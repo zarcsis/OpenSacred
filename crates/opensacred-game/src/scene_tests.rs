@@ -1,7 +1,8 @@
 //! Screenshot tests of the scene (M2's exit criterion, docs/05 §7). A synthetic world is written
 //! to a scratch directory in the converter's formats: a tile sheet of patterned colours, a frame
 //! of water, a sector with a hill, a pond, lighter and darker corners and a few sprite objects,
-//! one of them an underlay, with their sprites' images. It is rendered without a window into an image, through the game's
+//! one of them an underlay, with their sprites' images. It is rendered without a window into an
+//! image, through the game's
 //! own terrain, liquid, sprite and camera code, and compared with the reference
 //! `tests/screenshots/scene.png` within a tolerance that absorbs the differences between GPUs. No
 //! game files are needed, but a GPU adapter is (CI uses Mesa's software Vulkan, lavapipe), so the

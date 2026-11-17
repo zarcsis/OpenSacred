@@ -1,7 +1,8 @@
 //! The look of the battle fog (#1092; docs/re/effects.md, "The battle fog"): where a fog trap
-//! lies (`spells`) and where a dryad druid blinks (`creature_casts`), `cParticleSystem_battlefog`
-//! (868, `0x7707D0`) puffs `PARTICLE_SMOKE03` for its seconds, laid over by its alpha and tinted
-//! by the light at it (`opensacred_rules::particles::battle_fog`), its puffs living out after.
+//! lies (`spells`), where a dryad druid blinks (`creature_casts`) and where a minimummy blinks
+//! from and to (`ai`, #2565), `cParticleSystem_battlefog` (868, `0x7707D0`) puffs
+//! `PARTICLE_SMOKE03` for its seconds, laid over by its alpha and tinted by the light at it
+//! (`opensacred_rules::particles::battle_fog`), its puffs living out after.
 //!
 //! Not followed: the renderer's vector in its layer's wind, as the world's smokes'.
 
@@ -51,7 +52,8 @@ impl Default for Looks {
 /// The seed of the fogs' `rand()` (**estimate**: any).
 const SEED: usize = 0x364;
 
-/// A battle fog rising at the place `at` on the ground for `seconds` (`spells`, `creature_casts`).
+/// A battle fog rising at the place `at` on the ground for `seconds` (`spells`, `creature_casts`,
+/// `ai`).
 pub(crate) fn rise(commands: &mut Commands, at: Vec3, seconds: f32) {
     commands.spawn((Unmade { at, seconds }, DespawnOnExit(AppState::InGame)));
 }

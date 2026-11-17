@@ -3,7 +3,8 @@
 //! beside the saves, in the game's own format (PLAN.md, ADR-08) in place of the original's
 //! `Save\Hero%.2d.pax`: its summary, which the choices' pedestals read alone, and the hero as a
 //! save keeps it, whose character a game started with it takes again. The console's
-//! `export SLOT` writes one.
+//! `export SLOT` writes one, and so does the menu over a game's Export through the choice in its
+//! export mode (`choice`, #2554), whose Delete erases one (#2552).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -93,8 +94,8 @@ fn write(path: &Path, summary: &Summary, hero: &Hero) -> Result<()> {
     fs::write(path, bytes).with_context(|| format!("writing {}", path.display()))
 }
 
-/// The summary of the exported hero at `path` and the bytes after it, refused where it was
-/// written by another version of the saves.
+/// The summary of the exported hero whose file holds `bytes` and the bytes after it, refused
+/// where it was written by another version of the saves.
 fn summary_of(bytes: &[u8]) -> Result<(Summary, &[u8])> {
     let (summary, rest): (Summary, _) =
         postcard::take_from_bytes(bytes).context("reading the summary")?;

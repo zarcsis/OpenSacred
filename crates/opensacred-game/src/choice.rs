@@ -1,11 +1,19 @@
 //! The campaigns' choices of the hero, as the original's (docs/re/menus.md, "The choice of the
-//! hero"): the Underworld campaign's, the heroes that the installation ships standing on their
-//! pedestals, each labelled with its name and level, the others free (#1129, #1676), and the
-//! Ancaria campaign's (#1119): its picture of 12 tiles over its water, the eight classes as 3D figures
-//! standing on the pedestals and idling, dark until the cursor is on one or it is chosen, and
-//! under them a panel of the hero's name, starting as the class's own, the difficulty, a
-//! drop-down list of bronze and silver (#1145), Import, Back and Start Game, which shows a class's
-//! description while the cursor is on its figure.
+//! hero"): the Underworld campaign's, the saved heroes standing on their pedestals, each labelled
+//! with its name and level, the others free (#1129, #1676), and the Ancaria campaign's (#1119):
+//! its picture of 12 tiles over its water, the eight classes as 3D figures standing on the
+//! pedestals and idling, dark until the cursor is on one or it is chosen, and under them a panel
+//! of the hero's name, starting as the class's own, the difficulty, a drop-down list of bronze and
+//! silver (#1145), Import, Back and Start Game, which shows a class's description while the cursor
+//! is on its figure.
+//!
+//! A saved hero is one that the installation ships or one that the player exported (`exports`,
+//! #2552), which takes its slot's pedestal from the installation's. The Ancaria campaign's Import
+//! shows the same choice of the saved heroes, of any level, for a game of the Ancaria campaign
+//! (#2552), and the menu over a game's Export shows it over the paused game, where any pedestal
+//! takes the game's hero (#2554). A chosen hero that the player exported shows an erase button
+//! with its tooltip (#2556), which asks in the busy dialog before it erases the hero. A choice's
+//! screen stays under a black veil until all that it draws has loaded (#2490).
 //!
 //! The figures stand in their own scene ([`FIGURES`]), which the original's camera draws into a
 //! texture of its frustum's shape, stretched over the picture as the original's frustum is over
@@ -135,21 +143,22 @@ pub fn names() -> impl Iterator<Item = &'static str> {
         .chain(DIFFICULTIES)
 }
 
-/// The texts of the panel's buttons and of the first difficulty.
+/// The text of the panel's Import.
 const IMPORT: &str = "UI_IMPORT";
 /// The import's button back to the classes (`0x70D25C`'s relabelling of Import).
 const NEW_HERO: &str = "UI_NET_PLAYER_NEW";
-/// The erase button's question (`0x70EE60`) and the title of the Underworld campaign's level
-/// (`0x70F450`).
+/// The erase button's question (`0x70EE60`).
 const ERASE_CONFIRM: &str = "UI_CHAR_ERASE_CONFIRM";
 /// The erase button's tooltip (`0x7111AB`, its making's `0x7327A0`).
 const ERASE_TIP: &str = "UI_CHAR_ERASE_TOOLTIP";
+/// The title of the Underworld campaign's level (`0x70F450`).
 const MINIMUM: &str = "UI_ADDON_MINREQ";
 /// The export's button on Start Game's (`+0x398`), its title (`0x70F450`) and its question on a
 /// taken pedestal (`0x70D71E`).
 const EXPORT: &str = "UI_EXPORT";
 const EXPORT_TITLE: &str = "UI_CHAR_EXPORT_LOKAL";
 const OVERWRITE: &str = "UI_MSG_OVERWRITE_CHAR";
+/// The texts of the panel's Start Game and Back.
 const START: &str = "1029";
 const BACK: &str = "UI_NET_BACK";
 /// The word of a free pedestal of the Underworld campaign (the saves' `<empty>`, the same text).
@@ -427,8 +436,9 @@ struct Word {
     greyed: bool,
 }
 
-/// The material that lays the figures' texture on the interface, which the inventory's grid lays
-/// its items' with too (`inventory`).
+/// The material that lays the figures' texture on the interface, which the interface's pictures of
+/// the items' models are laid with too (the backpack's grid's, `backpack`, and the others',
+/// `item_pictures`).
 #[derive(AsBindGroup, Asset, TypePath, Debug, Clone)]
 pub(crate) struct Layer {
     #[texture(0)]
@@ -636,7 +646,8 @@ const NAME_AT: Vec2 = Vec2::new(385.0, 591.0);
 const DIFFICULTY_BAR: Rect = Rect::from_corners(Vec2::new(448.0, 606.0), Vec2::new(576.0, 643.0));
 const DIFFICULTY_ROW: f32 = 627.0;
 /// The list's sides, the top of its dark box, which dims what lies behind it, the box's height
-/// past its rows, the row its first difficulty stands on, and the pitch of the next.
+/// past its rows and for each of them, the row its first difficulty stands on, and the pitch of
+/// the next.
 const LIST_SIDES: [f32; 2] = [440.0, 584.0];
 const LIST_TOP: f32 = 634.0;
 const LIST_BOX: f32 = 8.0;
@@ -722,10 +733,11 @@ fn class_of(creature: u32) -> Option<Class> {
     ORDER.into_iter().find(|class| class.creature() == creature)
 }
 
-/// Reads the figures from the client's table and the game's data, once: the classes', each on
-/// the pedestal of its entry, and the saved heroes' of `heroes.ron`, each on the pedestal of its
-/// slot, in its summary's items (`0x70C7E0`, `0x6F4E60`); none where the table was not
-/// converted.
+/// Reads the figures from the client's table and the game's data as a choice's screen comes: the
+/// classes', each on the pedestal of its entry, and the saved heroes', those of `heroes.ron` and
+/// those that the player exported (`exports`, #2552), which take a slot from the installation's,
+/// each on the pedestal of its slot, in its summary's items (`0x70C7E0`, `0x6F4E60`); none where
+/// the table was not converted.
 fn read_figures(
     data: Option<Res<Data>>,
     settings: Option<Res<crate::settings::SettingsFile>>,
@@ -1040,9 +1052,9 @@ fn stage(
 
 /// Keeps the figures' texture at the window's height as the window's size changes while a choice
 /// shows (#2698): made again at it, as the items' pictures are (`item_pictures::resize`); the
-/// camera takes the texture's shape for its projection itself. Made once, it kept the rows of the
-/// window it was made in, and F11's full screen drew the figures stretched. A minimised window,
-/// of no rows, leaves it as it is.
+/// camera takes the texture's shape for its projection itself. Made once, it would keep the rows
+/// of the window it was made in, and F11's full screen would draw the figures stretched. A
+/// minimised window, of no rows, leaves it as it is.
 fn follow_window(
     window: Option<Single<&Window, With<PrimaryWindow>>>,
     stages: Query<&RenderTarget, With<Stage>>,
@@ -1619,17 +1631,17 @@ fn hero_label(
         });
 }
 
-/// A pedestal's label, of the Underworld campaign's choice: a free pedestal's word, or a saved
-/// hero's box.
+/// A pedestal's label, of a choice of a saved hero: a free pedestal's word, or a saved hero's
+/// box.
 #[derive(Component, Clone, Copy)]
 enum Label {
     Free(usize),
     Hero(usize),
 }
 
-/// Colours the Underworld campaign's labels as the choice stands: a free pedestal's word yellow
-/// while the cursor is in its window or it is chosen, a saved hero's box blue while it is chosen
-/// (`0x6F15A0`).
+/// Colours the labels of a choice of a saved hero as the choice stands: a free pedestal's word
+/// yellow while the cursor is in its window or it is chosen, a saved hero's box blue while it is
+/// chosen (`0x6F15A0`).
 fn colour_labels(
     choice: Res<Choice>,
     mut labels: Query<(&Label, Option<&mut TextColor>, &mut BackgroundColor)>,
@@ -2113,11 +2125,11 @@ pub(crate) fn button_pieces(
     )
 }
 
-/// The panel's parts: the name and the difficulty, the Ancaria campaign's Import (where
-/// `ancaria`), which a description hides, the description, Back and Start Game. The Ancaria
-/// campaign's name shows with the difficulty once a class is chosen, in a field that takes the
-/// keys; the Underworld campaign's always, in a plain field, which its hero's name fills as it is
-/// chosen (seen).
+/// The panel's parts of the choice `kind`: the name and the difficulty, the classes' Import or in
+/// its place the import's button back to the classes, which a description hides, the description,
+/// Back and Start Game; the export's are its own ([`export_controls`]). The classes' name shows
+/// with the difficulty once a class is chosen, in a field that takes the keys; a saved hero's
+/// always, in a plain field, which its hero's name fills as it is chosen (seen).
 fn controls(
     picture: &mut ChildSpawnerCommands,
     atlases: &Atlases,
@@ -2348,10 +2360,12 @@ fn classes(mut screen: ResMut<NextState<Screen>>) {
 }
 
 /// Starts a game of the hero chosen, of its name, if one is: a class's of the Ancaria campaign,
-/// or a saved hero's of the Underworld campaign, in its class's tree of the add-on, whose start
-/// script places it (`IMPORT_DO`, `0x70DC20`; docs/re/underworld.md), the saved hero's values,
-/// skills and combat arts carried (`carry`, #2362). The game begins from what the command line
-/// asked for, whatever a game loaded before left in the request (#2712).
+/// or a saved hero's, the Underworld campaign's in its class's tree of the add-on, whose start
+/// script places it (`IMPORT_DO`, `0x70DC20`; docs/re/underworld.md), the import's in the class's
+/// own tree of the Ancaria campaign (#2552); the installation's saved hero's values, skills,
+/// combat arts and items are carried (`carry`, #2362), and a hero that the player exported gives
+/// the game's hero its whole character (`exports`, #2552). The game begins from what the command
+/// line asked for, whatever a game loaded before left in the request (#2712).
 fn start(
     choice: Res<Choice>,
     (mut request, launch): (ResMut<Request>, Option<Res<Launch>>),
@@ -2826,7 +2840,7 @@ fn shade(
     }
 }
 
-/// Whether a choice of the hero shows, either campaign's.
+/// Whether a choice of the hero shows: either campaign's, the import or the export over a game.
 fn choosing(screen: Option<Res<State<Screen>>>, exporting: Option<Res<State<Exporting>>>) -> bool {
     screen.is_some_and(|screen| {
         matches!(
@@ -2872,7 +2886,7 @@ const READY_FRAMES: u32 = 3;
 const MOST_WAIT: f32 = 5.0;
 
 /// Shows a choice's screen whole, once all it draws has loaded (or after [`MOST_WAIT`] seconds),
-/// where it filled piece by piece as its pictures, its figures and their items came: the
+/// where it would fill piece by piece as its pictures, its figures and their items come: the
 /// original loads the screen before it shows it.
 #[expect(
     clippy::too_many_arguments,

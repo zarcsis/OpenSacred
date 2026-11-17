@@ -1,10 +1,11 @@
 //! A model's vertices as last posed, for the systems whose start bursts their particles at them
-//! (`0x767FB0`, `0x44FC30`: the souls' figures, the changeling's, the weapons' and the
-//! level-up's sparks): each mesh's vertices in the world, a skinned mesh's by its joints' places
-//! and weights as the renderer poses it, its worn items' left out. A mesh is the original's, one
-//! of its Granny model's: the converter writes it as a glTF mesh of a primitive per pass that
-//! share its vertices, which Bevy's loader gives each primitive whole, so the primitives of one
-//! mesh count once (#2763).
+//! (`0x767FB0`, `0x44FC30`: the souls' figures, the changeling's, the weapons', the level-up's
+//! and the statues' power-up's sparks, the dusts of the bodies' ends), and for the bounds that
+//! the original grows as it draws a model (`0x405C90`, #1425; `labels`): each mesh's vertices in
+//! the world, a skinned mesh's by its joints' places and weights as the renderer poses it, its
+//! worn items' left out. A mesh is the original's, one of its Granny model's: the converter
+//! writes it as a glTF mesh of a primitive per pass that share its vertices, which Bevy's loader
+//! gives each primitive whole, so the primitives of one mesh count once (#2763).
 
 use bevy::ecs::system::SystemParam;
 use bevy::mesh::VertexAttributeValues;
