@@ -856,7 +856,7 @@ fn date_line(texts: Option<&Texts>, saved: u64, pattern: &str) -> String {
     let when = i64::try_from(saved)
         .ok()
         .and_then(|seconds| jiff::Timestamp::from_second(seconds).ok())
-        .map(|stamp| stamp.to_zoned(jiff::tz::TimeZone::system()));
+        .map(|stamp| stamp.to_zoned_datetime(jiff::tz::TimeZone::system()));
     match when {
         Some(when) => format!(
             "{date} {} - {time} {:02}:{:02}",
@@ -1366,6 +1366,20 @@ mod tests {
         assert_eq!(short_date("yyyy-MM-dd", 2026, 3, 9), "2026-03-09");
         assert_eq!(short_date("dd.MM.yy", 2026, 11, 4), "04.11.26");
         assert_eq!(short_date("'Day' d", 2026, 11, 4), "Day 4");
+    }
+
+    #[test]
+    fn a_saves_date_line_tells_its_date_and_time_or_neither() {
+        // 2026-11-06 21:20 UTC: a day of 2026 in every time zone; the day and the time are those
+        // of the computer's zone.
+        let line = date_line(None, 1_794_000_000, "yyyy");
+        let time = line.strip_prefix("Date 2026 - Time ").unwrap();
+        let (hour, minute) = time.split_once(':').unwrap();
+        assert_eq!((hour.len(), minute.len()), (2, 2), "{line}");
+        assert!(hour.parse::<u8>().unwrap() < 24 && minute.parse::<u8>().unwrap() < 60);
+        // A time that is no date's leaves the words alone.
+        assert_eq!(date_line(None, u64::MAX, "yyyy"), "Date - Time");
+        assert_eq!(date_line(None, u64::MAX >> 1, "yyyy"), "Date - Time");
     }
 
     #[test]
