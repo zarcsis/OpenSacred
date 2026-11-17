@@ -278,7 +278,7 @@ impl Default for Sparks {
 /// [`arts::RAILGUN`] comes, before [`bear`] takes the weapons out of its hands: the adder's case
 /// 17 (`0x582D50`) makes an object 856 of the variant 2 at each, whose start takes every
 /// `⌊V/500⌋`th vertex of the item's model as last drawn (`0x767FB0`,
-/// `opensacred_rules::particles::{vertex_picks, weapon_sparks}`), drawn by `puffs`.
+/// `opensacred_rules::particles::{vertex_picks, vertex_sparks}`), drawn by `puffs`.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -317,7 +317,7 @@ fn shatter(
             );
             crate::puffs::spawn(
                 &mut commands,
-                opensacred_rules::particles::weapon_sparks(
+                opensacred_rules::particles::vertex_sparks(
                     &points,
                     opensacred_rules::particles::WEAPON_SPARKS,
                     &mut dice.0,

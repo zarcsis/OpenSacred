@@ -1550,6 +1550,44 @@ pub fn burn_variant(creature: u32) -> Option<u8> {
 /// her weapons, (128, 128, 255) (the adder `0x582D50`'s case 17).
 pub const WEAPON_SPARKS: u32 = 0xFF80_80FF;
 
+/// Who rises a level, which picks the colour of the generic system's variant 2 that
+/// `addExperience` makes at it once the level's setter has run (`0x57E160`, `0x57F4F2` to
+/// `0x57F59E`; docs/re/fight.md, "The hero's levels").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Riser {
+    /// A player's hero, an id of 16 or below.
+    Hero,
+    /// A creature whose master (`+0x251`) is a player, 1 to 16: a follower.
+    Follower,
+    /// Another creature, an id above 16.
+    Creature,
+}
+
+impl Riser {
+    /// Who rises: a creature that follows a player (`follows`) a follower, whose master the
+    /// original tests first, else a hero (`hero`) or another creature.
+    pub fn of(hero: bool, follows: bool) -> Self {
+        if follows {
+            Self::Follower
+        } else if hero {
+            Self::Hero
+        } else {
+            Self::Creature
+        }
+    }
+
+    /// The colour of its level-up's sparks (`0x57F523` to `0x57F544`): a hero's the gold
+    /// (208, 165, 39) of a statue's power-up, a follower's a darker gold (192, 149, 23), another
+    /// creature's a red (192, 32, 32).
+    pub fn colour(self) -> u32 {
+        match self {
+            Self::Hero => STATUE_COLOUR,
+            Self::Follower => 0xFFC0_9517,
+            Self::Creature => 0xFFC0_2020,
+        }
+    }
+}
+
 /// The vertices of a model whose meshes hold `counts` vertices each that a burst of at most
 /// [`GENERIC_PARTICLES`] at its vertices takes ([`vertex_picks_at_most`]).
 pub fn vertex_picks(counts: &[usize]) -> Vec<(usize, usize)> {
@@ -1627,11 +1665,12 @@ pub fn changeling_sparks(points: &[[f32; 3]], back: bool, dice: &mut impl Dice) 
 }
 
 /// The sparks of the generic system's variant 2 in the colour `colour` (`0x796E10`'s case 2;
-/// #2211): one at each of the points `points` of an item's model in the system's frame
-/// ([`vertex_picks`]), of a size of 7 ± 3 that falls by 5 a second, still, never ageing; each
+/// #2211): one at each of the points `points` of a model in the system's frame
+/// ([`vertex_picks`]), an item's that leaves the Seraphim's hands or a creature's that rises a
+/// level ([`Riser`]), of a size of 7 ± 3 that falls by 5 a second, still, never ageing; each
 /// `PARTICLE_SPARK06` added whole in the colour; no light. The system ends with its last spark,
 /// within 2 s.
-pub fn weapon_sparks(points: &[[f32; 3]], colour: u32, dice: &mut impl Dice) -> Burst {
+pub fn vertex_sparks(points: &[[f32; 3]], colour: u32, dice: &mut impl Dice) -> Burst {
     let [a, r, g, b] = colour.to_be_bytes().map(|c| f32::from(c) / 255.0);
     let size = spread(7.0, 3.0);
     let particles = points
@@ -19293,7 +19332,7 @@ mod tests {
         assert!(vertex_picks(&[]).is_empty());
         let mut dice = Rng::of(4, 2, 9);
         let points = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
-        let burst = weapon_sparks(&points, WEAPON_SPARKS, &mut dice);
+        let burst = vertex_sparks(&points, WEAPON_SPARKS, &mut dice);
         assert_eq!(burst.particles.len(), 2);
         assert_eq!(burst.particles[1].place, [4.0, 5.0, 6.0]);
         assert!(
@@ -19308,6 +19347,22 @@ mod tests {
         );
         assert_eq!(burst.layer.size, -5.0);
         assert_eq!(burst.light, 0.0);
+    }
+
+    #[test]
+    fn a_level_up_flares_gold_on_a_hero_dark_gold_on_a_follower_and_red_on_a_creature() {
+        let colours = [Riser::Hero, Riser::Follower, Riser::Creature].map(Riser::colour);
+        assert_eq!(colours, [0xFFD0_A527, 0xFFC0_9517, 0xFFC0_2020]);
+        assert_eq!(Riser::of(true, false), Riser::Hero);
+        assert_eq!(Riser::of(false, true), Riser::Follower);
+        assert_eq!(Riser::of(false, false), Riser::Creature);
+        // The hero's sparks are a statue's power-up's gold, (208, 165, 39).
+        let mut dice = Rng::of(4, 2, 9);
+        let burst = vertex_sparks(&[[0.0; 3]], Riser::Hero.colour(), &mut dice);
+        assert_eq!(
+            burst.ramp.at(0.0),
+            [208.0 / 255.0, 165.0 / 255.0, 39.0 / 255.0, 1.0]
+        );
     }
 
     #[test]

@@ -1482,16 +1482,19 @@ fn regenerate(
 /// The hero's level-up (`0x564D60` from `0x57E160`): its attack, defence, damage, resistances,
 /// most health and regeneration by its new level, with what it holds and wears, its health
 /// refilled; a rise sounds `LEVELUP01` in the middle (`0x57E160` at `0x57EE84`, the event
-/// `(9, 0x10)`; #1167).
+/// `(9, 0x10)`; #1167) and bursts the hero into its gold sparks (`0x57F504`, `level_sparks`,
+/// #2762).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
 )]
-fn level_up(
+pub(crate) fn level_up(
+    mut commands: Commands,
     experience: Res<Experience>,
     rules: Res<Rules>,
     mut heroes: Query<
         (
+            Entity,
             &Base,
             Option<&Holding>,
             &mut Combat,
@@ -1503,7 +1506,7 @@ fn level_up(
     >,
     mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
-    for (base, holding, mut values, mut health, mut regenerates, saddle) in &mut heroes {
+    for (hero, base, holding, mut values, mut health, mut regenerates, saddle) in &mut heroes {
         let level = experience.level;
         if health.level == level {
             continue;
@@ -1514,6 +1517,7 @@ fn level_up(
                 at: None,
                 rate: (0.5, crate::sfx::Roll::None),
             });
+            commands.entity(hero).insert(crate::level_sparks::Rises);
         }
         let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
         let skills = hero_skills(base, level, &holds);

@@ -12058,13 +12058,14 @@ fn first_fight(
 /// the level's setter (`0x564D60`, with `a` 1 and `b` 0) gives it their level held at the sector
 /// it stands in (`opensacred_rules::fight::Rank::held`) and makes its values anew with its health
 /// refilled, its items as they are, even where the hold keeps its level, as the original's does
-/// at each such kill. The owner's share (`+0x1EC`) is not followed; a blue potion's effect adds
-/// to the kill's experience (#1353).
+/// at each such kill, and bursts it into its sparks (`0x57F504`, `level_sparks`, #2762). The
+/// owner's share (`+0x1EC`) is not followed; a blue potion's effect adds to the kill's experience
+/// (#1353).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
 )]
-fn earn(
+pub(crate) fn earn(
     mut commands: Commands,
     mut kills: MessageReader<fight::Kill>,
     npcs: Option<Res<Npcs>>,
@@ -12143,7 +12144,9 @@ fn earn(
                 .map(crate::effects::Effects::list)
                 .unwrap_or_default(),
         );
-        commands.entity(kill.killer).insert(regenerates);
+        commands
+            .entity(kill.killer)
+            .insert((regenerates, crate::level_sparks::Rises));
         bevy::log::info!(
             "npcs: {}, a {} of level {from}, reaches the level {reached} by its kills' \
              experience, held at {grade}, health {}",

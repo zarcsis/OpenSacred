@@ -749,6 +749,20 @@ impl Quads {
         }
     }
 
+    /// Lays every vertex where a texel of the model of `order` at its place lies, where one is
+    /// given ([`Orders::over`]), the mesh's origin at `origin`, the model's root: a system that
+    /// the original draws after the model, depth tested against it, so that what lies before the
+    /// model's surface covers it and what lies behind it stays hidden (the level-up's sparks,
+    /// #2762).
+    pub(crate) fn as_drawn(&mut self, order: Option<InOrder>, origin: Vec3) {
+        let Some(order) = order else {
+            return;
+        };
+        for position in &mut self.positions {
+            *position = order.drawn(Vec3::from_array(*position), origin).to_array();
+        }
+    }
+
     /// Appends the quads of `other` to its own: the systems of many objects in one mesh, each
     /// laid in its own order first ([`Self::in_order`]; the items' glitter, #2220).
     pub(crate) fn append(&mut self, other: Quads) {
@@ -786,6 +800,11 @@ const SQUEEZE: f32 = 0.01;
 /// behind it, so that the bearer's model, whose texels lie at their own depths from its root,
 /// covers it.
 const BODY: f32 = 20.0;
+/// How far nearer the camera than a texel of a model at its place a system drawn over the model
+/// lays its vertices, in world units of its own depth ([`Orders::over`]): a quad at a vertex of
+/// the model's surface covers the surface about it rather than meeting it, as the original's
+/// sparks there show whole.
+const OVER: f32 = 2.0;
 
 /// The depth of a system's place in the original's order of drawing, where it lays its quads
 /// ([`Quads::in_order`]): the place of its cell at height 0, and how far forward of that place
@@ -853,12 +872,32 @@ impl Orders<'_, '_> {
     /// vertices shows, as the model's (`models.wesl`'s `on_floor`, #2220). `None`, its quads at
     /// their own depths, where `bearer` has no model in the order or the world has no camera.
     pub(crate) fn behind(&self, bearer: Entity) -> Option<InOrder> {
+        self.borne(bearer, |_| BODY)
+    }
+
+    /// The depth of a system that the original draws after the model of `bearer` standing in its
+    /// cell, its billboards depth tested against the model's (the level-up's sparks, #2762): at
+    /// the model's root and its place, each of the system's vertices keeping its own depth from
+    /// the root as the model's texels keep theirs ([`Quads::as_drawn`]), [`OVER`] nearer, so that
+    /// a quad before the model's surface covers it and one behind it stays hidden. `None` as
+    /// [`Self::behind`].
+    pub(crate) fn over(&self, bearer: Entity) -> Option<InOrder> {
+        // The root's own depth from its anchor whole, as `models.wesl` takes a texel's, where
+        // `InOrder::of` takes it along the ground.
+        self.borne(bearer, |rise| -OVER - rise)
+    }
+
+    /// The depth of a system that `bearer` carries, `behind` units of its own depth behind its
+    /// root, given how far the root's own depth lies before its own depth along the ground.
+    fn borne(&self, bearer: Entity, behind: impl Fn(f32) -> f32) -> Option<InOrder> {
         let (ordered, at) = self.models.get(bearer).ok()?;
         let (anchor, floor) = self.anchors.of(ordered.slot()?)?;
         let root = at.translation();
-        let mut order = self.order(anchor, floor.z, root)?;
+        let behind = behind((root.y - anchor.y) * -iso::forward().y);
+        let looked = self.looked()?;
+        let mut order = InOrder::of(anchor, floor.z, root, looked, behind);
         if floor.w > 0.5 {
-            order.floor = Some(OnFloor::new(floor, anchor, root, self.looked()?, BODY));
+            order.floor = Some(OnFloor::new(floor, anchor, root, looked, behind));
         }
         Some(order)
     }
@@ -960,18 +999,44 @@ impl InOrder {
     /// point on its line of sight, as far behind as what stands on the floor lies, ordered as
     /// `order.wesl` orders it.
     fn shift(&self, vertex: Vec3, origin: Vec3) -> f32 {
+        let placed = self.placed(vertex, origin);
+        self.on_floor(vertex, origin)
+            .map_or(placed, |on| placed.max(on))
+    }
+
+    /// How far `vertex`, from a mesh's origin `origin`, lies behind its place's depth along the
+    /// line of sight toward the camera ([`Self::shift`]).
+    fn placed(&self, vertex: Vec3, origin: Vec3) -> f32 {
+        (self.place - origin - vertex).dot(-iso::forward()) + self.beyond
+    }
+
+    /// How far `vertex`, from a mesh's origin `origin`, lies behind its floor's depth where it
+    /// shows ([`Self::shift`]), if the order stands on a floor.
+    fn on_floor(&self, vertex: Vec3, origin: Vec3) -> Option<f32> {
         let back = -iso::forward();
-        let placed = (self.place - origin - vertex).dot(back) + self.beyond;
-        let Some(floor) = self.floor else {
-            return placed;
-        };
+        let floor = self.floor?;
         let world = origin + vertex;
         let plane = world + back * ((floor.height - world.y) / back.y);
         let under = Vec3::new(plane.x, 0.0, plane.z) - back * floor.behind;
-        let on = (under - world).dot(back)
-            + ACROSS * (under - floor.looked).dot(iso::right())
-            + floor.own;
-        placed.max(on)
+        Some(
+            (under - world).dot(back)
+                + ACROSS * (under - floor.looked).dot(iso::right())
+                + floor.own,
+        )
+    }
+
+    /// `vertex`, from a mesh's origin `origin` at the root of the model of the order
+    /// ([`Orders::over`]), laid along the line of sight where a texel of that model at its place
+    /// lies ([`Quads::as_drawn`]): at the order's depth plus its own depth from the root,
+    /// squeezed as `models.wesl` squeezes a model's, on a floor no further back than the floor's
+    /// plane brought forward by its own depth squeezed as there.
+    pub(crate) fn drawn(&self, vertex: Vec3, origin: Vec3) -> Vec3 {
+        let own = vertex.dot(-iso::forward());
+        let placed = self.placed(vertex, origin) + SQUEEZE * own;
+        let shift = self
+            .on_floor(vertex, origin)
+            .map_or(placed, |on| placed.max(on + ON_FLOOR_SQUEEZE * own));
+        vertex - iso::forward() * shift
     }
 
     /// `vertex`, from a mesh's origin `origin`, laid back along the line of sight to the order's
@@ -1814,6 +1879,50 @@ mod tests {
         let was = ring.positions.clone();
         ring.in_order(Some(order), root);
         assert_eq!(ring.positions, was);
+    }
+
+    #[test]
+    fn a_system_drawn_over_its_bearer_lies_just_before_its_models_texels() {
+        let back = -iso::forward();
+        let looked = iso::ground(10.0, 10.0);
+        // `order.wesl`'s order of a model's texel of the place `anchor` and its own depth `own`,
+        // and a point's true depth, as above.
+        let texel = |anchor: Vec4, own: f32| {
+            let place = Vec3::new(anchor.x, 0.0, anchor.z);
+            (place - looked).dot(back)
+                + ACROSS * (place - looked).dot(iso::right())
+                + CHAIN * anchor.w
+                + SQUEEZE * own
+        };
+        let true_depth = |point: Vec3| (point - looked).dot(back);
+        // A bearer off its cell's centre, standing 3 units above the cell's height 12.
+        let root = iso::ground(22.7, 13.6) + Vec3::Y * 15.0;
+        let anchor = iso::ground(22.5, 13.5)
+            .with_y(12.0)
+            .extend(crate::models::PLACE);
+        // `Orders::over`'s order.
+        let rise = (root.y - anchor.y) * back.y;
+        let order = InOrder::of(anchor, 0.0, root, looked, -OVER - rise);
+        let own = |point: Vec3| (point - anchor.xyz()).dot(back);
+        // Sparks at points of its model before its root, behind it and up at its head.
+        for point in [
+            back * 10.0 + Vec3::Y * 50.0,
+            -back * 12.0 + Vec3::Y * 30.0,
+            Vec3::Y * 110.0,
+        ] {
+            let spark = root + order.drawn(point, root);
+            let was = root + point;
+            // Where it shows on screen, it shows still.
+            assert!(
+                (spark - was).dot(iso::right()).abs() < 1e-3,
+                "{was} {spark}"
+            );
+            assert!((spark - was).dot(iso::up()).abs() < 1e-3, "{was} {spark}");
+            // Just before the model's texel there, by `OVER` squeezed: over the texels behind
+            // it, under those before it.
+            let depth = true_depth(spark) - texel(anchor, own(was));
+            assert!((depth - SQUEEZE * OVER).abs() < 2e-3, "{depth}");
+        }
     }
 
     #[test]
