@@ -16,7 +16,8 @@ Example
   uv run python -I tools/analysis/formats/global_res_dump.py --game-dir ./OriginalGame --records /tmp/strings.tsv
 
 Expected output (2.28): "23123 strings"; every check passes; --records writes one row per record (id, flags, length,
-CRC-32 of the UTF-8 encoding of the string). Prints no text of the game. Dependencies: standard library.
+CRC-32 of the UTF-8 encoding of the string). Prints no text of the game. Dependencies: standard library, and pefile and
+capstone through sacred_pe (the default game directory).
 """
 import argparse
 import collections

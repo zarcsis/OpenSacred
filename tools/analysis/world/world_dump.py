@@ -4,7 +4,7 @@ of every sector), PAK/tiles.pak (the ground tiles), World/Static.PAK and World/F
 floor overlays that hang off the cells in chains). Checks every statement below on every record and writes a
 per-sector table for cross-checking the Rust reader.
 
-Purpose (docs/02 §5; PLAN.md §10, step 6): the reference prototype for `opensacred_formats::world`. The layout follows the
+Purpose (docs/02 §5): the reference prototype for `opensacred_formats::world`. The layout follows the
 openheilig description (formats/world-sectors.md, CC BY-SA 4.0) and Resacred's `rs_file.h` as quoted there, measured
 on the GOG files on 2026-10-17.
 
@@ -52,7 +52,8 @@ Example
 
 Expected output (2.28): "keyx: WLK v5, 6050 sectors, grid 100 x 100"; every check passes on all of its items
 ("sector: inflated size; the cells end inside the stream: 6050/6050"); statistics follow. --records writes one
-tab-separated row per sector (columns in RECORD_COLUMNS). Dependencies: numpy (pyproject.toml).
+tab-separated row per sector (columns in RECORD_COLUMNS). Dependencies: numpy (pyproject.toml), and pefile and capstone
+through sacred_pe (the default game directory).
 """
 import argparse
 import collections

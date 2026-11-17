@@ -48,7 +48,7 @@ if entry:
     game = [c for c in cs if c < crt_tail]; lib = [c for c in cs if c >= crt_tail]
     print("callers in game code (<%s): %d -> %s" % (hex(crt_tail), len(game), [hex(c) for c in game][:40]))
     print("callers in CRT/lib tail: %d -> %s" % (len(lib), [hex(c) for c in lib][:20]))
-    # second level: who calls the game-code callers' functions? print the surrounding instructions for each game caller
+    # the surrounding instructions of each game caller, the first 12 of them (their own callers are not looked up)
     idx = {ins.address: i for i, ins in enumerate(ins_list)}
     for c in game[:12]:
         i = idx[c]; ctx = ins_list[max(0, i - 5):i + 2]

@@ -1,10 +1,13 @@
 // The agent of the original's driver (#448, docs/03 §3.8): Frida loads it into the developer's own running
 // Sacred.exe (GOG 2.28, 32-bit), where it guards the maintainer's desktop, keeps the game drawing without the
-// focus, counts its frames and takes its screenshots. `tools/original/host.py` loads it and talks to it through
-// `rpc.exports` and `send`.
+// focus, counts its frames and takes its screenshots, sends the player's input as messages of its own (#450), reads
+// the interface's windows (#1340), reads and changes the world on the render thread's frame (#451), traces the
+// original's functions (#452) and, with the host's --muted, silences mss32.dll. `tools/original/host.py` loads it
+// and talks to it through `rpc.exports` and `send`.
 //
-// It carries only addresses, offsets and the original's names (docs/re/window.md), and changes nothing on disk:
-// it hooks functions of the running process alone.
+// It carries only addresses, offsets and the original's names (docs/re/window.md, docs/re/objects.md and the pages
+// its comments name), and changes nothing on disk: it hooks and calls functions of the running process and reads
+// and writes its memory alone.
 
 'use strict';
 
@@ -163,8 +166,8 @@ function monitors() {
   return found;
 }
 
-// Where the window goes: to the right of every monitor, or behind the other windows where the system put it; for the
-// maintainer's play, at the corner of the monitor asked for, where dgVoodoo2 makes it the monitor's size.
+// Where the window goes: to the right of every monitor, or behind the other windows at the screen's corner 0,0; for
+// the maintainer's play, at the corner of the monitor asked for, where dgVoodoo2 makes it the monitor's size.
 function placement() {
   if (config.interactive) {
     const all = monitors();
@@ -1039,9 +1042,9 @@ const WORLD = {
   slotOf: ptr('0x54acc0'),           // cCreature: thiscall (creature, type), the slot an item of the type goes in
   putInSlot: ptr('0x555e00'),        // cCreature: thiscall (creature, slot, object's id, 1), the object put there, as a
                                      // juggler's roll of 9 takes its instrument (0x4F2A47, docs/re/ai.md)
-  // The cells (docs/re/movement.md, "Positions and layers"): a position is 16 bytes, the sector's number (u16, 0 to
-  // look it up), x and y (i32, cells or world units) and the floor (u8 at +0x0C); a layer is 0 for the ground, else
-  // the Static.PAK record of a building's floor.
+  // The cells (docs/re/movement.md, "Which cells may be walked on"): a position is 16 bytes, the sector's number
+  // (u16, 0 to look it up), x and y (i32, cells or world units) and the floor (u8 at +0x0C); a layer is 0 for the
+  // ground, else the Static.PAK record of a building's floor.
   toCell: ptr('0x6224e0'),           // a position: thiscall (cell position out, world position), x and y by the side
   sectorOfCell: ptr('0x635d10'),     // the world: thiscall (world, cell position), its sector's number filled in, not 0
   cell: ptr('0x634c50'),             // the world: thiscall (world, cell position, layer), its cell of 32 bytes, or 0
@@ -1347,7 +1350,7 @@ function readClock() {
 // ortho(±200) on 768 pixels seen down at atan(1/2) (docs/re/drawing.md, "Depth").
 const PIXELS_PER_HEIGHT = 768 / 400 * 2 / Math.sqrt(5);
 
-// The window's pixel of a world point at a height in units of the models' height (#973), as the game's pick of a
+// The window's pixel of a world point at a height in units of the models' height (#979), as the game's pick of a
 // click takes heights: the view's own screen-to-world function is affine on the ground's plane, so three of its
 // answers give its inverse, and the height raises the point by the view's scale against zoom 1, where a cell along x
 // is 48 pixels across and 24 down.
@@ -1512,7 +1515,7 @@ const COMMANDS = {
     return view(engine).add(VIEW_ZOOM).readFloat();
   },
   // A cell's pixel at the height it stands at on the hero's own level, the ground or the hero's floor, so that a
-  // click there picks it (#973); on the ground where the hero's layer has no such cell.
+  // click there picks it (#979); on the ground where the hero's layer has no such cell.
   point: (engine, { x, y, id }) => {
     const theWorld = WORLD.objects.readPointer().readPointer();
     if (id !== undefined && id !== null) {
@@ -2223,7 +2226,6 @@ function strike(attacker, target) {
   handler(target, event);
 }
 
-// An object a drop made: its id, type and, for gold, its amount.
 // The objects that sdk_CREATE makes while `call` runs on this thread (#594): what a drop makes, which its return value
 // tells only at times (0 for gold and most items).
 function madeBy(call) {
@@ -2246,6 +2248,7 @@ function installMade() {
   });
 }
 
+// An object a drop made: its id, type, cell and, for gold, its amount.
 function describeMade(id) {
   const object = id > 0 ? objectById(id) : null;
   if (object === null) {
@@ -2542,7 +2545,7 @@ function genericTrace(spec) {
   });
 }
 
-// The health of a creature before and after a call whose ECX (or, through `via`, a pointer of it) is the creature.
+// A creature's health, which a preset reads before and after the call it traces.
 function healthAround(object) {
   return object.add(CREATURE.health).readS32();
 }

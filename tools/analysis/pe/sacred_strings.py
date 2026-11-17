@@ -5,13 +5,14 @@ third-party libraries, build, debug), a histogram of file extensions, known bina
 
 Purpose (docs/01 §4.5, §6: the map of subsystems from log strings): 74 classes / 215 methods with log strings
 (dxDriver7 21 methods, cObjectManager 15, cEngine 14, ...), DirectDraw7/Direct3D7 GUIDs, no WMP/DirectShow graph.
-The .text section is not read.
+The strings are taken from the data sections alone; the known GUIDs are searched for in the whole file's bytes.
 
 Example
   uv run python -I tools/analysis/pe/sacred_strings.py OriginalGame/Sacred.exe --out /tmp/analysis/strings
 
 Output: <out>/class_methods.md, <out>/string_categories.md, <out>/guids.md, <out>/strings.json; stdout gets
-per-category counters and the GUIDs found. Dependencies: pefile.
+per-category counters and the GUIDs found. Dependencies: pefile, and capstone through sacred_pe (the default game
+directory).
 """
 import sys, re, struct, collections, json, uuid, argparse, os
 import pefile
@@ -152,7 +153,6 @@ with open(outdir + '/guids.md', 'w', encoding='utf-8', newline='') as f:
     f.write("| GUID name | value | file offset | section |\n|---|---|---|---|\n")
     for name, g, idx, sec in found: f.write("| %s | %s | 0x%x | %s |\n" % (name, g, idx, sec))
 print("known GUIDs found:", [(n, s) for n, g, i, s in found])
-# generic GUID-looking blobs in .rdata/.data: look for the 'c000-000000000046' tail (OLE GUIDs)
 # textual GUIDs
 tg = [(off, n, s) for off, n, s in strings if re.search(r'\{?[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\}?', s)]
 print("textual GUIDs:", tg[:20])

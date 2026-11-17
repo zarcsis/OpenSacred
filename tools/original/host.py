@@ -9,8 +9,10 @@ is in place (else it kills it). The game lives in a job object that kills it whe
 agent ends it when the host's heartbeat stops. One original runs on the machine: while the host runs it records its
 holder (`--holder`, the session's name) in `%LOCALAPPDATA%\\OpenSacred\\original-holder.json`, and a host started
 meanwhile refuses, naming that holder (#1398). The host serves JSON-RPC 2.0 over HTTP on 127.0.0.1 with the game's
-own methods: `opensacred/state`, `opensacred/screenshot {path}`, `opensacred/logs {after}`, `opensacred/exec {line}`.
-`tools/game/remote.py --port 15703` is its client. Frames, logs and traces stay on this machine (docs/08 §3).
+own methods: `opensacred/state`, `opensacred/screenshot {path}`, `opensacred/logs {after}`, `opensacred/exec {line}`
+and `opensacred/input` (a key, text, a move, a click or the wheel), and with its own `original/trace` and
+`original/untrace`. `tools/game/remote.py --port 15703` is its client. Frames, logs and traces stay on this machine
+(docs/08 §3).
 With `--interactive` the maintainer plays it instead (#551): full screen through dgVoodoo2 on a monitor, scaled with its
 proportions kept, the maintainer's own mouse and keyboard reaching it while its window has the foreground.
 
@@ -107,7 +109,7 @@ MUTED_VOLUMES = {'MUSICVOLUME': '64', 'SFXVOLUME': '64', 'VOICEVOLUME': '64'}
 # installation, where the host writes only the game's own files (docs/03 §3.8), with the volumes it wrote last.
 KEPT_VOLUMES = os.path.join(os.environ.get('LOCALAPPDATA') or tempfile.gettempdir(), 'OpenSacred',
                             'original-volumes.json')
-# The original's holder while a host runs (#1398): one original runs on the machine, as every worktree links the one
+# The original's holder while a host runs (#1398): one original runs on the machine, as every worktree takes the one
 # installation (docs/03 §3.5, §3.8), and a host that finds the record of a live host refuses, naming its holder.
 HOLDER = os.path.join(os.environ.get('LOCALAPPDATA') or tempfile.gettempdir(), 'OpenSacred', 'original-holder.json')
 # A record younger than this whose file cannot be read yet is being written by a host that starts now.
@@ -697,7 +699,7 @@ class Host:
                 "arts [ID]: a creature's combat arts, the hero's by default; arts learn ART [LEVELS]: the hero learns "
                 'ART or rises in it by LEVELS (1), as that many runes teach it; arts ready: every art of the hero '
                 "ready at once; arts use ART: the hero's art starts its regeneration as a use of it does, its time "
-                'added to every art of its kind',
+                'added to every art of its kind; arts select ART: the art put on the right mouse button',
                 "skills [ID]: a creature's skill slots (each one's skill, base and the items' bonus), its skill "
                 "points and skills to learn, the hero's by default; skills learn SKILL [BASE]: the hero learns the "
                 "skill as the statistics window does, if it holds it not, and its base rises to BASE (1) as the "
@@ -729,7 +731,7 @@ class Host:
                 "script NAME: a function of the hero's script tree run by its name, as the calendar's timers run "
                 'theirs; whether it ran to its end',
                 'trace PRESET|GROUP|ADDRESS [--name N] [--abi cdecl|stdcall|thiscall|fastcall] [--args K,K,...] '
-                '[--ret K] [--ids ID,ID] [--limit N]: log every call (kinds: int uint hex float ptr object id cstr '
+                '[--ret K] [--ids ID,ID] [--limit N]: log every call (kinds: int uint hex u16 i16 float ptr object id cstr '
                 'out-float; the first argument is ECX for thiscall and fastcall); ADDRESS --stack '
                 'K@REGISTER|OFFSET|REGISTER+OFFSET,... instead logs a register, ESP plus an offset or the memory at '
                 "a register plus an offset as that instruction is reached, a function's middle too (the kinds and "

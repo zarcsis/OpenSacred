@@ -14,7 +14,7 @@ Example
 
 functions_eng.tsv (GPL-3.0, kirides/sacred-bild) is not copied into the repository; its path is passed explicitly. Without it
 the Ghidra statistics are empty and the other sections are still computed. Without --fn-match2 the sacred_label_match section is skipped.
-The executable is read as is. Dependencies: pefile.
+The executable is read as is. Dependencies: pefile, and capstone through sacred_pe (the default game directory).
 """
 import json, struct, bisect, re, collections, sys, statistics, argparse, os
 import pefile

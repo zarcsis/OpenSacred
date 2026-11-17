@@ -163,7 +163,8 @@ if args.rand:
     t = args.rand; g, l = split(call_targets.get(t, []))
     print("\n### rand() at 0x%x: callers game=%d lib=%d" % (t, len(g), len(l)))
     print("  body:"); listing(t, t + 0x30)
-    # find the seed slot: first abs memory operand read in body, or _getptd pattern
+    # find the seed slot: the last abs memory operand of .data in the body's first 12 instructions; a call among
+    # them is the _getptd pattern
     k = idx[t]; seed = None; mt = False
     for i in ins_list[k:k + 12]:
         for op in i.operands:
@@ -230,7 +231,7 @@ if args.vp:
         if n < 4 or n in (16, 17, 43, 44, 71):
             print("     --- listing %08x..%08x ---" % (ins_list[max(0, k - 14)].address, ins_list[min(len(ins_list) - 1, k + 8)].address))
             listing(ins_list[max(0, k - 14)].address, ins_list[min(len(ins_list) - 1, k + 8)].address)
-    # what happens between paired calls (even -> odd): summarize memory writes to [reg] where reg == lpAddress
+    # what happens between paired calls (even -> odd): the instructions' count, their calls and commonest mnemonics
     print("\n  between-pairs summary (instructions between site 2i and 2i+1):")
     for n in range(0, len(sites) - 1, 2):
         a, b = sites[n], sites[n + 1]

@@ -21,8 +21,10 @@ The scan of a false IF does not count IFs: an IF inside a branch shares the firs
 Example
   uv run python -I tools/analysis/scripts/netscript_flow.py --game-dir ./OriginalGame
 
-Expected output (2.28): the counts below, the same on every run; "IF chains" by their ending, the ELSE bodies by the
-type of their one record, the IFs met inside a branch, the 41 blocks, the guards. Dependencies: standard library.
+Expected output (2.28): the trees and the functions and scripts counted, then the forms' counts, the same on every run:
+"IF chains" by their ending, the ELSE bodies by the type of their one record, the IFs met inside a branch, the 41
+blocks, the guards. Dependencies: standard library, and pefile and capstone through sacred_pe (the default game
+directory) and netscript_dump (its record and Vectoren.bin readers).
 """
 import argparse
 import collections

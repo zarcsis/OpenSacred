@@ -3,7 +3,8 @@
 
 Algorithm (a fact documented by the community in bssth/sacred-sdk and confirmed locally; the implementation here is our own):
   h = 0; for each character c: c = toupper_ascii(c); h = (c + h*113) as uint32 (with overflow);
-  then h = h % 999999991 as signed C division (sign of the dividend) and back to uint32; result & 0x7FFFFFFF.
+  then, for that character still, h = h % 999999991 as signed C division (sign of the dividend) and back to uint32;
+  after the last character the result is h & 0x7FFFFFFF.
 See docs/02 §8 (the formula and the global.res layout).
 
 What the script does
@@ -18,7 +19,8 @@ Examples
   uv run python -I tools/analysis/formats/global_res_hash.py --game-dir ./OriginalGame [names.txt ...]
 
 Expected output: "self-test OK", "global.res ids=23123 hi=... lo=...", a source/candidates/hits table, samples of the
-reproduced ids with their sources. Prints no text of the game. Dependencies: standard library.
+reproduced ids with their sources. Prints no text of the game. Dependencies: standard library, and pefile and capstone
+through sacred_pe (the default game directory).
 """
 import sys, os, struct, re, collections, argparse
 

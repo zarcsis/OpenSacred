@@ -219,7 +219,7 @@ if not args.no_vp:
             old = prot = size = addr = None
         prot_s = PROT.get(prot[1], hex(prot[1])) if prot and prot[0] == 'imm' else fmt(prot)
         e = func_entry(ins.address)
-        # strings referenced in the surrounding function (±0x300)
+        # strings referenced around the call (120 instructions before and after)
         strs = []
         for q in ins_list[max(0, k - 120):k + 120]:
             for o in q.operands:

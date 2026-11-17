@@ -11,7 +11,7 @@ Examples
   uv run python -I tools/analysis/pe/thunk_check.py --funcs ... --ghidra-tsv /path/to/functions_eng.tsv
 
 Expected output: "starts beginning with mov eax,FuncInfo: 2538", a size histogram, "next byte after mov is E9".
-The executable is read as is. Dependencies: pefile.
+The executable is read as is. Dependencies: pefile, and capstone through sacred_pe (the default game directory).
 """
 import json, struct, collections, statistics, bisect, re, argparse, sys, os
 import pefile
@@ -41,7 +41,7 @@ print('starts beginning with mov eax,FuncInfo:', len(th))
 szs = [size[s] for s in th]; print('size hist', collections.Counter(min(x, 64) // 8 * 8 for x in szs).most_common(12))
 print('next byte after mov is E9 (jmp):', sum(1 for s in th if img[s - base + 5] == 0xE9))
 print('aligned16:', sum(1 for s in th if s % 16 == 0), ' >=TAIL:', sum(1 for s in th if s >= TAIL))
-# what follows the 10-byte thunk inside the 'function'? show 3 examples with size>16
+# what follows the 10-byte thunk inside the 'function'? show up to 5 examples with size>16
 ex = [s for s in th if size[s] > 16][:5]
 for s in ex: print(hex(s), size[s], bytes(img[s - base:s - base + 24]).hex())
 # How many 'starts' are immediately preceded by a thunk start (i.e. thunk sits between two functions)?

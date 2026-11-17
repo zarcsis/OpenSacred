@@ -23,15 +23,15 @@ FAIL:
 - `strikes`: a hostile goblin warrior beside the hero, both of level 1, then 10, then 21 (the bands of #615's factor),
   each from a fresh start, its strikes over 40 s (the game's log of
   `opensacred_game::fight` at `debug`, the original's trace `strike`): the mean time between them must agree within
-  5 %, the share that lands and the mean damage within four standard deviations (the game needs
-  `RUST_LOG=info,opensacred_game::fight=debug`);
+  5 %, the share that lands within four standard deviations and the mean damage within four or a point, whichever
+  is wider (the game needs `RUST_LOG=info,opensacred_game::fight=debug`);
 - `arts`: the Seraphim's art 1071 and the spell 18 (after `arts learn 18`) used (`arts use`), the world paused
   while they are read: each art's time still to run just after the use must agree within 0.05 s, and the rate at
   which it then goes down over 8 s of world time within 3 %;
 - `movement`: the hero runs 9 cells along x and back from 3246,2559 (`go +9,+0`, `go -9,+0`), read by polling the
   state: its pace, the seconds a cell between its first and its last change of cell, and the time from its first
-  step to its stop must each agree within 5 % (the original's walk is toggled from its interface, which the driver
-  does not reach);
+  step to its stop must each agree within 5 % (the run alone: the original walks only while Shift is held,
+  docs/re/window.md, "The input", and the suite holds no key);
 - `drops`: 1,000 drops of a goblin warrior of level 10 (the game's `drop`, the original's driver's `drop --id`), the
   shares of the items' categories (`items.pak +0x2E`, a derived type 2000–2999 or 6500–7999 by its root), each within
   two points or four standard deviations, whichever is wider, and the share of the derived types.
@@ -43,8 +43,9 @@ Example
   uv run python -I tools/game/conformance.py --suites experience,hero --save start-seraphim
   uv run python -I tools/game/conformance.py --suites regeneration
 
-Expected output: a line per check, `PASS experience: type 76 level 10, hero 1: +109` or `FAIL stats: type 32 level 10:
-A 37.5 / 47`, then `N checks, M failed`; the exit code is 1 when one failed. Dependencies: the standard library.
+Expected output: a line per check, `PASS experience: type 76 level 10, hero 1/1: +109 / +109` or
+`FAIL stats: type 32 level 10: A 37.5 / 47`, then `N checks, M failed`; the exit code is 1 when one failed.
+Dependencies: the standard library.
 """
 import argparse, collections, importlib.util, json, math, os, re, sys, time, urllib.request
 

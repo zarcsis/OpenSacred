@@ -172,8 +172,8 @@ def variable_at(body, p):
 
 
 def operands(body):
-    """Decodes a tag stream: a list of (tag, kind, value); the last one is ('truncated', None) when a payload runs past
-    the end. Raises ValueError on an end tag or a malformed operand."""
+    """Decodes a tag stream: a list of (tag, kind, value); the last one is (tag, 'truncated', None) when a payload runs
+    past the end. Raises ValueError on an end tag or a malformed operand."""
     out, p = [], 0
     while p < len(body):
         tag = body[p]
@@ -280,8 +280,9 @@ def canonical_operand(tag, kind, value):
 
 
 def canonical(kind, body, ops):
-    """One line per record: `type:` then the operands separated by spaces; type 40 as `40:dialog name a,b,c` and type
-    41 as `41:block n`. The crc32 of the lines joined by newlines is the file's fingerprint."""
+    """One line per record: `type:` then the operands separated by spaces; type 40 as `40:dialog head name a,b,c` (its
+    first i32, its name as quoted hex) and type 41 as `41:block n`. The crc32 of the lines joined by newlines is the
+    file's fingerprint."""
     if kind == DIALOG:
         head, = struct.unpack_from('<i', body, 0)
         name = body[4:68].split(b'\0')[0]

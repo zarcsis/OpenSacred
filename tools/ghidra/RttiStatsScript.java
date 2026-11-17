@@ -1,5 +1,5 @@
-// Prints how many symbols name the MSVC RTTI structures and vftables, and the analysis options
-// whose names mention RTTI or Class, with whether they ran.
+// Prints how many symbols name the MSVC RTTI structures and vftables, the analysis options whose
+// names mention RTTI, Class or Function ID with their values, and the program's compiler.
 //@category OpenSacred
 
 import java.util.Map;

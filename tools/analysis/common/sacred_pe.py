@@ -4,7 +4,9 @@
 Purpose
   * ``read_pe_image(path)`` -> ``Img``: the in-memory image of the GOG client ``Sacred.exe``
     (pefile.get_memory_mapped_image), read as is;
-  * ``Img``: methods u8/u16/u32/f32/f64/str_at/sec_of/disasm/note/dump/func_end.
+  * ``Img``: methods u8/u16/u32/f32/f64/bytes/str_at/sec_of/disasm/note/dump/func_end;
+  * ``DEFAULT_GAME_DIR``: the developer's installation, as tools/common/installation.py finds it (#1556);
+  * ``hexkey``: argparse's type of a hexadecimal number.
 
 Usage from a script (``uv run python -I`` does not add the script's directory to sys.path, so the path to
 ``common`` is set explicitly)::

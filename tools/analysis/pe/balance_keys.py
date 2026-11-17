@@ -14,7 +14,7 @@ integer. The variables lie in the image that Balance.bin holds, 0xAD4490 to 0xAD
   keys     every `push imm32; push esi; call 0x5E3700` whose imm32 is a string: 380 tests of a key; the key's
            variable is the first store into the image after it, before the next key's test, or, for a row of values
            that it stores through a register, the word `mov esi, <the row>` sets (24 keys: ProzAW, ProzHP, OffLevel,
-           LevelKap, OffLevelProz, BaseOffLevel, ...). 26 keys store elsewhere (other tables: SKILL_, MOVES,
+           LevelKap, OffLevelProz, BaseOffLevel, ...). 23 keys store elsewhere (other tables: SKILL_, MOVES,
            HorseData:, ...) and are not listed. A key without the colon of a row that stores a second word before
            the next key's test names it <key>[1]: GoldProLevel's second value, after a comma (0x5EE79B, #413).
   Checks   357 keys with a variable in the image and one second value, each its own word; the first at +0x000

@@ -12,7 +12,8 @@ Example
   uv run python -I tools/analysis/scripts/netscript_census.py --game-dir ./OriginalGame --names /path/opcode-names.tsv --out ...
 
 Expected output: a table of files (bytes, instrs, distinct_ops, leftover, md5), classes of identical FunkCode.bin files
-(9 identical Addon trees), "union of opcodes observed in any shipped file: 113". Dependencies: standard library.
+(9 identical Addon trees), "union of opcodes observed in any shipped file: 113". Dependencies: standard library, and
+pefile and capstone through sacred_pe (the default game directory).
 """
 import sys, os, struct, hashlib, collections, csv, argparse
 

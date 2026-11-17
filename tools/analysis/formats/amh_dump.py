@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """The AMH container of the hero templates Templates/Hero*.ptx (and, with --saves, of the saves save/hero*.pax): layout
 checks over every file and section, and per-section tables for cross-checking the Rust reader `opensacred_formats::amh`.
-The saves are optional: the game rewrites save/, so they are not in the manifest and the Rust test leaves them out.
+The saves are optional: the game rewrites save/, so they are not in the manifest; the Rust tests of the sections, the
+arts and the backpack leave them out, the others pass --saves and read the two heroes that the installation ships
+(save/hero06.pax, hero07.pax; docs/02 §9).
 
 Purpose (docs/02 §9): the reference prototype. Measured on the GOG files on 2026-10-17.
 
@@ -51,10 +53,11 @@ Expected output (2.28): every check passes on all of its items; 8 files, 64 sect
 installation: 10 files, 80 sections); 46 items in the templates, 14 of them worn, 32 in their backpacks; 19 combat arts
 in the templates.
 --rows writes a row per section: file, slot, tag, size, compressed (0/1), bytes kept, crc32 of the kept bytes (inflated
-or stored); --items a row per item: file, id, type, in the backpack (0/1), crc32 of its record; --arts a row per combat
-art: file, its index, table, id, level, bonus, flags, and the time, the factor and the remaining as the hexadecimal of
-their bits; --backpack a row per item of the backpack's grid: file, id, column, row, width, height, type (the templates'
-32: three potions in the first column's top cells and a torch of 1 x 2 below them each); --summaries a row per file:
+or stored); --items a row per item: file, id, type, in the backpack (0/1), crc32 of its record, the key of its name
+(the u32 51 bytes after the marker, in hexadecimal; #2390); --arts a row per combat art: file, its index, table, id,
+level, bonus, flags, and the time, the factor and the remaining as the hexadecimal of their bits; --backpack a row per
+item of the backpack's grid: file, id, column, row, width, height, type (the templates' 32: three potions in the first
+column's top cells and a torch of 1 x 2 below them each); --summaries a row per file:
 file, level, class, the equipment's slots and types as slot:type joined by commas (the templates' weapons alone, 15 and
 14 items in the two saves), and the six won bytes as 0/1 (all 0 in the 10 files); --stats a row per file of its creature's
 stats: file, class, level, experience, gold, the attributes, the base attributes and the points spent on each (comma-joined),
@@ -67,7 +70,7 @@ banks, a record of 20 bytes each, the slot s of the bank b the record 2s + b, it
 u32) and the selections after them (u16 each, the weapon set and the art slot selected): file, the slots of the bank 0
 and of the bank 1 as slot:kind:id joined by commas, the selections joined by a comma. Section contents (hero names
 etc.) are not printed.
-Dependencies: standard library.
+Dependencies: standard library, and pefile and capstone through sacred_pe (the default game directory).
 """
 import argparse
 import collections
@@ -124,7 +127,8 @@ class Check:
 
 
 def sections(d):
-    """(slot, tag, size, compressed, kept bytes, offset, extent) of the used slots."""
+    """The table's 16 slots as (slot, tag, offset, size), and (slot, tag, size, compressed, kept bytes, offset, extent,
+    the bytes on disk) of the used ones."""
     table = [(i, *struct.unpack_from('<3I', d, HEADER + 12 * i)) for i in range(SLOTS)]
     used = [t for t in table if t[2]]
     out = []
