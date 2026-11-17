@@ -149,7 +149,7 @@ Hooks in `.claude/settings.json` automate steps 1–3 without the game files: `c
 - Deliberate deviations from the original's behavior go into `docs/decisions/`, a row each in its subsystem's table (`docs/decisions/README.md`).
 - Claude Code usage goes into each pull request's description, not into a file ("Issues and pull requests"; docs/usage.md).
 - One sentence per line in the documents (`docs/`, `PLAN.md`, `tools/README.md`): two changes to one paragraph then touch different lines. A list item's later sentences are indented to stay in it.
-- Every source file of `crates/` begins with a header, its `//!` doc comment (a shader's first `//` comment), that tells what the file holds; the header's first words are the file's line in `docs/11-code-map.md`. After adding, removing or renaming a file, or changing a header's first sentence, make the map again (`UPDATE_CODE_MAP=1 cargo nextest run -p opensacred-docs`) and commit it.
+- Every source file of `crates/` begins with a header, its `//!` doc comment (a shader's first `//` comment), that tells what the file holds (a `tests.rs` that holds a module's tests alone needs none); the header's first words are the file's line in `docs/11-code-map.md`. After adding, removing or renaming a file, or changing a header's first sentence, make the map again (`UPDATE_CODE_MAP=1 cargo nextest run -p opensacred-docs`) and commit it.
 - A change that does what a header, a comment, a note or a decision's row says the game does not do yet ("not followed", "not yet", "left out", "waits for #N") corrects that text in the same pull request: Grep `crates/` and `docs/` for the thing's number, name or address.
 
 ## Code conventions

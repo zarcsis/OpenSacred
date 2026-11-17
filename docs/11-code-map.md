@@ -24,14 +24,14 @@ A file's line is changed by changing its header.
 - `crates/opensacred-convert/src/ktx.rs`: `build`'s textures
 - `crates/opensacred-convert/src/locate.rs`: The installation found, by `opensacred-locate`
 - `crates/opensacred-convert/src/luau.rs`: NetScript translated into Luau
-- `crates/opensacred-convert/src/main.rs`: `opensacred-convert`: offline converter of the GOG Sacred Gold 2.28 installation into open formats
+- `crates/opensacred-convert/src/main.rs`: `opensacred-convert`: offline converter of the player's own Sacred Gold 2.28 installation
 - `crates/opensacred-convert/src/manifest.rs`: The run manifests
 - `crates/opensacred-convert/src/model_repairs.rs`: Repairs of the models' data (docs/02 §4.6) that `models` makes as it writes the records they name
 - `crates/opensacred-convert/src/model_scales.rs`: The scale that the client gives 24 models as it loads its items table
 - `crates/opensacred-convert/src/models.rs`: `models` subcommand
 - `crates/opensacred-convert/src/netscript.rs`: `netscript` subcommand
 - `crates/opensacred-convert/src/portraits.rs`: The creatures' portraits of the dialogues' window
-- `crates/opensacred-convert/src/script_repairs.rs`: Repairs of the scripts' data (docs/02 §7.4) that `netscript` makes as it writes the trees
+- `crates/opensacred-convert/src/script_repairs.rs`: Repairs of the scripts' data (docs/02 §7.1) that `netscript` makes as it writes the trees
 - `crates/opensacred-convert/src/sound.rs`: `sound` subcommand
 - `crates/opensacred-convert/src/tables.rs`: `tables` subcommand
 - `crates/opensacred-convert/src/testing.rs`: Test helpers
