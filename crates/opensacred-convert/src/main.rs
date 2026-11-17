@@ -1,6 +1,9 @@
-//! `opensacred-convert`: offline converter of the GOG Sacred Gold 2.28 installation into open formats
-//! (PLAN.md §7). Checks the installation against the SHA-256 manifest and converts textures,
-//! models, the world, the sound, the texts, the cutscenes, the scripts, the tables and the heroes.
+//! `opensacred-convert`: offline converter of the player's own Sacred Gold 2.28 installation,
+//! GOG's or Steam's, into open formats, in two stages (PLAN.md §7, ADR-05). It checks the
+//! installation against the SHA-256 manifests, extracts the textures, the models, the world, the
+//! sound, the texts, the cutscenes, the interface's screens and fonts, the scripts, the tables
+//! and the heroes into masters (stage A), and builds the game's assets from them (`build`,
+//! stage B); `install` is the player's run of it all.
 
 mod animation;
 mod boss_drops;
@@ -115,7 +118,8 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Check the installation against the embedded SHA-256 manifest
+    /// Check the installation against the embedded SHA-256 manifests, the GOG release's and the
+    /// Steam release's of the files in which it differs
     Verify {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
@@ -159,8 +163,8 @@ enum Command {
         #[arg(long, value_name = "X,Y", value_parser = parse_position)]
         sector: Option<(u32, u32)>,
     },
-    /// Convert the samples of PAK/sound.pak (WAV to FLAC with FFmpeg, MP3 copied), the profiles
-    /// of PAK/sndProfiles.pak and the music of mp3/ into <ASSETS_SRC>/sound/
+    /// Convert the samples of PAK/sound.pak (WAV and MP3 to FLAC with FFmpeg), the profiles of
+    /// PAK/sndProfiles.pak and the music of mp3/ (to FLAC too) into <ASSETS_SRC>/sound/
     Sound {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
@@ -181,7 +185,8 @@ enum Command {
         #[arg(long = "assets-src", default_value = "assets-src")]
         out: PathBuf,
     },
-    /// Convert the loading and save screens (BMP to PNG), the menus' pictures, the fonts and the credits into <ASSETS_SRC>/ui/
+    /// Convert the loading and save screens (BMP to PNG), the menus' pictures, the fonts and the
+    /// credits into <ASSETS_SRC>/ui/
     Ui {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
@@ -191,7 +196,7 @@ enum Command {
         out: PathBuf,
     },
     /// Convert the NetScript bytecode of the 20 trees of bin/ into one tree file each under
-    /// <ASSETS_SRC>/netscript/
+    /// <ASSETS_SRC>/netscript/, with each tree's Luau sources in a directory of its own
     Netscript {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
@@ -205,8 +210,9 @@ enum Command {
         listing: bool,
     },
     /// Convert the creature, weapon, item, motion and trigger tables, the data tables of bin/, and
-    /// the combat arts, the creatures' voices and portraits, the weather's rolls and the figures of
-    /// the choice of the hero of Sacred.exe into RON files under <ASSETS_SRC>/tables/
+    /// the combat arts, the creatures' voices, idle noises and portraits, the bosses' drops, the
+    /// drops' runes, the weather's rolls, the figures of the choice of the hero, the interface's
+    /// images and the types' names of Sacred.exe into RON files under <ASSETS_SRC>/tables/
     Tables {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]
@@ -215,7 +221,9 @@ enum Command {
         #[arg(long = "assets-src", default_value = "assets-src")]
         out: PathBuf,
     },
-    /// Convert the hero templates of Templates/ into hero files under <ASSETS_SRC>/heroes/
+    /// Convert the hero templates of Templates/, and the two heroes that the installation ships
+    /// in save/ for the Underworld campaign, into hero files under <ASSETS_SRC>/heroes/ with their
+    /// index heroes.ron
     Heroes {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]

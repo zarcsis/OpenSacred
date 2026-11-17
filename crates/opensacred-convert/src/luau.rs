@@ -19,9 +19,10 @@
 //! (`CreateNPC` → `create_npc`), a German keyword by a name in English (`Gewinn` → `prize`,
 //! #1388), and `type39`, `type47` and `dialog_entry` for the types without one,
 //! its operands a table keyed by their tags (`_01`, `_2A`), a tag that repeats a list of its
-//! values in their order, and a record of two markers or more `marks`, their tags in their order
-//! (#993); `CallFunktion` is `call("name", { … })` where it names one, `call_function { … }`
-//! where it does not. A value is a
+//! values in their order, a record of two markers or more `marks`, their tags in their order
+//! (#993), and an `Attack` whose valued operands' tags do not rise `order`, those tags in their
+//! order (#1835); `CallFunktion` is `call("name", { … })` where it names one,
+//! `call_function { … }` where it does not. A value is a
 //! number, a string,
 //! `true` for a marker, a list for a tuple, `var("name")` for a variable, and a number's
 //! expression (`A+VAR(B)`), whose value the client looks up in the variables, `var("A" ..
@@ -144,8 +145,10 @@ fn value(value: &Value) -> Result<String> {
             flag,
             text: Some(text),
         } => format!("{{ {flag}, {} }}", string(text)),
-        // The payload the client reads from past the record's end (the 11 `TriggerPatch`
-        // records' last 0x2A, docs/re/netscript.md, "Truncated operands"), for the engine.
+        // The payload the client reads from past the record's end, for the engine: the 11
+        // `TriggerPatch` records' last 0x2A (docs/re/netscript.md, "Operand reader
+        // `FUN_00472BC0`", the truncated operands), which the repairs give their cell before the
+        // translation (`script_repairs::CELLS`), so that the release's trees hold none.
         Value::Truncated => "truncated()".to_owned(),
     })
 }

@@ -2,9 +2,14 @@
 //!
 //! `netscript.ron` holds the [`NetScript`] index of the 20 trees; each tree is a [`Tree`] file,
 //! postcard-encoded in a zlib stream ([`Tree::encode`]). The records keep the original record
-//! types and operand tags: their meaning is recovered type by type (docs/re/netscript.md), and the
-//! interpreter matches on them. `FunkCode.bin` is split into its named function blocks by
-//! `Vectoren.bin`.
+//! types and operand tags: their meaning is recovered type by type (docs/re/netscript.md).
+//! `FunkCode.bin` is split into its named function blocks by `Vectoren.bin`.
+//!
+//! The trees and their index stay among the masters: the converter translates them into Luau
+//! ([`crate::luau`], #723), which is all the game runs (#726). A call of the Luau comes back as
+//! the [`Record`] it was (`opensacred_scripts::record`), and the game's readers match on its type
+//! and tags. The module also holds the compiler's keywords of the record types ([`KEYWORDS`]) and
+//! the shapes of the tags' payloads ([`shape`]).
 
 use serde::{Deserialize, Serialize};
 

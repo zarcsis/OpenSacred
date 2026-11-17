@@ -1,4 +1,4 @@
-//! Repairs of the scripts' data (docs/02 §7.4) that `netscript` makes as it writes the trees.
+//! Repairs of the scripts' data (docs/02 §7.1) that `netscript` makes as it writes the trees.
 //!
 //! - A start script's cell cut short (#723, docs/decisions/netscript.md, "Chest 1339's cut patch
 //!   given its cell"): a repair names its trees and its record by the names in the record and the
@@ -179,7 +179,8 @@ pub const SOUNDS: [(&str, &str); 127] = [
     ("SFX_Loc9_SCmage", "SOUND_FX_SFX_LOC09_SCMAGE"),
     ("SFX_Loc9_SCsera", "SOUND_FX_SFX_LOC09_SCSERA"),
     ("SFX_Loc9_SCvamp", "SOUND_FX_SFX_LOC09_SCVAMP"),
-    // The Wood Elf's locations' lines: `SCelf` for the samples' `SCHELF`, the first nine without the zero too.
+    // The Wood Elf's locations' lines: `SCelf` for the samples' `SCHELF`, the first nine without
+    // the zero too.
     ("SFX_Loc10_SCelf", "SOUND_FX_SFX_LOC10_SCHELF"),
     ("SFX_Loc11_SCelf", "SOUND_FX_SFX_LOC11_SCHELF"),
     ("SFX_Loc12_SCelf", "SOUND_FX_SFX_LOC12_SCHELF"),
@@ -830,7 +831,8 @@ pub const RENAMES: [Rename; 3] = [
 /// The repairs of a tree's functions that were made, and the warnings of those that were not.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Report {
-    /// What each repair made mends ([`Edit::what`], [`Rename::what`]), once a tree.
+    /// What each repair made mends ([`Edit::what`], [`Rename::what`], [`Addition::what`]), once
+    /// a tree.
     pub made: Vec<&'static str>,
     pub warnings: Vec<String>,
 }
@@ -1492,8 +1494,6 @@ fn ghosts_apart(records: &mut [Record]) -> Result<(), String> {
     Ok(())
 }
 
-/// 602's knight 17136, whom `ok1_602` walks once, is named 17163 after, the two digits swapped:
-/// quest 1202's target, whom `ritterweg_602` would delete. The `count` operands become his.
 /// The desert bridge's announcement (the location 67, the bit 21 of `audiomeldungen_2`) calls the
 /// hero's line of the location 2 (`sprich_2`) in its branch that tests Vilya with the hero, after
 /// her line of the location 67, where its other branch, and both branches of every other
@@ -1520,6 +1520,8 @@ fn desert_bridge(records: &mut [Record]) -> Result<(), String> {
     Ok(())
 }
 
+/// 602's knight 17136, whom `ok1_602` walks once, is named 17163 after, the two digits swapped:
+/// quest 1202's target, whom `ritterweg_602` would delete. The `count` operands become his.
 fn knight(records: &mut [Record], count: usize) -> Result<(), String> {
     let found = records
         .iter()

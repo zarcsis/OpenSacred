@@ -1,6 +1,7 @@
 //! The keys of the client's balance text and the variables they name in `Balance.bin`'s image
 //! (docs/02 §6.3, #71): read off the parser's code, each key's test (`push` of its name, `call
-//! 0x5E3700`) and its store into the image (`fstp` a float, `mov` an integer); the facts, as
+//! 0x5E3700`) and its store into the image (`fstp` a float, `mov` an integer, `sscanf`'s `%x` the
+//! three colours it reads as hexadecimal, integers here, #2505); the facts, as
 //! `tools/analysis/pe/balance_keys.py` lists them, which the game tests check this against. A key
 //! that ends in `:` heads a row of values, of which it names the first. `GoldProLevel` stores two
 //! values, after its colon and after a comma (`0x5EE79B`, #413): the second is named

@@ -261,7 +261,7 @@ impl Shelf {
     /// none; gold, potions, runes and the categories 26, 30 and 31 placed as they are; another
     /// made, after a roll of the maker's fourth argument that it does not read (0 in three cases
     /// of four, else 1, 3 or 2), at `R(⌊0.98·L⌋, ⌊1.1·L⌋)` of the hero's level `L` in one case
-    /// of two, else at `L`, rolled again where the first roll is below 1 (1 then), with the key
+    /// of two, else at `L`, rolled again unless the first roll is below 1 (1 then), with the key
     /// `key`.
     fn add(
         &mut self,

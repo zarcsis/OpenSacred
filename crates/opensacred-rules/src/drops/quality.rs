@@ -607,17 +607,17 @@ fn give(
 
 /// The quality pass of a made item of the values `values` by the map value `q` of the maker's key
 /// (`0x5D2E40`), its sockets `sockets` rolled already: its quality (`ItemValues::quality`).
-/// The fresh record's quality `v₀` ([`estimate`]), times one and each socket's part, is `Q`;
-/// `q` of 0 clears the bonus slots but the first (all of them for a ring or an amulet); else,
-/// `Q` below `q`, the difference is shared out as steps among up to four new slots (each slot's
-/// step by a roll below 50 of 100, always at four, a new slot where none took one, a step costing
-/// the sockets' factor `m`; a ring, an amulet or the horse's gear one slot of them all), their
-/// kinds drawn (the first's kind of the special effects by a roll below 1,000 below `20·q`, a
-/// ring's by one of two, else each another kind than the first slot's and those drawn) and
-/// sorted, and each slot given its effect ([`give`]) and its value, `Q` growing by its worth
-/// times `m` and a half, until it reaches `q`; what is left raises the slot of the kind 1, or
-/// slips a bonus of the kind 0 or 1 in at the second slot; the quality is `Q` truncated, at most
-/// 14. A book is left alone.
+/// The map's value `v₀` of the fresh record's quality ([`estimate`]), times one and each
+/// socket's part, is `Q`; `q` of 0 clears the bonus slots but the first (all of them for a ring
+/// or an amulet); else, `Q` below `q`, the difference is shared out as steps among up to four
+/// new slots (each slot's step by a roll below 50 of 100, always at four, a new slot where none
+/// took one, a step costing the sockets' factor `m`; a ring, an amulet or the horse's gear one
+/// slot of them all), their kinds drawn (the first's kind of the special effects by a roll below
+/// 1,000 below `20·q`, a ring's by one of two, else each another kind than the first slot's and
+/// those drawn) and sorted, and each slot given its effect ([`give`]) and its value, `Q` growing
+/// by its worth times `m` and a half, until it reaches `q`; what is left raises the slot of the
+/// kind 1, or slips a bonus of the kind 0 or 1 in at the second slot; the quality is `Q`
+/// truncated, at most 14. A book is left alone.
 pub fn pass(
     values: &mut ItemValues,
     q: u32,

@@ -3,7 +3,10 @@
 //! the hero's arts at a new game, and their regeneration: a use that starts it for every art of
 //! its kind and the frames that run it down; and how the weapon arts `Attacke`, `Rundum` and
 //! `Hardhit` strike, their factors and their targets (#508), whose chance and damage
-//! `fight::art_strike` resolves. `opensacred-game` keeps the hero's list; the combos are not here.
+//! `fight::art_strike` resolves; and how every other art is made ([`Style`]): the kicks, each
+//! class's special arts and the spells' casts, the clips they play ([`action`]), the parts of
+//! their clips at which they act and what their records give at a level. `opensacred-game` keeps
+//! the hero's list; the combos are not here.
 
 use opensacred_data::heroes::HeroArt;
 use opensacred_data::tables::{Arts as Tables, Balance, Spell, WeaponArt};
@@ -171,7 +174,9 @@ pub enum Style {
     /// [`jump_points`]), made where its maker stands ([`order_distance`]) at a rate by its
     /// distance ([`jump_rate`]): the Seraphim's 1017 (`GUI_MOVE_KAMPFSPRUNG`, `0x5038F0`) strikes
     /// its target as she lands, the Gladiator's 1003 (`0x4FF0B0`) every hostile about him and
-    /// stuns some ([`jump_quake`], [`jump_stun`]).
+    /// stuns some ([`jump_quake`], [`jump_stun`]), the Vampiress's claw jump 1032 by night
+    /// (`GUI_MOVE_KLAUENSPRUNG`, `0x50E6C0`), at [`CLAW_JUMP_RATE`], every hostile about her and
+    /// holds some ([`claw_quake`], [`CLAW_HOLD`]).
     Jump,
     /// As its clip starts, every hostile creature about its maker within its radius
     /// ([`roar_radius`]) knocked back by a kick's roll ([`roar_knockback`]) and held
@@ -203,8 +208,9 @@ pub enum Style {
     Volley,
     /// With a bow or a crossbow, a shot at its target of the art's own arrows
     /// (`arrows::projectile`), its regeneration started; without one, nothing: the Wood Elf's
-    /// dumdum 1004 (`GUI_MOVE_DUMDUM`), its strike of the art's factor ([`factor`]), club arrow
-    /// 1007 (`GUI_MOVE_KEULEN`), which may knock its target back by [`club_knockback`]
+    /// dumdum 1004 (`GUI_MOVE_DUMDUM`), its strike of the art's factor ([`factor`]), spider arrow
+    /// 1006 (`GUI_MOVE_SPINNENPFEIL`), which makes spiders at its first hit ([`spiders`]), club
+    /// arrow 1007 (`GUI_MOVE_KEULEN`), which may knock its target back by [`club_knockback`]
     /// (`arrows::club_knocks`), and blades 1008 (`GUI_MOVE_KLINGEN`), which home on their target
     /// for a time by its level and strike what they pass through ([`blades`],
     /// `arrows::Arrow::home`; `0x50AC00`, `0x5BD2D0`, `0x5BB010`).
@@ -264,10 +270,11 @@ pub enum Style {
     /// Gladiator's 1012 (`GUI_MOVE_HANDGOTTES`, `0x4FF0B0`).
     Smite,
     /// Effects on its maker at a part of its clip, made where it stands ([`boon`]): the Dark
-    /// Elf's 1047 and 1048, the Dwarf's 1089 and the Seraphim's 1018, of the launch type 5
-    /// (`ECF_ONMEMYSELFANDI`, whose target `0x51D840` makes the maker itself), and the
-    /// Gladiator's 1015, of the type 2 (`ECF_ONFRIENDLY`), on a friend or on himself, whom the
-    /// right button on him makes its target (seen).
+    /// Elf's 1047 and 1048 and his 1044 ([`soulcatcher`]), the Dwarf's 1089, the Daemon's 1094
+    /// and the Seraphim's 1018, of the launch type 5 (`ECF_ONMEMYSELFANDI`, whose target
+    /// `0x51D840` makes the maker itself), and the Gladiator's 1015, of the type 2
+    /// (`ECF_ONFRIENDLY`), on a friend or on himself, whom the right button on him makes its
+    /// target (seen).
     Boon,
     /// As a boon, at its own clip: the Dwarf's 1082 (`gui_moves_abschlag`, `0x514790`), the effect
     /// [`FRENZY`] on himself ([`boon`]), with which his strikes quicken his attack
@@ -335,7 +342,7 @@ pub const BFG_ITEM: u32 = 3809;
 
 /// The Seraphim's effect of 1019 (`GUI_SPELL_ENERGIEBLITZE`, `0x11`): while it holds, each of her
 /// shots makes two bolts [`Bolt::Railgun`] (the adder `0x582D50`'s bit `0x400000`; docs/re/arts.md,
-/// "Her shots with 1018's and 1019's effects").
+/// "The Seraphim's", her shots with 1018's and 1019's effects).
 pub const RAILGUN: u32 = 17;
 
 /// The Gladiator's effect of 1016 (`GUI_MOVE_KLINGENBLICK`, `0x12`): while it holds on the
@@ -646,7 +653,8 @@ pub fn drowning(health: u32) -> u32 {
 }
 
 /// The arts that `0x51D840` refuses while an effect of theirs holds on their maker (`0x582B00`):
-/// 1031, 1042, 1044 to 1048, 1082 and 1089, and 1018 and 1019 while either's does.
+/// 1031, 1042, 1044 to 1048, 1082 and 1089, and 1018 and 1019 while either's does; for a spell
+/// (an id below 1000), the keys of [`crate::spells::locked_by`].
 pub fn refused_while(art: u16) -> &'static [u16] {
     if art < 1000 {
         return crate::spells::locked_by(art);
@@ -678,11 +686,12 @@ pub fn on_horseback(flags: u8, bow: bool) -> bool {
     }
 }
 
-/// How the art `art` strikes: the classes' own `Rundum`, `Hardhit`, `Attacke` and `Kick`, which
-/// `0x581D40` finds for the generic 1000, 1001, 1002 and 1009 (the Gladiator's 1057 to 1060 and
-/// the Seraphim's 1069 to 1072 read in their executors, the others' `Attacke` by the same test of
-/// the reach; **hypothesis** for the other classes' `Rundum`, `Hardhit` and `Kick`), and the
-/// boons ([`Style::Boon`]); none for another.
+/// How the art `art` strikes: a spell that the game makes its cast ([`Style::Cast`], of its
+/// clip's slot), each special art its own style, and the classes' own `Rundum`, `Hardhit`,
+/// `Attacke` and `Kick`, which `0x581D40` finds for the generic 1000, 1001, 1002 and 1009 (the
+/// Gladiator's 1057 to 1060 and the Seraphim's 1069 to 1072 read in their executors, the others'
+/// `Attacke` by the same test of the reach; **hypothesis** for the other classes' `Rundum`,
+/// `Hardhit` and `Kick`); none for another.
 pub fn style(art: u16) -> Option<Style> {
     if crate::spells::made(art) {
         return Some(Style::Cast(crate::spells::slot(art)));
@@ -900,7 +909,7 @@ pub fn rundum_radius(record: &WeaponArt, level: u32, reach: u32) -> f32 {
 /// The creature that a `Rundum` strikes by a bone of a weapon or a hand (`0x4FF0B0`): the nearest
 /// of `candidates` (their distances from the bone) within 1,000 and its radius by its reach with
 /// the striker (`radius`, [`rundum_radius`], as `0x4DBC60` gives it for each), unless it is the
-/// one it struck last (`+0x190`) or none may be struck; candidates of the same distance keep the
+/// one it struck last (`+0x190`) or may not be struck; candidates of the same distance keep the
 /// first.
 pub fn rundum_target(
     candidates: &[Candidate],
@@ -952,8 +961,8 @@ const SERAPHIMS_ATTACKE: f32 = 0.73;
 /// `0x5038F0`, the Dark Elf's `0x506770`, the Wood Elf's `0x50AC00`, the Vampiress's
 /// `0x50E6C0`, the Dwarf's `0x514790`, the Daemon's `0x5192E0`; docs/re/arts.md, "The arts'
 /// clips" and "The other classes' clips", #649): none with a bow or a crossbow (the classes 7
-/// and 12, whose arts are shots, not here), nor for the Daemon's `Rundum` and charge, the other
-/// classes' kicks and the Mage, not read. The Vampiress by night (7) plays her claws' column
+/// and 12, whose arts are shots, not here), nor for the Daemon's `Rundum`, the other classes'
+/// kicks and the Mage, not read. The Vampiress by night (7) plays her claws' column
 /// (**hypothesis**: her night form is the one of the flag `+0x14` bit `0x2000`).
 pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
     // A spell's clip is its slot's whatever the class and the hand, at the rate of the casts'
@@ -1085,8 +1094,6 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // The Gladiator's 1012 the slot 146 at the blend 0.5 and the rate 1.0 (`0x4FF0B0` at
         // `0x502C10`).
         (2, Style::Smite) => Some(plain(146)),
-        // The Seraphim's 1054 the slot 148 at the blend 0.5 and the rate 1.6 (`0x5038F0` at
-        // `0x505D44`).
         // The Seraphim's 1020 the slot 149 at the blend 0.5 and the rate 1.0 (`0x5038F0` at
         // `0x50619A`).
         (1, Style::Whirl) => Some(plain(149)),
@@ -1143,6 +1150,8 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
             fallback: Some(84),
             ..plain(109)
         }),
+        // The Seraphim's 1054 the slot 148 at the blend 0.5 and the rate 1.6 (`0x5038F0` at
+        // `0x505D44`).
         (1, Style::Blades) => Some(ArtAction {
             rate: 1.6,
             ..plain(148)
@@ -1295,6 +1304,8 @@ pub struct Boon {
 /// - the Dwarf's 1089 below 0.2 the effects 1 of `a` and 2 of `b` for `L·[+0x64] + [+0x60]`
 ///   hundredths of a second (`0x514790`; to the hero, whom `0x51D840` refuses it while they
 ///   hold; a friend's effects of it raised by `0x5904E0`, not followed);
+/// - the Dwarf's 1082 below 0.9 the effect [`FRENZY`] of the whole value `b` and the value
+///   `[+0x60]` for `a` seconds (`0x514790` at `0x516040`);
 /// - the Daemon's 1094 (`0x5192E0`): as it starts, the effects keyed by 1094, 1097 to 1100 and
 ///   [`DAEMON_FORM`] off and the effect 50 for 10 s keyed by 1094 (`0x51BBC5`); below 0.3 the
 ///   effect 50 keyed by 1094, and the effects 2 of `b` and 52 (the attack speed and the pace) of
@@ -1540,7 +1551,8 @@ pub fn due(point: f32, done: f32) -> bool {
 
 /// How far from its target a creature makes an art of the record's distance `distance`, and how
 /// near that it must stand (`0x4FD0F0`): 101 to 250 the reach of the two creatures `reach`,
-/// within 10 of it; 0 where it stands; none for another, the jumps' below 0 among them (not
+/// within 10 of it; 1 to 99 the distance itself, within 10 of it (the backbreaker's 80, a
+/// **hypothesis**); 0 where it stands; none for another, the jumps' below 0 among them (not
 /// here).
 pub fn made_from(distance: i32, reach: f32) -> Option<(f32, f32)> {
     match distance {
@@ -1562,9 +1574,7 @@ const MADE_WITHIN: f32 = 10.0;
 /// and 1032.
 const MADE_WHERE_IT_STANDS: [u16; 3] = [1003, 1017, 1032];
 
-/// The distance the order makes the art `art` of the record's distance `distance` from
-/// ([`made_from`]): 0 for [`MADE_WHERE_IT_STANDS`], else the record's.
-/// The `Rundum` with a bow (1061; docs/re/arts.md, "The bow's arts", #2238): every class's own
+/// The `Rundum` with a bow (1061; docs/re/arts.md, "The Wood Elf's", #2238): every class's own
 /// `Rundum` (1057, 1061, 1065, 1069, 1073, 1078) made with a bow or a crossbow in hand is a shot
 /// made where the hero stands (each class's executor at its first run, the Wood Elf's
 /// `0x50AC00` at its case `0x425`): of [`bow_rundum_arrows`] arrows of the type 3069, each
@@ -1582,7 +1592,7 @@ pub fn bow_rundum_arrows(level: u32) -> u32 {
     (level + 1).min(5)
 }
 
-/// The `Hardhit` with a bow (1062; docs/re/arts.md, "The bow's arts", #2275): every class's own
+/// The `Hardhit` with a bow (1062; docs/re/arts.md, "The Wood Elf's", #2275): every class's own
 /// `Hardhit` (1058, 1062, 1066, 1070, 1074, 1079) made with a bow or a crossbow in hand is a shot
 /// made where the hero stands, its regeneration started at the order, of one arrow of the type
 /// 3068, a ray (`crate::arrows::Arrow::ray`), striking by 1062's own factor at the class's own
@@ -1608,6 +1618,8 @@ pub fn bow_attacke(art: u16) -> bool {
     matches!(art, 1059 | 1063 | 1067 | 1071 | 1075 | 1080)
 }
 
+/// The distance the order makes the art `art` of the record's distance `distance` from
+/// ([`made_from`]): 0 for [`MADE_WHERE_IT_STANDS`], else the record's.
 pub fn order_distance(art: u16, distance: i32) -> i32 {
     if MADE_WHERE_IT_STANDS.contains(&art) {
         0
@@ -1628,9 +1640,9 @@ pub fn jump_points(kind: u32) -> [f32; 2] {
     }
 }
 
-/// The part of its clip at which the death's kiss's curse lands on its target (seen: 1.84 s into
-/// the 3.17 s of the slot 148 on a goblin two cells off; its missile, made below 0.6 left, and
-/// its flight are left out), and how long the curse holds (seen: 5 s at the levels 1 and 9).
+/// What is left of its clip, as a part of it, below which the death's kiss's skull leaves her
+/// (seen: its curse on a goblin two cells off 1.84 s into the 3.17 s of the slot 148), and how
+/// long the curse holds (seen: 5 s at the levels 1 and 9).
 pub const KISSES: f32 = 0.6;
 pub const CURSE_SECONDS: f32 = 5.0;
 /// The kiss's skull 905 (`FX_FLYINGSKULL`, `0x7A6370`, `0x5A6680`): its speed, how fast it turns
@@ -2496,7 +2508,8 @@ pub fn wall_spreads() -> Vec<f32> {
 pub const EMPEROR_COURSE: (f32, f32, f32) = (500.0, 300.0, 1.14);
 
 /// The rate of the Dwarf's guns' clips: the stats' `+0x3E` over 100, 1.2 for the 120 a hero has
-/// at the start (**hypothesis**: nothing raises it yet; docs/re/fight.md, "The values").
+/// at the start (**hypothesis**: nothing raises it yet; docs/re/fight.md, "An NPC's attack,
+/// defence and damage").
 pub const GUN_RATE: f32 = 1.2;
 
 /// The damage of a kind of the Dwarf's guns, its record's pair `[base, step]` at the level in play
@@ -2775,9 +2788,10 @@ pub const BLAST_LIFE: f32 = 3.0;
 pub const BLAST_GROWS: f32 = 0.75;
 
 /// The Daemon's blast as his charge lands, the object 1168 (`FX_KAMIKAZE`; docs/re/arts.md, "The
-/// objects 1168 and 842"): its most radius `R`, `[+0x58] + [+0x5C]·L` at most `[+0x60]` taken
-/// whole (150 + 2·L at most 400), the factor of its strikes, `[+0x50] + [+0x54]·L` ([`factor`],
-/// 1.35 + 0.15·L), and its knockback's strength `[+0x64]` (20; the FX event `0x92`, `0x51A231`).
+/// Daemon's", the objects 1168 and 842): its most radius `R`, `[+0x58] + [+0x5C]·L` at most
+/// `[+0x60]` taken whole (150 + 2·L at most 400), the factor of its strikes,
+/// `[+0x50] + [+0x54]·L` ([`factor`], 1.35 + 0.15·L), and its knockback's strength `[+0x64]`
+/// (20; the FX event `0x92`, `0x51A231`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Blast {
     pub most: f32,

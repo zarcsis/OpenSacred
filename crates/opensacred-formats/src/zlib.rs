@@ -1,4 +1,4 @@
-//! zlib streams of the containers (TEX textures, world sectors).
+//! zlib streams of the containers (TEX textures, world sectors, AMH sections).
 
 use miniz_oxide::inflate::{TINFLStatus, decompress_to_vec_zlib_with_limit};
 

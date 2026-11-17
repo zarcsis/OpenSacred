@@ -239,7 +239,7 @@ pub struct Cell {
     /// `+0x00`: tile of `tiles.pak`.
     pub tile: u32,
     /// `+0x04`: the first static of the cell's chain in `Static.PAK`; 0 for none. (`+0x08` is 0
-    /// in every cell: the head of an object list removed before release.)
+    /// in every cell: at run time the head of the cell's chain of dynamic objects, docs/02 §5.2.)
     pub first_static: u32,
     /// `+0x0C`: the first floor overlay of the cell's chain in `Floor.PAK`; 0 for none.
     pub first_floor: u32,
@@ -254,8 +254,8 @@ pub struct Cell {
     /// `+0x1C`, `+0x1D`: the offsets to the cell of the building's anchor, whose chain holds the
     /// building's object (openheilig's offsets of the parent object; docs/02 §5.2).
     pub offsets: [i8; 2],
-    /// `+0x1E`: bit 0 structure, bit 1 room interior, bit 2 door (openheilig), a cell walked by
-    /// its trigger's state, bit 3 unwalkable (docs/02 §5.2).
+    /// `+0x1E`: bit 0 structure, bit 1 a settlement's ground (openheilig's "room interior"), bit 2
+    /// door (openheilig), a cell walked by its trigger's state, bit 3 unwalkable (docs/02 §5.2).
     pub flags: u8,
     /// `+0x1F`: high nibble the nature (4 `GRASS`, 9 `WATERA`, 10 `WATERB`, 11 `STONEROAD`, …),
     /// low nibble 1 or 2 unwalkable, 3 and 5 to 10 a change of layer for what steps onto the cell
@@ -527,8 +527,9 @@ pub struct Static {
     /// pixels; with flag `0x40` columns, rows, rotation, timing and frames of an animation
     /// (openheilig).
     pub miniature: [u8; 5],
-    /// `+0x33`: for a type of bit `0x200`, an upper storey's floor, the height of the plane the
-    /// client draws it in, in steps of 28 pixels (`0x62FF60`, docs/re/drawing.md, "Depth").
+    /// `+0x33`: for a building's floor, its height, and for a type of bit `0x200`, an upper
+    /// storey's floor, the height of the plane the client draws it in, in steps of 28 units of
+    /// the models' height (`0x62FF60`, docs/re/drawing.md, "Depth").
     pub height: u8,
 }
 

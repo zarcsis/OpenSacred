@@ -1,6 +1,11 @@
-//! The converted tables (docs/02 §6, §5.5, §4.1): one RON file each under the tables directory.
+//! The converted tables (docs/02 §6, §5.5, §4.1): one RON file each under the tables directory,
+//! of the data files' tables (`Creature.pak`, `Weapon.pak`, `Items.pak`, `MOTIONS.PAK`,
+//! `Triggers.PAK`, `bin/*.bin`) and of those that `Sacred.exe` holds in its data or its code (the
+//! combat arts, the voices, the idle noises, the portraits, the bosses' drops, the drops' runes,
+//! the weather's rolls, the figures of the choice of the hero, the interface's images and the
+//! types' names).
 //!
-//! Every byte of an original record lands in a field: those whose meaning is not known yet keep
+//! Every byte of a data file's record lands in a field: those whose meaning is not known yet keep
 //! the original layout in spans named by their offset (`words_84` holds the u16 words from
 //! `+0x84`), so that the semantics can be added later without converting again from a lossy
 //! table.
@@ -402,9 +407,10 @@ pub struct Motion {
     pub value_be: u16,
 }
 
-/// `bin/Balance.bin`: the client's balance variables (docs/02 §6.3), the 355 that the keys of the
-/// balance text name by name, the image of all of them as stored, and the tables after the image
-/// ("The tail of `Balance.bin`"), the drops' by their meaning and the others as words.
+/// `bin/Balance.bin`: the client's balance variables (docs/02 §6.3), by name the 357 that the
+/// keys of the balance text name and `GoldProLevel`'s second value, the image of all of them as
+/// stored, and the tables after the image ("The tail of `Balance.bin`"), the first and the fourth
+/// as words and the others by their meaning.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Balance {
@@ -414,7 +420,8 @@ pub struct Balance {
     pub image: Vec<u32>,
     /// The tail's first table: 33 lists of records of three words (−1 or effect numbers) by the
     /// item maker's family, 0 to 32, the first `(−1, −1, n)` with the family's most sockets `n`
-    /// (`opensacred_rules::drops::Sockets`); the effects not followed.
+    /// (`opensacred_rules::drops::Sockets`), the others an effect or a range of effects each,
+    /// which the quality pass reads (`opensacred_rules::drops::quality`).
     #[serde(default)]
     pub tail_1: Vec<BalanceList>,
     /// The tail's second table: the drops' weights of the quality keys 0 to 17, in their order.
@@ -424,7 +431,8 @@ pub struct Balance {
     /// quality pass `0x5D2E40` they take.
     #[serde(default)]
     pub quality_passes: Vec<QualityPass>,
-    /// The tail's fourth table: nine rows of seven words by a key, 1 to 9; not followed.
+    /// The tail's fourth table: the horse data, nine rows of seven words by the horse's class, 1
+    /// to 9 (docs/re/horses.md, "The price and the horse data"; `opensacred_rules::horses::Row`).
     #[serde(default)]
     pub tail_4: Vec<BalanceRow>,
     /// The tail's fifth table: the parameters of a chance by an effect's value.
@@ -438,8 +446,7 @@ pub struct Balance {
     /// with a name.
     #[serde(default)]
     pub regions: Vec<Region>,
-    /// The words after the tail's tables: none in the file (an earlier converter's 570 words of
-    /// the sixth and the seventh tables).
+    /// The words after the tail's tables: none in the file, whose seventh table ends it.
     pub rest: Vec<u32>,
 }
 
@@ -591,13 +598,14 @@ pub struct Stair {
     pub to: [u16; 2],
 }
 
-/// A mercenary position of `bin/merc.bin`.
+/// A record of `bin/merc.bin`: the cell of a trader, a smith, a combat master or a horse trader,
+/// whose icon the world map shows (`0x46F9B0`, `0x49A350`; #1567, docs/re/maps.md).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Mercenary {
     pub x: u32,
     pub y: u32,
-    /// 0–3.
+    /// 0 a trader, 1 a smith, 2 a combat master, 3 a horse trader.
     pub kind: u32,
 }
 

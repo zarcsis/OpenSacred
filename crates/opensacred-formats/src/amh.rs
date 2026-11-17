@@ -3,6 +3,10 @@
 //! 0x100, and the sections of the used slots back to back to the end of the file, each stored or
 //! zlib-compressed behind a 32-byte prefix. Confirmed on every section, and on the combat arts
 //! of the creature section, by `tools/analysis/formats/amh_dump.py`.
+//!
+//! Of the sections' contents the module decodes the summary (level, class, name, the equipment's
+//! types, the difficulties won), the creature's stats, equipment and combat arts, the inventory's
+//! items with their socketed items' records, and the backpack's grid, weapon sets and art slots.
 
 use crate::error::{ErrorKind, Result, field, to_usize};
 use crate::reader::Reader;
@@ -57,10 +61,11 @@ const MINI_ON_DISK: usize = 64;
 /// right's, of 12 bytes each, a half's first `u32` its item's object id, 0 for none (docs/02 §9).
 pub const WEAPON_SETS: usize = 5;
 const HALF: usize = 12;
-/// The bar's art slots after the weapon sets: five slots in two banks, a record of 20 bytes each,
-/// the slot `s` of the bank `b` the record `2s + b`, its kind (0 none, 2 a spell, 3 a weapon art,
-/// 4 a combo) and its art's id the first two `u32`; then the selections, `u16` each: the weapon
-/// set selected and the art slot selected (the container's `+0xC90` and `+0xD58`, docs/02 §9).
+/// The bar's art slots after the weapon sets (the container's `+0xC90`): five slots in two banks,
+/// a record of 20 bytes each, the slot `s` of the bank `b` the record `2s + b`, its kind (0 none,
+/// 2 a spell, 3 a weapon art, 4 a combo) and its art's id the first two `u32`; then the
+/// selections (`+0xD58`), `u16` each: the weapon set selected and the art slot selected
+/// (docs/02 §9).
 pub const ART_SLOTS: usize = 5;
 const ART_SLOT: usize = 20;
 /// An art slot's two banks, each its kind and its art's id.

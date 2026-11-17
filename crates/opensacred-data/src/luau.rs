@@ -1,6 +1,9 @@
 //! The scripts translated into Luau (#723, #720): the index of a tree's functions, by which the
-//! runtime (`opensacred-scripts`) loads a function's file as it is first called, and the names of
-//! the files that stage B writes.
+//! runtime (`opensacred-scripts`) loads a function's file as it is first called, the names of
+//! the files that the converter writes, and the calls of the record types ([`call_name`]), by
+//! which the converter writes a record and the runtime takes it back ([`kind_of`]), with the keys
+//! of a call's operands that keep their order ([`MARKS`], [`ORDER`]) and the list of the calls
+//! that the game checks its scripts against ([`CALLS`], #1399).
 
 use std::collections::BTreeMap;
 
@@ -89,7 +92,9 @@ fn english(kind: u16) -> Option<&'static str> {
 /// The call of a record type in Luau: its first keyword in snake case
 /// ([`crate::netscript::name`]) or, for a German one, its English name ([`ENGLISH`]), `type<n>`
 /// for the types 39 and 47, which have none, and [`DIALOG_ENTRY`] for the dialogues' entries; none
-/// for any other, the flow's among them.
+/// for any other: the flow's types 0, 41 and 42, which have no keyword, and a number of no type.
+/// The flow's `IF`, `ELSE` and `ELSEIF` have keywords and so calls here (`if`, `else`, `elseif`),
+/// which the translation, writing them as Luau's flow, never makes.
 pub fn call_name(kind: u16) -> Option<String> {
     match (kind, crate::netscript::name(kind)) {
         (DIALOG, _) => Some(DIALOG_ENTRY.to_owned()),

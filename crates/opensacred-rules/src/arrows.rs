@@ -5,6 +5,10 @@
 //! part of its way it flew than the sum of the two types' sizes (`0x5FFC70`, `0x6226B0`), when
 //! that creature may be hit (`0x548F60`); after a hit it sticks in a creature of a size above 20
 //! for 5 s, but not in the local player's hero (`0x5BAB40`).
+//! Here too are a shot's count of arrows and their fan (the multi-shot's, the bow arts'), the
+//! Wood Elf's special arrows (their types, her homing blades, her club arrow's knock), the
+//! `Hardhit`'s ray with a bow, the arrows that pass through what they hit, a hero's deflection of
+//! an arrow, and the element that an arrow or a weapon in hand shows ([`Element`]).
 //! `opensacred-game` (`arrows`) makes the arrows, draws them, finds the creatures near them and
 //! sends the hits; this module is the rules alone, over points of the ground ([`Spot`]) and
 //! heights.
@@ -368,7 +372,7 @@ impl Arrow {
         self
     }
 
-    /// The arrow turned where it is along `direction` at its speed, its time going on
+    /// The arrow turned where it is along `direction` at [`SPEED`], its time going on
     /// (`0x561090`).
     pub fn turn(&mut self, direction: Point) {
         self.velocity = along(direction.ground, direction.height, SPEED);

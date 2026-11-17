@@ -5,6 +5,13 @@
 //! that strike about themselves once a second. A spell's damages are the bolts' of its
 //! record ([`crate::arts::bolt_damages`]) by the caster's spells' multipliers
 //! ([`crate::fight::Combat::spells`]), and its regeneration starts as it acts.
+//!
+//! Also the rest of the heroes' spells (docs/re/arts.md, "The Mage's other spells", "The Wood
+//! Elf's spells", "The Dwarf's spells", "The Daemon's spells"): their objects' numbers, places,
+//! reaches and times, the tests of what they take, the effects they give, the skins that the
+//! spells draw over their bearers and the visions' looks, the spells that the game makes
+//! ([`MADE`]), those that an effect of their own locks ([`locked_by`]) and those whose objects
+//! ask their target's magic defence ([`warded`]).
 
 use opensacred_data::tables::Spell;
 
@@ -34,9 +41,8 @@ pub const HOLY_SHIELD: u16 = 22;
 pub const IRRITATION: u16 = 18;
 pub const CONVERSION: u16 = 19;
 
-/// The Mage's attacking spells: the fire spiral, `FEUERSPIRALE`; the purgatory, `FEGEFEUER`; the
-/// hail of meteors, `METEORITENHAGEL`; the whirlwind, `WIRBELWIND`; the chain lightning,
-/// `BLITZSCHLAG`; and the ice splinters, `EISSPLITTER`.
+/// The Mage's attacking spells: the fire spiral, `FEUERSPIRALE`, and the purgatory, `FEGEFEUER`;
+/// the others stand below ([`METEORS`]).
 pub const SPIRAL: u16 = 11;
 pub const PURGATORY: u16 = 23;
 /// The Mage's other spells: the teleport, `PHASEN`; the water form, `WASSERFORM`; the flesh to
@@ -126,12 +132,14 @@ pub const CREATURE_HOLDS: u32 = 3;
 /// `0x4D309E`).
 pub const THORNS_SOUNDED: u32 = 5;
 pub const THORNS_SOUND: u32 = 2061;
-/// The souls about the Wood Elf, along the world's sin and cos of their angles, their first
-/// angle, their speed and reach (`0x5268E5`, `0x79D310`, `0x5AEAC4`).
+/// The souls about the Wood Elf (`0x5268E5`, `0x79D310`, `0x5AEAC4`): their distance from her
+/// along the world's sin and cos of their angles; their first angle, their speed and their reach
+/// stand below ([`SOULS_ANGLE`]).
 pub const SOULS_FROM: f32 = 50.0;
 /// How fast a soul's heading turns toward its target, in radians a second (`+0xE0`, `0x5A8204`);
 /// it heads straight up at its start (the FX event `0x4A`, `0x5A4D2D`).
 pub const SOULS_TURN: f32 = 3.0;
+/// The souls' first angle, their speed and their reach.
 pub const SOULS_ANGLE: f32 = 2.6416;
 pub const SOULS_SPEED: f32 = 150.0;
 pub const SOULS_REACH: f32 = 20.0;
@@ -170,6 +178,8 @@ pub fn frost_slow(level: u32, creature: u32, boss: bool, class10: bool) -> f32 {
     }
     (m / (15.0 * to_f32(level.max(1)))).clamp(0.3, 0.8)
 }
+/// The Mage's other attacking spells: the hail of meteors, `METEORITENHAGEL`; the whirlwind,
+/// `WIRBELWIND`; the chain lightning, `BLITZSCHLAG`; and the ice splinters, `EISSPLITTER`.
 pub const METEORS: u16 = 26;
 pub const WHIRLWIND: u16 = 29;
 pub const CHAIN: u16 = 33;
@@ -183,10 +193,11 @@ pub const SPIRAL_TURNS: f32 = 3.054;
 pub const SPIRAL_GROWS: f32 = 150.0;
 pub const SPIRAL_MOST: f32 = 175.0;
 pub const SPIRAL_REACH: f32 = 50.0;
-/// The purgatory's speed and how far it looks for a creature (`0x5A780B`).
+/// The purgatory's speed (`0x5A780B`); it looks for a creature as far as the hell disk does and
+/// strikes one as near ([`DISK_LOOKS`], [`DISK_REACH`]).
 pub const PURGATORY_SPEED: f32 = 40.0;
 /// The meteors (`0x524A83`, `0x7866C0`): how far from the point each lands along each axis, its
-/// most wait in seconds, its fall's time, and its reach with the creature's size.
+/// most wait in milliseconds, its fall's time, and its reach with the creature's size.
 pub const METEOR_SCATTER: i32 = 120;
 pub const METEOR_WAIT: u32 = 800;
 pub const METEOR_FALLS: f32 = 0.625;
@@ -321,8 +332,8 @@ pub fn teleport(
     last
 }
 
-/// The Mage's skins and shields: the fire skin, `FLAMMENHAUT`; the quickening, `KATARAKT`; the
-/// gust, `WINDBOE`; the shield wall, `SCHILDWALL`; and the mana's spring, `AUE`.
+/// The Mage's skins and shields: the fire skin, `FLAMMENHAUT`; the quickening, `KATARAKT`; and
+/// the gust, `WINDBOE`; the others stand below ([`SHIELD_WALL`]).
 pub const FIRE_SKIN: u16 = 24;
 pub const QUICKENING: u16 = 27;
 pub const GUST: u16 = 28;
@@ -338,6 +349,7 @@ pub fn gust_disarms(spell: u32, level: u32, dice: &mut impl crate::spawning::Dic
     let n = 3 * (level + 6 - spell);
     dice.below(n + 1) == 0
 }
+/// The Mage's other shields: the shield wall, `SCHILDWALL`, and the mana's spring, `AUE`.
 pub const SHIELD_WALL: u16 = 30;
 pub const SPRING: u16 = 31;
 
@@ -451,14 +463,16 @@ pub fn skin_shows(left: f32) -> bool {
     fifths % 2 == 1
 }
 
-/// The Dwarf's spells: the greed, the burrowing, the dwarven armour and the dwarven steel.
+/// The Dwarf's spells: the greed, the mines, the burrowing, the dwarven armour and the dwarven
+/// steel.
 pub const GREED: u16 = 55;
 pub const MINES: u16 = 56;
 pub const BURROWING: u16 = 57;
 pub const ARMOUR: u16 = 58;
 pub const STEEL: u16 = 59;
 
-/// The Daemon's spells: the call of death, the force of hell, the tentacles and the fear.
+/// The Daemon's spells: the hell disk, the call of death, the force of hell, the hellfire, the
+/// tentacles, the choir and the fear.
 pub const DISK: u16 = 60;
 pub const DOOM: u16 = 62;
 pub const FORCE: u16 = 63;
@@ -614,9 +628,10 @@ pub const TURNS_SPELLS: u32 = 0x1A;
 /// world's time).
 pub const WALL_TIME: f32 = 1.0;
 
-/// The effects by which they hold their target (the action 7, `0x5B5BB3`): 13, under which a
-/// creature leaves the hero alone (`+0x1F4` bit `0x20000`; `crate::arts::DOMINATED`), and 14,
-/// which turns its sides over (`+0x1F4` bit `0x40000`, `crate::minds::Mind::turned`).
+/// The effects by which the irritation and the conversion hold their target (the action 7,
+/// `0x5B5BB3`): 13, under which a creature leaves the hero alone (`+0x1F4` bit `0x20000`;
+/// `crate::arts::DOMINATED`), and 14, which turns its sides over (`+0x1F4` bit `0x40000`,
+/// `crate::minds::Mind::turned`).
 pub const IRRITATED: u32 = 13;
 pub const CONVERTED: u32 = 14;
 

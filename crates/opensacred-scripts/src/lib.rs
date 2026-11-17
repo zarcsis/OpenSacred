@@ -12,12 +12,14 @@
 //! runtime hands each to its [`Host`], which `opensacred-game` implements: an action done, a
 //! condition's answer, or a record that has no meaning yet, which the runtime reports once
 //! ([`Runtime::unknown`]) and answers with nothing, so that an action is skipped and a condition
-//! fails. `call("name", …)` runs another function of the tree, `var("name")` reads a variable of
-//! the host, and `truncated()` stands for a payload past its record's end. A call answers how its
-//! function ended (`0x46BA90`, [`Outcome`]): run to its end, stopped, or marked done, never to
-//! run again; one that asks to start again (`ToBegin`) runs again. The host hears each function
-//! that runs begin and end ([`Host::begins`], [`Host::ends`]), as the runner's index of the
-//! running function follows them (`0x94E07C`).
+//! fails; a record may also fail its call, or ask for functions to run in its middle
+//! ([`Handled::Run`]). `call("name", …)` runs another function of the tree, at once unless the
+//! host keeps it to run later ([`Host::defer`]), `var("name")` reads a variable of the host, and
+//! `truncated()` stands for a payload past its record's end. A call answers how its function
+//! ended (`0x46BA90`, [`Outcome`]): run to its end, stopped, marked done, never to run again, or
+//! refused by its name ([`refused`]); one that asks to start again (`ToBegin`) runs again. The
+//! host hears each function that runs begin and end ([`Host::begins`], [`Host::ends`]), as the
+//! runner's index of the running function follows them (`0x94E07C`).
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -86,7 +88,8 @@ pub enum Handled {
 
 /// What the scripts' calls reach: the game.
 pub trait Host {
-    /// The record `name` (its type's call, `opensacred_data::luau::call_name`) with its operands, and the answers
+    /// The record `name` (its type's call, `opensacred_data::luau::call_name`) with its operands,
+    /// and the answers
     /// of the functions it asked to run so far ([`Handled::Run`]), none at first.
     fn record(&mut self, name: &str, operands: &[Operand], ran: &[bool]) -> Handled;
     /// The value of the variable `name` (`var("name")`).

@@ -2,7 +2,8 @@
 //! bitmap of 32 × 32 bits, a bit for 2 × 2 of its cells (the sector's `+0x180`), which the lens
 //! of the world map and the overview map show as their fog of war, and the stamps of cells about
 //! the hero that set its bits as it steps into a cell (`0x5997C0`): a disc 29 cells across by
-//! day, 15 at night, and a smaller patch in a dungeon.
+//! day, 15 at night, and a smaller patch in a dungeon. And the sectors that the world map's
+//! layers follow ([`Sectors`]): those seen and those entered, and the frontier of the land walked.
 
 use std::collections::BTreeMap;
 

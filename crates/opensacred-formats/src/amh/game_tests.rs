@@ -1,6 +1,8 @@
-//! Tests on the GOG installation files: every section of the hero templates against the rows of
-//! the Python prototype `tools/analysis/formats/amh_dump.py`. The saves of `save/` are left out:
-//! the game rewrites them. CI does not have the game files, so the test is ignored by default.
+//! Tests on the GOG installation files: every section of the hero templates, and what the reader
+//! decodes of them and of the two heroes that the installation ships in `save/` (the items, the
+//! summaries, the stats, the weapon sets and the art slots), against the rows of the Python
+//! prototype `tools/analysis/formats/amh_dump.py`. CI does not have the game files, so the tests
+//! are ignored by default.
 
 use std::ffi::OsStr;
 use std::fs;

@@ -149,7 +149,7 @@ pub fn convert(game_dir: &Path, out: &Path, only: &[usize]) -> Result<Summary> {
             name: n.name.to_owned(),
         })
         .collect();
-    // The first of an id's names, as the table lists them; two ids have two.
+    // Each name's id: the names are distinct, though two ids have two names each.
     let mut ids_by_name = HashMap::new();
     for n in &names {
         ids_by_name.entry(n.name.as_str()).or_insert(n.id);

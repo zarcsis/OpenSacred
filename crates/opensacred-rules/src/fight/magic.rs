@@ -80,7 +80,7 @@ pub(crate) fn art_hero(art: u32) -> u8 {
 /// The float 0.01 of the value by the level (`0x890CB0`, a little below a hundredth).
 const HUNDREDTH: f32 = 0.01;
 
-/// The least value whose record's third float makes the value by the level (`0x890C9C`).
+/// The least third float of an effect's record that makes its value by the level (`0x890C9C`).
 const BY_LEVEL: f32 = 1.192_092_9e-7;
 
 /// The bonus of the entries `entries` of an item's template made at `level` on `difficulty`

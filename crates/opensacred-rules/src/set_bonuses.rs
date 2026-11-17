@@ -2,10 +2,10 @@
 //! wearer, as the client's `0x571710` applies them in its switch over the set's number, each
 //! bonus from a count of the set's pieces on, its value scaled by the difficulty's factor `D`.
 //!
-//! [`TABLE`] holds the bonuses that the switch writes into the stats; the bonuses that other code
-//! applies by the counts (the strike, the luck, the death, docs/re/sets.md §4) follow in later
-//! steps of #1727. [`told`] gives the lines of the equipment window's list of the sets (#1670)
-//! from the same values that [`stats`] applies.
+//! [`TABLE`] holds the bonuses that the switch writes into the stats, and [`READERS`] those that
+//! other code applies by the counts (the strike, the luck, the death, docs/re/sets.md §4).
+//! [`told`] gives the lines of the equipment window's list of the sets (#1670) from the same
+//! values that [`stats`] applies.
 
 use std::collections::BTreeMap;
 
@@ -535,7 +535,8 @@ pub enum Reader {
     /// damages through its resistances times `1 + c·D` (M1, `0x56CA85`…).
     Against(u8, &'static [usize], f32),
     /// A drop's call of no type makes a potion in one case of ten (M7, `0x559CA9`;
-    /// `drops::Kill::potions`); the list tells it in no line, the game having no text of it.
+    /// `drops::Kill::potions`); no text of the original's list tells it, and the list tells it in
+    /// the words that the converter adds ([`Told::Potions`], #1823).
     Potions,
     /// The hero's sight on the maps' lens grows by `c·D` world units, once a group of its
     /// readers, the first that holds (M13, `0x6CE9B0`, `0x6CEA26`; docs/re/maps.md).

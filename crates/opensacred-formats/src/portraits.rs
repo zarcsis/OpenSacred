@@ -1,10 +1,12 @@
 //! The creatures' portraits of the dialogues' window compiled into `Sacred.exe` (docs/re/
 //! netscript.md, "Dialogues"): the function `0x4345C0`, which gives each creature type the index
 //! of its image of the interface, a switch over two jump tables whose cases each load a constant
-//! (`mov eax, imm32; ret 4`), its default too; and the interface's images' table at `0x9ECEB0`,
-//! entries of 0x54 bytes: the index, its kind, the TGA's name, the image's rectangle in it and its
-//! two anchors (docs/re/interface.md, "The images' table at run time"). Fixed virtual
-//! addresses of the GOG 2.28 build, which the caller checks against the manifest.
+//! (`mov eax, imm32; ret 4`), its default too; the portraits' column's switch `0x435D30`, one
+//! jump table of such cases (docs/re/interface.md, "The portraits' column"); and the interface's
+//! images' table at `0x9ECEB0`, entries of 0x54 bytes: the index, its kind, the TGA's name, the
+//! image's rectangle in it and its two anchors (docs/re/interface.md, "The images' table at run
+//! time"). Fixed virtual addresses of the GOG 2.28 build, which the caller checks against the
+//! manifest.
 
 use crate::error::{Result, field};
 use crate::pe::Image;

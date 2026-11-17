@@ -1,6 +1,6 @@
-//! `build`'s textures (#700, docs/02 §12.3): a PNG master of `textures/` or `ui/screens/` → a
-//! KTX2 file of [`opensacred_data::texture`]. A texture that the game reads on the CPU
-//! ([`Use::Read`]) keeps its texels as they are, one level; one that the GPU samples
+//! `build`'s textures (#700, docs/02 §12.2): a PNG master of `textures/`, `ui/screens/` or
+//! `world/sprites/` → a KTX2 file of [`opensacred_data::texture`]. A texture that the game reads
+//! on the CPU ([`Use::Read`]) keeps its texels as they are, one level; one that the GPU samples
 //! ([`Use::Sampled`]) gets a full mip chain, in BC7 where its texels are all opaque and its sides
 //! whole blocks of 4, else as they are (docs/decisions/drawing.md, "Textures as KTX2 with
 //! mipmaps").

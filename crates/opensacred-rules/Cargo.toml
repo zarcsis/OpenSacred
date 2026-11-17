@@ -9,13 +9,14 @@ publish.workspace = true
 
 [dependencies]
 opensacred-data.workspace = true
-# The scripts' state, which the saves keep (`quests`).
+# The state that the saves keep: the scripts' (`quests`), the hero's, the items' and the others'.
 serde.workspace = true
 
 [dev-dependencies]
 opensacred-locate.workspace = true
 # The vectors of opensacred-oracle and the balance, which tests/oracle.rs reads; the scripts'
-# state's round trip; the properties of the fight's formulas (#1428).
+# state's round trip; the properties of the fight's formulas, the ways and the backpack's grid
+# (#1428, #1429, #1430).
 opensacred-formats.workspace = true
 postcard.workspace = true
 proptest.workspace = true

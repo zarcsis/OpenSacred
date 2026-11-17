@@ -25,8 +25,8 @@ pub fn sacred_hash(name: &[u8]) -> u32 {
 
 /// The hash over the bytes of `name`, ASCII letters upper-cased, with the original's 32-bit
 /// overflow and signed remainder, its top bit kept: the key that the scripts keep a creature's
-/// name `res:<name>` by (`CreateNPC`'s, docs/re/netscript.md, "`Attack`"), whose top bit is set
-/// for about half of the names.
+/// name `res:<name>` by (`CreateNPC`'s, docs/re/netscript.md, "The other kinds, the waits and the
+/// cinema", under `Attack`), whose top bit is set for about half of the names.
 pub fn sacred_key(name: &[u8]) -> u32 {
     let mut h: u32 = 0;
     for &b in name {

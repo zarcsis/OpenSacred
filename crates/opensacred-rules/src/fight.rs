@@ -1,8 +1,10 @@
-//! The fight's rules as far as the game follows them (docs/re/fight.md): the creatures' levels,
-//! their health, their attack, defence, damage and resistances, a strike's hit, the items'
-//! values, the regeneration, and the hero's experience and levels. `opensacred-game` (`fight`)
-//! keeps the components, the resources and the systems that call them; this module is the rules
-//! alone.
+//! The fight's rules as far as the game follows them (docs/re/fight.md): the creatures' levels
+//! and the bosses' and champions' ranks, their health, their attack, defence, damage and
+//! resistances by their skills, their items, their sets and their effects, a strike's hit, its
+//! damage, its poison and its rare effects, the terror, the items' values and their maker, the
+//! regeneration, the hero's experience and levels, the skills' effects as the statistics window
+//! lists them, and the health rings. `opensacred-game` (`fight`) keeps the components, the
+//! resources and the systems that call them; this module is the rules alone.
 
 use std::collections::HashMap;
 
@@ -13,7 +15,8 @@ use crate::drops::Difficulty;
 use crate::set_bonuses::Special;
 use crate::spawning::{Dice, SpawnValues};
 
-/// The hero's level, which the creatures' levels follow: the hero gains none yet.
+/// The hero's first level, at which a new hero starts (`Experience::default`) and by which the
+/// start script's creatures are made.
 pub const HERO_LEVEL: u32 = 1;
 /// The share of the cap of a creature's damage to a player by the difficulty, bronze's first
 /// (the floats `0x890670`, `0x8912B0`, `0x89090C`, `0x8912B4`, and none on niobium), and the
@@ -82,7 +85,6 @@ impl Experience {
         }
     }
 
-    /// The skills it may still learn (`+0x44`).
     /// The experience of a creature that is no hero, `points` at its level `level`, with no
     /// points to spend nor skills to learn (the game counts none of those that `addExperience`
     /// gives it, which it never spends; docs/re/character.md, #1546).
@@ -94,6 +96,7 @@ impl Experience {
         }
     }
 
+    /// The skills it may still learn (`+0x44`).
     pub fn to_learn(&self) -> u32 {
         self.to_learn
     }
@@ -439,14 +442,15 @@ impl Bands {
 }
 
 /// The experience that a hero of level `hero` earns for a creature of level `level` worth
-/// `[a, b]` (`0x57D860`): `a + E·b`, `E` the level on bronze's scale, the game's, times bronze's
-/// `ProzExp`, times the factor of the levels (`0x551530`): with `r = (E + 9)/(H + 9)` against
-/// the threshold `t` of the test of the levels (`takes_on`), 0.04 up to `t`, then
-/// `(r − t)/(UnterExpVoll − t)`, 1 from `UnterExpVoll` to `ObereEXPVoll`, `ObereEXPVoll/r` above,
-/// at least 0.04, and 1 for none; above bronze's `LevelKap` the hero's level `H` takes it down by
-/// `(LevelKap/H)²`, from level 100 the decay of a high hero (`0x57E050`), and above the bronze
-/// levels the fade of a difficulty outgrown (`StartLevMulti`); at least 1, whole. No bonuses of
-/// the killer ([`experience_with`]), bosses or champions.
+/// `[a, b]` (`0x57D860`): `a + E·b`, `E` the level on bronze's scale, the game's, times the
+/// difficulty's `ProzExp`, times the factor of the levels (`0x551530`): with
+/// `r = (E + 9)/(H + 9)` against the threshold `t` of the test of the levels (`takes_on`), 0.04
+/// up to `t`, then `(r − t)/(UnterExpVoll − t)`, 1 from `UnterExpVoll` to `ObereEXPVoll`,
+/// `ObereEXPVoll/r` above, at least 0.04, and 1 for none; above `LevelKap`, read by the
+/// difficulty itself and none above gold, the hero's level `H` takes it down by `(LevelKap/H)²`,
+/// from level 100 the decay of a high hero (`0x57E050`), and above the bronze levels the fade of
+/// a difficulty outgrown (`StartLevMulti`); at least 1, whole. No bonuses of the killer
+/// ([`experience_with`]), bosses or champions.
 pub fn experience_of(worth: [u16; 2], level: u32, hero: u32, rules: &Rules) -> u32 {
     experience_with(worth, level, hero, rules, (0.0, 0.0))
 }
@@ -592,9 +596,6 @@ pub fn ring_colour(level: u32, hero: u32, rules: &Rules) -> [u8; 3] {
     }
 }
 
-/// The fan of a health ring's fill at the share `health` of its most, `r` its half side
-/// (`0x4080C0`): its centre, then the square's edge from `(0, r)` toward `(r, r)` and round, up to
-/// where the ray at `2π·health` from `+y` toward `+x` meets it; none for no health.
 /// How far a champion's or a boss's symbol under it has turned about the upright at `ms`
 /// milliseconds of the real clock, in radians (`0x4087E0`: the timer's counter in milliseconds,
 /// its low 16 bits, times 2π/16,384): once round in 16.384 s, its turn starting again every
@@ -610,6 +611,9 @@ pub fn symbol_half_side(size: u32) -> u32 {
     size / 2 * 2
 }
 
+/// The fan of a health ring's fill at the share `health` of its most, `r` its half side
+/// (`0x4080C0`): its centre, then the square's edge from `(0, r)` toward `(r, r)` and round, up to
+/// where the ray at `2π·health` from `+y` toward `+x` meets it; none for no health.
 pub fn ring_pie(health: f32, r: f32) -> Vec<[f32; 2]> {
     let health = health.clamp(0.0, 1.0);
     let edge: [[f32; 2]; 9] = [
@@ -729,8 +733,8 @@ pub fn regeneration_with(
 
 /// How near its nearest hostile puts the hero in the fight, in world units: the client's
 /// `+0x200` bit `0x8000`, which the hero's look sets and clears (`0x547070`), in which the hero
-/// stands in its fight stance and regenerates at `RegInFight` (1,000 with a bow, which the hero
-/// does not hold yet).
+/// stands in its fight stance and regenerates at `RegInFight` (1,000 with a bow, which is not
+/// followed).
 pub const IN_FIGHT_WITHIN: f32 = 350.0;
 /// How near a hostile makes the hero regenerate at `RegEnemyNear` (`0x562730`).
 const ENEMY_NEAR: f32 = 1000.0;
@@ -777,7 +781,8 @@ impl Rules {
 /// the experience's factor of the difficulty (`ProzExp`) and the levels' (`UnterExpAnteil`,
 /// `UnterExpVoll`, `ObereEXPVoll`); the difficulty's factors of the strikes between the hero and
 /// the creatures (`ProzAW`, `ProzDmg`, `ProzRes`) and its scaling of the creatures' levels
-/// (`BaseOffLevel`, `OffLevelProz`), each the balance's row's value of its column; the hero's rates of regeneration fighting, with a
+/// (`BaseOffLevel`, `OffLevelProz`), each the balance's row's value of its column; the hero's rates
+/// of regeneration fighting, with a
 /// hostile near and without (`RegInFight`, `RegEnemyNear`, `RegNoEnemy`); the distances and the
 /// share of the range's factor of an attack (`FernAWMin`, `FernAWMax`, `FernAWProz`); the
 /// bands of the factor of a creature's strike at the hero by its level (`WaffenAll`,
@@ -1687,8 +1692,8 @@ pub struct ItemValues {
     pub defence: f32,
     /// Its bonus slots, where its record gives them (a fixed item's, a hero template's).
     pub bonuses: [Bonus; BONUSES],
-    /// Its type's class (`items.pak +0x01`, `0x426220`), by which its level lowers its holder's
-    /// attack speed (5 and 27) or pace (6, 13, 17 to 19 and 21 to 25).
+    /// Its type's category (`items.pak +0x2E`, `0x426220`), by which its level lowers its
+    /// holder's attack speed (5 and 27) or pace (6, 13, 17 to 19 and 21 to 25).
     pub class: u8,
     /// The scale of its template (`0x42CA70`, its word 6), 0 without one ([`item_level`]).
     pub scale: u32,
@@ -2710,8 +2715,8 @@ pub const AGILITY: u32 = 848;
 
 /// The bonus of the items of `holds` to every weapon art of a creature of `base` at level `level`
 /// (`0x5796A0` at `0x57A9E3`): each slot of the effect [`CONCENTRATION`] that holds for it, its
-/// value grown by its attribute and truncated, summed, at least 0; [`crate::arts::Arts::
-/// set_bonuses`] gives it to each weapon art but 1019.
+/// value grown by its attribute and truncated, summed, at least 0;
+/// [`crate::arts::Arts::set_bonuses`] gives it to each weapon art but 1019.
 pub fn concentration(base: &Base, level: u32, holds: &Holds) -> u16 {
     let level = level.max(1);
     let attributes = base.attributes.map(u32::from);
@@ -2833,7 +2838,7 @@ struct Curves {
     pace: [f32; 3],
     fist: [f32; 3],
     fist_speed: [f32; 3],
-    /// The ranged combat's (6, `FEK…AW`, `FEK…SP`), which set 48 takes (#1727).
+    /// The ranged combat's (7, `FEK…AW`, `FEK…SP`), which set 48 takes (#1727).
     ranged: [f32; 3],
     ranged_speed: [f32; 3],
 }
@@ -3224,8 +3229,8 @@ pub struct Combat {
     /// Each kind's multiplier of its spells' damages, the stats' `+0x96` plus `+0xB6` (docs/re/
     /// fight.md, "An NPC's attack, defence and damage"): 1, the items' bonuses of no condition's
     /// bit and of the bit 13 and the effects, the attributes' magic part and the magic lore's
-    /// (skill 14) curve over 100 for every kind; not the weapon lore's. The sets' bonuses are not
-    /// read.
+    /// (skill 14) curve over 100 for every kind, and the sets' bonuses to the two arrays (#1727);
+    /// not the weapon lore's.
     pub spells: [f32; KINDS],
     /// Its casts' speed in per cent, the stats' word `+0x3E`, which times 0.01 is the rate of
     /// its spells' clips (`0x51E110`): [`CAST_SPEED`], quickened by the effect 28 and slowed by
@@ -3237,8 +3242,8 @@ pub struct Combat {
 }
 
 impl Combat {
-    /// The speed of its attack's clip (`0x4E4CF0`): its attack speed over 100, times the
-    /// factor of chained strikes (`+0x210`, 1 for a strike that is not chained).
+    /// The speed of its attack's clip (`0x4E4CF0`): its attack speed over 100, which the caller
+    /// takes times the chain of an archer's shots (`+0x210`, 1 for any other strike).
     pub fn clip_speed(&self) -> f32 {
         self.speed / 100.0
     }
@@ -3266,8 +3271,9 @@ pub fn time_factor(effects: &[Effect]) -> f32 {
         .map_or(1.0, |effect| effect.value.max(1e-4))
 }
 
-/// The attack speed of a creature of type `id` (`0x5796A0`, `0x584FE0`): 140 for every type but
-/// the 5th's (the Wood Elf's), 100; no items, weapon skills or effects yet (#294).
+/// The attack speed of a creature of type `id` before its items, skills and effects, which the
+/// recomputation of its stats starts from (`0x5796A0`, `0x584FE0`): 140 for every type but the
+/// 5th's (the Wood Elf's), 100.
 pub fn attack_speed(id: u32) -> f32 {
     if id == 5 { 100.0 } else { 140.0 }
 }
@@ -3281,8 +3287,9 @@ pub fn slows(category: u8) -> bool {
 
 /// The pace of a creature of type `id` before its items and skills, the word `+0x40` that the
 /// recomputation of its stats starts from (`0x5796A0`, at `0x579A61`): 130 for every type but the
-/// 5th's (the Wood Elf's), 120. A horse's comes from a table by its saddle (`0x4462B0`), which
-/// is not read, and the hostile creatures' on the difficulties 3 and 4 are 160 and 190.
+/// 5th's (the Wood Elf's), 120. A horse's comes from a table by its saddle (`0x4462B0`), not
+/// from here: [`crate::horses::Row::pace`] is the pace of its class's row of the horse data; and
+/// the hostile creatures' on the difficulties 3 and 4 are 160 and 190 ([`Hardened`]).
 pub fn pace(id: u32) -> f32 {
     if id == 5 { 120.0 } else { 130.0 }
 }
@@ -3332,10 +3339,10 @@ fn turn_damage(damage: &mut [[f32; 2]; KINDS], turns: &Effect) {
     }
 }
 
-/// The effects' ids that the recomputation follows (`0x5796A0`, its loop over the list after the
-/// items and the record's bonuses, before the skills).
 pub(crate) mod magic;
 
+/// The effects' ids that the recomputation follows (`0x5796A0`, its loop over the list after the
+/// items and the record's bonuses, before the skills).
 pub mod effects {
     /// `A`'s multiplier (`+0xE6`) and `D`'s (`+0xEA`), plus the value.
     pub const ATTACK: u32 = 1;
@@ -3384,15 +3391,16 @@ fn quickened(whole: f32, by: f64) -> f32 {
     (f64::from(whole) * by).trunc() as f32
 }
 
-/// The attack, defence, damage and resistances of an NPC of `base` and level `level`, `armed`
-/// when it holds a weapon (the recomputation `0x5796A0` and the attack record `0x568D70`;
-/// docs/re/fight.md, "An NPC's attack, defence and damage"):
+/// The attack, defence, damage and resistances of a creature of `base` and level `level` that
+/// holds `holds`, armed when it holds a weapon (the recomputation `0x5796A0` and the attack
+/// record `0x568D70`; docs/re/fight.md, "An NPC's attack, defence and damage"):
 /// - the attributes `a_i = b_i + ⌊b_i(L − 1)/10⌋` and the level's factor
 ///   `F = (156 − BalStatOff)·L/156 + BalStatOff + 9`;
 /// - `A = (a0 + a2)/2`, `D = 0.2·a0 + 0.8·a2`;
 /// - unarmed, the bonuses of the kinds 1 to 7 (`x` per cent of an attribute or of the level) to a
 ///   kind's most (`x`) and least (`x/2 + 1`); armed or not, the bonuses to a kind's resistance;
-///   a physical most of 0 takes `0.15(2a0 + a2) + L/2` to `0.175(a0 + a2) + L/2`;
+///   a physical most of 0 takes the most `0.15(2a0 + a2) + L/2` and the least
+///   `0.175(a0 + a2) + L/2`;
 /// - each kind's damage times `1 +` its part of the base attributes times `F` over `BalChar*D`;
 /// - the resistances of the attributes over `BalanceRes*`, times `1 + F·b1/10` over `BalChar*R`.
 ///
@@ -3407,8 +3415,10 @@ fn quickened(whole: f32, by: f64) -> f32 {
 ///   times it, added and stored as a float in turn; the product of `A` or `D` and its multiplier
 ///   truncated as it is, not stored as a float first.
 ///
-/// No items, combat arts or bonuses of other kinds yet; an armed NPC's damage is the default's, its
-/// weapon's unknown (#294). Without effects ([`combat_with`]).
+/// The items of `holds` add their own damage, resistances, `A` and `D` and their bonus slots
+/// (#490), and its sets their bonuses (#1727); no combat arts, and no bonuses of other kinds. An
+/// armed creature whose items give no physical damage takes the default one above. Without
+/// effects ([`combat_with`]).
 pub fn combat(
     base: &Base,
     level: u32,
@@ -3478,8 +3488,8 @@ pub fn combat_with(
     // The items' own damage, resistances, `A` and `D`, and their bonus slots (`0x5796A0`, #490):
     // 801 to 804 a kind's damage (with the condition's bit 15, its resistance), 805 to 808 a
     // hundredth to one of its multipliers or its resistance's factor, 809 and 810 to those of `A`
-    // and `D`, 848 to both, 811 the attack speed, 815
-    // to 820 the attributes, by the attributes before them; the other effects are not followed.
+    // and `D`, 848 to both, 811 the attack speed, 812 the pace, 815 to 820 the attributes, by the
+    // attributes before them; the loop passes the other effects by.
     // `A` and `D` and their multipliers as the recomputation stores them (`+0x5A`, `+0x5E`, `+0xE6`,
     // `+0xEA`): each item's `A` and `D` times the row's 100 per cent, then its bonuses.
     let (mut attack, mut defence) = (0.0_f32, 0.0_f32);
@@ -3949,7 +3959,8 @@ fn attribute_of(effect: u32) -> Option<usize> {
 /// The speeds that the arts of a creature of `base` at level `level` regenerate at, holding
 /// `holds` (`0x5796A0`, [`arts::Speeds::of`]): its items' bonuses 813 and 814 (`0x32D`,
 /// `0x32E`) and its attributes `MagicRegen` (4) and `PhysicalRegen` (3), grown by its level and
-/// raised by its items' (as [`combat`]'s, held at 0 and above); no effect `0xB` yet.
+/// raised by its items' (as [`combat`]'s, held at 0 and above); without the effect `0xB`
+/// ([`arts_speeds_with`]).
 pub fn arts_speeds(base: &Base, level: u32, holds: &Holds) -> arts::Speeds {
     arts_speeds_with(base, level, holds, &[])
 }
@@ -4014,8 +4025,8 @@ pub struct Blow {
     pub share: f32,
     /// The exponent of its damage against the resistances ([`exponent`]).
     pub k: f32,
-    /// The factor of each kind's rolled damage: bronze's `ProzDmg` for a creature striking the
-    /// hero, else 1 ([`weighed`], #620).
+    /// The factor of each kind's rolled damage: the difficulty's `ProzDmg` for a creature
+    /// striking the hero, else 1 ([`weighed`], #620).
     pub rolled: f32,
     /// The factor of the sum by the attacker's level ([`weapons_factor`]).
     pub weapons: f64,
@@ -4068,7 +4079,7 @@ pub fn levels_weighing((attacker, defender): (u32, u32), rules: &Rules) -> Optio
     Some(weighing(defender, attacker, (anteil, voll, upper)))
 }
 
-/// The values of a strike between `attacker` and `defender` on bronze (`0x56B130`): a creature
+/// The values of a strike between `attacker` and `defender` (`0x56B130`): a creature
 /// striking the hero has its attack times `ProzAW` and its rolled damage times `ProzDmg` (each
 /// kind's, as the attack record rolls it, [`roll_damage`], #620), and the exponent of the damage
 /// `k = −log₂(1 − p)`, `p` half of 1 plus a hundredth of each level it has above the hero's; the
@@ -4202,7 +4213,7 @@ pub fn mounted_range_divisor(s7: u8, s22: u8) -> f32 {
 /// 16 or below) that is neither a boss (`+0x1F4` bit `0x80000`) nor a champion (`+0xB0` bit
 /// `0x400`, a champion's levelling), `WaffenAll`'s factor of its band of `AllOverLv`'s levels
 /// ([`Bands::factor`]); else 1. Its twin `0x56A800` takes `MagieAll` for two spells
-/// (`0x5ABD80`, `0x5B2600`), which the creatures do not cast yet.
+/// (`0x5ABD80`, `0x5B2600`): the creatures' casts take it by [`Rules::creature_spell_damage`].
 pub fn weapons_factor(hero: Option<Side>, level: u32, rank: Rank, rules: &Rules) -> f64 {
     match (hero, rank) {
         (Some(Side::Defender), Rank::Common) => rules.bands.factor(level),
@@ -5034,11 +5045,11 @@ const HORSES_MOST: u32 = 250;
 /// leaves a creature of type `creature`, a horse or not, set to `level` without its scaling, as
 /// `CreateNPC` and the creature maker set it (`0x48475B`, `0x549500`), and with it on bronze,
 /// where the scaling keeps it: a horse's at most 250 (`0x4266F0`); any other's at most the
-/// highest level of its sector, `values`, plus bronze's `LevelKap` (0), or that addition alone
-/// where the sector has no highest, 300 for the type 701; at least 1, where the original leaves 0
-/// in a sector without levels (docs/decisions/fight.md, "Level 1 in sectors without levels"). A
-/// boss's or a champion's hold, raised by `LevelUpBoss` or `LevelUpChamp` and none for a big type,
-/// is [`Rank::level`]'s: the setter holds a creature before it is ranked.
+/// highest level of its sector, `values`, plus the difficulty's `LevelKap` (0 on bronze), or
+/// that addition alone where the sector has no highest, 300 for the type 701; at least 1, where
+/// the original leaves 0 in a sector without levels (docs/decisions/fight.md, "Level 1 in sectors
+/// without levels"). A boss's or a champion's hold, raised by `LevelUpBoss` or `LevelUpChamp` and
+/// none for a big type, is [`Rank::level`]'s: the setter holds a creature before it is ranked.
 pub fn held_level(
     level: u32,
     values: Option<&SpawnValues>,
@@ -5111,8 +5122,8 @@ fn played_level(level: u32, played: Played, rules: &Rules) -> u32 {
 /// below 1 is 0 (#417), which no creature of `Creature.pak` reaches, the least of its attributes
 /// 0 and 3 together being 7 (type 135); raised by its skill 10 before the factors (`skills`,
 /// [`hero_health`], #498); a boss's or a champion's by its rank's factor `rank` ([`Rank::health`])
-/// after the skill and before the 100 for 0 and the level's factor, each taken whole (#579). No
-/// items yet (#1365).
+/// after the skill and before the 100 for 0 and the level's factor, each taken whole (#579).
+/// Without items ([`most_health_held`], #1365).
 pub fn most_health(
     base: [u8; 6],
     level: u32,
@@ -5764,8 +5775,8 @@ mod tests {
         assert!(near(goblin.attack, 18.5) && near(goblin.defence, 20.6));
         assert!(near(goblin.damage[0][0], 12.04) && near(goblin.damage[0][1], 21.67));
         assert!(near(goblin.resistance[0], 6.62));
-        // Armed, the damage bonus does not hold: the default's, `0.15(2a0 + a2) + L/2` to
-        // `0.175(a0 + a2) + L/2`, times the same multiplier.
+        // Armed, the damage bonus does not hold: the default's, the most `0.15(2a0 + a2) + L/2`
+        // and the least `0.175(a0 + a2) + L/2`, times the same multiplier.
         let armed = combat(
             &a_goblin(),
             1,

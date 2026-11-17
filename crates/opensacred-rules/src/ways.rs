@@ -1,9 +1,12 @@
 //! The ways and the cells in the way (docs/re/movement.md): the search of the fewest steps over
 //! the walkable cells of a 64 × 64 window (`0x421B90`), on a layer and, through the doors, the
 //! others, and which changes of floor the search over floor numbers takes (`0x4F8AF0`, [`change`]);
-//! the straight line's test of the cells it crosses, and the original's test of a
-//! straight way by whole cells with its way round a closed cell (`0x4FCC80`); and who stops whose step into a
-//! cell that another creature holds (`0x4F7E10`, "The creatures in the way").
+//! the search's goal (`0x4F8560`, [`goal`]), its leg toward a far target (`0x4FABE0`, [`nearer`])
+//! and its line where no way leads (`0x4FB44A`, [`no_way_end`]); the straight line's test of the
+//! cells it crosses, and the original's test of a straight way by whole cells with its way round
+//! a closed cell (`0x4FCC80`); a door's points ([`DoorPoints`]); and who stops whose step into a
+//! cell that another creature holds (`0x4F7E10`, "The objects in the way"), with the creatures'
+//! flags words that tell it, as the scripts' tags make them ([`flags_word`], [`state_word`]).
 //! `opensacred-game` (`paths`, `crowd`) keeps the world's points, the cells that the creatures
 //! stand on and the systems that walk them; this module is the rules alone.
 
@@ -584,7 +587,7 @@ pub const FLYING: u32 = 0x20_0000;
 const BORN_FLYING: [u32; 3] = [190, 335, 336];
 
 /// How a creature or an object stands in the others' way, as the client's test of a step has it
-/// stop another's step into its cell (`0x4F7E10`, docs/re/movement.md, "The creatures in the
+/// stop another's step into its cell (`0x4F7E10`, docs/re/movement.md, "The objects in the
 /// way").
 ///
 /// A creature stops others only when it is alive, not big (its `Creature.pak` flags' bit
@@ -674,7 +677,8 @@ pub fn constructed(creature: u32, record_flags: u8) -> u32 {
 
 /// The flags word (`+0x1F4`) that `CreateNPC` (`0x482510`) makes from a record's operand-less
 /// tags, in order (docs/02 §7.3): one mode in the low 16 bits, the last of the mode tags; a few
-/// tags add bits above it.
+/// tags add bits of their own, `0x45` its `0x2000` beside the mode and the others above it, and
+/// `0x85` and `0x8A` clear the mode.
 pub fn flags_word(tags: impl IntoIterator<Item = u8>) -> u32 {
     let (mut mode, mut more) = (0u32, 0u32);
     for tag in tags {

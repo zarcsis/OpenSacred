@@ -1,8 +1,11 @@
-//! The converted heroes (docs/02 §9): the starting templates of the classes.
+//! The converted heroes (docs/02 §9): the starting templates of the classes, and the two heroes
+//! that the installation ships for the Underworld campaign's choice (#1676).
 //!
-//! `heroes.ron` holds the [`Heroes`] index; each hero is a [`Hero`] file, postcard-encoded in a
-//! zlib stream ([`Hero::encode`]), with the sections of the original inflated. The sections are
-//! kept whole until their layout is recovered (the creature dump, the inventory, the world state).
+//! `heroes.ron` holds the [`Heroes`] index, which is all the game reads of them: each hero's level
+//! and class, its items, arts, stats, equipment's slots, weapon sets and art slots. Each hero is
+//! also a [`Hero`] file among the masters, postcard-encoded in a zlib stream ([`Hero::encode`]),
+//! with the sections of the original inflated and whole; `build` leaves these files out of the
+//! game's assets (#2650).
 
 use serde::{Deserialize, Serialize};
 

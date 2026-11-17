@@ -136,7 +136,8 @@ fn whole(value: f64) -> i32 {
     value as i32
 }
 
-/// The way's search over the walkable neighbours of one layer (`opensacred_rules::ways::path`).
+/// The way's search over the walkable neighbours of one layer
+/// (`opensacred_rules::ways::path_onto`).
 fn way(map: &Map, from: Cell, to: Cell) -> Option<Vec<(Cell, ())>> {
     path_onto(
         (from, ()),
