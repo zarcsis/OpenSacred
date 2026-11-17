@@ -39,8 +39,8 @@ What each item does:
 - Ancaria Campaign: the choice of the hero (below).
 - Underworld Campaign: the Underworld's choice of the hero (below).
 - Multiplayer: a submenu of Local Network (`UI_MAIN_LAN2`), Closed Internet (`UI_MAIN_INET_CLOSED`), Open Internet (`UI_NET_OPENNET`) and, after an empty row, Back, its rows' tops at 309, 341, 372 and 437.
-- Options: the settings' screen (not looked at here; #1096).
-- Load Game: the list of the saves (`tools/original/host.py` loads through it; #1095).
+- Options: the options window ("The options window" below).
+- Load Game: the list of the saves (`tools/original/host.py` loads through it; "The saves' window" below).
 - Extras: a submenu of Credits (`UI_MAIN_CREDITS`), Intro (`UI_MAIN_INTRO`), Underworld Intro (`UI_MAIN_INTRO_UW`) and, after an empty row, Back, its rows' tops at 276, 309, 340 and 405; the keys `UI_MAIN_EXTRO` and `UI_MAIN_EXTRO_UW` name the two campaigns' last movies, which this installation's Extras did not show: the menu adds each where `Settings.cfg`'s `SHOWEXTRO` or `SHOWEXTRO_UW` is set, which the extro's own play sets, each after its campaign's intro (docs/re/movies.md).
   Each movie's row plays it (#1946).
 - Quit: the game ends (`UI_BUSY_REALLY_QUIT%d` names a question, not seen: the driver's `quit` closes the window).
@@ -213,11 +213,11 @@ The fonts are the font table's entries counted from 1 (`0xA1CDB4`, entries of `0
   - the menu over a game's Options (`0x6BBBD0`) carries three: show `UI_WND_OPTIONS`, the event `0x12` of the taskbar's `UI_TB_OPTIONS` (**hypothesis**: the button let up) and hide `UI_WND_ESCMENU`;
   - the key O in a game: `cUI_Manager_receiveEvent`'s key switch (`0x757E46`: the key upper-cased less `'C'`, its bytes at `0x758DAC`, its jumps at `0x758D80`) sends O to `0x758024`, which shows the game's window where it was made; the switch is reached only while neither the saves' window (`+0xAC`) nor the options (`+0xBC`) shows and the byte `0x17EA344` is 0 (not read; **hypothesis**: a text field or the chat takes the keys);
   - the key O again while the window shows hides it (`0x758798`: the window at `+0xBC` shown and the upper-cased key `0x4F`), writing nothing, as Cancel.
-- Its show (`0x717040` with 1, **confirmed**): `0x718660` sets every control from the settings (section 3); outside a network game (the byte `0x182EBEC`) the game's time stands (`0x6413E0(1)`, `0x641720(1)`, as the busy dialog's pause, docs/re/menus.md); where the dword `0xAD6EF8` is set, the engine event `0x12` with the value 0 is sent (not followed).
+- Its show (`0x717040` with 1, **confirmed**): `0x718660` sets every control from the settings ("What each control reads and writes" below); outside a network game (the byte `0x182EBEC`) the game's time stands (`0x6413E0(1)`, `0x641720(1)`, as the busy dialog's pause, docs/re/menus.md); where the dword `0xAD6EF8` is set, the engine event `0x12` with the value 0 is sent (not followed).
   Its hide (`0x717040` with 0): the time goes on (`0x6413E0(0)`, `0x641720(0)`) and the engine event `0x12` with 1.
   Setting or clearing a control's flag 1 calls its show and hide (`0x732550`, `0x7325C0`), so every way of hiding the window unpauses the game.
 - The closings (**confirmed**):
-  - OK (`UI_BTN_OK`): `0x717C20` writes the settings (section 3), then the window sends show `UI_MAINMENU` and hide `UI_WND_OPTIONS` (`0x717713`–`0x717965`);
+  - OK (`UI_BTN_OK`): `0x717C20` writes the settings ("What each control reads and writes" below), then the window sends show `UI_MAINMENU` and hide `UI_WND_OPTIONS` (`0x717713`–`0x717965`);
   - Cancel (`UI_BTN_CANCEL`): the same two events, nothing written (`0x71796C`–`0x717BC1`);
   - Escape (`0x717180`): the window clears its own flags 5 (hides) and, the byte `+0x154` being 0, sends show `UI_MAINMENU`; nothing is written.
     The constructor sets `+0x154` to 0 and no code writes it again (a scan of the byte stores at `+0x154`), unlike the saves' window, whose game instance gets 1.
@@ -330,7 +330,7 @@ Every rectangle is (x, y) w × h; "right-aligned" and "centred" are the label fl
 | `UI_BTN_NETSPEED_HIGH` (`+0x180`) | round choice | (896, 549) | |
 | `UI_LABEL_NETSPEED_HIGH` | label | (752, 553) 128 × 16, right-aligned | `UI_CFG_AB_ISDN` |
 
-**The foot**: `UI_BTN_CANCEL` (`+0x158`) at (604, 644) and `UI_BTN_OK` (`+0x15C`) at (804, 644), each `cUI_Button2` of the flags 5 (no glow), 95 × 37 (image 281's width 38 times 2.5, its height 37), their words `UI_CANCEL` and `UI_OK` (section 5).
+**The foot**: `UI_BTN_CANCEL` (`+0x158`) at (604, 644) and `UI_BTN_OK` (`+0x15C`) at (804, 644), each `cUI_Button2` of the flags 5 (no glow), 95 × 37 (image 281's width 38 times 2.5, its height 37), their words `UI_CANCEL` and `UI_OK` ("The panels, the background and the buttons' looks" below).
 
 Every place above is **confirmed** in `0x718CA0` and agrees with the frame (the ticks' orbs, the right-aligned words ending at the columns 400 and 880, the sliders' "−" and "+").
 
@@ -342,7 +342,7 @@ Every place above is **confirmed** in `0x718CA0` and agrees with the frame (the 
 
 | Control | `Settings.cfg` key (getter, default where missing) | Values | Written at OK | When it takes effect |
 |---|---|---|---|---|
-| detail low / medium / high | `DETAILLEVEL` (the byte `0x182EE78`, read at the start by `loadSettings`, `0x814152`) | 0, 1, 2 | the key and the byte (`0x717DB3`–`0x717EF9`) | at OK: every reader reads the byte when it runs (section 4) |
+| detail low / medium / high | `DETAILLEVEL` (the byte `0x182EE78`, read at the start by `loadSettings`, `0x814152`) | 0, 1, 2 | the key and the byte (`0x717DB3`–`0x717EF9`) | at OK: every reader reads the byte when it runs ("What the settings change in play" below) |
 | map transparency | `MINIMAP_ALPHA` (`0x81B8A0`, 127) | 0–254 | the slider's position (`0x81BA50`) | at OK: the overview map's render reads it every frame (`0x6C6CF2` in `0x6C6C50`), its show too (`0x6C7330`) |
 | SFX, speech, music | `SFXVOLUME`, `VOICEVOLUME`, `MUSICVOLUME` (`0x81AEC0`, `0x81ACE0`, `0x81B0A0`, 64) | 0–125 | the sliders' positions | at once while dragged: `0x716E00` gives the sound system `p / 126` (`0x677A60` the effects', `0x677FB0` the speech's, `0x677750` the music's) at every step; at the start `initApp` gives it the key's value times 1/128 (`0x8906F8`), 0.5 where missing |
 | atmospheric animation | `PICKUPANIM` (`0x81A690`, 1) | 0, 1 | the tick | at OK |
@@ -387,7 +387,7 @@ Every place above is **confirmed** in `0x718CA0` and agrees with the frame (the 
 - **`AUTOTRACKENEMY`** (follow opponents with the mouse): `cEngine_scrollViewAndWarpCursor` (`0x6105B0`) reads it as the view scrolls by the hero; with it on, no window of the three `0x75A8B0`, `0x75A8D0`, `0x75A890` open, and the local hero (`0x603E30`) walking (its action `+0x150` 1) toward a target (`+0x104` in the AI states 4 or 8, `+0x158` in the states 6 or 11), it moves the system cursor by the view's scroll on the screen (`GetCursorPos`, `SetCursorPos`), so that the cursor stays on the foe (**confirmed** that it moves the cursor by the scroll; **hypothesis** the meaning of the states); the three windows are the manager's `+0xAC` (the saves'), `+0xBC` (the options) and `+0x94` (**confirmed** read 2026-11-08).
 - **`EXPLOREMAP`** (the minimap's fog of war): `0x638F30`; the overview's unexplored ground opaque black with 1, half black with 0 (docs/re/maps.md).
 - **`FSAA_FILTER`**: cached at the settings object's `+2` (`0x81C870`, read by `0x81CA30`), read by two draws of the client (`0x62E410` at `0x62EC75`, `0x62FF60` at `0x6308AD`); when on, they move a quad's texture coordinates in by 1/256 at each edge (`0x89208C`) (**confirmed**; **hypothesis**: the ground's tiles, against the seams that the anti-aliasing shows, docs/09-ecosystem.md).
-- **`SOUND`**: read at the start (`loadSettings` `0x81520B`, `initApp` `0x817285`) and given to the sound system as a mute (`0x6902F0`); the tick acts at once (section 3).
+- **`SOUND`**: read at the start (`loadSettings` `0x81520B`, `initApp` `0x817285`) and given to the sound system as a mute (`0x6902F0`); the tick acts at once ("What each control reads and writes" above).
 - **`SOUNDQUALITY`**: given to the sound system at the start and at OK (`0x6780C0`) and read by its start (`0x676200`, which logs it); 2 with the DirectSound3D hardware provider places the samples in 3D (docs/re/sound.md); what tells 0 from 1 is not read.
 - **`NETWORK_SPEEDSETTINGS`**: read by the network's `0x7EDEA0`, set by `setNetSpeedMode` at OK (not followed).
 - **`AUTOSAVE`** and **`VIOLENCE`**: docs/re/saves.md and docs/re/effects.md, "The blood fountain".
@@ -404,7 +404,7 @@ Every place above is **confirmed** in `0x718CA0` and agrees with the frame (the 
 - **The titles** (`0x7254C0`, **confirmed**): `UI_LABEL_GFX` (`UI_CFG_GFX_SETTINGS`), `UI_LABEL_VOLUME` (`UI_CFG_SOUND_VOLUME`), `UI_LABEL_PICKUP` (`UI_CFG_AUTOPICKUP`), `UI_LABEL_SND_Q` (`UI_CFG_SOUND_QUALITY_TITLE`), `UI_LABEL_VARIOUS` (`UI_CFG_VARIOUS`) and `UI_LABEL_WAN` (`UI_CFG_WAN`), each in its bar's rectangle (200 wide, as high as its box, its words from the bar's top row), font 7, white, centred.
 - **OK and Cancel** (**confirmed**): image 281 (`GUI_main_12.TGA` (47, 39)–(84, 75)) stretched over the rectangle, image 280 ((1, 39)–(45, 75), 45 wide) left of it and image 282 ((88, 39)–(133, 75), 46 wide) right of it, the same three for the pressed state (`0x72B460(280, 282, 280, 282)`, both textures image 281's), so there is no pressed look; the words in the font 1, centred along the button, set 3 rows up (`0x72B4B0(0, −3)`) from the middle of the button less half the font's height of `A`, white (`+0xA8`), `0xFFFFFF80` under the cursor (`+0xAC`), `0xFF7F7F7F` when not enabled; no glow (the flags 5).
   So Cancel's ends span the columns 559 to 744 and OK's 759 to 944, the rows 644 to 680, as the frame shows.
-- The ticks' and the choices' looks: images 323 and 272 and the hover glow (section 2).
+- The ticks' and the choices' looks: images 323 and 272 and the hover glow ("How the controls work" above).
 
 ### Open
 
@@ -414,18 +414,20 @@ Every place above is **confirmed** in `0x718CA0` and agrees with the frame (the 
 - What the engine event `0x12` sent at the show and hide where `0xAD6EF8` is set does.
 - The byte `0x17EA344` that keeps the key O (and the others of the switch) from the manager.
 - `0x692B60`'s test for the 3D choice, and what `SOUNDQUALITY` 0 changes against 1.
-- The readers of `DETAILLEVEL` listed as not followed, and the effects' range `0x76B896`–`0x7C71C0` taken as the effects' intervals.
+- The effects' range `0x76B896`–`0x7C71C0` of `DETAILLEVEL`'s readers, taken as the effects' intervals.
 - `NETWORK_SPEEDSETTINGS`' reader `0x7EDEA0` and `setNetSpeedMode`.
 - The fonts 1, 3 and 7's pixel sizes as GDI makes them (font 1 as the choice of the hero's buttons, docs/re/menus.md).
 - Enter's action (the base window's `0x724B50`).
-- Seen in the running original: the window, its places and its sounds, the held sliders, the key O and the closings in a game; the live volume after Cancel is #2341's to check.
+- Seen in the running original: the window, its places and its sounds, the held sliders, the key O and the closings in a game; the live volume after Cancel is not seen (#2341 read the volumes in the code alone, docs/re/sound.md, "The volumes").
 
 ## In `opensacred-game`
 
 The main menu, its submenus and the choices of the hero follow the sections above (`menu`, `choice`, #1118, #1119).
+Not followed: the Multiplayer submenu's three items, which wait for the multiplayer (M9), and the Extras' Credits stand grey and do nothing (`menu::Item::works`).
 Since #2490 a choice's screen shows whole: black covers it (`choice::Veil`) until its pictures and fonts are there, every figure's scene and items are in place and its meshes have their own materials, and for three frames more, which let the figures' pipelines compile, five seconds at the most; where it filled piece by piece over some twelve frames before, its picture's tiles, then the figures, then their items, the original loads the screen before it shows it.
 The figures' scenes and items take the figures' layer from their first frame (`Propagate` of `RenderLayers`), so that the world's camera never draws one over the black.
 Since #1676 the Underworld campaign's choice stands the installation's two heroes on their pedestals in their summaries' items, labelled as the original labels them, chooses one of level 25 or more by a click, its name in the field and the difficulties it is offered in the list, and lights Start Game, which since #2360 starts the Underworld's game (docs/re/underworld.md); the choice is of a pedestal in both campaigns.
+Since #2552 the heroes that the player exported stand on their pedestals too, with the Ancaria campaign's Import and the erase button (docs/re/underworld.md, "For `opensacred-game`").
 Since #1990 the main menu's Load Game opens the saves' window for loading (`saves_window`, the menu's screen `Load`): its layout above, the slots' saves of `saves/` (`GAMEnn.sav`, the slot 0 the quick save's; `saves::slots`) with their pictures (#1991), the list's place kept between its openings, its first row selected, a click selecting a group, the arrows and the wheel scrolling a row, Load and a double press asking before they load, Delete asking before it erases, Enter loading, Back and Esc going back to the main menu, no sound; the date in the user's short form, the pattern `sShortDate` that `GetDateFormatA` takes, in the computer's time zone.
 In a game the menu over it's Save Game, greyed while the interface allows no save, and the key S (`controls.toml`'s `saves`, its picture taken before the window opens) show the game's own window for saving, the game paused under it with no menu over it: the list ends with an empty row, the list's rows' names stand in their editable fields (the emblem 331), the selected one's takes the characters typed after what it shows and Backspace, its caret an underscore blinking 0.3 s, the other keys taken from the game; Save over a save asks `UI_BUSY_SAVE_OVERWRITE`, into the empty row saves at once into the first free slot from 1, named by the field, the placeholder too; Enter saves a row whose name was typed and else loads; a save, Back and Esc go on with the game.
 Since #1410 the menu over a game is the original's (`esc_menu`): Esc and the taskbar's Options button pause the game under the window at its place, its fill and the standard frame drawn with the choice of the hero's pieces (`choice::frame_about`), its items in Carolingia at the main menu's size, pale and lit white under the cursor (seen: the letters (228, 212, 169), the lit (249, 249, 249)); Options and Save Game open their windows in its place (#1096, #1095), Export since #2554 the choice of the hero in its export mode (docs/re/underworld.md, "When the original writes one"), Continue goes on, and Quit opens the dialog, the screen darkened by half (**estimate**), its box, frame, question and the buttons OK and Cancel at their places (**estimate** to a few pixels), OK leaving for the main menu and Cancel, or Esc, closing it alone.

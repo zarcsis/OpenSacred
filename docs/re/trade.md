@@ -3,7 +3,7 @@
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra and byte scans on 2026-10-31 (#1066, #1617).
 Status: **confirmed** by code unless marked otherwise; the window, its pages and the purchase window **seen** the same day in the running original (the driver of #448) at the merchant of 50,40 (the creature 1165, type 692, level 2), the Seraphim at level 1.
 
-The prices are docs/re/inventory.md, §9 "The price" (`0x43C350`, `opensacred_rules::trade::shown`, #1273).
+The prices are docs/re/inventory.md, §9 "The item's tooltip" (the price, `0x43C350`, `opensacred_rules::trade::shown`, #1273).
 The talk that opens the traders' windows is docs/re/arts.md, "The combat master" (`0x52AB70`): a creature of `+0x200` bit `0x2000` without a dialogue opens the inventory and `UI_WND_MERCHANT` and sends the window the UI event `0x2E` of the sub-kind 8 with its level (`+0x3FE`) and its id.
 
 ## The merchant's window (`cUI_Merchant`)
@@ -90,4 +90,5 @@ Since #1618 a merchant without a dialogue shows, as the hero speaks to it, the i
 Since #1619 the hero trades in it (`merchant`, the purchase window `purchase`): a left press on an item asks whether to buy it at its price as bought, or tells that the backpack has no room or the gold is short (OK alone); a right press buys it at once where it may; an item on the cursor put onto the page asks whether to sell it at its price as sold, No putting it back onto the cursor; Shift with a left press on the backpack's item sells it at once; a sold item goes onto the page of its category, to be bought back.
 While the purchase window shows, the world's clicks are held back and the backpack's and the merchant's wait for its answer.
 **Seen** in the game: the small healing potion sold for 125 and bought for 585, as the original's prices of it (#1273), the gold short of a ring told.
-Not followed: the merchant's own items that the scripts give it (`0x6DA1A0`), the sockets' chance, the frame's pieces (the panel's edges a grey line), the page's show's sound and its switch of the items to the hero's class's variants, the stock in the saves, the purchase window's buttons' sound and looks, and the trade's sounds.
+Since #1660 a merchant's item rolls its sockets with the merchant's bonus on the first chance (`drops::keyed`, `opensacred_rules::drops::Sockets::roll`); since #1722 the window plays the trader's sound (14, 2, `0x1F`) as it shows; since #1959 a save keeps the stock (docs/re/saves.md).
+Not followed: the merchant's own items that the scripts give it (`0x6DA1A0`), the frame's pieces (the panel's edges a grey line), the page's switch of the items to the hero's class's variants, the purchase window's buttons' sound and looks, and the trade's sounds.

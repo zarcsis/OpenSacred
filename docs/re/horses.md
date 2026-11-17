@@ -266,7 +266,6 @@ Read 2026-11-08 for #2288 in the code (**confirmed** where not marked), and seen
 
 - The engine event of kind 1's handler, and whether the camera follows the controlled horse.
 - `0x52D7A0` and `0x52D610`, which the creatures' update calls for a rider and his horse.
-- The effect 19 of a theft, and whether a theft angers the guards.
 - The word `+0x94` and the table `0xAAD29C` that refuse a horse; `+0x263` and `+0x13C` 1234.
 - Where a horse stands after a load, and what becomes of an unregistered one.
 - The horse models' own slots and the rider models' slots 165 to 169 and 193 to 234, on the files.

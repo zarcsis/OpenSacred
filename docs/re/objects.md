@@ -75,7 +75,7 @@ Status: **confirmed** by code and in the running original (2026-10-22, #559), wh
 ## The console's cheats
 
 The client's console (`UI_WND_CONSOLE`) passes a line to two handlers.
-`0x614230` takes the weather's `setrain`, `setsnow` and `setquake`, `setdungeon`, `loadplayer`, the logs' `droplog`, `logref` and `logslot` (docs/re/items.md), the caches' `flush`, `flushcache` and `flushtex`, and `cheat` with a code of the developers, which sets bit `0x2000000` of `0x182EE38`.
+`0x614230` takes the weather's `setrain`, `setfog`, `setsnow` and `setquake` (docs/re/weather.md), `setdungeon`, `loadplayer`, the logs' `droplog`, `logref` and `logslot` (docs/re/items.md), the caches' `flush`, `flushcache` and `flushtex`, and `cheat` with a code of the developers, which sets bit `0x2000000` of `0x182EE38`.
 `0x615550` takes the others, each in lower or upper case, and answers that the cheats are disabled without that bit (read 2026-10-22, #558):
 
 - `lord` toggles bit 1 of `0x182EE3C` and says so; the strike's resolution (`0x56B130`) reads the bit for a player's hero (an id up to 16), which with it is no longer knocked down or stunned by an attacker four or more levels above it, and no other reader of the bit was found.
