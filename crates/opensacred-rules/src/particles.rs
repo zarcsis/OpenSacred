@@ -7018,12 +7018,17 @@ pub fn bleed_splashes(gib_set: u8) -> bool {
     !matches!(gib_set, 3 | 4)
 }
 
-/// Where a bleed's splashes lie from its place, along the ground's two axes (`0x76AEF0`): each
-/// `U·30 − 15`.
+/// Where a bleed's splashes lie from its place, in whole units of the world along the cells' `x`
+/// and `y` (#2777): the bleed rolls two offsets of `U·30 − 15`, the one along `y` first
+/// (`0x76AEF0`), and the action that makes the splashes adds each, truncated, to the bleed's
+/// object's place (`0x5B34E3`); −14 to 14, and 15 either way at a roll's very end.
 pub fn splash_offset(dice: &mut impl Dice) -> [f32; 2] {
-    let mut roll = || f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
-    let x = roll() * 30.0 - 15.0;
-    [x, roll() * 30.0 - 15.0]
+    let mut roll = || {
+        let unit = f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
+        (unit * 30.0 - 15.0).trunc()
+    };
+    let y = roll();
+    [roll(), y]
 }
 
 /// A blow's blood splashes on the ground (903, `FX_BLOODPUDDLE`, `cParticleSystem_bloodpuddle`,
@@ -19462,12 +19467,25 @@ mod tests {
         let offsets: Vec<[f32; 2]> = (0..200).map(|_| splash_offset(&mut dice)).collect();
         for axis in 0..2 {
             let along = offsets.iter().map(|offset| offset[axis]);
-            assert!(along.clone().all(|v| (-15.0..=15.0).contains(&v)));
+            // Whole units of the world.
+            assert!(
+                along
+                    .clone()
+                    .all(|v| (-15.0..=15.0).contains(&v) && v.fract() == 0.0)
+            );
             // Over the whole of ± 15.
             assert!(along.clone().fold(f32::MAX, f32::min) < -10.0);
             assert!(along.fold(f32::MIN, f32::max) > 10.0);
         }
         assert!(offsets.iter().any(|[x, y]| (x - y).abs() > 5.0));
+        // The offset along `y` is the first roll, the one along `x` the second.
+        let mut rolls = Rng::of(7, 7, 7);
+        let [first, second] = [(); 2].map(|()| {
+            let unit = f32::from(u16::try_from(rolls.below(0x8000)).unwrap()) / 32_767.0;
+            (unit * 30.0 - 15.0).trunc()
+        });
+        assert_ne!(first, second);
+        assert_eq!(splash_offset(&mut Rng::of(7, 7, 7)), [second, first]);
         let mut splashes = Splashes::new([170.0 / 255.0, 0.0, 0.0]);
         splashes.system = System::at_factor(100, 1.0);
         assert!(!splashes.done());
