@@ -11,7 +11,7 @@ Dollar figures are the hypothetical cost of the same tokens at Anthropic API pri
 * Calendar: 2.5–4.5 months in an intensive mode, 6–12 months "evenings and weekends".
   The bottleneck is the maintainer's time for review and playtesting.
 * The agent-hour cost model is an estimate of 2026-10-16, like every range of this document.
-  The usage that every pull request records from the Claude Code transcripts (`docs/usage.md`) gives the actuals: by 2026-11-17, with M0 to M5 done and every issue of M6 closed, ≈432 agent-hours and ≈$11.5k at API prices, ≈$27 an agent-hour (§1.4).
+  The usage that every pull request records from the Claude Code transcripts (`docs/usage.md`) gives the actuals: by 2026-11-17, with M0 to M5 done and every issue of M6 closed, ≈465 agent-hours and ≈$13.2k at API prices, ≈$28 an agent-hour (§1.4).
   Version 1.0 itself waits for the maintainer's own play-through (PLAN.md G5).
 
 ## 1. Estimation model
@@ -69,21 +69,22 @@ The planning phase was carried out by multi-agent Claude Code runs, mostly on Cl
 What exactly the orchestrator's counter includes (only output with reasoning, or all input) has not been verified.
 So these numbers indicate the order of magnitude, and the §1.3 model is measured against the usage that `tools/usage/pr_usage.py` records in every pull request (`docs/usage.md`).
 
-The recorded usage: the pull requests' blocks merged by the end of each day, with the sessions before them (12.7 agent-hours, `docs/usage.md`), summed by `tools/usage/usage_badge.py` on 2026-11-17 over every pull request of the maintainer's account, 1,465 of them with a block.
+The recorded usage: the pull requests' blocks merged by the end of each day, with the sessions before them (12.7 agent-hours, `docs/usage.md`), summed by `tools/usage/usage_badge.py` on 2026-11-17 over every pull request of the maintainer's account, 1,480 of them with a block.
+The blocks are those after the recount of that day (#2849; `docs/usage.md`, "Observations for calibrating §9"): 327 that were behind the transcripts were counted anew and 5 pull requests that had none got one, 3.4B tokens, ≈$1.7k and 31 agent-hours more than the blocks had summed.
 A pull request counts on the day it merged (UTC); the subagents' time is in no agent-hour, their tokens in every sum.
 
 | By the end of | Closed since the row above | Agent-hours | Tokens, B | At API prices, $ | Estimate for all the milestones closed by then, agent-hours |
 |---|---|---|---|---|---|
 | 2026-10-17 | M0, M1; G2 met | 12.7 | 1.03 | 338 | 86–172 |
-| 2026-10-23 | M2 | 87.3 | 8.99 | 2,679 | 116–232 |
-| 2026-10-26 | M3, M4 | 136.4 | 14.28 | 4,113 | 296–592 |
-| 2026-11-09 | M5 | 358.6 | 37.09 | 10,150 | 346–692 |
-| 2026-11-17 | every issue of M6 | 432.4 | 42.29 | 11,498 | 386–772 (≈390–770) |
+| 2026-10-23 | M2 | 92.1 | 9.56 | 2,854 | 116–232 |
+| 2026-10-26 | M3, M4 | 143.4 | 15.12 | 4,361 | 296–592 |
+| 2026-11-09 | M5 | 375.8 | 39.33 | 10,797 | 346–692 |
+| 2026-11-17 | every issue of M6 | 465.3 | 47.02 | 13,220 | 386–772 (≈390–770) |
 
 The milestones overlapped (M3's work began before M2 closed, M6's before M5 did), so a row is the sum to that day, not one milestone's cost.
 To the last issue of M6 the work took agent-hours near the low end of the estimate and a cost at API prices near its high end (≈$3.1k–13.9k, §3.1).
-An agent-hour cost ≈$27 against the model's $8–18: its output (0.17M tokens) and its cache writes (0.59M) are at or under the model's 0.2–0.5M and 0.5–1M, while its cache reads are 97M against 5–15M and make about three quarters of the cost, the context of long sessions reread at every step.
-All but a little of the work ran on Claude Opus 5.5.
+An agent-hour cost ≈$28 against the model's $8–18: its output (0.18M tokens) and its cache writes (0.66M) are at or under the model's 0.2–0.5M and 0.5–1M, while its cache reads are 100M against 5–15M and make about seven tenths of the cost, the context of long sessions reread at every step.
+All but a little of the work ran on Claude Opus 5.5: the sessions of 2026-11-17 on Claude Mythos 5.2 make ≈1.5B tokens and ≈$0.8k of the sums.
 The maintainer's hours were not recorded.
 The estimates below were not recomputed 30 days after 2026-10-16, as §4.1 planned: those of M0 to M6 are overtaken by this table, and those of M7 and M8 stand as of 2026-10-16.
 
@@ -214,7 +215,7 @@ A sensible split: the strongest model for binary analysis, architecture and hard
 
 The duration is determined by the larger of the two: agent-hours ÷ agent pace, and maintainer hours ÷ maintainer pace.
 
-As it went: the vertical slice came on the second day, 2026-10-17, and M0 to M5 were done and every issue of M6 closed by 2026-11-17, the thirty-third, at ≈90 agent-hours a week (§1.4); version 1.0 waits for the maintainer's play-through.
+As it went: the vertical slice came on the second day, 2026-10-17, and M0 to M5 were done and every issue of M6 closed by 2026-11-17, the thirty-third, at ≈100 agent-hours a week (§1.4); version 1.0 waits for the maintainer's play-through.
 
 ### 3.3 Critical path
 
@@ -278,7 +279,7 @@ Of item 4: the agent-hour cost is in §1.4; the pace in functions per agent-hour
 2. The decision on Android: after version 1.0.
 3. How multiplayer is made, and its estimate: when M9 starts (PLAN.md §13).
 
-Closed on 2026-11-17: the actual cost of an agent-hour on the project's tasks, ≈98M tokens and ≈$27 at API prices (§1.4).
+Closed on 2026-11-17: the actual cost of an agent-hour on the project's tasks, ≈101M tokens and ≈$28 at API prices (§1.4).
 
 ## Sources
 

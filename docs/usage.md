@@ -85,6 +85,12 @@ Each row was computed by the script's predecessor, `tools/usage/session_cost.py`
   Most of the wall clock was CI: the first Windows builds took 28 and 29 minutes without a cache, the next pull request 1 minute with one.
 - 2026-10-17 (versions): ≈$11 per agent-hour, within the model; cache reads 16M/h, just above its top.
   A short single-task session: most of the wall clock was waiting for the maintainer's merges and for CI.
-- 2026-11-17 (the sessions above and the blocks of 1,465 pull requests, M0 to M5 done and every issue of M6 closed): 432.4 agent-hours, 42.3B tokens, $11,498, ≈$27 per agent-hour.
-  Output (0.17M/h) and cache writes (0.59M/h) are at or under the model; cache reads (97M/h) are six times its top and about three quarters of the cost, as in the long sessions above.
+- 2026-11-17 (the sessions above and the blocks of 1,480 pull requests, M0 to M5 done and every issue of M6 closed): 465.3 agent-hours, 47.0B tokens, $13,220, ≈$28 per agent-hour.
+  Output (0.18M/h) and cache writes (0.66M/h) are at or under the model; cache reads (100M/h) are nearly seven times its top and about seven tenths of the cost, as in the long sessions above.
   The sums by the milestones' closing days are in `docs/07-roadmap-estimates.md`, §1.4.
+- 2026-11-17 (the recount, #2849): one pass over the transcripts beside the block of each of the account's 1,487 pull requests, of which 1,473 had a block.
+  1,033 blocks held what the transcripts give; 327 were counted anew and 5 pull requests that had no block got one, 3.4B tokens, ≈$1.7k and 31 agent-hours more than the blocks had summed before it (43.6B tokens, ≈$11.5k and 434 agent-hours with the sessions above).
+  ≈$0.75k of it is the 15 pull requests on Mythos 5.2 that had counted no dollars (#2834); most of the rest is the beginning of a next task, which a session in a worktree does on the merged branch after that branch's last block (294 blocks, 2.75B tokens; #2852).
+  A block was raised only where it equalled the tokens that its branch held at the last `pr_usage.py --update` in the transcripts, so that what the branch holds beyond it came after the block: today's count of an old session is not always the one of its day, a worktree being removed or on another branch since.
+  Ten pull requests count the work done under another name of their branch (`--also`).
+  Left as they were: 87 blocks that hold more than the transcripts give now (40 of them of 2026-10-18, whose transcripts Claude Code has removed after 30 days), 31 that differ from the transcripts both at their last run and now (0.5B tokens more in the transcripts), 3 pull requests without a block whose work lies under no name of theirs (#1623, #1881, #2349), and ≈0.3B tokens on branches of no pull request (research and scratch branches, removed worktrees).
