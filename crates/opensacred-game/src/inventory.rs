@@ -280,6 +280,50 @@ fn sort(
     }
 }
 
+/// The sort's button's tooltip: its text (`0x6C6A1D`) and its top left corner from the button's
+/// (`0x6C63C0`, the style `0xB`).
+const SORT_TIP: &str = "UI_TOOLTIP_AUTOSORT";
+const SORT_TIP_FROM: Vec2 = Vec2::new(60.0, 24.0);
+
+/// The sort's button's tooltip (#2772), shown once the pointer rests on the button a third of a
+/// second and taken away as it leaves or the window hides (`tooltip::Rest`), with the border.
+fn sort_tip(
+    mut commands: Commands,
+    time: Res<Time<Real>>,
+    shown: Res<Shown>,
+    (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
+    (images, assets, texts): (Option<Res<UiImages>>, Res<AssetServer>, Option<Res<Texts>>),
+    tips: Query<Entity, With<crate::tooltip::TipRoot>>,
+    mut rest: Local<crate::tooltip::Rest>,
+) {
+    let corner = INVENTORY.min + SORT.1;
+    let over = shown.0
+        && screen_point(&pointer, &ui_scale, &windows).is_some_and(|at| {
+            Rect::from_corners(corner, corner + Vec2::splat(SORT_SIDE)).contains(at)
+        });
+    let (gone, due) = rest.step(over.then_some(0), time.elapsed_secs());
+    if gone {
+        for tip in &tips {
+            commands.entity(tip).try_despawn();
+        }
+    }
+    if due.is_none() {
+        return;
+    }
+    let Some(text) = texts.as_deref().and_then(|texts| texts.named(SORT_TIP)) else {
+        return;
+    };
+    let panel = crate::tooltip::spawn_tip_left_in(
+        &mut commands,
+        &assets,
+        (text, corner + SORT_TIP_FROM),
+        crate::tooltip::Frame::Screen,
+    );
+    if let Some(images) = images {
+        crate::tooltip::add_border(&mut commands, (&images, &assets), panel);
+    }
+}
+
 /// The sort's button's picture by its state, as the state turns.
 fn sort_picture(
     mut commands: Commands,
@@ -669,6 +713,7 @@ impl Plugin for InventoryPlugin {
                     select.in_set(Opened).after(show),
                     page_sounds.after(Opened),
                     (sort, sort_picture).chain().after(Opened),
+                    sort_tip.after(Opened),
                 )
                     .run_if(in_state(AppState::InGame)),
             );
