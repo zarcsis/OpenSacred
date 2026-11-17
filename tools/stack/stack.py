@@ -27,7 +27,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 REMOTE = 'origin'
 MAIN = 'main'
-TRAILER = 'Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
 
 
 class Git:
@@ -80,6 +79,20 @@ def bring_up(git, parent_head, child_tip, main):
     if git.is_ancestor(base, main) or git.is_ancestor(main, child_tip):
         return None
     return git.merge(main, child_tip, base) + (base,)
+
+
+def co_authors(git, tip, main):
+    """The `Co-Authored-By` trailers of the newest of a branch's own commits that has any (its commits that `main`
+    does not hold, the merges apart), '' when none has: a merge that the script makes names the co-authors that
+    the branch's commits name, whichever model wrote them."""
+    log = git.out('log', '--no-merges', '--format=%(trailers:key=Co-Authored-By,only=true,unfold=true)%x00',
+                  f'{main}..{tip}')
+    return next((trailers.strip() for trailers in log.split('\0') if trailers.strip()), '')
+
+
+def with_trailers(message, trailers):
+    """A commit's message with its trailers, a paragraph of their own."""
+    return f'{message}\n\n{trailers}' if trailers else message
 
 
 def merge_order(prs):
@@ -140,8 +153,8 @@ def after(args):
             continue
         message = (f'Merge {MAIN} (#{parent["number"]}\'s squash) into {pr["headRefName"]}\n\n'
                    f'Merged with the newest of #{parent["number"]}\'s commits that this branch holds as the base, '
-                   f'so that its own\nchanges to #{parent["number"]}\'s lines stand.\n\n{TRAILER}')
-        commit = git.commit(tree, [tip, main], message)
+                   f'so that its own\nchanges to #{parent["number"]}\'s lines stand.')
+        commit = git.commit(tree, [tip, main], with_trailers(message, co_authors(git, tip, main)))
         git.run('push', '--quiet', REMOTE, f'{commit}:refs/heads/{pr["headRefName"]}')
         if pr['baseRefName'] != MAIN:
             subprocess.run(['gh', 'pr', 'edit', str(pr['number']), '--base', MAIN], cwd=ROOT, check=True,
@@ -201,7 +214,9 @@ def integrate(args):
             print(f'{label}: CONFLICT in {", ".join(conflicts)}')
             failed.add(pr['headRefName'])
             continue
-        head = git.commit(tree, [head, tip], f'Merge #{pr["number"]} into {args.branch}\n\n{TRAILER}')
+        message = with_trailers(f'Merge #{pr["number"]} into {args.branch}',
+                                co_authors(git, tip, f'{REMOTE}/{MAIN}'))
+        head = git.commit(tree, [head, tip], message)
         merged.append(pr['number'])
         print(f'{label}: merged')
     git.run('branch', '--force', args.branch, head)

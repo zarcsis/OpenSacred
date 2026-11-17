@@ -142,5 +142,57 @@ class BranchMoves(unittest.TestCase):
                 self.assertEqual(pr_usage.branch_moves(command, here), moves)
 
 
+def usage(inp=0, out=0, read=0, write_5m=0, write_1h=0):
+    """A response's usage as the transcripts record it."""
+    return {'input_tokens': inp, 'output_tokens': out, 'cache_read_input_tokens': read,
+            'cache_creation_input_tokens': write_5m + write_1h,
+            'cache_creation': {'ephemeral_5m_input_tokens': write_5m, 'ephemeral_1h_input_tokens': write_1h}}
+
+
+class Cost(unittest.TestCase):
+    MILLION = usage(inp=1_000_000, out=1_000_000, read=1_000_000, write_5m=1_000_000, write_1h=1_000_000)
+
+    def test_a_million_tokens_of_each_kind_cost_the_models_prices(self):
+        for model, dollars in {'claude-opus-5-5': 4 + 20 + 0.20 + 5 + 8,
+                               'claude-sonnet-5-5': 2 + 10 + 0.10 + 2.50 + 4,
+                               'claude-fable-5-1': 10 + 50 + 0.25 + 12.50 + 20,
+                               'claude-fable-5-2': 8 + 40 + 0.20 + 10 + 16,
+                               'claude-mythos-5-2': 8 + 40 + 0.20 + 10 + 16}.items():
+            with self.subTest(model=model):
+                self.assertAlmostEqual(pr_usage.cost(model, self.MILLION), dollars)
+
+    def test_each_kind_of_token_has_its_own_price(self):
+        for kind, dollars in {'inp': 8, 'out': 40, 'read': 0.20, 'write_5m': 10, 'write_1h': 16}.items():
+            with self.subTest(kind=kind):
+                self.assertAlmostEqual(pr_usage.cost('claude-mythos-5-2', usage(**{kind: 1_000_000})), dollars)
+
+    def test_a_cache_write_without_its_kinds_is_one_of_five_minutes(self):
+        self.assertAlmostEqual(pr_usage.cost('claude-opus-5-5', {'cache_creation_input_tokens': 1_000_000}), 5)
+
+    def test_a_model_priced_by_the_prompts_length_pays_more_above_it(self):
+        # The prompt is the input with the cache's reads and writes; the output is not of it.
+        short = usage(inp=10_000, out=500_000, read=60_000, write_5m=20_000, write_1h=10_000)
+        self.assertAlmostEqual(pr_usage.cost('claude-haiku-5-5', short),
+                               (10_000 * 0.10 + 500_000 * 0.50 + 60_000 * 0.01 + 20_000 * 0.125 + 10_000 * 0.20) / 1e6)
+        long = dict(short, input_tokens=10_001)
+        self.assertAlmostEqual(pr_usage.cost('claude-haiku-5-5', long),
+                               (10_001 * 0.50 + 500_000 * 2.50 + 60_000 * 0.05 + 20_000 * 0.625 + 10_000 * 1.0) / 1e6)
+
+    def test_another_model_keeps_its_prices_above_that_length(self):
+        long = usage(inp=2, out=1_000, read=900_000, write_1h=5_000)
+        self.assertAlmostEqual(pr_usage.cost('claude-mythos-5-2', long),
+                               (2 * 8 + 1_000 * 40 + 900_000 * 0.20 + 5_000 * 16) / 1e6)
+
+    def test_a_model_without_a_price_costs_nothing(self):
+        self.assertEqual(pr_usage.cost('claude-unknown-9', self.MILLION), 0.0)
+
+    def test_every_model_with_a_price_has_a_name_and_five_prices(self):
+        for model, prices in list(pr_usage.PRICES.items()) + [(m, p) for m, (_, p) in pr_usage.LONG_PROMPT.items()]:
+            with self.subTest(model=model):
+                self.assertIn(model, pr_usage.NAMES)
+                self.assertIn(model, pr_usage.PRICES)
+                self.assertEqual(len(prices), 5)
+
+
 if __name__ == '__main__':
     unittest.main()
