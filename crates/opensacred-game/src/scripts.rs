@@ -103,7 +103,7 @@ pub struct Started {
     tree: String,
     index: Index,
     state: quests::Scripts,
-    done: Vec<String>,
+    done: Vec<opensacred_scripts::Done>,
     rng: Rng,
     creatures: HashSet<u32>,
     /// The talks that the start script's `Popup`s begin and the texts its `InfoPlayer`s show,
@@ -135,7 +135,8 @@ impl Started {
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Saved {
     pub state: quests::Scripts,
-    pub done: Vec<String>,
+    /// The functions marked done, by their files and their keys in them (#2810).
+    pub done: Vec<opensacred_scripts::Done>,
     pub rng: Rng,
     pub mode: Mode,
 }
@@ -4866,7 +4867,7 @@ mod tests {
         played.timers.set(7, "zeit1202", 4320);
         let saved = Saved {
             state: played,
-            done: vec!["Region3Init".into()],
+            done: vec![("start.luau".into(), "Region3Init".into())],
             rng: Rng::of(1, 2, 3),
             mode: Mode {
                 anim: true,

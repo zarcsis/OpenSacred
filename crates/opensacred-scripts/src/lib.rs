@@ -169,7 +169,7 @@ struct Inner {
     names: HashMap<String, String>,
     load: Loader,
     files: RefCell<BTreeMap<String, Table>>,
-    done: RefCell<BTreeSet<String>>,
+    done: RefCell<BTreeSet<Done>>,
     unknown: RefCell<BTreeSet<String>>,
     steps: Rc<Cell<u64>>,
     budget: Rc<Cell<u64>>,
@@ -338,15 +338,16 @@ impl Runtime {
         }
     }
 
-    /// The functions marked done, never to run again, by their keys: part of the scripts' state,
-    /// which a runtime made anew takes on ([`Self::mark_done`]).
-    pub fn done(&self) -> Vec<String> {
+    /// The functions marked done, never to run again, by their files and their keys in them
+    /// ([`Done`]): part of the scripts' state, which a runtime made anew takes on
+    /// ([`Self::mark_done`]).
+    pub fn done(&self) -> Vec<Done> {
         self.inner.done.borrow().iter().cloned().collect()
     }
 
-    /// Marks the functions of the keys `keys` done, as another runtime of the tree left them.
-    pub fn mark_done(&self, keys: impl IntoIterator<Item = String>) {
-        self.inner.done.borrow_mut().extend(keys);
+    /// Marks the functions `done` done, as another runtime of the tree left them.
+    pub fn mark_done(&self, done: impl IntoIterator<Item = Done>) {
+        self.inner.done.borrow_mut().extend(done);
     }
 
     /// The index of the tree's functions.
@@ -474,8 +475,8 @@ pub fn expand(name: &str, mut var: impl FnMut(&str) -> i32) -> String {
 
 /// Runs the `nth` function of the name `function` of the tree: its file loaded as it is first
 /// called, a function marked done not run, one that starts again run again, one of a name that
-/// the runner refuses never. Each is marked done by its key in its file, the name itself for the
-/// first of its name. The host hears that a function that runs begins and ends
+/// the runner refuses never. Each is marked done by its file and its key in it ([`Done`]), the
+/// name itself for the first of its name in the file. The host hears that a function that runs begins and ends
 /// ([`Host::begins`]).
 fn run(
     lua: &Lua,
@@ -494,13 +495,22 @@ fn run(
             tree: inner.tree.clone(),
             function: function.to_owned(),
         })?;
-    if inner.done.borrow().contains(&entry.key) {
+    if inner.done.borrow().contains(&done_of(entry)) {
         return Ok(Outcome::Done);
     }
     host.borrow_mut().begins(function);
     let outcome = run_entry(lua, inner, entry, function);
     host.borrow_mut().ends();
     outcome
+}
+
+/// A function marked done, by its file and its key in the file's table: a key is the function's
+/// own within its file alone, which another file's function of the same name shares (#2810).
+pub type Done = (String, String);
+
+/// The function of the index's entry `entry` as it is marked done ([`Done`]).
+fn done_of(entry: &opensacred_data::luau::Entry) -> Done {
+    (entry.file.clone(), entry.key.clone())
 }
 
 /// Runs the function `function` of the index's entry `entry` ([`run`]).
@@ -533,7 +543,7 @@ fn run_entry(
         match code.call::<Value>(()).map_err(failed)? {
             Value::Boolean(false) => return Ok(Outcome::Stopped),
             Value::String(end) if end.to_string_lossy() == "done" => {
-                inner.done.borrow_mut().insert(entry.key.clone());
+                inner.done.borrow_mut().insert(done_of(entry));
                 return Ok(Outcome::Done);
             }
             Value::String(end) if end.to_string_lossy() == "again" => {}
@@ -905,6 +915,47 @@ mod tests {
     }
 
     #[test]
+    fn a_function_marked_done_leaves_its_namesake_of_another_file_running() {
+        // A dialogue's function and a quest's of one name, each the first of it in its file, so
+        // that both have the name for their key (#2810).
+        let (runtime, _) = runtime(&[
+            (
+                "dialogs/71.luau",
+                "local t = {}\n\
+                 t[\"Sprich71\"] = function() talked({}) return \"done\" end\n\
+                 return t",
+            ),
+            (
+                "quests/71.luau",
+                "local t = {}\n\
+                 t[\"Sprich71\"] = function() quest({}) return true end\n\
+                 return t",
+            ),
+        ]);
+        let mut host = Recorder::default();
+        assert_eq!(runtime.entries("Sprich71"), 2);
+        assert_eq!(
+            runtime.call("Sprich71", &mut host).ok(),
+            Some(Outcome::Done)
+        );
+        // The dialogue's marked done, the quest's still runs.
+        assert_eq!(
+            runtime.call_entry("Sprich71", 1, &mut host).ok(),
+            Some(Outcome::Ran)
+        );
+        assert_eq!(
+            runtime.call("Sprich71", &mut host).ok(),
+            Some(Outcome::Done)
+        );
+        let names: Vec<&str> = host.records.iter().map(|(name, _)| name.as_str()).collect();
+        assert_eq!(names, ["talked", "quest"]);
+        assert_eq!(
+            runtime.done(),
+            [("dialogs/71.luau".to_owned(), "Sprich71".to_owned())]
+        );
+    }
+
+    #[test]
     fn a_name_written_again_calls_each_of_its_functions_by_its_place() {
         let (runtime, _) = runtime_of_region();
         let mut host = Recorder::default();
@@ -931,7 +982,10 @@ mod tests {
         assert_eq!(names, ["second", "first", "second"]);
         assert!(runtime.call_entry("Region2Init", 2, &mut host).is_err());
         // A runtime made anew takes on the functions marked done.
-        assert_eq!(runtime.done(), ["Region2Init"]);
+        assert_eq!(
+            runtime.done(),
+            [("regions/2.luau".to_owned(), "Region2Init".to_owned())]
+        );
         let (again, _) = runtime_of_region();
         again.mark_done(runtime.done());
         assert_eq!(
