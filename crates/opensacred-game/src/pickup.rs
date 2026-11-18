@@ -178,8 +178,9 @@ pub struct Pack {
 }
 
 /// What a save keeps of the pack (`saves`, #1957): the gold, the backpack's items and grid and
-/// its next key, the quests' items, the items worn, the books read and the laid items' functions;
-/// the item on the cursor goes back into the backpack as the save is made, where it fits.
+/// its next key, the quests' items, the item on the cursor, which the load puts back on the
+/// cursor as the original's does (docs/re/saves.md, "The file", #2822), the items worn, the
+/// books read and the laid items' functions.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Kept {
     gold: u32,
@@ -187,6 +188,7 @@ pub struct Kept {
     grid: Grid,
     next: u32,
     quest: Vec<Dropped>,
+    held: Option<Held>,
     worn: [Option<(u32, Dropped)>; opensacred_rules::equipment::SLOTS as usize],
     books: Vec<u32>,
     uses: Vec<(u32, String)>,
@@ -212,6 +214,7 @@ impl Pack {
             grid: self.grid.clone(),
             next: self.next,
             quest: self.quest.clone(),
+            held: self.held.clone(),
             worn: self.worn.clone(),
             books: self.books.clone(),
             uses: self.uses.clone(),
@@ -225,7 +228,7 @@ impl Pack {
         self.grid = kept.grid;
         self.next = kept.next;
         self.quest = kept.quest;
-        self.held = None;
+        self.held = kept.held;
         self.worn = kept.worn;
         self.books = kept.books;
         self.uses = kept.uses;
@@ -299,8 +302,11 @@ pub(crate) fn put_into(
     put
 }
 
-/// An item on the cursor: its key in the grid, the item and its size in cells.
-#[derive(Clone, Debug, PartialEq)]
+/// An item on the cursor: its key in the grid, the item and its size in cells. Its name in the
+/// saves' layout is its own, apart from `npcs::Held`'s, as the layout's test tells the structures
+/// by their names (`saves`, #2306); postcard writes no name.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "CursorItem")]
 pub struct Held {
     pub key: u32,
     pub dropped: Dropped,
@@ -1785,6 +1791,33 @@ mod tests {
         assert!(pack.held.is_none());
         assert_eq!(pack.items.len(), 2);
         assert!(pack.hold(dropped(Kind::Other, 6005, 1), (1, 1)));
+    }
+
+    #[test]
+    fn a_save_keeps_the_item_on_the_cursor_on_the_cursor() {
+        let mut pack = Pack::default();
+        assert!(pack.put(dropped(Kind::Potion, 5171, 1), (0, 0), (1, 1)));
+        assert!(pack.put(dropped(Kind::Weapon, 1712, 1), (2, 0), (1, 3)));
+        assert!(pack.lift((2, 1)));
+        let held = pack.held.clone();
+        assert!(held.is_some());
+        // Through the save's format and back, into a pack that held something else.
+        let kept: Kept =
+            postcard::from_bytes(&postcard::to_allocvec(&pack.kept()).unwrap()).unwrap();
+        let mut loaded = Pack::default();
+        assert!(loaded.hold(dropped(Kind::Other, 6005, 1), (1, 1)));
+        loaded.restore(kept);
+        assert_eq!(loaded.held, held);
+        // Out of the grid, as it was, and put back where it fits, by its own key.
+        assert_eq!(loaded.items.len(), 1);
+        assert!(loaded.grid.at((2, 1)).is_none());
+        assert_eq!(loaded.put_held((2, 0)), Put::Placed);
+        assert_eq!(loaded.items.len(), 2);
+        // A save with nothing on the cursor loads with nothing on it.
+        let mut empty = Pack::default();
+        assert!(empty.hold(dropped(Kind::Other, 6005, 1), (1, 1)));
+        empty.restore(Pack::default().kept());
+        assert!(empty.held.is_none());
     }
 
     #[test]

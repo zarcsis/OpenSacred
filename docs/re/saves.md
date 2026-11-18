@@ -19,7 +19,7 @@ The file begins with a header of 256 bytes, then a table of its parts, 64 entrie
 - **a descriptor** (`0x95`, 256 bytes of UTF-16): the line `Date[dd/mm/yyyy] Time[hh.mm]` of the game's calendar and a line feed, which the saves' list shows where the header holds no computer's date;
 - the save's **name** (`0x83`, 64 bytes), which the saves' window, the quick save (`QUICKSAVE`) and the autosave (its number's text) give;
 - **the engine** (`0x80`): a few of its values (not read);
-- **the mouse** (`0x98`): the mouse's state;
+- **the mouse** (`0x98`): the mouse's state, the item on the cursor (`cMouse +0x68`) among it (**hypothesis**: that this part holds it); a save made with an item on the cursor puts it back on the cursor as it loads, in a new run of the game too, the backpack without it (**seen** 2026-11-18, #2822);
 - **the triggers** (`0x81`): the world's sectors (`0x63B580`, the same function loads them: `cWorld::load() sectors: #world[%d] #saved[%d]`, the sectors of the world and those it keeps a state of; each sector's record not read);
 - **the calendar** (`0x8B`): the day and the time;
 - **the blood** (`0x94`): the blood's stains on the ground (`0x401660`);
