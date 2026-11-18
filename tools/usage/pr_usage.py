@@ -81,7 +81,9 @@ SWITCH = re.compile(r'(?:^|[\n;&|(])\s*git\s+(?:-C\s+(\S+)\s+)?(switch|checkout)
 # The options of a switch that name the branch it creates.
 CREATE = {'switch': ('-c', '-C', '--create', '--force-create', '--orphan'), 'checkout': ('-b', '-B', '--orphan')}
 RENAME = re.compile(r'(?:^|[\n;&|(])\s*git\s+(?:-C\s+(\S+)\s+)?branch\s+(?:-[mM]|--move)\s+([^\n;&|]*)')
-ENTERED = re.compile(r'(?:Created|Entered) worktree at (.+?) on branch (\S+?)\.(?:\s|$)')
+# Claude Code writes the path and the branch bare or in quotes, straight or typographic (#2881).
+QUOTE = '''["'“”‘’]?'''
+ENTERED = re.compile(r'(?:Created|Entered) worktree at %s(.+?)%s on branch %s(\S+?)%s\.(?:\s|$)' % ((QUOTE,) * 4))
 # A session's own runs of this tool, which write the blocks, and of `gh pr create`; the pull request that the
 # answer of the one and of the other names.
 UPDATES = re.compile(r'(?:^|[\n;&|(])\s*(?:uv\s+run\s+(?:--\S+\s+)*)?(?:py(?:thon[\d.]*)?(?:\.exe)?\s+(?:-\S+\s+)*)?'

@@ -42,9 +42,11 @@ class Session:
     def bash(self, command):
         self.call('Bash', command=command)
 
-    def enter(self, worktree, branch):
-        self.call('EnterWorktree', 'Entered worktree at %s on branch %s. The session works there.' % (worktree, branch),
-                  path=worktree)
+    def enter(self, worktree, branch, quotes=('', '')):
+        """EnterWorktree's answer, its path and its branch between the quotes Claude Code writes them in."""
+        said = 'Entered worktree at %s on branch %s. The session works there.' % tuple(
+            quotes[0] + name + quotes[1] for name in (worktree, branch))
+        self.call('EnterWorktree', said, path=worktree)
         self.cwd, self.branch = worktree, branch
 
     def write(self, path):
@@ -72,6 +74,17 @@ class SwitchInWorktree(unittest.TestCase):
         s.branch = 'bug/2-b'
         s.bash('cargo test')
         self.assertEqual(s.counted(), ['bug/1-a'] * 3 + ['bug/2-b'] * 2)
+
+    def test_a_worktree_entered_by_a_quoted_answer_keeps_its_branch_until_a_switch(self):
+        # A worktree that `claim.py` added, so that only EnterWorktree's answer tells its branch (#2881).
+        for quotes in (('', ''), ('“', '”'), ('"', '"'), ("'", "'")):
+            s = Session()
+            s.enter(WORKTREE, 'bug/1-a', quotes)
+            s.bash('cargo build')
+            s.bash('git switch -c bug/2-b')
+            s.branch = 'bug/2-b'
+            s.bash('cargo test')
+            self.assertEqual(s.counted(), ['bug/1-a'] * 2 + ['bug/2-b'] * 2, quotes)
 
     def test_a_switch_after_a_cd_into_a_worktree_gives_it_the_branch_it_moves_to(self):
         s = Session()  # the session keeps recording its own checkout's branch, main
