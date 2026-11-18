@@ -34,6 +34,9 @@ const ROW: f32 = 32.0;
 const ITEM_SIZE: f32 = 29.0;
 const PALE: Color = Color::linear_rgb(0.89, 0.83, 0.66);
 const LIT: Color = Color::linear_rgb(0.98, 0.98, 0.98);
+/// Save Game's letters while the interface allows no save (seen, #2880: (255, 51, 51) on the
+/// original's frame, under the first window of a new game), in the frame's sRGB values.
+const REFUSED: Color = Color::linear_rgb(1.0, 0.2, 0.2);
 
 /// The window's items, in its order: their words' text names (the texts 1050, 1051, 1049, 1052
 /// and 1053) and the words where the texts lack them.
@@ -210,19 +213,19 @@ fn unveil(mut commands: Commands, mut windows: Query<(Entity, &mut Unveils, &mut
     }
 }
 
-/// Lights the item under the cursor, the others gold and Save Game grey while no save is
-/// allowed.
+/// Lights the item under the cursor, the others gold and Save Game red while no save is
+/// allowed, under the cursor too.
 fn light(
     lit: Res<Lit>,
     entries: Query<(&Entry, &Children)>,
     mut texts: Query<&mut TextColor>,
     refusing: crate::saves::Refusing,
 ) {
-    // Save Game greyed while the interface allows no save (`0x75ADB0`).
+    // Save Game red while the interface allows no save (`0x75ADB0`).
     let saves = crate::saves::allowed(&refusing);
     for (entry, children) in &entries {
         let colour = if *entry == Entry::SaveGame && !saves {
-            menu::ITEM_GREY
+            REFUSED
         } else if lit.0 == Some(*entry) {
             LIT
         } else {
