@@ -5,7 +5,8 @@
 //!
 //! The button is drawn while the hero is of the Dwarf's class and his skill 33's value is not 0:
 //! its pictures 1607 and 1608 where the smith's window shows as his or where none of the windows
-//! of the traders and the stashes shows (`0x75ADB0`), else the greyed 1609 and 1610; the second
+//! of the traders, the stashes and the dialogues shows (`0x75ADB0`), else the greyed 1609 and
+//! 1610; the second
 //! of each while a smith's window shows (its flag `0x10` clear, `0x7325C0`), the first else
 //! (`0x732550`; **seen**: the button darker as the window shows).
 
@@ -39,16 +40,21 @@ struct Forge(u32);
 
 /// The windows of the traders and the stashes but the smith's (`0x75ADB0`: the interface
 /// manager's `+0x90` the merchant's, `+0xB8` the combat master's, `+0xC0` the town stash's and
-/// `+0xD8` the players' trade, which the game has not; `+0x8C` the smith's).
+/// `+0xD8` the players' trade, which the game has not; `+0x8C` the smith's), and a dialogue's,
+/// one of the tooltips' windows of the manager's list `+0x124` (#2878).
 type Others<'w> = (
     Option<Res<'w, crate::town_stash::Opened>>,
     Option<Res<'w, crate::master::Master>>,
     Option<Res<'w, crate::merchant::Merchant>>,
+    Option<Res<'w, crate::talk::Shown>>,
 );
 
 /// Whether one of the [`Others`] shows.
-fn others_show((stash, master, merchant): &Others) -> bool {
-    stash.as_ref().is_some_and(|stash| stash.0.is_some()) || master.is_some() || merchant.is_some()
+fn others_show((stash, master, merchant, dialogue): &Others) -> bool {
+    stash.as_ref().is_some_and(|stash| stash.0.is_some())
+        || master.is_some()
+        || merchant.is_some()
+        || dialogue.is_some()
 }
 
 /// Whether the button may be used (`0x6B6890`, `0x6B7FBE`): the smith's window shows as the
@@ -260,5 +266,31 @@ mod tests {
         assert_eq!(picture(false, creature), 1610);
         assert!(usable(false, None) && usable(true, dwarf));
         assert!(!usable(true, None) && !usable(false, creature));
+    }
+
+    #[test]
+    fn a_dialogues_window_is_another_window_as_a_stashs_is() {
+        #[derive(Resource, Default)]
+        struct Shows(bool);
+        let mut app = App::new();
+        app.init_resource::<Shows>()
+            .add_systems(Update, |others: Others, mut shows: ResMut<Shows>| {
+                shows.0 = others_show(&others)
+            });
+        let shows = |app: &mut App| {
+            app.update();
+            app.world().resource::<Shows>().0
+        };
+        assert!(!shows(&mut app));
+        // A dialogue's window, one of the tooltips' that `0x75ADB0` takes as shown (#2878).
+        app.insert_resource(crate::talk::Shown::of(Entity::PLACEHOLDER));
+        assert!(shows(&mut app));
+        app.world_mut().remove_resource::<crate::talk::Shown>();
+        assert!(!shows(&mut app));
+        // The town stash's, while it is open.
+        app.insert_resource(crate::town_stash::Opened(None));
+        assert!(!shows(&mut app));
+        app.insert_resource(crate::town_stash::Opened(Some(Entity::PLACEHOLDER)));
+        assert!(shows(&mut app));
     }
 }

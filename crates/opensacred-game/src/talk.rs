@@ -241,6 +241,21 @@ pub struct Shown {
     labels: Vec<String>,
 }
 
+#[cfg(test)]
+impl Shown {
+    /// A window of no buttons and no text with the creature `creature`, for the tests of what
+    /// its showing holds back.
+    pub(crate) fn of(creature: Entity) -> Self {
+        Shown {
+            root: Entity::PLACEHOLDER,
+            creature,
+            functions: Vec::new(),
+            text: String::new(),
+            labels: Vec::new(),
+        }
+    }
+}
+
 /// The dialogue a creature speaks, its own (`+0x245`, [`Talk`]) or, without one, its type's of
 /// `SetRgnDialog` where it is of the townsfolk's sides and flags and hostile neither way
 /// (`0x549920`); found anew at each query.

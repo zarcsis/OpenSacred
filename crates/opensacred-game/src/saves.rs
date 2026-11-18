@@ -788,20 +788,24 @@ fn autosave_now(world: &mut bevy::prelude::World, number: u32) {
 }
 
 /// The windows whose showing refuses a save (`0x75ADB0`): the merchant's, the smith's, the combat
-/// master's and the town stash's (the players' trade, its fifth, the game has not).
+/// master's and the town stash's (the players' trade, its fifth, the game has not), and a
+/// dialogue's, one of the tooltips' windows of the manager's list `+0x124`, any of which shown
+/// refuses it too (#2878; seen: the quick save writes no file while a talk's window shows).
 pub type Refusing<'w> = (
     Option<Res<'w, crate::merchant::Merchant>>,
     Option<Res<'w, crate::blacksmith::Blacksmith>>,
     Option<Res<'w, crate::master::Master>>,
     Option<Res<'w, crate::town_stash::Opened>>,
+    Option<Res<'w, crate::talk::Shown>>,
 );
 
 /// Whether the interface allows a save: none of the `refusing` windows shows (`0x75ADB0`).
-pub fn allowed((merchant, smith, master, stash): &Refusing) -> bool {
+pub fn allowed((merchant, smith, master, stash, dialogue): &Refusing) -> bool {
     merchant.is_none()
         && smith.is_none()
         && master.is_none()
         && stash.as_ref().is_none_or(|stash| stash.0.is_none())
+        && dialogue.is_none()
 }
 
 /// A quick save or its load.
@@ -823,7 +827,7 @@ fn quick_keys(mut keys: crate::controls::KeysMut, refusing: Refusing, mut asked:
         if allowed(&refusing) {
             asked.0 = Some(Quick::Save);
         } else {
-            info!("saves: no quick save while a trader's or a stash's window shows");
+            info!("saves: no quick save while a trader's, a stash's or a dialogue's window shows");
         }
     } else if keys.take(crate::controls::Action::QuickLoad) {
         asked.0 = Some(Quick::Load);
@@ -981,6 +985,12 @@ pub(crate) mod tests {
         assert_eq!(press(&mut app, &[KeyCode::F9]), None);
         assert_eq!(press(&mut app, &[KeyCode::F8]), Some(Quick::Load));
         app.insert_resource(crate::town_stash::Opened(None));
+        assert_eq!(press(&mut app, &[KeyCode::F9]), Some(Quick::Save));
+        // A dialogue's window refuses it too (#2878), and its close allows it again.
+        app.insert_resource(crate::talk::Shown::of(Entity::PLACEHOLDER));
+        assert_eq!(press(&mut app, &[KeyCode::F9]), None);
+        assert_eq!(press(&mut app, &[KeyCode::F8]), Some(Quick::Load));
+        app.world_mut().remove_resource::<crate::talk::Shown>();
         assert_eq!(press(&mut app, &[KeyCode::F9]), Some(Quick::Save));
     }
 
