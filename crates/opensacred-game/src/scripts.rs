@@ -111,6 +111,8 @@ pub struct Started {
     /// of every hero's start, #1343).
     begins: Vec<Begins>,
     infos: Vec<(i32, String)>,
+    /// The modes that the scripts run in from the start, a loaded save's.
+    mode: Mode,
 }
 
 impl Started {
@@ -121,18 +123,21 @@ impl Started {
         self.state = saved.state;
         self.done = saved.done;
         self.rng = saved.rng;
+        self.mode = saved.mode;
         self.begins.clear();
         self.infos.clear();
     }
 }
 
 /// The scripts as a save keeps them (#1958): their state, the functions marked done and their
-/// `rand()`.
+/// `rand()`, and their modes, which a run left on for the creatures' queues that the save keeps
+/// (`npcs::SavedQueue`, #2890).
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Saved {
     pub state: quests::Scripts,
     pub done: Vec<String>,
     pub rng: Rng,
+    pub mode: Mode,
 }
 
 /// The scripts' drops as the scripts last left them, which a death's drops take (`drops`).
@@ -359,7 +364,9 @@ pub struct WorldRecords(pub Vec<Record>);
 /// `0x539613`). `SetAnimMode` turns the first on, `SetCinemaMode` both, and `SetPlayMode` of no
 /// creature both off (`0x4A4040`), whichever run of the scripts comes to them: a mode that a
 /// function leaves on holds through the runs after it (#1892).
-#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(
+    Resource, Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize,
+)]
 pub struct Mode {
     pub anim: bool,
     pub cinema: bool,
@@ -598,6 +605,7 @@ pub fn run(
             creatures,
             begins,
             infos,
+            mode: Mode::default(),
         },
     })
 }
@@ -724,7 +732,7 @@ impl Live {
             living: HashSet::new(),
             party: HashSet::new(),
             talking: false,
-            mode: Mode::default(),
+            mode: started.mode,
             flags: Vec::new(),
         }
     }
@@ -770,6 +778,7 @@ impl Live {
             state: self.state.clone(),
             done: self.runtime.done(),
             rng: self.rng.clone(),
+            mode: self.mode,
         }
     }
 
@@ -4722,6 +4731,7 @@ mod tests {
             creatures: HashSet::new(),
             begins: Vec::new(),
             infos: Vec::new(),
+            mode: Mode::default(),
         };
         let mut live = Live::new(runtime, started);
         // The cave's entrance puts the hero at its target, on the ground.
@@ -4847,6 +4857,7 @@ mod tests {
             // The new game's first window and a text, as the start leaves them.
             begins: vec![Begins::Own("Pre_Tutorial".into())],
             infos: vec![(1, "a tip".into())],
+            mode: Mode::default(),
         };
         // The save's: a variable and a quest of its play, a function done, its `rand()` on.
         let mut played = quests::Scripts::default();
@@ -4857,9 +4868,15 @@ mod tests {
             state: played,
             done: vec!["Region3Init".into()],
             rng: Rng::of(1, 2, 3),
+            mode: Mode {
+                anim: true,
+                cinema: false,
+            },
         };
         started.resume(saved.clone());
         assert!(started.begins.is_empty());
+        // The modes that a run left on come back with it (#2890).
+        assert!(started.mode.anim && !started.mode.cinema);
         assert!(started.infos.is_empty());
         // The play takes it on whole, and a save of it keeps it as it was.
         let live = Live::new(runtime, started);
@@ -4890,6 +4907,7 @@ mod tests {
             creatures: HashSet::new(),
             begins: Vec::new(),
             infos: Vec::new(),
+            mode: Mode::default(),
         };
         Live::new(runtime, started)
     }

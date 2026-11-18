@@ -1184,6 +1184,9 @@ pub struct Npcs {
     spawned: HashSet<(u32, u32)>,
     /// What became of the creatures that went with their sectors ([`Kept`]).
     kept: Kept,
+    /// A loaded save's queues of the kept creatures, by their placements, which each takes again
+    /// as its sector brings it back ([`Creatures`], #2890).
+    queues: HashMap<usize, SavedQueue>,
     /// The sectors come in with no creatures kept whose waters' crabs and fish wait for the
     /// sectors about them ([`swimmers`]).
     waters: Vec<(u32, u32)>,
@@ -4620,6 +4623,7 @@ impl Npcs {
                 .collect(),
             spawned: HashSet::new(),
             kept: Kept::default(),
+            queues: HashMap::new(),
             waters: Vec::new(),
             drawn: HashSet::new(),
         })
@@ -5454,6 +5458,10 @@ fn place_index(
             (&npcs.fight, &npcs.items),
         ),
     };
+    // A loaded save's queue of it, which it takes on again (#2890).
+    if let Some(queue) = npcs.queues.remove(&index) {
+        queue.give(commands, entity);
+    }
     // An item lies as the rules make it, once, of its level kept (#1125).
     let laid = if placement.lies || placement.quest.is_some() {
         laid_item(
@@ -6454,11 +6462,14 @@ fn stood_of(
 /// them back as their sectors come in, but for the hero's followers, which go with the hero
 /// ([`Following`]), the bodies that their dialogues hold lying where they fell (#2457); and the
 /// placements of the living and lying kept ones as the play left them (a weapon chosen anew, the
-/// death's functions left, a `RegionChange`'s type), by index.
+/// death's functions left, a `RegionChange`'s type), by index; and the queues of the kept ones in
+/// the world that the scripts' anim mode gave steps to take (#2890), which they take again as
+/// their sectors bring them back.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Creatures {
     kept: Kept,
     placements: Vec<(usize, Placement)>,
+    queues: Vec<(usize, SavedQueue)>,
 }
 
 /// The creatures as a save keeps them ([`Creatures`]); none without the NPCs.
@@ -6473,7 +6484,7 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
         ),
         Option<&fight::Health>,
         (Has<Dies>, Has<Talk>),
-        Option<&OnDeath>,
+        (Option<&OnDeath>, Option<&ScriptQueue>),
         (
             Has<crate::followers::Follower>,
             Has<crate::riding::OwnHorse>,
@@ -6482,9 +6493,13 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
     let world = &*world;
     let npcs = world.get_resource::<Npcs>()?;
     let heights = world.get_resource::<Heights>();
+    let now = world
+        .get_resource::<Time<bevy::time::Real>>()
+        .map_or(0.0, Time::<bevy::time::Real>::elapsed_secs_f64);
     let mut placements: HashMap<usize, Placement> = HashMap::new();
+    let mut queues = Vec::new();
     let mut gone = Vec::new();
-    for (placed, (at, way, ridden, corpse), health, dying, on_death, (follows, owned)) in
+    for (placed, (at, way, ridden, corpse), health, dying, (on_death, queue), (follows, owned)) in
         standing.iter(world)
     {
         let Some(level) = level_of(way, ridden, corpse) else {
@@ -6509,8 +6524,16 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
         if (follows || owned) && stood.is_some_and(|stood| !stood.lies()) {
             continue;
         }
+        // Its queue's steps, which it takes again as it comes back (#2890).
+        if let (Source::Kept(index), Some(queue), Some(_)) = (&placed.source, queue, stood) {
+            let saved = queue.saved(now);
+            if !saved.is_empty() {
+                queues.push((*index, saved));
+            }
+        }
         gone.push((placed, stood));
     }
+    queues.sort_by_key(|&(index, _)| index);
     let kept = npcs.kept.with_gone(gone);
     // The placements of those that went living or lying before; a killed one's comes back no
     // more.
@@ -6521,7 +6544,11 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
     }
     let mut placements: Vec<(usize, Placement)> = placements.into_iter().collect();
     placements.sort_by_key(|&(index, _)| index);
-    Some(Creatures { kept, placements })
+    Some(Creatures {
+        kept,
+        placements,
+        queues,
+    })
 }
 
 /// A follower of the hero as a save keeps it (#1959): what it is made of, where it stands on which
@@ -6529,7 +6556,7 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
 /// summoning left them, whether it is of the flag 4, its hands' items with their values, the items
 /// the hero gave it (`mercenaries`), and its effects; whether the scripts keep it to rise again
 /// ([`RisesAgain`]), and where it lies dead to rise, how long it has lain, its health its most
-/// (#2947).
+/// (#2947); and the steps of its queue under the scripts' anim mode (#2890).
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Following {
     made: Made,
@@ -6543,6 +6570,7 @@ pub struct Following {
     effects: Option<crate::effects::Effects>,
     rises: bool,
     lain: Option<f32>,
+    queue: SavedQueue,
 }
 
 /// What a saved follower is made of: a kept placement of its sector, a fill's placement of its
@@ -6594,6 +6622,7 @@ fn followed(
         effects: effects.cloned(),
         rises,
         lain,
+        queue: SavedQueue::default(),
     }
 }
 
@@ -6613,7 +6642,7 @@ pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
             Option<&crate::mercenaries::Given>,
             Option<&crate::effects::Effects>,
         ),
-        Has<RisesAgain>,
+        (Has<RisesAgain>, Option<&ScriptQueue>),
     ), Without<Dies>>();
     let mut lying = world.query_filtered::<(
         (Entity, &crate::followers::Follower, Option<&Placed>),
@@ -6626,6 +6655,9 @@ pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
     ), (With<Dies>, With<RisesAgain>)>();
     let world = &*world;
     let heights = world.get_resource::<Heights>();
+    let now = world
+        .get_resource::<Time<bevy::time::Real>>()
+        .map_or(0.0, Time::<bevy::time::Real>::elapsed_secs_f64);
     let order = world
         .get_resource::<crate::bar::Entries>()
         .map(|entries| entries.0.clone())
@@ -6645,11 +6677,14 @@ pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
                 (transform, way, health),
                 (mind, arms, ranked),
                 extra,
-                rises,
+                (rises, queue),
             )| {
                 let stood = stood_of((transform, way.level), health, (false, false), heights)?;
                 let kept = (placed, ranked, arms, extra, rises, None);
-                let following = followed(follower.escorted(), stood, (mind, way.stands), kept);
+                let mut following = followed(follower.escorted(), stood, (mind, way.stands), kept);
+                if let Some(queue) = queue {
+                    following.queue = queue.saved(now);
+                }
                 Some((entry(entity), following))
             },
         );
@@ -6729,6 +6764,7 @@ pub fn mount_of(world: &mut bevy::prelude::World) -> Option<Following> {
         effects: effects.cloned(),
         rises: false,
         lain: None,
+        queue: SavedQueue::default(),
     })
 }
 
@@ -6880,7 +6916,7 @@ pub fn follow_again(world: &mut bevy::prelude::World, followers: Vec<Following>)
             following.stands,
             following.escorted,
         );
-        let (rises, lain) = (following.rises, following.lain);
+        let (rises, lain, queue) = (following.rises, following.lain, following.queue.clone());
         let entity = match world.run_system_cached_with(respawn_following, following) {
             Ok(Ok(entity)) => entity,
             Ok(Err(e)) => {
@@ -6919,6 +6955,7 @@ pub fn follow_again(world: &mut bevy::prelude::World, followers: Vec<Following>)
             creature.insert(Dies::lying(lain));
             bevy::log::info!("npcs: a saved follower lies again, {lain:.1} s lain");
         }
+        queue.give_now(world, entity);
     }
     bevy::log::info!("npcs: the save's {count} followers back beside the hero");
 }
@@ -8754,6 +8791,7 @@ impl Npcs {
             creatures.kept.filled.len()
         );
         self.kept = creatures.kept;
+        self.queues = creatures.queues.into_iter().collect();
         // Each that lives away comes back with the sector of where it stood or is to be made,
         // which a save's play may have left it filed apart from (#2448, #2453), and each body
         // with the sector where it lies: a follower's with none (#2457).
@@ -9696,8 +9734,72 @@ pub(crate) fn lift(commands: &mut Commands, entity: Entity, stashed: &Stashed) {
 #[derive(Component, Default, Debug)]
 pub struct ScriptQueue(std::collections::VecDeque<Queued>);
 
+impl ScriptQueue {
+    /// Its steps as a save keeps them ([`SavedQueue`]), the real clock at `now` seconds.
+    pub fn saved(&self, now: f64) -> SavedQueue {
+        SavedQueue(self.0.iter().map(|step| step.saved(now)).collect())
+    }
+}
+
+/// A creature's [`ScriptQueue`] as a save keeps it (#2890; the original saves each creature's
+/// queue with it, `0x54B3D0`, docs/re/netscript.md): its steps, one begun taken again from its
+/// start (a teleport's or a cast's, a cast at a creature made at the place it was ordered at), a
+/// `Partikel`'s caster, of the run that saved, left out, and a `Wait`'s deadline of the real
+/// clock kept as the seconds left.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedQueue(Vec<Queued>);
+
+impl SavedQueue {
+    /// Whether it holds no step.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The queue that a load gives back, the real clock at `now` seconds.
+    fn loaded(self, now: f64) -> ScriptQueue {
+        ScriptQueue(
+            self.0
+                .into_iter()
+                .map(|step| match step {
+                    Queued::Wait {
+                        other,
+                        until: Until::Time(left),
+                    } => Queued::Wait {
+                        other,
+                        until: Until::Time(now + left),
+                    },
+                    step => step,
+                })
+                .collect(),
+        )
+    }
+
+    /// Gives `entity` this queue as the world's real clock stands then, where it holds a step.
+    pub fn give(self, commands: &mut Commands, entity: Entity) {
+        if self.is_empty() {
+            return;
+        }
+        commands.queue(move |world: &mut bevy::prelude::World| self.give_now(world, entity));
+    }
+
+    /// [`Self::give`] in the world at once.
+    pub fn give_now(self, world: &mut bevy::prelude::World, entity: Entity) {
+        if self.is_empty() {
+            return;
+        }
+        let now = world
+            .get_resource::<Time<bevy::time::Real>>()
+            .map_or(0.0, Time::<bevy::time::Real>::elapsed_secs_f64);
+        let steps = self.0.len();
+        if let Ok(mut creature) = world.get_entity_mut(entity) {
+            creature.insert(self.loaded(now));
+            bevy::log::info!("npcs: {entity} takes its saved queue of {steps} steps again");
+        }
+    }
+}
+
 /// A step of a creature's [`ScriptQueue`].
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 enum Queued {
     /// A walk to `to` (`NPC_Goto`, the kind 1) onto the level `onto`, the creature's own as it
     /// sets out where the record names no floor, where the original takes the creature's layer as
@@ -9730,6 +9832,7 @@ enum Queued {
     /// entry's `+0x14`), done at once (the step `0x59CE78`, #1890).
     Partikel {
         at: String,
+        #[serde(skip)]
         caster: Option<Entity>,
         numbers: Vec<i32>,
     },
@@ -9761,9 +9864,38 @@ enum Queued {
     Wait { other: Option<String>, until: Until },
 }
 
+impl Queued {
+    /// The step as a save keeps it ([`SavedQueue`]), the real clock at `now` seconds.
+    fn saved(&self, now: f64) -> Self {
+        match self {
+            Self::Phase { phase, .. } => Self::Phase {
+                phase: phase.again(),
+                begun: false,
+            },
+            Self::Cast { cast, .. } => Self::Cast {
+                cast: *cast,
+                begun: false,
+            },
+            Self::Partikel { at, numbers, .. } => Self::Partikel {
+                at: at.clone(),
+                caster: None,
+                numbers: numbers.clone(),
+            },
+            Self::Wait {
+                other,
+                until: Until::Time(deadline),
+            } => Self::Wait {
+                other: other.clone(),
+                until: Until::Time((deadline - now).max(0.0)),
+            },
+            step => step.clone(),
+        }
+    }
+}
+
 /// A `Wait`'s condition (the step `0x59CAA5`, the table `0x59F538`), which holds the queue while
 /// it holds.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 enum Until {
     /// `0x58`: while the anim mode is on, which no span of the Sacred campaign keeps past its run.
     Mode,
@@ -14604,14 +14736,75 @@ mod tests {
             on_death: DeathFunctions::default(),
             ..Placement::default()
         };
+        // The goblin walked under the anim mode, then waited 3 s more (#2890).
+        let walk = Queued::Walk {
+            to: Vec3::new(10.0, 0.0, 20.0),
+            onto: None,
+            orders: 1,
+            noted: Vec3::ZERO,
+        };
+        let waits = Queued::Wait {
+            other: None,
+            until: Until::Time(3.0),
+        };
         let creatures = Creatures {
             kept: saved,
             placements: vec![(7, goblin_made)],
+            queues: vec![(7, SavedQueue(vec![walk.clone(), waits]))],
         };
         // Through the save's bytes, as a load puts them back.
         let bytes = postcard::to_stdvec(&creatures).unwrap();
         let mut loaded: Creatures = postcard::from_bytes(&bytes).unwrap();
         assert_eq!(loaded, creatures);
+        // Its queue on the clock of the run that loads it: the wait's 3 s left from then.
+        let (index, queue) = loaded.queues[0].clone();
+        assert_eq!(index, 7);
+        let queue = queue.loaded(500.0);
+        assert_eq!(queue.0[0], walk);
+        assert_eq!(
+            queue.0[1],
+            Queued::Wait {
+                other: None,
+                until: Until::Time(503.0)
+            }
+        );
+        // A deadline of the run that saves, 10 s in, kept as the seconds left; a cast begun and
+        // a `Partikel`'s caster of that run left out.
+        let running = ScriptQueue(
+            [
+                Queued::Wait {
+                    other: Some("mona".into()),
+                    until: Until::Time(14.0),
+                },
+                Queued::Cast {
+                    cast: crate::creature_casts::ScriptCast::new(9, Entity::from_bits(42), Vec3::X),
+                    begun: true,
+                },
+                Queued::Partikel {
+                    at: "mona".into(),
+                    caster: Some(Entity::from_bits(42)),
+                    numbers: vec![1],
+                },
+            ]
+            .into(),
+        );
+        let bytes = postcard::to_stdvec(&running.saved(10.0)).unwrap();
+        let back = postcard::from_bytes::<SavedQueue>(&bytes).unwrap().0;
+        assert_eq!(
+            back[0],
+            Queued::Wait {
+                other: Some("mona".into()),
+                until: Until::Time(4.0)
+            }
+        );
+        assert_eq!(
+            back[1],
+            Queued::Cast {
+                cast: crate::creature_casts::ScriptCast::new(9, Entity::PLACEHOLDER, Vec3::X),
+                begun: false,
+            }
+        );
+        assert!(matches!(&back[2], Queued::Partikel { caster: None, .. }));
         let kept = &mut loaded.kept;
         assert_eq!(kept.again(7), Again::AtStood(stood(3300, 40)));
         assert_eq!(kept.again(8), Again::Not);
@@ -14746,6 +14939,7 @@ mod tests {
             effects: None,
             rises: true,
             lain: Some(7.5),
+            queue: SavedQueue(vec![Queued::Sound(7), Queued::Call("sprich_15".into())]),
         };
         let bytes = postcard::to_stdvec(&following).unwrap();
         assert_eq!(
