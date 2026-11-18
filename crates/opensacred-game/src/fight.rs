@@ -1493,8 +1493,9 @@ fn regenerate(
 }
 
 /// The hero's level-up (`0x564D60` from `0x57E160`): its attack, defence, damage, resistances,
-/// most health and regeneration by its new level, with what it holds and wears, its health
-/// refilled; a rise sounds `LEVELUP01` in the middle (`0x57E160` at `0x57EE84`, the event
+/// most health and regeneration by its new level, with what it holds and wears and its effects,
+/// its pace and its arts' skills with them, as every other recomputation makes them (`0x5796A0`,
+/// `statistics::refit`, #2821), its health refilled; a rise sounds `LEVELUP01` in the middle (`0x57E160` at `0x57EE84`, the event
 /// `(9, 0x10)`; #1167) and bursts the hero into its gold sparks (`0x57F504`, `level_sparks`,
 /// #2762).
 #[expect(
@@ -1513,13 +1514,22 @@ pub(crate) fn level_up(
             &mut Combat,
             &mut Health,
             &mut Regenerates,
-            Option<&crate::riding::Saddle>,
+            (
+                Option<&crate::riding::Saddle>,
+                Option<&crate::effects::Effects>,
+            ),
         ),
         (With<Body>, Without<Dies>),
     >,
     mut sounds: MessageWriter<crate::sfx::Play>,
+    (mut pace, mut arts): (
+        Option<ResMut<crate::hero::Hero>>,
+        Option<ResMut<crate::arts::HeroArts>>,
+    ),
 ) {
-    for (hero, base, holding, mut values, mut health, mut regenerates, saddle) in &mut heroes {
+    for (hero, base, holding, mut values, mut health, mut regenerates, (saddle, effects)) in
+        &mut heroes
+    {
         let level = experience.level;
         if health.level == level {
             continue;
@@ -1534,7 +1544,17 @@ pub(crate) fn level_up(
         }
         let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
         let skills = hero_skills(base, level, &holds);
-        *values = Combat(combat(base, level, holds.clone(), &skills, &rules));
+        let list = effects
+            .map(crate::effects::Effects::list)
+            .unwrap_or_default();
+        *values = Combat(opensacred_rules::fight::combat_with(
+            base,
+            level,
+            holds.clone(),
+            &skills,
+            &list,
+            &rules,
+        ));
         let most = crate::riding::Saddle::raise(
             saddle,
             hero_health_held(base, level, &holds, &skills, &rules),
@@ -1545,7 +1565,14 @@ pub(crate) fn level_up(
             most,
             level,
         };
-        regenerates.value = regeneration(base, level, &skills, &rules);
+        regenerates.value =
+            opensacred_rules::fight::regeneration_with(base, level, &skills, &list, &rules);
+        if let Some(pace) = pace.as_deref_mut() {
+            pace.pace = values.pace_factor();
+        }
+        if let Some(arts) = arts.as_deref_mut() {
+            arts.skills = skills;
+        }
     }
 }
 
@@ -1770,6 +1797,64 @@ pub struct Health {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_hero_rising_a_level_keeps_its_effects_part_of_its_values() {
+        let mut world = World::new();
+        world.init_resource::<Messages<crate::sfx::Play>>();
+        world.insert_resource(Rules::default());
+        let mut experience = Experience::default();
+        experience.level = 5;
+        world.insert_resource(experience);
+        let base = opensacred_rules::fight::Base {
+            attributes: [30, 20, 20, 25, 10, 10],
+            ..opensacred_rules::fight::Base::default()
+        };
+        // The effect 1, `A`'s multiplier, half again.
+        let mut effects = crate::effects::Effects::default();
+        effects.add(opensacred_rules::fight::Effect::new(1, 0.5), 60.0);
+        let rules = opensacred_rules::fight::Rules::default();
+        let hero = world
+            .spawn((
+                Body::standing(),
+                Base(base),
+                Combat(opensacred_rules::fight::combat(
+                    &base,
+                    4,
+                    Holds::default(),
+                    &[],
+                    &rules,
+                )),
+                Health {
+                    current: 50,
+                    most: 50,
+                    level: 4,
+                },
+                Regenerates(opensacred_rules::fight::Regenerates::new(0.0)),
+                effects.clone(),
+            ))
+            .id();
+        world.run_system_cached(level_up).unwrap();
+        world.flush();
+        let skills = hero_skills(&base, 5, &Holds::default());
+        let with = opensacred_rules::fight::combat_with(
+            &base,
+            5,
+            Holds::default(),
+            &skills,
+            &effects.list(),
+            &rules,
+        );
+        let without = combat(&base, 5, Holds::default(), &skills, &rules);
+        let attack = world.get::<Combat>(hero).unwrap().0.attack;
+        assert!(
+            (attack - with.attack).abs() < 1e-4,
+            "{attack} {}",
+            with.attack
+        );
+        assert!(attack > without.attack);
+        assert_eq!(world.get::<Health>(hero).unwrap().level, 5);
+    }
 
     #[test]
     fn an_immortal_takes_the_hits_but_keeps_its_health() {
