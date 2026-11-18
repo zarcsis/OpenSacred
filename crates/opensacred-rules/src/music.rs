@@ -349,6 +349,18 @@ impl Fight {
         self.calm = false;
     }
 
+    /// The end of its music that the scripts ask (`0x697710`: a `SetScriptSoundControle` of 1 and a
+    /// jingle but the fanfares, outside the indoor arena; docs/re/sound.md, "Scripts and notices",
+    /// #2912): whether one played, which no longer plays, the next held off as at its own end.
+    pub fn end(&mut self) -> bool {
+        if !self.playing {
+            return false;
+        }
+        self.playing = false;
+        self.held = HELD_OFF;
+        true
+    }
+
     /// Whether a fight's music may cut in now (`0x695E70`): not while one is held off or the
     /// once-stream plays; the caller refuses it also in the indoor arena and under the scripts'
     /// control.
@@ -1008,12 +1020,18 @@ mod tests {
         calm.calm = true;
         assert_eq!(second(&mut fight, &calm, &mut dice), [Cue::End]);
         assert!(!fight.playing());
+        // Nothing playing, the scripts end nothing (#2912).
+        assert!(!fight.end());
         let cues = second(&mut fight, &scene(&foes, 9, Phase::Music), &mut dice);
         assert!(cues.is_empty());
         for _ in 0..9 {
             second(&mut fight, &scene(&foes, 9, Phase::Music), &mut dice);
         }
         assert!(fight.playing());
+        // The scripts end it among the foes, and the next waits its 10 s again (#2912).
+        assert!(fight.end());
+        assert!(!fight.playing());
+        assert!(second(&mut fight, &scene(&foes, 9, Phase::Music), &mut dice).is_empty());
     }
 
     #[test]
