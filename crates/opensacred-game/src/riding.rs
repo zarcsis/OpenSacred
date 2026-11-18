@@ -597,7 +597,7 @@ fn pick(
                 aim.0 = true;
                 if keys.pressed(Action::Walk) {
                     debug!("riding: the hero gets off {horse}");
-                    commands.queue(move |world: &mut World| get_off(world, me, true));
+                    commands.queue(move |world: &mut World| get_off(world, me, (true, true)));
                 }
             }
             Some(seat) if seat.busy() || seat.ridden().is_some() => {}
@@ -834,6 +834,9 @@ fn dismount(mut commands: Commands, time: Res<Time>, mut heroes: Query<(Entity, 
 /// Carries each ridden horse under its rider, its walk or run playing as the rider moves
 /// (`0x5941A0` copies the horse's place into its rider; here the rider's into its horse); a
 /// rider whose horse is dead or gone, or who dies, is thrown off at once (`0x53ECA0`, `0x5375C0`).
+/// A rider that a script's `Teleport` puts somewhere (`hero::Body::landing`) gets off at once and
+/// lands there on foot, its horse left where it stood (docs/decisions/netscript.md, "Mounted hero
+/// dismounted by a teleport", #2798).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their filters"
@@ -848,6 +851,11 @@ fn carry(
         let Some(horse) = seat.ridden() else {
             continue;
         };
+        if body.landing() {
+            info!("riding: the hero is put elsewhere and leaves {horse} where it stands");
+            commands.queue(move |world: &mut World| leave(world, me));
+            continue;
+        }
         match horses.get_mut(horse) {
             Ok((mut at, mut steered, false)) if !dying => {
                 at.translation = transform.translation;
@@ -866,7 +874,7 @@ fn carry(
                     info!("riding: the hero loses {horse}");
                 }
                 debug!("riding: the hero is thrown off {horse}");
-                commands.queue(move |world: &mut World| get_off(world, me, false));
+                commands.queue(move |world: &mut World| get_off(world, me, (false, true)));
             }
         }
     }
@@ -1033,14 +1041,20 @@ fn unbridle(
 /// Throws the hero `me` off its horse at once, without its dismount's clip, as a knock-down
 /// throws a rider off (`0x56E462`, #2311).
 pub(crate) fn throw_off(world: &mut World, me: Entity) {
-    get_off(world, me, false);
+    get_off(world, me, (false, true));
+}
+
+/// Gets the hero `me` off its horse at once where it stands, without its dismount's clip, as a
+/// script's `Teleport` puts it elsewhere on foot (#2798).
+fn leave(world: &mut World, me: Entity) {
+    get_off(world, me, (false, false));
 }
 
 /// Gets the hero `me` off its horse (the sub-state 5, `0x551E40`, which the horse's death takes
 /// too, `0x53ECA0`): its model off the horse's bone, the horse back in the way, standing; the
-/// hero stands at the point by the horse, and plays its dismount where `clip`; a horse gone
-/// leaves it where it is.
-fn get_off(world: &mut World, me: Entity, clip: bool) {
+/// hero stands at the point by the horse where `by_horse`, else where it is, and plays its
+/// dismount where `clip`; a horse gone leaves it where it is.
+fn get_off(world: &mut World, me: Entity, (clip, by_horse): (bool, bool)) {
     let Some(Seat::Riding { horse, .. }) = world.get::<Seat>(me).copied() else {
         return;
     };
@@ -1052,7 +1066,7 @@ fn get_off(world: &mut World, me: Entity, clip: bool) {
         }
     }
     let speed = world.get_resource::<GameSpeed>().map_or(1.0, |s| s.0);
-    let placed = place(world, horse, true);
+    let placed = by_horse.then(|| place(world, horse, true)).flatten();
     // Nor without the options' atmospheric animation (`PICKUPANIM`).
     let clip = clip && crate::pickup::animated(world.get_resource::<crate::settings::Settings>());
     let dismount = clip
@@ -1076,7 +1090,7 @@ fn get_off(world: &mut World, me: Entity, clip: bool) {
         transform.translation.z = point.z;
         transform.rotation = hero::facing(heading);
     }
-    if let Some(mut body) = world.get_mut::<Body>(me) {
+    if by_horse && let Some(mut body) = world.get_mut::<Body>(me) {
         body.stop();
     }
     let player = world.get_resource::<Clips>().and_then(|clips| clips.player);
@@ -1134,7 +1148,7 @@ pub fn ride(world: &mut World, id: Option<Entity>) -> Result<String, String> {
         .map(|(me, at, seat)| (me, at.translation, seat.copied()))
         .ok_or("the hero is not in the world yet")?;
     if let Some(Seat::Riding { horse, .. }) = seat {
-        get_off(world, me, true);
+        get_off(world, me, (true, true));
         return Ok(format!("the hero gets off {horse}"));
     }
     let mut horses = world
@@ -1270,6 +1284,65 @@ mod tests {
                 Piece::Image(..) => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn a_rider_put_elsewhere_by_a_teleport_gets_off_there_and_leaves_its_horse() {
+        let mut world = World::new();
+        world.init_resource::<Owned>();
+        let stable = Vec3::new(100.0, 0.0, 100.0);
+        let horse = world
+            .spawn((
+                Transform::from_translation(stable),
+                Horse { class: 1 },
+                Steered::default(),
+            ))
+            .id();
+        let me = world
+            .spawn((
+                Transform::from_translation(stable),
+                Body::standing(),
+                Seat::Riding {
+                    horse,
+                    speeds: [200.0, 400.0],
+                    offset: Vec3::ZERO,
+                },
+            ))
+            .id();
+        world.entity_mut(horse).insert(Ridden::by(me, None));
+        // Riding about, the horse goes under it.
+        world
+            .entity_mut(me)
+            .get_mut::<Transform>()
+            .unwrap()
+            .translation = Vec3::new(120.0, 0.0, 100.0);
+        world.run_system_cached(carry).unwrap();
+        world.flush();
+        assert_eq!(
+            world.get::<Transform>(horse).unwrap().translation,
+            Vec3::new(120.0, 0.0, 100.0)
+        );
+        // A script's `Teleport` puts it far away: it gets off there, the horse left behind.
+        let far = Vec3::new(5_000.0, 0.0, 3_000.0);
+        let mut hero = world.entity_mut(me);
+        let mut transform = *hero.get::<Transform>().unwrap();
+        hero.get_mut::<Body>()
+            .unwrap()
+            .put(&mut transform, far, hero::Arrival::On(Some(0)));
+        hero.insert(transform);
+        world.run_system_cached(carry).unwrap();
+        world.flush();
+        assert!(world.get::<Seat>(me).is_none());
+        assert_eq!(
+            world.get::<Transform>(me).unwrap().translation.xz(),
+            far.xz()
+        );
+        assert_eq!(
+            world.get::<Transform>(horse).unwrap().translation,
+            Vec3::new(120.0, 0.0, 100.0)
+        );
+        assert!(world.get::<Ridden>(horse).is_none());
+        assert!(world.get::<Body>(me).unwrap().landing());
     }
 
     #[test]
