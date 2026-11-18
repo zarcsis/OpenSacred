@@ -4,7 +4,7 @@
 
 * The work is done solo and almost entirely through Claude Code: the queue is the issues, a session takes a task, and the maintainer sets the tasks, reviews and plays.
 * The milestones M0 to M6 lead to version 1.0 for Windows 11; M7 to M9 come after it.
-  By 2026-11-17 M0 to M5 are done and every issue of M6 is closed; version 1.0 itself waits for the maintainer's own play-through (PLAN.md G5).
+  By 2026-11-17 M0 to M5 are done and every issue of M6 was closed; M6 then took what the documents' audit found (#2787, #2845), and version 1.0 itself waits for the maintainer's own play-through after it (PLAN.md G5).
 * No estimates of time or cost are kept.
   Those of 2026-10-16, in agent-hours, maintainer hours and dollars, were dropped on 2026-11-17 as out of date (#2846).
   What the work takes is recorded as it is done, in every pull request's usage and the README's badge (`docs/usage.md`).
@@ -65,8 +65,8 @@
 * Settings, layouts, 4K and HiDPI, polish, fixing bugs found in playthroughs; the Underworld campaign's script forms and the difficulty's remaining rules (from M5, 2026-11-03); the hero's export (from M9, 2026-11-10, #2358).
   The saves and the autosave went to M5 on 2026-11-03 (#1095), the gamepad to M8 on 2026-11-09 (#1097).
 * **Exit criterion:** both campaigns (Sacred and Underworld) completed by the maintainer without critical bugs.
-* **Status 2026-11-17:** every issue closed, the milestone open.
-  Among them the player's release with the Steam installation (#1494, #1484), the keys in `controls.toml` (#1553), the options window (#1096), 4K and HiDPI (#1098), the horses (#1822), the Underworld campaign (#1117) and the hero's export (#2358); both campaigns were played through to their ends in Claude Code's driven runs on 2026-11-10 (#1099).
+* **Status 2026-11-18:** every issue of the plan closed by 2026-11-17; open are the defects that the documents' audit read (#2787) and what the notes list as not followed (#2845), 104 issues, which come before the play-through by the maintainer's decisions of that day.
+  Among the closed are the player's release with the Steam installation (#1494, #1484), the keys in `controls.toml` (#1553), the options window (#1096), 4K and HiDPI (#1098), the horses (#1822), the Underworld campaign (#1117) and the hero's export (#2358); both campaigns were played through to their ends in Claude Code's driven runs on 2026-11-10 (#1099).
   The exit criterion, the maintainer's own play-through, is what version 1.0 waits for (PLAN.md G5, #2479).
 
 ### M7. HD assets

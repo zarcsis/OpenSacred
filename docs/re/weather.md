@@ -142,13 +142,13 @@ The snow's 3,000 flakes move on the CPU as the original's (`skies::Flakes`), the
 The drops and the flakes are lit by the night's colour over the whole screen, not by the light where each falls (`0x41B510`).
 None of the three is drawn in a dungeon, nor, since #2342, at the settings' `[graphics] detail` of 0, the original's `DETAILLEVEL`.
 A quake (`opensacred_rules::weather::Event::Quake`) moves the camera after it follows the hero by a random offset within the amplitude, in the original's pixels at the zoom, at each frame but in a pause, and plays the earthquake's sound as it comes; the console's `setquake` and the Gladiator's jump send it, and so do the systems the game makes: the hail's meteors (`meteors`), the mines' and the bomb trap's blasts (`explosions`), the mortar's impact (`grenade_impacts`), the Daemon's ring of poison and his charge's blast (`poison_rings`) and the forge's air element (`forge_elements`).
-Not yet: the Daemon's charge's own 45 as he lands, and the 30 of the Seraphim's hit sparks of 1003.
+Not followed: the Daemon's charge's own 45 as he lands, which the blast's 30 replaces at once, and the 30 of the Seraphim's hit sparks of 1003, an art that the Gladiator alone has.
 Since #1096 the settings' `[graphics] screen_quake` is the original's `SCREEN_QUAKE`, on by default: off, a quake and a jolt are dropped as they come, the earthquake's sound with them (`weather::Weather::set`), as the original drops them (`0x81DDE0` at `0x419CD1` and `0x419D42`).
 The crows and the bats fly over the camera as above (`fliers`, #1073): `opensacred-convert world` writes each sector's byte into `world.ron` (`nature`, `fliers` before #1093), `opensacred_rules::weather` keeps the timer on the rolls the weather shares, and the camera's point is the hero's, which the camera follows; a flier is a model among the others, drawn at the cell under it (`models::Ordered`), lit as they are, its call in the middle.
 Seen 2026-10-27 in 51,51 at noon: a crow 134 s after the hero came, flying right and down over the screen, about 70 pixels across at zoom 1, and its call 13 s after it started; not yet set beside the original's.
 The butterflies fly (`butterflies`, #1073): as a sector of their entries comes in, ten swarms an entry at walkable places at random, as docs/re/effects.md ("The butterflies") reads them; they go with the sector.
 The Big Demon's steps jolt the screen (`steps`, #1171), and so does the big demons' fire (`creature_casts`): the weather's jolt moves the view down by a third of its value in pixels, falling by 40 a second, after the quake's offset (`skies`).
-Not followed: the snow that the item set 39 sends about its wearer (the kind 5 above); only the sectors' entries and the console's `setsnow` make snow.
+Not followed yet (#2911): the snow that the item set 39 sends about its wearer (the kind 5 above); only the sectors' entries and the console's `setsnow` make snow.
 
 Set beside the original on 2026-10-27, by the driver's `weather` (docs/03 §3.8) and the console's `setrain` and `setfog`, the start of a Seraphim's game at noon (frames in the scratchpad):
 

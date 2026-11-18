@@ -302,7 +302,7 @@ Since its second part a click on a creature's or a container's label with Alt he
 Since its third part each creature's box is its type's size above (`labels::creature_size`).
 Since its fourth part the dead lying (whose minds the game takes away as they die, `npcs::Corpse`, so that they had no label before), the containers and the specials (the signposts, `npcs::Special`) take their models' boxes (`labels::model_box`, `vertices::ModelPoints::bounds_points`), the eight corners' screen box; a container whose model is not drawn yet takes the chest's estimate.
 **Seen** 2026-11-07 at the Seraphim's start, Alt held: a killed goblin's grey label at the top left of its body lying, which had none before, and the chest's at its model's top left.
-Not followed: the mounts' labels and the stargate 1180's.
+Not followed yet (#2927): the mounts' labels and the stargate 1180's.
 Since #2234 the townsfolk show their doings' icons while Alt is held (`icons`, `opensacred_rules::minds::{activity, activity_icon}`): the game's townsfolk write their doings where the original's do (`ai`), the slap's at a meeting among them since #2251, but the visits' barbecue (19), the doors' retries (20, 21, 27) and the animals' and the fields' doings, which it does not follow.
 **Seen** 2026-11-07 at the Seraphim's start, Alt held: a novice's doing's icon over her head above her label.
 
@@ -372,10 +372,10 @@ Since #1529 the art slots hold their arts (`art_slots`): a new game's first hold
 **Seen** in the game beside the original's frames: 1070 taken from the spells page with every empty slot green, dropped on the second slot, which took the gold ring; the selected slot cleared to its pale blue orb; the key 6 selecting the first.
 Since #1530 a slot holds a combo too, from the combos page (`combos_page`, docs/re/arts.md): its images 801 to 812 split by its share regenerated, no slot green while the cursor holds one; a slot that holds a combo runs it with the right button since #1531 (`combos`, docs/re/arts.md, "A hero's combos").
 Since #1536 the keys F1 to F6 put the arts bound to them into the selected slot (`spells_page`, docs/re/arts.md, "The spells page").
-Not followed for them: the Vampiress's second bank; since #1694 a slot shows its art's tooltip (docs/re/arts.md, "The art's tooltip").
+Not followed for them yet: the Vampiress's second bank (#2928); since #1694 a slot shows its art's tooltip (docs/re/arts.md, "The art's tooltip").
 
 The Options button opens the menu over the game (`esc_menu`, docs/re/menus.md), the Map button the world map (`world_map`, docs/re/maps.md) and the Book button the quest book (`quest_book`, docs/re/questbook.md).
-Not followed yet: the buttons' pressed images, the damage icons in the left slots, the sparkle of the flag `0x20000000`, and the disc's and the compass's texts.
+Not followed yet: the buttons' pressed images (#2924), the damage icons in the left slots (#2925), the sparkle of the flag `0x20000000` (which button takes it is not read, #2926), and the disc's and the compass's texts.
 
 Since #1462 the scripts keep the quests' compasses (`opensacred_rules::quests`: `Compass`, `Target`, `Quests::set_compass`, `Quests::marker`, `side_alpha`): `QuestKompassPos` and `QuestKompassObj` as above, of the running function's quest without a number, a compass waiting for the next quest entered, the newest main and side quest, and the new markers for the sonar (`Quests::take_fresh`).
 `compass` draws them on the bar: the needle (image 101) turned about (512, 710) toward the newest main quest's target, the inner pin (image 136) on its ellipse toward the newest side quest's, fading within its radius, the angle φ clockwise from up of the target's place less the hero's as the camera shows them; a cell's target is its centre, a named one the creature of that name in the scripts (`npcs::ScriptName`) where it stands.
