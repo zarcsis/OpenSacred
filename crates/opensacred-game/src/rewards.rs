@@ -53,11 +53,18 @@ const MOST_GIVEN: u32 = 0xFFFE;
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct QuestWon(pub u32);
 
-/// The runes of its class that the quests gave the hero (the player's `+0x5710`, `0x424690`),
-/// which weigh against the next ([`opensacred_rules::drops::Rules::quest_rune_range`]); kept for
-/// the session (**hypothesis**: the original keeps it with the player).
-#[derive(Resource, Default)]
+/// The runes of its class that the quests gave the hero (the player's statistics' `+0x5710`,
+/// `0x424690`), which weigh against the next
+/// ([`opensacred_rules::drops::Rules::quest_rune_range`]); a save keeps it with the hero, as the
+/// original's keeps its player's statistics (`saves::Hero`, #2799), and a new game starts it
+/// at 0 ([`start`]).
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct RunesGiven(pub(crate) u32);
+
+/// A new game's count of the runes given, from nothing (#2799).
+fn start(mut given: ResMut<RunesGiven>) {
+    *given = RunesGiven::default();
+}
 
 impl RunesGiven {
     fn one_more(&mut self) {
@@ -344,6 +351,7 @@ impl Plugin for RewardsPlugin {
         app.init_resource::<RunesGiven>()
             .init_resource::<Unearned>()
             .add_message::<QuestWon>()
+            .add_systems(OnEnter(AppState::InGame), start)
             .add_systems(
                 Update,
                 (reward, quest_runes, experience_line)

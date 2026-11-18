@@ -82,8 +82,9 @@ use crate::{arts, drops, making};
 /// a creature's defending slot, its parry's (#2487); the version 14 whether its model has a dying
 /// clip in the slot 173 (#2514); the version 15 the hero's wins of each difficulty (#2464); the
 /// version 16 the type of a placement's prison, a magic one's or a bubble's (#2750); the version
-/// 17 the item on the cursor (#2822).
-pub const VERSION: u32 = 17;
+/// 17 the item on the cursor (#2822); the version 18 the runes of its class given the hero
+/// (#2799).
+pub const VERSION: u32 = 18;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -130,6 +131,8 @@ pub struct Hero {
     pub history: History,
     /// The hero's wins of each difficulty (#2464).
     pub wins: Wins,
+    /// The runes of its class that the quests gave it (`rewards::RunesGiven`, #2799).
+    pub runes_given: u32,
     /// The seconds played, which the creatures' levels and the fills follow (`drops::Played`).
     pub played: f32,
     pub clock: Clock,
@@ -397,6 +400,9 @@ pub(crate) fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(He
         kills: world.get_resource::<Kills>().cloned().unwrap_or_default(),
         history: world.get_resource::<History>().cloned().unwrap_or_default(),
         wins: world.get_resource::<Wins>().copied().unwrap_or_default(),
+        runes_given: world
+            .get_resource::<crate::rewards::RunesGiven>()
+            .map_or(0, |given| given.0),
         played: world
             .get_resource::<drops::Played>()
             .map_or(0.0, drops::Played::seconds),
@@ -624,6 +630,7 @@ fn put_character(world: &mut bevy::prelude::World, entity: Entity, hero: &Hero) 
     world.insert_resource(hero.kills.clone());
     world.insert_resource(hero.history.clone());
     world.insert_resource(hero.wins);
+    world.insert_resource(crate::rewards::RunesGiven(hero.runes_given));
     world.insert_resource(drops::Played::of(hero.played));
     if let Err(e) = world.run_system_cached(refit) {
         warn!("saves: making the hero's values anew: {e}");
@@ -1055,6 +1062,7 @@ pub(crate) mod tests {
             kills: Kills::default(),
             history: History::default(),
             wins: Wins([0, 1, 0, 0, 0]),
+            runes_given: 3,
             played: 125.0,
             clock: Clock::at(21, 30),
         }
@@ -1136,6 +1144,7 @@ pub(crate) mod tests {
         assert_eq!(read_hero.at, (1234.5, 6789.0));
         assert_eq!((read_hero.floor, read_hero.health), (1, 99));
         assert_eq!(read_hero.selected, Some(1078));
+        assert_eq!(read_hero.runes_given, 3);
         assert_eq!(read_hero.home.map(|home| home.cell), Some((3236, 2511)));
         assert!((read_hero.clock.minutes() - (21.0 * 60.0 + 30.0)).abs() < 1e-6);
         // The scripts whole: their state, the functions done, the `rand()` and the placements'.
@@ -1209,7 +1218,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (17, 0x8AAB_36CB_9950_1BA2),
+            (18, 0x520D_9A7B_0D89_BF70),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
