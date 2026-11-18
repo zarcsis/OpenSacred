@@ -6600,10 +6600,6 @@ fn followed(
 /// The hero's followers as a save keeps them ([`Following`]), in the order of their entries in
 /// the portraits' column: the living, and those that lie dead to rise again with how long they
 /// have lain (#2947).
-#[expect(
-    clippy::type_complexity,
-    reason = "a query of the world carries its components and filters"
-)]
 pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
     let mut heroes = world.query_filtered::<Entity, With<hero::Body>>();
     let Some(hero) = heroes.iter(world).next() else {
