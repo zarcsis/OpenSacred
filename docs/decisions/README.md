@@ -33,8 +33,6 @@ Each file holds one table, a row per decision, sorted by its first column:
   - `better`: the game does it another way, for which the play is better;
   - `repair`: a defect of the original is mended: of its data by the converter, of its behavior by the game, or a text of the original that disagrees with what its code does (CLAUDE.md, "Code conventions");
   - `limitation`: an engine's or a format's limit, or a way of the original that costs too much to follow yet; such a departure is never written as `simpler`.
-
-  A row of before 2026-11-17 may still carry `deviation`, the play or the look differing by choice, until its ground is sorted (#2863).
 - **Issues**: the issues and pull requests behind the decision.
 
 ## Taking a decision
