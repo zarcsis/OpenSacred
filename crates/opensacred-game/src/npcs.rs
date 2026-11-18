@@ -9519,8 +9519,8 @@ pub struct AreaChanges(Vec<quests::AreaChange>);
 /// [`Npcs::add`] those away from it): each creature of a placement that its area's change turns,
 /// where it stands now, is made again of the new type in its place, on its floor, with its share
 /// of health, its group, its dialogue and its death's functions, its sector's still; a kept one's
-/// placement changes with it. The hero's followers and the creatures of no placement (the
-/// console's, the summons) are not changed.
+/// placement changes with it. The followers, hired already or to be hired (#2839), and the
+/// creatures of no placement (the console's, the summons) are not changed.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -9545,7 +9545,11 @@ fn region_changes(
                 Option<&Talk>,
             ),
         ),
-        (Without<Dies>, Without<crate::followers::Hired>),
+        (
+            Without<Dies>,
+            Without<crate::followers::Hired>,
+            Without<crate::followers::Follower>,
+        ),
     >,
 ) {
     if changes.0.is_empty() {
@@ -10641,7 +10645,8 @@ pub(crate) struct Morphs(Vec<Morph>);
 /// Carries out the scripts' `Morph`s (`0x464170`, #1829): each creature of the name in the world
 /// is made again of the new type where it stands, on its floor, with its placement's side (a
 /// `SetNPCState` of the same run already in it), its group, its dialogue, its death's functions
-/// and its hire, its sector's still and its placement changed with
+/// and its hire, a follower hired again by its master (#2839), its sector's still and its
+/// placement changed with
 /// it, as a `RegionChange` makes one (#1064); at once at the level that the level's setter gives
 /// the level 1 (or the level that a `SetNPCState` after it gives), its health whole; at its turn
 /// in its queue at its level and its share of health. The original keeps the same object, its
@@ -10672,7 +10677,10 @@ fn morph(
                 Option<&Remakes>,
                 Option<&OnDeath>,
                 Option<&Talk>,
-                Option<&crate::followers::Hired>,
+                (
+                    Option<&crate::followers::Hired>,
+                    Option<&crate::followers::Follower>,
+                ),
             ),
         ),
         Without<Dies>,
@@ -10686,8 +10694,12 @@ fn morph(
     let hero = experience.level;
     let time = played.time(holding.iter().next());
     for morphed in std::mem::take(&mut morphs.0) {
-        for (entity, (named, at, way), (health, mind), (placed, remakes, on_death, talk, hired)) in
-            &creatures
+        for (
+            entity,
+            (named, at, way),
+            (health, mind),
+            (placed, remakes, on_death, talk, (hired, follower)),
+        ) in &creatures
         {
             if named.0 != morphed.name {
                 continue;
@@ -10776,6 +10788,12 @@ fn morph(
             }
             if let Some(hired) = hired {
                 commands.entity(made).insert(*hired);
+            }
+            // A follower stays its master's (#2839).
+            if let Some(&follower) = follower {
+                commands.queue(move |world: &mut bevy::prelude::World| {
+                    crate::followers::rehire(world, made, follower.master, follower.escorted());
+                });
             }
             match placed {
                 Some(placed) => {
