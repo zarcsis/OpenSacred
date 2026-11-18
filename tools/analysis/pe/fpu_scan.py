@@ -4,10 +4,11 @@
 Purpose (docs/01 §7: x87 precision, rounding, random numbers, hero data protection)
   1. All fnstcw/fldcw/fninit/fclex/ldmxcsr/stmxcsr sites, split into "game code" (< --game-end) / CRT tail;
      for fldcw, the control word value (PC=24/53/64 bits, RC) if it can be recovered from the operand
-     or from a preceding mov [slot], imm.
+     or from a preceding mov [slot], imm, or mov reg, imm; mov [slot], reg.
   2. For each function with fldcw (candidates _ftol/_control87/_fpreset/CRT math): its entry and the number of calls
      from game code and from libraries.
-  3. RNG constants (MSVC rand 214013/2531011, MT19937, Park–Miller, ...) as imm in code and as raw LE dwords.
+  3. RNG constants (MSVC rand 214013/2531011, MT19937, Park–Miller, ...) and the name hash's modulus as imm in code
+     and as raw LE dwords with their sections.
   4. VirtualProtect call sites with recovered push arguments (lpAddress, dwSize, flNewProtect) and section.
 
 Examples
@@ -69,11 +70,13 @@ ins_list = [i for i in ins_list if i.id != 0]
 addr_idx = {i.address: k for k, i in enumerate(ins_list)}
 addrs = [i.address for i in ins_list]
 
-# call graph
-call_targets = collections.defaultdict(list)
+# call graph, and the addresses that jumps name
+call_targets = collections.defaultdict(list); jump_targets = set()
 for ins in ins_list:
-    if ins.id == X86_INS_CALL and ins.operands[0].type == X86_OP_IMM:
-        call_targets[ins.operands[0].imm].append(ins.address)
+    if ins.id == X86_INS_CALL:
+        if ins.operands[0].type == X86_OP_IMM: call_targets[ins.operands[0].imm].append(ins.address)
+    elif ins.group(X86_GRP_JUMP) and ins.operands[0].type == X86_OP_IMM:
+        jump_targets.add(ins.operands[0].imm)
 target_sorted = sorted(call_targets)
 def func_entry(a):
     """nearest call target at or before a (within 0x600)."""
@@ -92,6 +95,13 @@ PC = {0: '24bit', 1: 'reserved', 2: '53bit', 3: '64bit'}
 RC = {0: 'nearest', 1: 'down', 2: 'up', 3: 'trunc'}
 def describe_cw(v):
     return 'cw=0x%04x PC=%s RC=%s mask=0x%02x' % (v, PC[(v >> 8) & 3], RC[(v >> 10) & 3], v & 0x3f)
+# the general register that a register is a part of, and those that a call does not keep
+WHOLE = {}
+for fam in ((X86_REG_EAX, X86_REG_AX, X86_REG_AH, X86_REG_AL), (X86_REG_ECX, X86_REG_CX, X86_REG_CH, X86_REG_CL),
+            (X86_REG_EDX, X86_REG_DX, X86_REG_DH, X86_REG_DL), (X86_REG_EBX, X86_REG_BX, X86_REG_BH, X86_REG_BL),
+            (X86_REG_ESI, X86_REG_SI), (X86_REG_EDI, X86_REG_DI), (X86_REG_EBP, X86_REG_BP)):
+    for r in fam: WHOLE[r] = fam[0]
+SCRATCH = (X86_REG_EAX, X86_REG_ECX, X86_REG_EDX)
 for k, ins in enumerate(ins_list):
     if ins.mnemonic not in CW_MN: continue
     (cnt_game if ins.address < args.game_end else cnt_lib)[ins.mnemonic] += 1
@@ -102,20 +112,30 @@ for k, ins in enumerate(ins_list):
         if op.mem.base == 0 and op.mem.index == 0:
             v = rd16(op.mem.disp); note = 'abs [0x%x] -> %s' % (op.mem.disp, describe_cw(v) if v is not None else '?')
         else:
-            # look back for 'mov word ptr [same slot], imm' or 'mov ax/bx, imm; mov [slot], ax'
+            # look back for 'mov word ptr [same slot], imm' or 'mov ax/bx, imm; mov [slot], ax': first the store into
+            # the slot, then, when it stores a register, the nearest instruction before it that writes that register
             slot = (op.mem.base, op.mem.index, op.mem.disp)
-            imm = None; regval = {}
-            for p in ins_list[max(0, k - 14):k][::-1]:
-                if p.id == X86_INS_MOV and len(p.operands) == 2:
-                    d, s = p.operands
-                    if s.type == X86_OP_IMM and d.type == X86_OP_REG: regval.setdefault(d.reg, s.imm)
-                    if d.type == X86_OP_MEM and (d.mem.base, d.mem.index, d.mem.disp) == slot:
-                        if s.type == X86_OP_IMM: imm = s.imm; break
-                        if s.type == X86_OP_REG and s.reg in regval: imm = regval[s.reg]; break
-                        break
-                if p.id in (X86_INS_OR, X86_INS_AND) and p.operands[0].type == X86_OP_MEM and (p.operands[0].mem.base, p.operands[0].mem.index, p.operands[0].mem.disp) == slot:
-                    note = 'rmw %s %s' % (p.mnemonic, p.op_str); break
-            if imm is not None: note = 'imm -> ' + describe_cw(imm & 0xffff)
+            imm = None; src = None; at = None
+            for j in range(k - 1, max(0, k - 14) - 1, -1):
+                p = ins_list[j]
+                if src is None:
+                    if p.id == X86_INS_MOV and len(p.operands) == 2:
+                        d, s = p.operands
+                        if d.type == X86_OP_MEM and (d.mem.base, d.mem.index, d.mem.disp) == slot:
+                            if s.type == X86_OP_IMM: imm = s.imm; at = j; break
+                            if s.type == X86_OP_REG and d.size >= 2 and s.reg in WHOLE: src = WHOLE[s.reg]; continue
+                            break
+                    if p.id in (X86_INS_OR, X86_INS_AND) and p.operands[0].type == X86_OP_MEM and (p.operands[0].mem.base, p.operands[0].mem.index, p.operands[0].mem.disp) == slot:
+                        note = 'rmw %s %s' % (p.mnemonic, p.op_str); break
+                elif p.id == X86_INS_CALL and src in SCRATCH: break
+                elif any(WHOLE.get(r) == src for r in p.regs_access()[1]):
+                    if p.id == X86_INS_MOV and p.operands[1].type == X86_OP_IMM and p.operands[0].size >= 2: imm = p.operands[1].imm; at = j
+                    break
+            if imm is not None:
+                note = 'imm -> ' + describe_cw(imm & 0xffff)
+                # a jump that lands after the value is set brings a value of its own
+                joins = [x.address for x in ins_list[at + 1:k + 1] if x.address in jump_targets]
+                if joins: note += ' on the straight path; a jump to 0x%x brings another' % joins[0]
             if not note:
                 ctx = ' ; '.join(x.mnemonic + ' ' + x.op_str for x in ins_list[max(0, k - 6):k])
                 note = 'ctx: ' + ctx
@@ -155,7 +175,8 @@ RNG = {0x343FD: 'MSVC rand mul 214013', 0x269EC3: 'MSVC rand add 2531011', 0x990
        0x2545F491: 'xorshift mul', 0x7FFFFFFF: 'mask 2^31-1 (Park-Miller mod)', 0x41A7: 'Park-Miller mul 16807', 0xBB40E64E: 'Lehmer/other 3141592621',
        0x1F31D: 'LCG 127773 (Schrage)', 0xAEC9: 'Park-Miller  (unused)', 0x19660D: 'Numerical Recipes LCG mul 1664525', 0x3C6EF35F: 'NR LCG add 1013904223',
        0x9E3779B9: 'golden ratio (TEA/hash)', 0x2545F4914F6CDD1D & 0xffffffff: 'xorshift64* low', 0x5851F42D & 0xffffffff: 'PCG mul hi',
-       0x4C957F2D: 'PCG mul lo', 0x3B9ACA07: '999999991 (name hash mod, Sacred)', 0xFFFF7FFF: 'cw mask?', 0x10DCD: 'RANDU-like 69069', 0x7FFFFFED: 'prime 2^31-19'}
+       0x4C957F2D: 'PCG mul lo', 0x3B9AC9F7: '999999991 (name hash mod, Sacred)', 0x3B9ACA07: 'prime 10^9+7', 0xFFFF7FFF: 'cw mask?', 0x10DCD: 'RANDU-like 69069',
+       0x7FFFFFED: 'prime 2^31-19'}
 imm_hits = collections.defaultdict(list)
 for ins in ins_list:
     for op in ins.operands:
@@ -171,12 +192,15 @@ for v, name in RNG.items():
     for a, t in hits[:16]:
         e = func_entry(a)
         print("      0x%08x [%s] %s   (func ~0x%x, callers=%d)" % (a, 'GAME' if a < args.game_end else 'lib', t, e or 0, len(call_targets.get(e, []))))
-# raw byte hits (data tables, e.g. MT constants in .rdata)
+# raw byte hits (data tables, e.g. MT constants in .rdata), counted as bytes.count does, with the section of each:
+# raw is the image as it is mapped, so a hit's offset is its RVA
 raw = bytes(img)
 for v, name in RNG.items():
     if v in (0x7FFFFFFF, 0x3039, 0xFFFF7FFF, 0x41A7): continue
-    b = struct.pack('<I', v); n = raw.count(b)
-    if n: print("  raw LE hits of 0x%x (%s): %d  sections: %s" % (v, name, n, collections.Counter(sec_of(base + raw.find(b, i)) for i in [0] * 0) or '-'))
+    b = struct.pack('<I', v); offs = []; o = raw.find(b)
+    while o >= 0: offs.append(o); o = raw.find(b, o + len(b))
+    secs = collections.Counter(sec_of(base + o) or 'none' for o in offs)
+    if offs: print("  raw LE hits of 0x%x (%s): %d  sections: %s" % (v, name, len(offs), ' '.join('%s:%d' % kv for kv in secs.most_common())))
 
 # ---------- 4. VirtualProtect ----------
 if not args.no_vp:
