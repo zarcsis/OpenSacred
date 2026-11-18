@@ -5,9 +5,10 @@
 //! fields of a few more; and those of its second pass (`0x429950`, #2579): the dummy's fields,
 //! the waters' crab's and fish's category, and the ids of the types 32 to 713 that name another.
 //! Facts of the original's load, each a field of a type's record and what the client puts there;
-//! not a repair of a defect. The converter carries them as its constants (docs/08 §3); no test
-//! checks them against the user's `Sacred.exe` yet, whose load keeps its values in registers and
-//! needs the emulator to tell them (#2865).
+//! not a repair of a defect. The converter carries them as its constants (docs/08 §3), and a test
+//! on the game files checks them against the user's `Sacred.exe`: its load keeps its values in
+//! registers, so `opensacred-oracle` runs the two passes in its emulator and records what they
+//! change, which the test compares with these (#2865).
 
 /// What a change does to a field of a record, at its offset.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -319,5 +320,152 @@ mod tests {
         fish[CATEGORY] = 3;
         apply(165, &mut fish);
         assert_eq!(fish[CATEGORY], 0x20);
+    }
+
+    /// A change of the load as `opensacred-oracle` records it in `items_load.json`: a type's
+    /// bytes at an offset, or the lookup by a name whose answer the load stores there.
+    #[derive(serde::Deserialize)]
+    struct Recorded {
+        #[serde(rename = "type")]
+        slot: usize,
+        offset: usize,
+        #[serde(default)]
+        bytes: Vec<u8>,
+        lookup: Option<String>,
+        name: Option<String>,
+    }
+
+    /// The set of the load's changes as the oracle writes it.
+    #[derive(serde::Deserialize)]
+    struct Set {
+        sacred_exe: String,
+        vectors: Vec<Recorded>,
+    }
+
+    /// The load's changes that the oracle recorded from the manifest's `Sacred.exe`, in the
+    /// vectors' directory as the oracle chooses it.
+    fn recorded() -> Vec<Recorded> {
+        let absolute = |name: &str| {
+            std::env::var_os(name)
+                .map(std::path::PathBuf::from)
+                .filter(|path| path.is_absolute())
+        };
+        let directory = absolute("OPENSACRED_VECTORS").unwrap_or_else(|| {
+            let base = if cfg!(windows) {
+                absolute("LOCALAPPDATA")
+            } else {
+                absolute("XDG_DATA_HOME")
+                    .or_else(|| absolute("HOME").map(|home| home.join(".local/share")))
+            };
+            base.unwrap_or_else(|| panic!("no directory for the vectors: set OPENSACRED_VECTORS"))
+                .join("OpenSacred")
+                .join("vectors")
+        });
+        let file = directory.join("items_load.json");
+        let text = std::fs::read_to_string(&file).unwrap_or_else(|error| {
+            panic!(
+                "{}: {error}; record the vectors first: cargo run --release -p \
+                 opensacred-oracle --features emulator (docs/03 §3.4)",
+                file.display()
+            )
+        });
+        let set: Set = serde_json::from_str(&text)
+            .unwrap_or_else(|error| panic!("{}: {error}", file.display()));
+        let exe = crate::verify::GOG_MANIFEST
+            .lines()
+            .find_map(|line| line.strip_suffix("  Sacred.exe"))
+            .unwrap();
+        assert_eq!(
+            set.sacred_exe,
+            exe,
+            "{}: not of the manifest's Sacred.exe",
+            file.display()
+        );
+        set.vectors
+    }
+
+    /// The changes are those that the two passes of the load make in the user's `Sacred.exe`
+    /// (`0x4293B0`, `0x429950`), which `opensacred-oracle` runs in its emulator over the table of
+    /// `Items.pak` with the overlay laid and records (#2865): every type's record with `apply`'s
+    /// changes is the file's with the recorded ones. A texture that the load looks up by its name
+    /// is that name's record of `texture.pak`; a model it looks up is the record's own, whose
+    /// index `+0x70`, a cache of that lookup, the converter leaves as the file has it.
+    #[test]
+    #[ignore = "needs the game files in OriginalGame/"]
+    fn the_changes_are_those_the_executables_load_makes() {
+        use opensacred_formats::items::Items;
+        use opensacred_formats::tex::TexPak;
+
+        const NAME: usize = 0x37;
+        let game = opensacred_locate::original();
+        let read = |path: &str| std::fs::read(game.join(path)).unwrap();
+        let (base_data, overlay_data) = (read("PAK/Items.pak"), read("PAK/Items03.pak"));
+        let base = Items::parse(&base_data).unwrap();
+        let overlaid = Items::parse(&overlay_data).unwrap();
+        let texture_data = read("PAK/texture.pak");
+        let textures = TexPak::parse(&texture_data).unwrap();
+        // The records of `texture.pak` of a name, whatever its case.
+        let named = |name: &str| -> Vec<u32> {
+            (0..textures.len())
+                .filter(|&index| {
+                    textures.record(index).unwrap().is_some_and(|record| {
+                        record.header.name().eq_ignore_ascii_case(name.as_bytes())
+                    })
+                })
+                .map(|index| u32::try_from(index).unwrap())
+                .collect()
+        };
+        let u32_at =
+            |record: &[u8], at: usize| u32::from_le_bytes(record[at..at + 4].try_into().unwrap());
+
+        let recorded = recorded();
+        let mut checked = 0;
+        for slot in 0..base.len() {
+            // The file's record as `tables` takes it, and ours with the changes.
+            let mut file = vec![0u8; 128];
+            let mut ours = file.clone();
+            if base.get(slot).unwrap().is_some() {
+                file.copy_from_slice(base.bytes(slot).unwrap());
+                ours.copy_from_slice(&file);
+                apply(u32::try_from(slot).unwrap(), &mut ours);
+            } else if slot < overlaid.len() && overlaid.get(slot).unwrap().is_some() {
+                file.copy_from_slice(overlaid.bytes(slot).unwrap());
+                overlay(&mut file, opensacred_data::texture::TEXTURE03_BASE);
+                ours.copy_from_slice(&file);
+            }
+            // The load's record: the file's with the recorded changes.
+            let mut theirs = file.clone();
+            for change in recorded.iter().filter(|change| change.slot == slot) {
+                let at = change.offset;
+                match (change.lookup.as_deref(), change.name.as_deref()) {
+                    (None, _) => theirs[at..at + change.bytes.len()].copy_from_slice(&change.bytes),
+                    (Some("texture"), Some(name)) => {
+                        let records = named(name);
+                        assert_eq!(records.len(), 1, "type {slot}: {name} is {records:?}");
+                        theirs[at..at + 4].copy_from_slice(&records[0].to_le_bytes());
+                    }
+                    (Some("model"), Some(name)) => {
+                        let own = &file[NAME..NAME + 32];
+                        let own = own.split(|&byte| byte == 0).next().unwrap();
+                        assert!(
+                            at == MODEL && own.eq_ignore_ascii_case(name.as_bytes()),
+                            "type {slot}: the model {name} looked up for {at:#x}"
+                        );
+                    }
+                    other => panic!("type {slot}: a lookup {other:?}"),
+                }
+                checked += 1;
+            }
+            if ours != theirs {
+                let at = (0..128).find(|&at| ours[at] != theirs[at]).unwrap();
+                panic!(
+                    "type {slot}: at {at:#x} the converter has {:#010x}, the load {:#010x}",
+                    u32_at(&ours, at.min(124)),
+                    u32_at(&theirs, at.min(124))
+                );
+            }
+        }
+        assert_eq!(checked, recorded.len(), "a change of a type past the table");
+        assert!(checked > 90, "{checked} changes");
     }
 }

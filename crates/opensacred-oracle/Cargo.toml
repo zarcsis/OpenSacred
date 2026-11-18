@@ -1,6 +1,6 @@
 [package]
 name = "opensacred-oracle"
-description = "Development only: runs the fight's formulas of the developer's own Sacred.exe in the Unicorn emulator and records their vectors"
+description = "Development only: runs the fight's formulas and the items' load of the developer's own Sacred.exe in the Unicorn emulator and records their vectors"
 edition.workspace = true
 rust-version.workspace = true
 # Our code is MIT OR Apache-2.0 as the workspace's. The emulator it links, Unicorn, is GPL-2.0,

@@ -2,7 +2,9 @@
 //! the developer's own GOG `Sacred.exe` 2.28 into the Unicorn emulator, runs the fight's formula
 //! functions of docs/re/fight.md and the game's rolls, `rand()` answering a script (#1433), on
 //! sets of inputs, and writes their outputs as JSON vectors to a directory outside the
-//! repository, which `opensacred-rules`' tests compare its formulas with. Its `fuzz` runs random
+//! repository, which `opensacred-rules`' tests compare its formulas with; and the two passes of
+//! the items' load over a table of the installation's `Items.pak`, whose changes
+//! `opensacred-convert`'s `item_patches` is compared with (#2865). Its `fuzz` runs random
 //! inputs through a set's function and through `opensacred-rules`' in this process instead, and
 //! prints the first mismatch, shrunk (#1431).
 //!
@@ -18,6 +20,8 @@ mod fight;
 #[cfg(feature = "emulator")]
 mod fuzz;
 #[cfg(feature = "emulator")]
+mod items;
+#[cfg(feature = "emulator")]
 mod machine;
 #[cfg(feature = "emulator")]
 mod rolls;
@@ -29,12 +33,13 @@ use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::pe::Image;
 
-/// Runs the fight's formulas and the game's rolls of your own Sacred.exe in the emulator and
-/// writes their vectors.
+/// Runs the fight's formulas, the game's rolls and the items' load of your own Sacred.exe in the
+/// emulator and writes their vectors.
 #[derive(Parser)]
 #[command(version = None)]
 struct Cli {
-    /// The GOG installation (its Sacred.exe and bin/Balance.bin must be the manifest's)
+    /// The GOG installation (its Sacred.exe, bin/Balance.bin, PAK/Items.pak and PAK/Items03.pak
+    /// must be the manifest's)
     #[arg(long, global = true, default_value = "OriginalGame")]
     game_dir: PathBuf,
     /// Where the vectors go, outside the repository [default: OPENSACRED_VECTORS, else
@@ -135,7 +140,15 @@ fn main() -> Result<()> {
         }
         None => {
             let out = vectors::prepare(&vectors::directory(cli.out.as_deref())?)?;
-            run(&image, balance, &out, cli.precision, &vectors::sha256(&exe))
+            let items = vectors::checked(&game_dir, "PAK/Items.pak")?;
+            let overlay = vectors::checked(&game_dir, "PAK/Items03.pak")?;
+            run(
+                &image,
+                (balance, &items, &overlay),
+                &out,
+                cli.precision,
+                &vectors::sha256(&exe),
+            )
         }
     }
 }
@@ -171,7 +184,7 @@ fn fuzz(
 }
 
 #[cfg(not(feature = "emulator"))]
-fn run(_: &Image, _: &[u8], out: &Path, precision: u8, _: &str) -> Result<()> {
+fn run(_: &Image, _: (&[u8], &[u8], &[u8]), out: &Path, precision: u8, _: &str) -> Result<()> {
     anyhow::bail!(
         "built without the emulator, so nothing ran ({precision}-bit FPU, the vectors to {}): \
          cargo run --release -p opensacred-oracle --features emulator (CMake, a C compiler, Ninja \
@@ -180,8 +193,17 @@ fn run(_: &Image, _: &[u8], out: &Path, precision: u8, _: &str) -> Result<()> {
     )
 }
 
+/// Records every set's vectors into `out`: the fight's and the rolls' with the balance's image
+/// `balance` where the client holds it, and the items' load over `items` and `overlay`, the bytes
+/// of `PAK/Items.pak` and `PAK/Items03.pak`, on a machine of its own.
 #[cfg(feature = "emulator")]
-fn run(image: &Image, balance: &[u8], out: &Path, precision: u8, exe: &str) -> Result<()> {
+fn run(
+    image: &Image,
+    (balance, items, overlay): (&[u8], &[u8], &[u8]),
+    out: &Path,
+    precision: u8,
+    exe: &str,
+) -> Result<()> {
     use crate::machine::{Machine, control_word};
     use crate::vectors::About;
 
@@ -267,6 +289,17 @@ fn run(image: &Image, balance: &[u8], out: &Path, precision: u8, exe: &str) -> R
                  script of values",
             ),
             &rolls::betweens(&mut machine)?,
+        )?,
+        vectors::write(
+            out,
+            about(
+                "items_load",
+                0x42_93B0,
+                "what the two passes of the items' load, 0x4293B0 and 0x429950, change in the \
+                 table of Items.pak with Items03.pak laid over it: a type's bytes at an offset, \
+                 or the lookup by a name whose answer it stores there",
+            ),
+            &items::changes(&mut Machine::new(image, control)?, items, overlay)?,
         )?,
     ];
     for file in files {

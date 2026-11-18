@@ -719,6 +719,9 @@ Then `0x429950` sets the scale of 24 models (§4.1) and changes a few records mo
 
 It also gives the undead goblins' models (types 142 and 143) copies of the goblin warrior's slots' motions (`0x4136D0`) and looks up their `+0x70` anew by name; their clips have the same CRCs as their own, so nothing of it changes what the converter writes.
 
+Both passes' changes are checked against the user's own `Sacred.exe` (**confirmed** 2026-11-18, #2865): `opensacred-oracle` runs the two passes in its emulator over the table of `Items.pak` with the overlay laid, and a test of `item_patches` on the game files compares what they left with the converter's changes for every type (docs/03 §3.4).
+In 86 types the passes leave 88 runs of bytes that the file does not hold and store the answers of nine lookups by name, seven of the gloves' textures and the two models; the rest of what they write is the file's value already, as the heroes' angles and the eight sound profiles cleared.
+
 An overlay's record goes into the slot that its own `+0x76` names when its category is not 0, its `+0x08` and `+0x66` raised by an offset of its pak's textures and its `+0x70` cleared (`0x429190`).
 The offset of `ITEMS0n.PAK` is the sum of the texture manager's counts of the `n + 1` texture paks before its own (from `+0x44`), which for `Items03.pak` is `texture.pak`'s 25,535 slots alone, the others 0 (**confirmed** 2026-10-27 with the driver of #448, #1152): the client numbers `texture03.pak`'s textures from 25,535 in one numbering with `texture.pak`'s.
 `opensacred-convert tables` raises 3999's textures so (its texture is 25,536, `texture03.pak`'s `CAB.TGA`), and the game numbers `texture03.pak`'s textures from 25,535 (`opensacred_data::texture::TEXTURE03_BASE`).
