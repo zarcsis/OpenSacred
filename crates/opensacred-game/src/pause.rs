@@ -65,10 +65,50 @@ const FADE: Duration = Duration::from_millis(200);
 /// The channels of the sound: the music's, the ambient loops' and the effects', if the game has
 /// its sound.
 type Channels<'w> = (
-    Option<Res<'w, AudioChannel<music::Channel>>>,
+    (
+        Option<Res<'w, AudioChannel<music::Channel>>>,
+        Option<Res<'w, AudioChannel<music::Once>>>,
+    ),
     Option<Res<'w, AudioChannel<atmosphere::Channel>>>,
+    (
+        Option<Res<'w, AudioChannel<crate::ambience::Tiny>>>,
+        Option<Res<'w, AudioChannel<crate::ambience::Normal>>>,
+        Option<Res<'w, AudioChannel<crate::ambience::Big>>>,
+    ),
+    Option<Res<'w, AudioChannel<crate::skies::RainLoop>>>,
+    Option<Res<'w, AudioChannel<crate::volumes::Speech>>>,
     Option<Res<'w, Audio>>,
 );
+
+/// Pauses the channel `channel`, fading it out, or where not `pausing` goes on with it, fading it
+/// in.
+fn hold<T: Resource>(channel: Option<&AudioChannel<T>>, pausing: bool) {
+    let Some(channel) = channel else {
+        return;
+    };
+    let tween = AudioTween::linear(FADE);
+    if pausing {
+        channel.pause().fade_out(tween);
+    } else {
+        channel.resume().fade_in(tween);
+    }
+}
+
+/// Pauses every channel of the game's sound, or where not `pausing` goes on with each (#2823):
+/// the music and its once-stream, the atmosphere, the three of the waters' loops, the rain's
+/// loop, the speech and the effects'.
+fn hold_all(channels: &Channels, pausing: bool) {
+    let ((music, once), atmosphere, (tiny, normal, big), rain, speech, effects) = channels;
+    hold(music.as_deref(), pausing);
+    hold(once.as_deref(), pausing);
+    hold(atmosphere.as_deref(), pausing);
+    hold(tiny.as_deref(), pausing);
+    hold(normal.as_deref(), pausing);
+    hold(big.as_deref(), pausing);
+    hold(rain.as_deref(), pausing);
+    hold(speech.as_deref(), pausing);
+    hold(effects.as_deref(), pausing);
+}
 
 /// Esc pauses the game, and again goes on, but from the key P's pause.
 pub(crate) fn toggle(
@@ -106,32 +146,14 @@ fn halt(
     }
 }
 
-fn pause(mut time: ResMut<Time<Virtual>>, (music, atmosphere, effects): Channels) {
+fn pause(mut time: ResMut<Time<Virtual>>, channels: Channels) {
     time.pause();
-    let tween = AudioTween::linear(FADE);
-    if let Some(channel) = music {
-        channel.pause().fade_out(tween);
-    }
-    if let Some(channel) = atmosphere {
-        channel.pause().fade_out(tween);
-    }
-    if let Some(channel) = effects {
-        channel.pause().fade_out(tween);
-    }
+    hold_all(&channels, true);
 }
 
-fn resume(mut time: ResMut<Time<Virtual>>, (music, atmosphere, effects): Channels) {
+fn resume(mut time: ResMut<Time<Virtual>>, channels: Channels) {
     time.unpause();
-    let tween = AudioTween::linear(FADE);
-    if let Some(channel) = music {
-        channel.resume().fade_in(tween);
-    }
-    if let Some(channel) = atmosphere {
-        channel.resume().fade_in(tween);
-    }
-    if let Some(channel) = effects {
-        channel.resume().fade_in(tween);
-    }
+    hold_all(&channels, false);
 }
 
 /// The pause: its state, Esc, the time and the sound.
