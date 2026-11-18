@@ -90,7 +90,9 @@ Read 2026-11-03 for #1820, **confirmed** by code and **seen** in the original un
 
 - The button: the equipment window's layout (`cUI_Equipment`, `0x6BAC80`) makes a control at (190, 105) of the window, its pictures the interface's images 1607 and 1608 (`GUI_main_11`, 31 × 30 at (224, 191) and (224, 224)), and 1609 and 1610 greyed (at (191, 74) and (224, 74)); its tooltip `UI_TOOLTIP_SCHMIEDEN`.
 - Its draw (`0x6B7700`, from `0x6B7F8A`): only for a hero of class 8 (`+0x10`) whose skill 33's value (`0x582450(0x21)`) is not 0; the pictures 1607 and 1608 where the smith's window shows and its smith is of class 8 (`0x75AA50`, `0x75AA70`: the interface manager's `+0x8C`, `UI_WND_BLACKSMITH`, shown, its `+0x158` a creature of class 8, `0x6A21F0`), or where none of the windows of `0x75ADB0` shows, else 1609 and 1610; its flag `0x10` cleared where the smith's window shows (`0x7325C0`) and set else (`0x732550`), so the first picture of the two with the window hidden and the second with it shown (**seen**: the button darker as the window shows).
-- `0x75ADB0(0)`: whether none of the interface manager's `+0x90` (`UI_WND_MERCHANT`, made by `0x6DB9B0`), `+0x8C` (the smith's, `0x6A1FD0`), `+0xB8` (`UI_WND_MASTER`, `0x6D1070`), `+0xC0` (`UI_WND_CHEST`, the town stash) and `+0xD8` (`UI_WND_TRADE`, the players' trade) shows, nor any window of its list at `+0x124` (not read).
+- `0x75ADB0(0)`: whether none of the interface manager's `+0x90` (`UI_WND_MERCHANT`, made by `0x6DB9B0`), `+0x8C` (the smith's, `0x6A1FD0`), `+0xB8` (`UI_WND_MASTER`, `0x6D1070`), `+0xC0` (`UI_WND_CHEST`, the town stash) and `+0xD8` (`UI_WND_TRADE`, the players' trade) shows, nor any window of its list at `+0x124`.
+  That list holds the tooltips' windows (`cUI_Tooltip`, `UI_WND_TOOLTIP`), the dialogues' and the tutorial's tips among them: the manager's maker of one (`0x75AF90`, which logs `cUI_Manager::tooltipCreate`) puts it into the list's first empty place from 1, else at its end (read 2026-11-18, #2878, **confirmed** by code).
+  So no save is made, and the Dwarf's button is greyed, while a dialogue's window shows (the save **seen**, docs/re/netscript.md, "The talk's own end, and the world meanwhile").
 - Its tooltip, the control rested on (`0x7327B0`): `%s\n%s: %d\n%s: %d\n%s: %5.2f%%` (`0x9574C0`) of `UI_TOOLTIP_SCHMIEDEN`, `_ITEM` with `⌊0.25·s + L⌋` (`L` the hero's level), `_NEXT` with `40·⌊min(0.025·s + 1.5, 5)⌋ − 20` and `_COST` with `100/(s + 79)`, the skill's panel's lines (docs/re/character.md), of the style `0x209` centred 48 along and 16 above the control's corner (**seen**: the lines 2, 20 and 1.19 at the skill 5, the panel's middle there).
 - Its press (the input `0x6B6690`, from `0x6B6890`): a left press in it, the hero of class 8 holding the skill 33; where none of the windows of `0x75ADB0` shows, `UI_WND_BLACKSMITH` takes the UI event `0x11` (shown) and `0x30` of the sub-kind 8 with the hero's id, the hero the smith (its show's sounds as a creature's); else, where the smith's window shows as the Dwarf's (`0x6B6E71`: `0x75AA70` and `0x75AA50`), it takes the event `0x12` (hidden), its hide sending its items back as above, the inventory staying; else nothing.
   **Seen**: the window shown with the Dwarf's own portrait and his third button's picture 1606, and hidden by the second press, the inventory open.
@@ -99,7 +101,6 @@ Read 2026-11-03 for #1820, **confirmed** by code and **seen** in the original un
 
 ## Not read
 
-- The windows of the interface manager's list at `+0x124`, which `0x75ADB0` takes as shown too.
 - What the upgrades' records give an item (their values and bonuses, read with the items' table, docs/02 §6.1).
 - The window's pictures, fonts and hints' texts by their numbers, measured against the running original.
 
