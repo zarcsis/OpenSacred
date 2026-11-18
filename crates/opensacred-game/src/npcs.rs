@@ -6527,7 +6527,9 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
 /// A follower of the hero as a save keeps it (#1959): what it is made of, where it stands on which
 /// floor with its health, its flags word, side and stand in the others' way as its hiring and its
 /// summoning left them, whether it is of the flag 4, its hands' items with their values, the items
-/// the hero gave it (`mercenaries`), and its effects.
+/// the hero gave it (`mercenaries`), and its effects; whether the scripts keep it to rise again
+/// ([`RisesAgain`]), and where it lies dead to rise, how long it has lain, its health its most
+/// (#2947).
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Following {
     made: Made,
@@ -6539,6 +6541,8 @@ pub struct Following {
     hands: Vec<(u32, Hand, Option<fight::ItemValues>)>,
     given: Option<crate::mercenaries::Given>,
     effects: Option<crate::effects::Effects>,
+    rises: bool,
+    lain: Option<f32>,
 }
 
 /// What a saved follower is made of: a kept placement of its sector, a fill's placement of its
@@ -6551,8 +6555,55 @@ enum Made {
     Roams { creature: u32, rank: fight::Rank },
 }
 
-/// The hero's living followers as a save keeps them ([`Following`]), in the order of their
-/// entries in the portraits' column.
+/// What a save keeps of a follower beside its place, mind and stand ([`Following`]): its
+/// placement, its rank, its arms, the items the hero gave it, its effects, whether it rises
+/// again, and how long it has lain dead to rise.
+type FollowerParts<'a> = (
+    Option<&'a Placed>,
+    Option<&'a fight::Ranked>,
+    &'a Arms,
+    (
+        Option<&'a crate::mercenaries::Given>,
+        Option<&'a crate::effects::Effects>,
+    ),
+    bool,
+    Option<f32>,
+);
+
+/// A follower as a save keeps it: of the flag 4 where `escorted`, standing `stood`, of the mind
+/// `mind` and the stand `stands`, and what [`FollowerParts`] adds.
+fn followed(
+    escorted: bool,
+    stood: Stood,
+    (mind, stands): (&ai::Mind, ways::InTheWay),
+    (placed, ranked, arms, (given, effects), rises, lain): FollowerParts<'_>,
+) -> Following {
+    Following {
+        made: made_of(placed, mind, ranked),
+        stood,
+        flags: mind.flags,
+        side: mind.side,
+        stands,
+        escorted,
+        hands: arms
+            .holding
+            .iter()
+            .map(|(held, values)| (held.item, held.hand, *values))
+            .collect(),
+        given: given.cloned(),
+        effects: effects.cloned(),
+        rises,
+        lain,
+    }
+}
+
+/// The hero's followers as a save keeps them ([`Following`]), in the order of their entries in
+/// the portraits' column: the living, and those that lie dead to rise again with how long they
+/// have lain (#2947).
+#[expect(
+    clippy::type_complexity,
+    reason = "a query of the world carries its components and filters"
+)]
 pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
     let mut heroes = world.query_filtered::<Entity, With<hero::Body>>();
     let Some(hero) = heroes.iter(world).next() else {
@@ -6566,14 +6617,30 @@ pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
             Option<&crate::mercenaries::Given>,
             Option<&crate::effects::Effects>,
         ),
+        Has<RisesAgain>,
     ), Without<Dies>>();
+    let mut lying = world.query_filtered::<(
+        (Entity, &crate::followers::Follower, Option<&Placed>),
+        (&Transform, &Stashed, Option<&fight::Health>),
+        (&Arms, Option<&fight::Ranked>),
+        (
+            Option<&crate::mercenaries::Given>,
+            Option<&crate::effects::Effects>,
+        ),
+    ), (With<Dies>, With<RisesAgain>)>();
     let world = &*world;
     let heights = world.get_resource::<Heights>();
     let order = world
         .get_resource::<crate::bar::Entries>()
         .map(|entries| entries.0.clone())
         .unwrap_or_default();
-    let mut kept: Vec<(usize, Following)> = followers
+    let entry = |entity: Entity| {
+        order
+            .iter()
+            .position(|&shown| shown == entity)
+            .unwrap_or(usize::MAX)
+    };
+    let living = followers
         .iter(world)
         .filter(|((_, follower, _), ..)| follower.master == hero)
         .filter_map(
@@ -6582,29 +6649,35 @@ pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
                 (transform, way, health),
                 (mind, arms, ranked),
                 extra,
+                rises,
             )| {
                 let stood = stood_of((transform, way.level), health, (false, false), heights)?;
-                let made = made_of(placed, mind, ranked);
-                let entry = order.iter().position(|&shown| shown == entity);
-                let following = Following {
-                    made,
-                    stood,
-                    flags: mind.flags,
-                    side: mind.side,
-                    stands: way.stands,
-                    escorted: follower.escorted(),
-                    hands: arms
-                        .holding
-                        .iter()
-                        .map(|(held, values)| (held.item, held.hand, *values))
-                        .collect(),
-                    given: extra.0.cloned(),
-                    effects: extra.1.cloned(),
-                };
-                Some((entry.unwrap_or(usize::MAX), following))
+                let kept = (placed, ranked, arms, extra, rises, None);
+                let following = followed(follower.escorted(), stood, (mind, way.stands), kept);
+                Some((entry(entity), following))
             },
-        )
-        .collect();
+        );
+    // A dead one kept to rise, at its most health, the time it has lain beside it.
+    let dead = lying
+        .iter(world)
+        .filter(|((_, follower, _), ..)| follower.master == hero)
+        .filter_map(
+            |((entity, follower, placed), (transform, stashed, health), (arms, ranked), extra)| {
+                let most = health.map(|health| fight::Health {
+                    current: health.most,
+                    ..*health
+                });
+                let level = stashed.way.level;
+                let stood = stood_of((transform, level), most.as_ref(), (false, false), heights)?;
+                let kept = (placed, ranked, arms, extra, true, Some(stashed.lain));
+                let mind = (&stashed.mind, stashed.way.stands);
+                Some((
+                    entry(entity),
+                    followed(follower.escorted(), stood, mind, kept),
+                ))
+            },
+        );
+    let mut kept: Vec<(usize, Following)> = living.chain(dead).collect();
     kept.sort_by_key(|&(entry, _)| entry);
     kept.into_iter().map(|(_, following)| following).collect()
 }
@@ -6658,6 +6731,8 @@ pub fn mount_of(world: &mut bevy::prelude::World) -> Option<Following> {
         }),
         given: None,
         effects: effects.cloned(),
+        rises: false,
+        lain: None,
     })
 }
 
@@ -6794,6 +6869,8 @@ fn respawn_following(
 /// ([`Following`]) where it stood, hired by the hero again with the flags word, side and stand in
 /// the others' way that its hiring left it, not by its placement's hire again
 /// (`followers::take_hires`); its kept placement stays out of its sector ([`Npcs::remember`]).
+/// One kept to rise again keeps it ([`RisesAgain`]), and one that lay dead to rise lies down again
+/// at once, to rise once it has lain its whole time (`followers::rise_again`, #2947).
 pub fn follow_again(world: &mut bevy::prelude::World, followers: Vec<Following>) {
     let mut heroes = world.query_filtered::<Entity, With<hero::Body>>();
     let Some(master) = heroes.iter(world).next() else {
@@ -6807,6 +6884,7 @@ pub fn follow_again(world: &mut bevy::prelude::World, followers: Vec<Following>)
             following.stands,
             following.escorted,
         );
+        let (rises, lain) = (following.rises, following.lain);
         let entity = match world.run_system_cached_with(respawn_following, following) {
             Ok(Ok(entity)) => entity,
             Ok(Err(e)) => {
@@ -6829,6 +6907,21 @@ pub fn follow_again(world: &mut bevy::prelude::World, followers: Vec<Following>)
         }
         if let Some(mut way) = world.get_mut::<crowd::InTheWay>(entity) {
             way.stands = stands;
+        }
+        let Ok(mut creature) = world.get_entity_mut(entity) else {
+            continue;
+        };
+        if rises {
+            creature.insert(RisesAgain);
+        } else {
+            creature.remove::<RisesAgain>();
+        }
+        if let Some(lain) = lain {
+            if let Some(mut health) = creature.get_mut::<fight::Health>() {
+                health.current = 0;
+            }
+            creature.insert(Dies::lying(lain));
+            bevy::log::info!("npcs: a saved follower lies again, {lain:.1} s lain");
         }
     }
     bevy::log::info!("npcs: the save's {count} followers back beside the hero");
@@ -11663,6 +11756,9 @@ pub struct Dies {
     /// its sector or a save (#2457): it dies no more, its death unspoken, running no death's
     /// function, and lies as it fell at once.
     pub fallen: bool,
+    /// How long it has lain already, in seconds, which its [`Stashed`] counts on from: a save's
+    /// follower that lay to rise again (#2947).
+    lain: f32,
 }
 
 impl Dies {
@@ -11675,6 +11771,7 @@ impl Dies {
             killed: true,
             rises: false,
             fallen: false,
+            lain: 0.0,
         }
     }
 
@@ -11683,6 +11780,16 @@ impl Dies {
         Self {
             fallen: true,
             ..Self::unkilled()
+        }
+    }
+
+    /// A body that lies as it comes ([`Self::fallen`]) and has lain `lain` seconds already: a
+    /// save's follower that lay to rise again, which rises once it has lain its whole time
+    /// (`followers::rise_again`, #2947).
+    pub fn lying(lain: f32) -> Self {
+        Self {
+            lain,
+            ..Self::fallen()
         }
     }
 
@@ -11772,7 +11879,7 @@ pub(crate) fn die(
                 commands.entity(entity).insert(Stashed {
                     mind: mind.clone(),
                     way: *way,
-                    lain: 0.0,
+                    lain: dies.lain,
                 });
             }
         }
@@ -14523,6 +14630,75 @@ mod tests {
     }
 
     #[test]
+    fn a_save_keeps_a_follower_lying_to_rise_with_the_time_it_has_lain() {
+        let mut world = bevy::prelude::World::new();
+        let hero = world.spawn(hero::Body::standing()).id();
+        let mind = ai::Mind::new(
+            Vec3::ZERO,
+            minds::FOLLOWS,
+            (false, true),
+            None,
+            [70.0, 180.0],
+            (697, 3),
+        );
+        let way = crowd::InTheWay::of(0, 0, None);
+        let health = |current| fight::Health {
+            current,
+            most: 539,
+            level: 11,
+        };
+        let follower = |world: &mut bevy::prelude::World, current| {
+            let arms = Arms {
+                base: fight::Base::default(),
+                plain: false,
+                model: String::new(),
+                holding: Vec::new(),
+                worn: Vec::new(),
+                mounted: false,
+            };
+            let at = Transform::from_xyz(1_000.0, 0.0, 1_000.0);
+            let entity = world
+                .spawn((arms, at, mind.clone(), way, health(current)))
+                .id();
+            crate::followers::rehire(world, entity, hero, false);
+            entity
+        };
+        let lay = |world: &mut bevy::prelude::World, entity: Entity, rises: bool| {
+            let mut dead = world.entity_mut(entity);
+            dead.remove::<(ai::Mind, crowd::InTheWay)>();
+            dead.insert((
+                Dies::new(0),
+                Stashed {
+                    mind: mind.clone(),
+                    way,
+                    lain: 7.5,
+                },
+            ));
+            if rises {
+                dead.insert(RisesAgain);
+            }
+        };
+        follower(&mut world, 300);
+        let lying = follower(&mut world, 0);
+        lay(&mut world, lying, true);
+        // One dead for good is no follower of the save.
+        let gone = follower(&mut world, 0);
+        lay(&mut world, gone, false);
+        let saved = following(&mut world);
+        assert_eq!(saved.len(), 2);
+        let (living, dead) = (&saved[0], &saved[1]);
+        assert_eq!((living.rises, living.lain), (false, None));
+        assert_eq!(living.stood.health.current, 300);
+        // The lying one at its most health, kept to rise, 7.5 s lain.
+        assert_eq!((dead.rises, dead.lain), (true, Some(7.5)));
+        assert_eq!(dead.stood.health, health(539));
+        assert_eq!(dead.flags, mind.flags);
+        // A load lays it down again with the time it had lain.
+        assert!((Dies::lying(7.5).lain - 7.5).abs() < f32::EPSILON);
+        assert!(Dies::lying(7.5).fallen && !Dies::lying(7.5).killed);
+    }
+
+    #[test]
     fn a_saved_follower_holds_again_what_it_held() {
         let values = fight::ItemValues::default();
         let bow = InHand {
@@ -14572,6 +14748,8 @@ mod tests {
             hands: given.to_vec(),
             given: Some(crate::mercenaries::Given::default()),
             effects: None,
+            rises: true,
+            lain: Some(7.5),
         };
         let bytes = postcard::to_stdvec(&following).unwrap();
         assert_eq!(
