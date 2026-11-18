@@ -1531,6 +1531,10 @@ pub(crate) fn level_up(
                 rate: (0.5, crate::sfx::Roll::None),
             });
             commands.entity(hero).insert(crate::level_sparks::Rises);
+            // The followers it keeps rise with it (`0x564D60` at its end, #2896).
+            commands.queue(move |world: &mut World| {
+                crate::followers::rise_with(world, hero, level);
+            });
         }
         let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
         let skills = hero_skills(base, level, &holds);

@@ -348,7 +348,7 @@ Read 2026-10-26 (#657) by the static reading of `Sacred.exe`; **confirmed** by c
   - dead, its count of hostiles is 0, so there is no danger, and the follower keeps to the corpse's place;
   - risen, the hero fills every listed creature's health (`0x53E460`'s loop);
   - teleported (`sdk_ENGINE_TP` `0x54D9D0`), every listed follower takes the hero's new place for its home (`+0x2B9`), `+0x2B8` bit 2 and its timer, and is put near the hero, or on the hero's place where no point is found;
-  - no code relevels followers at a level-up (**hypothesis**: none among the callers of `0x564D60`).
+  - the hero's own setting of its level raises the followers it keeps: at its end the level's setter (`0x564D60`, for a creature of an id below 16 with followers in its list) takes the hero's level scaled by the difficulty (`0x552230(L, 0)`), and each follower of the list whose keep byte (`+8` of its record) is set and whose level stands below it is set to it through the setter without its scaling but with its hold (`0x564D60(L, 1, 0)`), so held by the follower's own sector's highest and the difficulty's `LevelKap` (read 2026-11-18 for #2896, **confirmed** by code).
 - **Letting go** (`0x462BB9`, the bit `0x400` without `0x100`):
   1. it calls the quests' hook `0x471790(master, id, 2, +0x94)`: in a quest of the type 1 whose record of the creature has the flag 8, the quest takes `+0x10` bit `0x80`, or, its byte `+9` being 0, goes from the state 2 to 4 through `0x471000` (**hypothesis**: an escort delivered);
   2. it then sends the creature, as controlled by the local player, the event `0x10B` with no master;
@@ -578,7 +578,9 @@ Since #1771 a follower's entry of the column takes a weapon or a shield from the
 Since #1733 the event (8, `0x10`)'s remark plays (`remarks::Remark::Equipment`, docs/re/sound.md, the companions), and the refusal's (8, `0x11`) none, as the original's; the potion given to drink (#2904) and the items' bonuses to the follower's skills, that of two weapons among them (#2948), are not followed yet, and the attributes and the skill asked are since #2411 ("A hireling's hands" above).
 The console's `hire ID` hires a creature as a script's `0x4B` does, and the original's driver's `hire ID` calls `sdk_HIRE` as `SetNPCState` does (#1771).
 
-Not followed yet: the healers (#2895) and the hire's levels (#2896).
+Not followed yet: the healers (#2895).
+Since #2896 a hero's hire sets its follower's level, a `CreateNPC`'s of `0x4B` and any of a `SetNPCState`, and the hero's level-up raises the followers made of a placement (the scripts' and the hirelings', the summoned and the raised left to their arts' levels): the hero's level scaled by the difficulty, held by the follower's sector (`opensacred_rules::fight::follower_level`, `npcs::level_follower`, `followers::rise_with`).
+**Seen** 2026-11-18: a Seraphim of level 15 hired a creature of level 2 at her start on bronze, which stood at level 4 then, the start's sector's highest.
 Not followed: `0x71`'s mark in its quest, a quest's release and the quests' hook of the letting go, which serve only the dynamic quests that the release never runs (docs/re/netscript.md, "The dynamic quests").
 In the game, the Vampiress's wolf (a 588 of level 5 at her level 1 and the call's 2) went at a goblin that came at her; with her put 50 cells off, it was put near her and ran up to her; as she attacked one of two goblins beside her, it went at the other.
 Called on floor 2 of her start's building (#1013), it stepped off to a point on floor 1 and went down the stairs beside her.
