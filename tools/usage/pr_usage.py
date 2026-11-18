@@ -6,7 +6,11 @@ Purpose (PLAN.md §9; docs/usage.md): every pull request carries what it cost. C
 the Git branch of every message in its transcripts (`~/.claude/projects/<project>/<session>.jsonl`, the subagents'
 under `<session>/`), so a pull request's usage is that of the messages on its branch, in every session and worktree
 of the repository. A message on `main` counts toward the session's next branch, where the task it reads or the
-issue it opens is done, or, after the session's last branch, toward that branch. The branch Claude Code records is
+issue it opens is done, or, after the session's last branch, toward that branch. A message that comes after the
+session wrote its branch's block (a run with --update for the branch's pull request) counts toward the block that
+is written next: the branch's own again, or that of the next other branch the session works on, where that one's
+is written first; so the beginning of a next task, which a session in a worktree does on the merged branch, counts
+toward that task's pull request (the messages since 2026-11-18, #2852). The branch Claude Code records is
 the checkout's, so when another session in the same checkout switches it, a message keeps the branch its session was
 on: a session moves to another branch only by a command of its own (`git switch`, `git checkout`, `git rebase`,
 `gh pr checkout`, `gh pr merge`, entering or leaving a worktree), during it or within 30 seconds after it, as the
@@ -78,6 +82,17 @@ SWITCH = re.compile(r'(?:^|[\n;&|(])\s*git\s+(?:-C\s+(\S+)\s+)?(switch|checkout)
 CREATE = {'switch': ('-c', '-C', '--create', '--force-create', '--orphan'), 'checkout': ('-b', '-B', '--orphan')}
 RENAME = re.compile(r'(?:^|[\n;&|(])\s*git\s+(?:-C\s+(\S+)\s+)?branch\s+(?:-[mM]|--move)\s+([^\n;&|]*)')
 ENTERED = re.compile(r'(?:Created|Entered) worktree at (.+?) on branch (\S+?)\.(?:\s|$)')
+# A session's own runs of this tool, which write the blocks, and of `gh pr create`; the pull request that the
+# answer of the one and of the other names.
+UPDATES = re.compile(r'(?:^|[\n;&|(])\s*(?:uv\s+run\s+(?:--\S+\s+)*)?(?:py(?:thon[\d.]*)?(?:\.exe)?\s+(?:-\S+\s+)*)?'
+                     r'\S*pr_usage\.py\b([^\n;&|]*)')
+CREATES = re.compile(r'(?:^|[\n;&|(])\s*gh\s+pr\s+create\b([^\n;&|]*)')
+COUNTED = re.compile(r'^pull request #(\d+), branch (\S+)', re.M)
+PULL = re.compile(r'/pull/(\d+)\b')
+# The messages from this time on go by the block that is written next (next_block, #2852). The earlier ones keep
+# the count of before it, which the blocks hold since the recount of 2026-11-17 (#2849): counted by the new rule,
+# a recount would move them to the next pull request's block, and the block that holds them would stand.
+SINCE = dt.datetime(2026, 11, 18, tzinfo=dt.timezone.utc)
 # Where a shell command works: a change of directory or `git -C`; and the variables it assigns itself (Bash's
 # NAME=value, PowerShell's $name = value) and uses.
 WORKS_IN = re.compile(r'(?:^|[\n;&|(])\s*(?:cd|pushd|Set-Location|Push-Location)\s+(?:-(?:Literal)?Path\s+)?'
@@ -238,6 +253,32 @@ def branch_renames(command, cwd):
     return out
 
 
+def updated_pulls(command):
+    """The numbers of the pull requests whose blocks a shell command writes: those that a run of this tool with
+    --update names."""
+    out = []
+    for m in UPDATES.finditer(command):
+        args = words(m[1])
+        if '--update' in args:
+            out += [int(w) for w in args if w.isdigit()]
+    return out
+
+
+def created_head(command):
+    """The branch of the pull request that a `gh pr create` in a shell command opens: the one --head names, ''
+    for the branch it runs on; None where the command has none."""
+    m = CREATES.search(command)
+    if not m:
+        return None
+    args = words(m[1])
+    for i, w in enumerate(args):
+        option, _, value = w.partition('=')
+        if option in ('--head', '-H'):
+            head = value or ''.join(args[i + 1:i + 2])
+            return head.rpartition(':')[2] if plain(head) else ''
+    return ''
+
+
 def result_text(block):
     c = block.get('content')
     return c if isinstance(c, str) else ' '.join(b.get('text', '') for b in c or () if isinstance(b, dict))
@@ -361,7 +402,7 @@ def named_after(branches):
     return {tail: next(iter(found)) for tail, found in ending.items() if len(found) == 1}
 
 
-def session_events(path, seen, top, linked, existing=()):
+def session_events(path, seen, top, linked, existing=(), pulls=None):
     """A session's messages in time order: (time, branch, kind, model, usage, from the main transcript).
     A response spans a line per content block, each with the response's usage, which is taken from the first;
     messages already seen in another transcript (a resumed session repeats its history) are skipped. The branch is
@@ -376,10 +417,16 @@ def session_events(path, seen, top, linked, existing=()):
     is not known: from then on the worktree is on the one it is on now, and so on. A `git checkout <name>` without
     -b gives a branch only when the name is one: of the branches that exist now (existing), or one the session
     recorded or gave a worktree. A response whose tool calls work in one linked worktree from elsewhere (worked_in),
-    and their results, are in that worktree. A branch the session renamed counts under its new name."""
+    and their results, are in that worktree. A branch the session renamed counts under its new name. A message
+    that came after the session wrote its branch's block goes by the block that is written next (next_block); the
+    pull requests of the branches are those that the session's own `gh pr create` and runs of this tool name, and
+    those of this run (pulls: {number: branch})."""
     sid = os.path.splitext(os.path.basename(path))[0]
     sub = sorted(glob.glob(os.path.join(os.path.dirname(path), sid, '**', '*.jsonl'), recursive=True))
     files, given, switched, renamed = [], [], [], []
+    # The session's runs with --update (time, pull requests), its `gh pr create` calls and the pull requests that
+    # they opened, and the branch that this tool answered for a pull request.
+    updates, updating, creating, created, told = [], set(), {}, [], {}
     for f in [path] + sub:
         rows, calls, entering, windows, cwd = [], {}, set(), [], None
         called, responding = {}, {}  # the directories each tool call and each response works in
@@ -407,8 +454,20 @@ def session_events(path, seen, top, linked, existing=()):
                         given += [(when, w, b) for w, b in worktree_adds(command, here)]
                         switched += [(begun.get(m.get('id'), when),) + s for s in branch_moves(command, here)]
                         renamed += [(when, len(files)) + r for r in branch_renames(command, here)]
+                        wrote, head = updated_pulls(command), created_head(command)
+                        if wrote:
+                            updates.append((when, wrote))
+                            updating.add(block.get('id'))
+                        if head is not None:
+                            creating[block.get('id')] = (when, len(files), head)
                 elif block.get('type') == 'tool_result':
                     results.append(block.get('tool_use_id'))
+                    if block.get('tool_use_id') in creating:
+                        opened = PULL.search(result_text(block))
+                        if opened:
+                            created.append(creating.pop(block['tool_use_id']) + (int(opened[1]),))
+                    if block.get('tool_use_id') in updating:
+                        told.update((int(n), b) for n, b in COUNTED.findall(result_text(block)))
                 if moves(block) and block.get('id'):
                     calls[block['id']] = when
                     if block.get('name') == 'EnterWorktree':
@@ -482,7 +541,44 @@ def session_events(path, seen, top, linked, existing=()):
             names[old] = new
     events = [(r[0], names.get(b, b)) + r[2:6] for rows, branches in files for r, b in zip(rows, branches)]
     events.sort(key=lambda e: e[0])
-    return events
+    # Each pull request's branch, as the session's own commands tell it: the branch that `gh pr create` ran on or
+    # named, the one that this tool answered, the one of a pull request of this run.
+    pull = {}
+    for when, i, head, number in created:
+        rows, branches = files[i]
+        pull[number] = head or next((b for r, b in zip(reversed(rows), reversed(branches)) if r[0] <= when), None)
+    pull.update(told)
+    pull.update(pulls or {})
+    written = {}
+    for when, numbers in updates:
+        for b in {names.get(pull.get(n), pull.get(n)) for n in numbers} - NEUTRAL:
+            written.setdefault(b, []).append(when)
+    return next_block(events, written)
+
+
+def next_block(events, written, since=SINCE):
+    """A session's events with those that came after their branch's block was written given to the block that is
+    written next (written: the times that the session wrote each branch's pull request's block, with --update).
+    Such a message is the branch's own while the session writes that block again before another's, as a fix after
+    `gh pr create` is; it is the next branch's once the session writes the block of the next other branch it works
+    on first, as the beginning of the next task is, which a session in a worktree does on the merged branch. Until
+    one of the two blocks is written it stays the branch's, and no block holds it; once one is, the other never
+    takes it. The messages of before `since` stay their branch's."""
+    out, first, other = list(events), None, None  # after the event: the next branch, and the next one other than it
+    for i in reversed(range(len(events))):
+        when, b = events[i][:2]
+        if b in NEUTRAL:
+            continue
+        nxt = first if first != b else other
+        first, other = b, nxt
+        times = sorted(written.get(b, ()))
+        if not times or when < since or when <= times[0]:
+            continue
+        mine = next((t for t in times if t > when), None)
+        theirs = next((t for t in sorted(written.get(nxt, ())) if t > when), None)
+        if theirs is not None and (mine is None or theirs < mine):
+            out[i] = (when, nxt) + events[i][2:]
+    return out
 
 
 def owners(events):
@@ -510,9 +606,10 @@ class Counted:
         self.per_model, self.sessions, self.active, self.wall = {}, [], dt.timedelta(), dt.timedelta()
 
 
-def count(wanted, top, linked, existing):
+def count(wanted, top, linked, existing, pulls=None):
     """The usage of each of several pull requests in one pass over the repository's transcripts: wanted holds the
-    names of each one's branches, and the answer a Counted for each, in that order."""
+    names of each one's branches, and the answer a Counted for each, in that order; pulls holds the branch of
+    each pull request that is known ({number: branch})."""
     out, of = [Counted() for _ in wanted], {}
     for i, names in enumerate(wanted):
         for name in names:
@@ -520,7 +617,7 @@ def count(wanted, top, linked, existing):
     seen = set()
     for d in project_dirs(top):
         for path in sorted(glob.glob(os.path.join(d, '*.jsonl')), key=os.path.getmtime):
-            events = session_events(path, seen, top, linked, existing)
+            events = session_events(path, seen, top, linked, existing, pulls)
             messages, span, before = {}, {}, None
             for e, owner in zip(events, owners(events)):
                 mine = of.get(owner, ())
@@ -628,7 +725,8 @@ def main():
         pr['also'] = sorted((set(kept) | set(args.also)) - {pr['headRefName']})
     names = [{pr['headRefName'], *pr['also']} for pr in prs]
     top = main_checkout()
-    counted = count(names, top, linked_worktrees(top), repository_branches().union(*names))
+    counted = count(names, top, linked_worktrees(top), repository_branches().union(*names),
+                    {pr['number']: pr['headRefName'] for pr in prs})
 
     failed, unpriced, written = [], set(), False
     for pr, c in zip(prs, counted):
