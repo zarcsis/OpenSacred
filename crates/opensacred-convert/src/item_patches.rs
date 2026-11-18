@@ -5,7 +5,9 @@
 //! fields of a few more; and those of its second pass (`0x429950`, #2579): the dummy's fields,
 //! the waters' crab's and fish's category, and the ids of the types 32 to 713 that name another.
 //! Facts of the original's load, each a field of a type's record and what the client puts there;
-//! not a repair of a defect.
+//! not a repair of a defect. The converter carries them as its constants (docs/08 §3); no test
+//! checks them against the user's `Sacred.exe` yet, whose load keeps its values in registers and
+//! needs the emulator to tell them (#2865).
 
 /// What a change does to a field of a record, at its offset.
 #[derive(Debug, Clone, Copy, PartialEq)]
