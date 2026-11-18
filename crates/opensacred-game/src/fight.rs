@@ -885,6 +885,12 @@ pub(crate) fn resolve(
         ));
         if health.current == 0 {
             let by_creature = !hero && !hero_hit;
+            // The killer's master where it is the hero's follower, hired or summoned (the hero's
+            // list `+0x39C`, `0x4FC900`), whose kill drops (#2804) and makes the statistics'
+            // record (below).
+            let heros_follower = follower
+                .and_then(|follower| attackers.get(follower.master).ok())
+                .filter(|&(_, master_hero, ..)| master_hero && !hero_hit);
             // A magic skeleton or an undead goblin may rise again, a skeleton draining a lower
             // killer (`0x532BD6`, #1199): no kill.
             let rank_of = rank.map_or(Rank::Common, |rank| rank.0);
@@ -939,10 +945,7 @@ pub(crate) fn resolve(
             let recorder = if hero {
                 (!hero_hit).then_some(attacker)
             } else {
-                follower
-                    .and_then(|follower| attackers.get(follower.master).ok())
-                    .filter(|&(_, master_hero, ..)| master_hero && !hero_hit)
-                    .map(|(combat, ..)| combat.0)
+                heros_follower.map(|(combat, ..)| combat.0)
             };
             if let Some(hero_combat) = recorder {
                 let foe = crate::statistics::Foe::of(
@@ -975,7 +978,7 @@ pub(crate) fn resolve(
             fell(
                 &mut commands,
                 (&mut dice, &mut experience, &rules),
-                (hit.target, by_creature, rises),
+                (hit.target, (by_creature, heros_follower.is_some()), rises),
                 &health,
                 worth,
             );
@@ -1121,14 +1124,19 @@ fn whole_damage(damage: u32, factor: f32) -> u32 {
 /// hero killed it, of `worth`, its rank and the hero's bonuses (`potions::mentored`, its sets'),
 /// the hero earns its experience (the event 9, `0x57D860`), twice for a boss and 1.5 times for a
 /// champion; the experience earned. A creature
-/// killed by another (`by_creature`, #630) drops nothing, and its killer earns its experience
-/// through the [`Kill`] that [`resolve`] sends (`npcs::earn`, #690). An undead that `rises`
-/// gives nothing (`undead`, #1199), and a skeleton warrior that rises falls as the body of the
-/// type it changes into (`undead::change`, #1260).
+/// killed by another (`by_creature`, #630) drops nothing unless its killer is the hero's
+/// follower (`by_follower`, #2804), and its killer earns its experience through the [`Kill`]
+/// that [`resolve`] sends (`npcs::earn`, #690). An undead that `rises` gives nothing (`undead`,
+/// #1199), and a skeleton warrior that rises falls as the body of the type it changes into
+/// (`undead::change`, #1260).
 fn fell(
     commands: &mut Commands,
     (dice, experience, rules): (&mut Dice, &mut Experience, &Rules),
-    (target, by_creature, rises): (Entity, bool, Option<crate::undead::Rises>),
+    (target, (by_creature, by_follower), rises): (
+        Entity,
+        (bool, bool),
+        Option<crate::undead::Rises>,
+    ),
     health: &Health,
     worth: Option<(Worth, Option<Ranked>, (f32, f32))>,
 ) -> u32 {
@@ -1138,6 +1146,7 @@ fn fell(
     } else {
         Dies::new(choice)
     };
+    dies.by_follower = by_follower;
     dies.rises = rises.is_some();
     commands.entity(target).insert(dies);
     let Some(rises) = rises else {
@@ -1323,7 +1332,7 @@ impl<'a> Slayer<'a> {
         let earned = fell(
             commands,
             (dice, experience, rules),
-            (entity, false, rises),
+            (entity, (false, false), rises),
             health,
             worth,
         );
