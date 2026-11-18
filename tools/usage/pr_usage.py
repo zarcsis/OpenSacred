@@ -564,6 +564,7 @@ def next_block(events, written, since=SINCE):
     on first, as the beginning of the next task is, which a session in a worktree does on the merged branch. Until
     one of the two blocks is written it stays the branch's, and no block holds it; once one is, the other never
     takes it. The messages of before `since` stay their branch's."""
+    written = {b: sorted(times) for b, times in written.items()}
     out, first, other = list(events), None, None  # after the event: the next branch, and the next one other than it
     for i in reversed(range(len(events))):
         when, b = events[i][:2]
@@ -571,11 +572,11 @@ def next_block(events, written, since=SINCE):
             continue
         nxt = first if first != b else other
         first, other = b, nxt
-        times = sorted(written.get(b, ()))
+        times = written.get(b)
         if not times or when < since or when <= times[0]:
             continue
         mine = next((t for t in times if t > when), None)
-        theirs = next((t for t in sorted(written.get(nxt, ())) if t > when), None)
+        theirs = next((t for t in written.get(nxt, ()) if t > when), None)
         if theirs is not None and (mine is None or theirs < mine):
             out[i] = (when, nxt) + events[i][2:]
     return out
