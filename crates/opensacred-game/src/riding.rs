@@ -882,8 +882,9 @@ fn carry(
 
 /// Fells the horse `horse` in its rider's place, as a lethal blow on the rider fells it
 /// (`0x56F8DB`, the horse's action set to the dying one, 6): it dies with no killer, giving
-/// nobody experience and dropping nothing, its dying clip the one of two that `choice` names,
-/// and its death throws its rider off ([`carry`]).
+/// nobody experience, dropping nothing and counted in no kills, its region's nor the scripts'
+/// (#2829), its dying clip the one of two that `choice` names, and its death throws its rider off
+/// ([`carry`]).
 pub(crate) fn fell(world: &mut World, horse: Entity, choice: u32) {
     let Ok(mut entity) = world.get_entity_mut(horse) else {
         return;
@@ -894,7 +895,9 @@ pub(crate) fn fell(world: &mut World, horse: Entity, choice: u32) {
     if let Some(mut health) = entity.get_mut::<Health>() {
         health.current = 0;
     }
-    entity.insert(Dies::by_creature(choice));
+    let mut dies = Dies::unkilled();
+    dies.choice = choice;
+    entity.insert(dies);
     info!("riding: a lethal blow on its rider fells {horse}");
 }
 
@@ -1284,6 +1287,24 @@ mod tests {
                 Piece::Image(..) => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn a_horse_felled_under_its_rider_dies_with_no_killer() {
+        let mut world = World::new();
+        let horse = world
+            .spawn(Health {
+                current: 40,
+                most: 300,
+                level: 5,
+            })
+            .id();
+        fell(&mut world, horse, 1);
+        let dies = world.get::<Dies>(horse).unwrap();
+        // No kill to count, its region's nor the scripts' (#2829), and no drops.
+        assert!(!dies.killed && dies.by_creature && !dies.by_follower);
+        assert_eq!(dies.choice, 1);
+        assert_eq!(world.get::<Health>(horse).unwrap().current, 0);
     }
 
     #[test]
