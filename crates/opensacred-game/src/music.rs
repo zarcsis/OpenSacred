@@ -425,7 +425,8 @@ pub fn level(
 /// given back, the stream crossfading back to what its phase holds; their music put on the
 /// stream; their jingles once over it, a jingle but the fanfares turning the music's phase to the
 /// ambient loop (`0x6952B8`); and a side quest's fanfare, `JINGLE_FANFARE01` two times in three
-/// and `02` the third (`0x67E3D5`), not while the scripts hold the stream.
+/// and `02` the third (`0x67E3D5`), not while the scripts hold the stream. The control taken and a
+/// jingle but the fanfares end a fight's music first, outside the indoor arena ([`end_fight`]).
 pub fn scripted(
     mut music: ResMut<Music>,
     mut sounds: MessageReader<ScriptSound>,
@@ -438,6 +439,9 @@ pub fn scripted(
                     "music: the scripts {} the stream",
                     if *on { "take" } else { "give back" }
                 );
+                if *on {
+                    end_fight(&mut music);
+                }
                 music.stream.control(*on);
                 if !on {
                     music.scripted = None;
@@ -457,6 +461,7 @@ pub fn scripted(
                     continue;
                 };
                 if !FANFARES.contains(&id) {
+                    end_fight(&mut music);
                     music.stream.now();
                 }
                 music.once(id, &once, &assets);
@@ -474,6 +479,20 @@ pub fn scripted(
             }
         }
     }
+}
+
+/// Ends a fight's music that plays, as the scripts' control taken and their jingles but the
+/// fanfares end it outside the indoor arena (`0x697710`; docs/re/sound.md, "Scripts and notices",
+/// #2912): the stream's timer as a fight's end leaves it, which the control's request for the
+/// ambient loop then sets; no closing jingle (**hypothesis**: whether the original's plays under
+/// the control is not read).
+fn end_fight(music: &mut Music) {
+    if music.region == Some(ARENA_INDOOR) || !music.fight.end() {
+        return;
+    }
+    debug!("music: the scripts end the fight's music");
+    music.fighting = None;
+    music.stream.after_fight();
 }
 
 /// Turns the peace stream at each frame (`0x69B770`'s head): its first phase rolled as the hero
