@@ -320,9 +320,13 @@ pub const TABLE: &[Entry] = &[
     at(65, 4, ArtsSpeedWhenFilled(0.15)),
 ];
 
+/// The bits of a set's sockets that its filled bonuses ask (`0x5711F0`'s test of the byte
+/// `+0x154 + set` for 7): the sockets 0, 1 and 2 of its pieces holding pieces of it.
+pub const FILLED: u8 = 7;
+
 /// The pieces of the sets that a wearer wears (`0x5796A0`'s item loop, `0x5711F0`): by set, the
-/// distinct types of its pieces (the list `0xAD4224`), and the sets one of whose pieces holds
-/// another piece of the set in each of its three first sockets.
+/// distinct types of its pieces (the list `0xAD4224`), those in the items' sockets among them,
+/// and the sets whose pieces' sockets 0, 1 and 2 hold pieces of the set ([`Worn::of_items`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Worn {
     types: BTreeMap<u8, Vec<u32>>,
@@ -346,13 +350,42 @@ impl Worn {
         }
     }
 
+    /// The pieces of the items `items` worn and held, each an item's type and set (0 for none)
+    /// with the types and sets of the items in its sockets, in its sockets' order (`0x5796A0`'s
+    /// item loop, docs/re/sets.md §1): the item and each item in its sockets a piece, and a set
+    /// filled where the sockets 0, 1 and 2 of its pieces hold pieces of it, of one piece or of
+    /// several together (the byte `+0x154 + set` takes the bit `1 << k` of each such socket `k`,
+    /// which the sets 60 to 65 test for [`FILLED`]).
+    pub fn of_items<S>(items: impl IntoIterator<Item = ((u32, u8), S)>) -> Self
+    where
+        S: IntoIterator<Item = (u32, u8)>,
+    {
+        let mut pieces = Vec::new();
+        let mut masks: BTreeMap<u8, u8> = BTreeMap::new();
+        for ((item, set), sockets) in items {
+            pieces.push((item, set));
+            for (k, (socketed, of)) in (0..u8::BITS).zip(sockets) {
+                pieces.push((socketed, of));
+                if set != 0 && of == set {
+                    *masks.entry(set).or_default() |= 1 << k;
+                }
+            }
+        }
+        let mut worn = Self::of(pieces);
+        worn.filled = masks
+            .into_iter()
+            .filter(|&(_, mask)| mask & FILLED == FILLED)
+            .map(|(set, _)| set)
+            .collect();
+        worn
+    }
+
     /// Whether a piece of the type `item` is worn, which the list colours (`0x571710`'s text).
     pub fn wears(&self, item: u32) -> bool {
         self.types.values().any(|types| types.contains(&item))
     }
 
-    /// With the set `set` filled: a piece of it holds another piece of it in each of its three
-    /// first sockets.
+    /// With the set `set` filled: its pieces' sockets 0, 1 and 2 hold pieces of it.
     pub fn filled(mut self, set: u8) -> Self {
         if !self.filled.contains(&set) {
             self.filled.push(set);

@@ -382,3 +382,37 @@ fn the_readers_of_the_counts_take_their_shares() {
         Some(&Told::Painkiller(value)) if close(value, 4.02)
     ));
 }
+
+#[test]
+fn the_pieces_in_sockets_count_and_fill_their_sets_sockets() {
+    // Two pieces of set 60 worn and three more in their sockets: five distinct pieces, the
+    // sockets 0 and 1 of the first and 1 and 2 of the second together filling it (#2813).
+    let worn = Worn::of_items([
+        ((7000, 60), vec![(7002, 60), (7003, 60)]),
+        ((7001, 60), vec![(5000, 0), (7004, 60), (7002, 60)]),
+    ]);
+    assert_eq!(worn.count(60), 5);
+    assert!(worn.wears(7004));
+    assert!(stats(&worn, Difficulty::Bronze).binds());
+    // Another set's piece in the socket 2, or set 60's pieces in another set's piece: unfilled.
+    let short = Worn::of_items([
+        ((7000, 60), vec![(7002, 60), (7003, 60), (7100, 61)]),
+        ((7101, 61), vec![(7004, 60), (7005, 60), (7006, 60)]),
+    ]);
+    assert_eq!(short.count(60), 6);
+    assert!(!stats(&short, Difficulty::Bronze).binds());
+    // An item of no set fills no set's sockets.
+    let none = Worn::of_items([
+        ((5000, 0), vec![(7002, 60), (7003, 60), (7004, 60)]),
+        ((7001, 60), Vec::new()),
+    ]);
+    assert_eq!(none.count(60), 4);
+    assert!(!stats(&none, Difficulty::Bronze).binds());
+    // A fourth socket's piece counts, and takes nothing from the three.
+    let four = Worn::of_items([(
+        (7000, 60),
+        vec![(7002, 60), (7003, 60), (7004, 60), (7005, 60)],
+    )]);
+    assert_eq!(four.count(60), 5);
+    assert!(stats(&four, Difficulty::Bronze).binds());
+}
