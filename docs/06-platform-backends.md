@@ -15,11 +15,11 @@
 
 ## 1. Platforms
 
-| Platform | Build | Specifics | When | Agent-hours (estimate) |
-|---|---|---|---|---|
-| Windows 11 x64 | `x86_64-pc-windows-msvc`, Build Tools 2026 | the main one; Vulkan, DX12 as fallback; the assets in `assets/` of the working directory, or, for the packaged build, in `%LOCALAPPDATA%\OpenSacred\assets`, where its first start converts them (#1495, #1498) | M2–M6 | included in the milestones |
-| Linux x86-64 | `x86_64-unknown-linux-gnu` | Vulkan; XDG directories; CI builds the workspace and runs its tests on Linux (docs/03 §5), and no release is made for it yet | M8, after version 1.0 | 5–10 |
-| Android | `aarch64-linux-android` through cargo-ndk and Gradle | touch controls, a smaller streaming radius, ASTC textures (#702), assets in app storage | M8, by decision | 25–50 |
+| Platform | Build | Specifics | When |
+|---|---|---|---|
+| Windows 11 x64 | `x86_64-pc-windows-msvc`, Build Tools 2026 | the main one; Vulkan, DX12 as fallback; the assets in `assets/` of the working directory, or, for the packaged build, in `%LOCALAPPDATA%\OpenSacred\assets`, where its first start converts them (#1495, #1498) | M2–M6 |
+| Linux x86-64 | `x86_64-unknown-linux-gnu` | Vulkan; XDG directories; CI builds the workspace and runs its tests on Linux (docs/03 §5), and no release is made for it yet | M8, after version 1.0 |
+| Android | `aarch64-linux-android` through cargo-ndk and Gradle | touch controls, a smaller streaming radius, ASTC textures (#702), assets in app storage | M8, by decision |
 
 ## 2. Sound
 
@@ -45,7 +45,7 @@
 | Music system | the region's music and the ambient loop in turns, the fights' music and jingles, the scripts' music, crossfaded (`music`, `opensacred_rules::music`; docs/re/sound.md) |
 | Volumes | music, effects, speech, as in the original's settings (`[sound]`, the options window; `volumes`, #2341) |
 
-Estimate of 2026-10-16: 10–20 agent-hours (M2 and M5); done with M5 (#1093); docs/re/sound.md, "The sources: what plays, and what `opensacred-game` plays of it", lists what is not played.
+Done with M5 (#1093); docs/re/sound.md, "The sources: what plays, and what `opensacred-game` plays of it", lists what is not played.
 
 ## 3. Input
 
@@ -57,8 +57,6 @@ Estimate of 2026-10-16: 10–20 agent-hours (M2 and M5); done with M5 (#1093); d
 * **Touch input:** only for Android, after the platform decision.
 * Text (the hero's name, the saves' names, the console) is typed through Bevy's keyboard input, by winit; the game enables no IME.
 
-Estimate: 6–12 agent-hours.
-
 ## 4. Video
 
 | Step | Decision |
@@ -67,7 +65,7 @@ Estimate: 6–12 agent-hours.
 | Playback | symphonia's WebM demuxer + the rav1d AV1 decoder on a thread of its own → a Bevy texture; the Opus sound decoded whole by libopus, as the game's other sound, played through Kira (#1945) |
 | Controls | Escape, Space or either mouse button held stops a movie; `[movies] show` off plays none by itself, as the original's `SHOWMOVIE` (docs/re/movies.md, docs/10 §3) |
 
-Estimate of 2026-10-16: 6–12 agent-hours (M5); done with M5 (#1094).
+Done with M5 (#1094).
 
 ## 5. Files and assets
 
@@ -91,7 +89,6 @@ Estimate of 2026-10-16: 6–12 agent-hours (M5); done with M5 (#1094).
   Since 2026-10-19 the game takes them from the environment (`APPDATA`, `XDG_CONFIG_HOME`, `HOME`), which needs no crate; `directories` stays the option when Android needs its app storage.
   The log goes to the state directory: `%LOCALAPPDATA%\OpenSacred\logs\` on Windows, `$XDG_STATE_HOME/OpenSacred` (`~/.local/state/OpenSacred`) on Linux (docs/10 §5).
 * **Settings:** TOML, `settings.toml`: its sections are `[display]`, `[graphics]`, `[interface]`, `[sound]`, `[movies]`, `[gameplay]`, `[network]` and `[debug]`, and the keys are in `controls.toml` beside it (docs/10 §3 and §9 list them).
-  The design's backend, zoom, UI scale and HD packs are no settings of it.
   Done ahead of M6 on 2026-10-19 (#167): `settings.toml` with its display section, `mode` (`borderless`, the default: borderless full screen at the monitor's resolution; or `windowed`) and the window's `width` and `height` in physical pixels; F11 switches the mode and writes it at once (docs/10 §3).
   Since #169 and #170 a `[debug]` section keeps whether the overlay (F7) and the log (F12) show.
   The game writes only the key it changes, through `toml_edit`, so the user's comments, order and unknown keys stay; a file that does not read is reported, the defaults are taken, and it is never written; an unknown key is reported.
@@ -101,7 +98,7 @@ Estimate of 2026-10-16: 6–12 agent-hours (M5); done with M5 (#1094).
 * **The original's saves** (`save/GAMEnn.PAK`) and exported heroes (`save/hero*.pax`) are not read (docs/re/saves.md).
   The hero templates `Templates/*.ptx` are converted into starter kits for character creation.
 
-Estimate of 2026-10-16: 8–15 agent-hours (M6); the saves came with M5 (#1095) and the options window with M6 (#1096, #2340).
+The saves came with M5 (#1095) and the options window with M6 (#1096, #2340).
 
 ## 7. Localization
 
@@ -110,10 +107,8 @@ Estimate of 2026-10-16: 8–15 agent-hours (M6); the saves came with M5 (#1095) 
 * The GOG release carries English, French and Russian, each in a language depot of its own (the store page and gogdb): English and Russian with text and voice, French with text alone, the store marking no French voices; the Steam release carries English alone.
   The project is verified on the English installation, whose `scripts/us/global.res` the converter reads; the French and Russian depots are not checked locally (docs/09-ecosystem.md, "Open questions", 3).
   Other languages can be added as Fluent files; third-party translations are for personal use only.
-* Fonts: the original TTFs (the menus use the interface font) + Noto (OFL) for Cyrillic and other characters, later.
+* Fonts: the original TTFs (the menus use the interface font).
   The debug overlay, the log, the console and the keys' help use Bevy's embedded Fira Mono (OFL).
-
-Estimate: 3–6 agent-hours (M1 and M5).
 
 ## 8. NetScript scripts
 
@@ -132,8 +127,6 @@ Estimate: 3–6 agent-hours (M1 and M5).
    With the converter's two stages (#694) the sources are the masters and the bytecode the built assets.
 4. **The runtime and the API:** `opensacred-scripts` (#725) runs the bytecode through mlua with Luau, sandboxed, a call bounded by an interrupt; the quests' state, the variables and the dialogues' table are `opensacred-rules`' (#724) and part of the save; `opensacred-game` implements the API (#726).
 5. **Modding** (after 1.0): new quests in Luau on the same API, checked against a definition file of it.
-
-Estimate: 40–80 agent-hours (M1 and M4); the main source of content uncertainty.
 
 ## 9. What we do not do
 

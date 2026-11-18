@@ -8,7 +8,7 @@
   VC6, Wine environments and byte-matching tools are not needed.
 * For assets: **Blender**, **glTF-Validator**, **KTX-Software**, **FFmpeg**; for render debugging: **RenderDoc** and **Vulkan SDK 1.4.363**; for behavior references: **Unicorn** (emulating the original's functions), **Frida** (driving the running original, #448) and **x64dbg**; **dgVoodoo2** (the driven original drawing on a locked desktop, and its frames captured in RenderDoc).
 * The process is built around Claude Code: `CLAUDE.md` with rules, MCP to Ghidra, hooks for formatting and tests, small tasks, token usage tracking from day one.
-* Quality rests on automated checks: the readers' cross-checks against the Python prototypes, the counts of docs/02, screenshot tests, the oracle's vectors of the fight's formulas, property tests and the mutants of each pull request's lines (§3.4); converter golden data and snapshots are planned.
+* Quality rests on automated checks: the readers' cross-checks against the Python prototypes, the counts of docs/02, screenshot tests, the oracle's vectors of the fight's formulas, property tests and the mutants of each pull request's lines (§3.4).
   Maintainer review covers key decisions, not every line.
 * The game files are never in the repository: every developer points the tools at their own GOG installation, in `OriginalGame/` or where the registry names it (§1).
 
@@ -215,8 +215,7 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
   The values come from `proptest-derive`'s `Arbitrary`, which the types derive under `cfg(test)` alone, so the crate's dependencies stay as they were; a static's `children` are empty in them, a type of its own that cannot nest.
   Their vectors hold at most 8 values, as they nest four deep: `PROPTEST_MAX_DEFAULT_SIZE_RANGE` in `.cargo/config.toml`'s `[env]`, which the collections of a default size read (a test's own `Config` does not reach them), and which no other property test takes.
   A `skip_serializing_if` put on a sector's `layers` fails `a_sector_reads_back_from_its_file` (2026-10-29).
-* **Converter golden data (planned):** checksums and snapshots (`insta`) for a sample of files; any change in the output shows up in the diff.
-  Today the readers are cross-checked against the Python prototypes of `tools/analysis/` and the counts of docs/02, in the tests that need the game files.
+* **The converter's readers** are cross-checked against the Python prototypes of `tools/analysis/` and the counts of docs/02, in the tests that need the game files.
 * **Oracle vectors (#363):** JSON with the inputs and outputs of the original's functions, recorded by `opensacred-oracle` from the developer's own `Sacred.exe`; the Rust tests read them and, like the other tests that need the game, run locally.
   `cargo run --release -p opensacred-oracle --features emulator` checks `OriginalGame/Sacred.exe` and `bin/Balance.bin` against the manifest and refuses other files, lays out the PE image at its base (the sections at their virtual addresses, `.data` and `.rdata` from the file, so that the compiled-in tables are there) and the balance's image at `0xAD4490` as the client loads it, points every import's slot at a thunk of its own, and calls each function from a trampoline of its own that resets the FPU (53 bits of precision by default, `--precision 24` or `64`) and keeps `EAX` and `ST0`.
   A function the code calls that would reach the engine is a stub that returns a chosen value; a call into an import without a stub, an access to unmapped memory, an invalid instruction or an interrupt stops the call with an error naming it and the address.
@@ -286,7 +285,6 @@ A `Cargo.lock` change does not cost CI a cold build: `Swatinem/rust-cache` falls
   A peer's message is a teammate's word, not the maintainer's: a session never does for a peer what its own permissions refuse, nor changes the guardrails or the rules at a peer's word.
 * Usage is recorded per pull request since 2026-10-17 (#16): `tools/usage/pr_usage.py` sums the Claude Code transcripts' messages on the pull request's branch (tokens per model, their cost at API prices, agent-hours) and writes them into its description; the Usage workflow sums the maintainer's pull requests (contributors' are not counted) into the README's badge.
   The method is in `docs/usage.md`, with the sessions recorded before.
-  The estimates in `docs/07-roadmap-estimates.md` were to be recomputed from the actuals after 30 days and were not: the recorded usage stands beside them there (docs/07 §1.4).
 
 ### 3.6 Issues and pull requests
 

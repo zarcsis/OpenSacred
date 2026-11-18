@@ -5,7 +5,7 @@ Dollar figures are the hypothetical cost of the same tokens at Anthropic API pri
 Since 2026-10-17 (#16), every pull request that a session makes carries its own usage: a "Claude Code usage" section at the end of its description, with the tokens per model, their cost at API prices and the agent-hours.
 The daily dependency update's pull request, which a workflow makes without a session, has none.
 The badge in the README sums every pull request's figures and the sessions before them (the table below).
-What they sum to beside the estimates is in `docs/07-roadmap-estimates.md`, §1.4, and PLAN.md §9.1.
+It is the project's one count of what the work takes: the estimates of time and cost that the plan of 2026-10-16 made were dropped on 2026-11-17 (#2846; PLAN.md §9.1).
 
 ## How it is calculated
 
@@ -73,28 +73,27 @@ One row per session, from 2026-10-16 to 2026-10-17, recorded before the pull req
 
 Each row was computed by the script's predecessor, `tools/usage/session_cost.py`, from the whole transcript of its session (in the Git history).
 
-## Observations for calibrating §9
+## Observations
 
-- 2026-10-16: ≈$19 per agent-hour versus $8–18 in the §9 model.
-  Output (0.30M/h) and cache writes (0.61M/h) are within the model, but cache reads are 42M/h versus 5–15: a long session rereads its growing context (≈225k tokens per request on average).
+- 2026-10-16: ≈$19 per agent-hour.
+  Output is 0.30M tokens an hour, cache writes 0.61M and cache reads 42M: a long session rereads its growing context (≈225k tokens per request on average).
   Cache reads are 43% of the cost.
   Short single-task sessions are cheaper.
 - 2026-10-16 (translation): agent-hours count only the main session's time, so with 11 parallel subagents the per-agent-hour figures ($47, cache reads 97M/h) are inflated; per task it is ≈$29 for ≈1.8 MB of Russian text, cache reads ≈41% of the cost.
-- 2026-10-16/17 (night session): ≈$26 per agent-hour, above the model's $8–18.
-  Output (0.21M/h) and cache writes (0.40M/h) are within it; cache reads (95M/h) are six times its top, as in every long session, and make up most of the cost.
+- 2026-10-16/17 (night session): ≈$26 per agent-hour.
+  Output is 0.21M tokens an hour and cache writes 0.40M; cache reads, 95M, make up most of the cost, as in every long session.
   Splitting a night into sessions per milestone would cut them.
 - 2026-10-17 (the night session continued after a 6.6-hour pause): ≈$48 per agent-hour.
   Each of the 43 requests reread ≈750k tokens of the old context (cache reads 108M/h), and the hour-long cache had expired during the pause, so the context was written to it anew (cache writes ≈half the cost).
   Short tasks after a break are cheaper in a new session, which starts from `CLAUDE.md`, `PLAN.md` and the memory instead of the old context.
 - 2026-10-17 (publication): ≈$36 per agent-hour, but the eight subagents' tokens are in the cost and their time is not, so the per-agent-hour figures are inflated, as in the translation session.
   Cache reads are ≈52% of the cost, cache writes ≈35%: the audit and the editing ran in parallel subagents, each reading its share of the documents into its own context.
-- 2026-10-17 (the workflow): ≈$18 per agent-hour, the top of the model; output, cache reads and writes are all within it.
+- 2026-10-17 (the workflow): ≈$18 per agent-hour.
   Most of the wall clock was CI: the first Windows builds took 28 and 29 minutes without a cache, the next pull request 1 minute with one.
-- 2026-10-17 (versions): ≈$11 per agent-hour, within the model; cache reads 16M/h, just above its top.
+- 2026-10-17 (versions): ≈$11 per agent-hour, cache reads 16M an hour.
   A short single-task session: most of the wall clock was waiting for the maintainer's merges and for CI.
 - 2026-11-17 (the sessions above and the blocks of 1,480 pull requests, M0 to M5 done and every issue of M6 closed): 465.3 agent-hours, 47.0B tokens, $13,220, ≈$28 per agent-hour.
-  Output (0.18M/h) and cache writes (0.66M/h) are at or under the model; cache reads (100M/h) are nearly seven times its top and about seven tenths of the cost, as in the long sessions above.
-  The sums by the milestones' closing days are in `docs/07-roadmap-estimates.md`, §1.4.
+  Output is 0.18M tokens an hour and cache writes 0.66M; cache reads, 100M, are about seven tenths of the cost, as in the long sessions above.
 - 2026-11-17 (the recount, #2849): one pass over the transcripts beside the block of each of the account's 1,487 pull requests, of which 1,473 had a block.
   1,033 blocks held what the transcripts give; 327 were counted anew and 5 pull requests that had no block got one, 3.4B tokens, ≈$1.7k and 31 agent-hours more than the blocks had summed before it (43.6B tokens, ≈$11.5k and 434 agent-hours with the sessions above).
   ≈$0.75k of it is the 15 pull requests on Mythos 5.2 that had counted no dollars (#2834); most of the rest is the beginning of a next task, which a session in a worktree does on the merged branch after that branch's last block (294 blocks, 2.75B tokens; #2852).

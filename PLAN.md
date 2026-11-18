@@ -22,11 +22,9 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
   Compatibility with the original saves is not needed.
 * **Only free tools and dependencies:** Ghidra 12.2 with an MCP server for Claude Code, Rust, Visual Studio Build Tools 2026, Vulkan SDK, Unicorn, FFmpeg, Blender, RenderDoc.
 * **Solo development, almost entirely through Claude Code.**
-  Estimates are given in hours of active agent work and in tokens (§9).
-  To a playable version on Windows 11: **≈390–770 agent-hours** (estimate).
-  At API prices for Claude Opus 5.5 the same tokens would cost ≈$3k–14k, center ≈$6k; development runs on a Claude subscription, so this is a hypothetical figure, not money spent (§9).
+  Every pull request records its Claude Code usage, which the README's badge sums (§9.1); no estimates of time or cost are kept.
   The first visible result, a walk through the starting region in 4K, came on 2026-10-17 (G2).
-  By 2026-11-17 M0 to M5 are done and every issue of M6 is closed, with ≈465 agent-hours and ≈$13.2k at API prices recorded (§9.1); version 1.0 waits for the maintainer's own play-through (G5, §10).
+  By 2026-11-17 M0 to M5 are done and every issue of M6 is closed; version 1.0 waits for the maintainer's own play-through (G5, §10).
 
 ## 1. Requirements and goals
 
@@ -39,7 +37,7 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
 | Multiplayer after version 1.0 (changed 2026-10-23: no network components were planned before) | No network code, TinCat, lobby or server before 1.0; the game is built so that a host can later run it for several players (ADR-09) |
 | Work only with the GOG version (changed 2026-10-30: the converter also takes a player's Steam installation, #1484) | The reference is GOG ENG 2.28; the tools read the user's own installation, the development tools (the oracle, the original's driver, the research scripts) the GOG one alone |
 | The game does not have to read the original formats and saves | An offline converter into open formats; the runtime reads only those; HD and upscale packs in the future |
-| Solo development almost entirely through Claude Code | Estimates in agent-hours and tokens; the process is built around tests and text artifacts |
+| Solo development almost entirely through Claude Code | The process is built around tests and text artifacts; every pull request records its usage (§9.1) |
 | Modern toolchains: Visual Studio Build Tools 2026, latest Vulkan, newest dependencies | Latest stable Rust, scheduled dependency updates |
 | One language for the whole project, preferably Rust | Rust everywhere |
 | Only free tools and dependencies | Ghidra instead of IDA/Binary Ninja; all software and libraries are open source or free of charge |
@@ -196,7 +194,7 @@ Notes on the debatable scores:
 
 * **Bevy, stability 2.**
   Before 1.0, Bevy breaks its API in every release: 0.18 (January 2026), 0.19 (June), 0.20 (October).
-  A migration is a 2–6 agent-hour task per release (estimate); every release has a migration guide.
+  A migration is a task of its own per release; every release has a migration guide.
   The project takes the newest dependencies (§1.1), so this is a price paid knowingly.
 * **Own engine, work 1.**
   We would have to write the asset system, animation blending, UI and scenes, which Bevy already provides.
@@ -293,7 +291,7 @@ Details for each format: [docs/02-data-formats.md](docs/02-data-formats.md), the
 | `sound.pak`, `sndProfiles.pak` | WAV (PCM and IMA ADPCM) → FLAC; the MP3 entries decoded into FLAC (#697); profiles in RON | Opus in Ogg (#701) | listening to a sample, durations |
 | `mp3/*.mp3` | FLAC, decoded from the MP3 (#697) | Opus in Ogg | playback |
 | `movie/*.wmv` | FFV1 video and FLAC audio in Matroska, the frames and samples the WMV decoder gives (#698) | AV1 + Opus in WebM | playback in the game |
-| `font/*.ttf` | unchanged + a free Unicode font (Noto, OFL) for missing characters (the fallback not added yet) | the same files | rendering all strings |
+| `font/*.ttf` | unchanged | the same files | rendering all strings |
 | `Templates/*.ptx` | hero starter kits; 2026-10-17: the sections, inflated, in postcard hero files with a RON index of level, class and name, and since then the items worn, the backpack and the arts, the rest kept whole until its layout is recovered | the same files | character creation |
 | Packing | loose files, which tools edit | ZIP archives by kind (stored entries for compressed data, deflate for text), read through an asset reader with a loose overlay (#699) | the game starts from the archives alone |
 
@@ -319,68 +317,33 @@ Details: [docs/05-renderer-vulkan-4k.md](docs/05-renderer-vulkan-4k.md).
 * HD pipeline (after version 1.0): texture upscaling with free models (Real-ESRGAN through ncnn-vulkan, or ONNX models through the `ort` crate) and separate alpha channel processing, into PNG masters in `assets-hd/`, which stage B packs as it packs the base ones.
   Upscaling all 25,535 textures ×4 gives ≈25 GB in BC7 (estimate), so HD packs are made selectively: ground, characters, UI.
 
-## 9. Estimates: Claude Code time and token cost
+## 9. Milestones and usage
 
-Dollar figures are the hypothetical cost of the same tokens at Anthropic API prices; development runs on a Claude subscription, so they are not money actually spent.
+### 9.1 Usage
 
-Details and formulas: [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.md).
+The work is done solo and almost entirely through Claude Code.
+Every pull request records the Claude Code usage of its branch: the tokens per model, the cost of the same tokens at API prices and the agent-hours; the README's badge sums them (`docs/usage.md`).
+The dollars are hypothetical: development runs on a Claude subscription, so they are not money spent.
 
-### 9.1 Units
-
-* **Agent-hour**: an hour of active Claude Code work on a task (the agent reads code, writes, runs tests).
-  Parallel sessions add up.
-* **Maintainer hours**: setting tasks, review, manual checks, playtesting.
-* **Cost**: at API prices per million tokens as of 2026-10-16: Claude Opus 5.5: $4 input, $20 output, $0.20 cache read, $5 cache write for 5 minutes and $8 for an hour, which Claude Code uses (docs/usage.md); Claude Sonnet 5.5: $2 / $10 / $0.20 / $2.50; Claude Fable 5.1: $10 / $50 / $0.25 / $12.50.
-  The sessions of 2026-11-17 on Claude Mythos 5.2 count at its prices of that day: $8 / $40 / $0.20 / $10, and $16 for an hour's cache write.
-* **Agent-hour cost model (estimate):** output with reasoning 0.2–0.5M tokens, cache reads 5–15M, cache writes 0.5–1M.
-  For Opus 5.5 that is ≈$8–18 per agent-hour, for Sonnet 5.5 ≈$4–10, for Fable 5.1 ≈$18–40.
-  On a Claude Code subscription the payment is fixed, and the pace is limited by usage limits.
-* **Calibration on this project:** the planning-phase research took 16 agents, 1,502 tool calls, ≈4 hours and 5.1M tokens by the orchestrator's counter.
-  A later revision of the documents took 32 agents, ≈1.5 hours, 6.6M tokens.
-  What exactly the counter includes has not been verified, so the model above should be refined with real data: the Claude Code transcripts, recorded per pull request since 2026-10-17 (`docs/usage.md`).
-  By 2026-10-20 the README's badge summed 4.15B tokens, ≈$1.2k at API prices: ≈37 agent-hours in 152 pull requests and 12.7 in the sessions before, about $24 per agent-hour, above the model's $8–18 (the subagents' time is not counted).
-  On 2026-10-28 the badge summed 17.6B tokens, ≈$5.0k at API prices, with M3 and M4 closed.
-  On 2026-11-17, with M0 to M5 done and every issue of M6 closed, the usage blocks of 1,480 pull requests and the sessions before summed 47.0B tokens, ≈$13.2k at API prices and ≈465 agent-hours (`tools/usage/usage_badge.py` over every pull request of the maintainer's account, after that day's recount of the blocks that were behind the transcripts, #2849; `docs/usage.md`): within the estimate to version 1.0 both in agent-hours (≈390–770) and in cost (≈$3.1k–13.9k), near its low end in hours and its high end in cost.
-  An agent-hour cost ≈$28, not $8–18: its output (0.18M tokens) and its cache writes (0.7M) are at or under the model's, but its cache reads are 100M against the model's 5–15M and make about seven tenths of the cost, as the long sessions of `docs/usage.md` showed from the first days; all but a little of the work ran on Opus 5.5.
-  By the days the milestones closed, the sums were ≈143 agent-hours at the end of 2026-10-26 (M0 to M4, estimated at 296–592) and ≈376 at the end of 2026-11-09 (M0 to M5, estimated at 346–692, with much of M6's work among them).
-  The maintainer's hours were not recorded.
-  The estimates of §9.2 were not recomputed 30 days after 2026-10-16, as was planned: those of M0 to M6 are overtaken by these figures, and those of M7 and M8 stand as of 2026-10-16.
+No estimates of time or cost are kept.
+The plan of 2026-10-16 estimated each milestone in agent-hours, maintainer hours and dollars; those estimates were dropped on 2026-11-17 as out of date (#2846), and the recorded usage is the count that stays.
 
 ### 9.2 Milestones
 
-The hours are the estimates of 2026-10-16; what was recorded is in §9.1, and what each milestone delivered in §10.
+What each milestone holds; its exit criterion and its status are in [docs/07-roadmap.md](docs/07-roadmap.md), and what it delivered in §10.
 
-| Milestone | Contents | Agent-hours | Maintainer hours |
-|---|---|---|---|
-| M0 Foundation | Cargo workspace, `CLAUDE.md`, CI, GOG installation manifest; done 2026-10-16 | 6–12 | 4–8 |
-| M1 Converter | all formats from §7; tests and the manifest; done 2026-10-17 | 80–160 | 25–50 |
-| M2 Vertical slice | window, camera, sector streaming, ground, objects, hero with animations, sound, a walk through the starting region in 4K; G2 met 2026-10-17, closed 2026-10-23 | 30–60 | 15–30 |
-| M3 Rules | Ghidra + MCP with community names; character, skills and combat arts, combat, items and loot, AI, spawning; the Unicorn oracle; the converter's two stages and the game's packed assets (#694, moved from M7 on 2026-10-23); closed 2026-10-26 | 120–240 | 40–80 |
-| M4 Quests and world | NetScript translated into Luau and run, dialogues, triggers, NPCs, day and night, the weather's choice (the trade and the blacksmith moved to M5 on 2026-10-26); closed 2026-10-26 | 60–120 | 25–50 |
-| M5 UI and effects | full UI with the inventory, the trade and the blacksmith (from M4, 2026-10-26), 178 effects, the weather drawn, profile-driven sound, movies, saves (from M6 on 2026-11-03, ahead of the rest of M5, so that the campaigns could be played through and checked); closed 2026-11-09 | 50–100 | 20–40 |
-| M6 Version 1.0 for Windows 11 | settings, 4K and HiDPI, polish, campaign playthroughs; the add-on's script forms and the difficulty's remaining AI chances, which waited for M6's Underworld campaign and bosses (from M5, 2026-11-03); the hero's export, which carries a hero from the Ancaria campaign into the Underworld's (from M9, 2026-11-10, #2358); the gamepad moved to M8 on 2026-11-09; every issue closed by 2026-11-17, the milestone open until the maintainer's play-through and version 1.0 (G5) | 40–80 | 100–200 |
-| **Total to version 1.0** | | **≈390–770** | **≈230–460** |
-| M7 HD assets | upscaling, HD packs, built by stage B; its research begun (§10), the rest after version 1.0 | 15–30 | 10–30 |
-| M8 Platforms | Linux 5–10; Android 25–50; the gamepad (from M6, 2026-11-09, #1097) | 30–60 | 10–20 |
-| M9 Multiplayer | the campaigns played together over the network: the protocol, a host or a server, joining a game, the multiplayer script trees (docs/02 §7.2) | not estimated (§13) | not estimated |
-
-### 9.3 Money and calendar (estimate)
-
-Hypothetical cost at API prices (not money spent, see above):
-
-| Model for the main work | To version 1.0 | With M7 and M8 |
-|---|---|---|
-| Claude Opus 5.5 | ≈$3.1k–13.9k (center ≈$6k) | ≈$3.5k–15.5k |
-| Claude Sonnet 5.5 | ≈$1.6k–7.7k | ≈$1.7k–8.6k |
-| Claude Fable 5.1 | ≈$7k–31k | ≈$7.8k–34.4k |
-
-A sensible mode is Opus 5.5 for binary analysis and architecture, and Sonnet 5.5 for mechanical work (converter tables, UI layout).
-The choice of model is up to the maintainer.
-
-Calendar: in an intensive mode (≈40 agent-hours and 25 maintainer hours a week), the vertical slice comes in ≈1 month and version 1.0 in ≈2.5–4.5 months; "evenings and weekends" (≈15 and 10 hours) gives ≈2–3 and ≈6–12 months.
-As it went: the vertical slice came on the second day, 2026-10-17, and M0 to M5 were done and every issue of M6 closed by 2026-11-17, the thirty-third, at ≈100 agent-hours a week; version 1.0 waits for the maintainer's play-through (G5).
-The pace is limited more by the maintainer's time for review and playtesting (≈230–460 hours) than by the agents' work.
-The main sources of uncertainty (each up to ×2): recovering the combat and loot rules, NetScript semantics, correctness of the Granny animation conversion, how often the Bevy API breaks.
+| Milestone | Contents |
+|---|---|
+| M0 Foundation | Cargo workspace, `CLAUDE.md`, CI, GOG installation manifest; done 2026-10-16 |
+| M1 Converter | all formats from §7; tests and the manifest; done 2026-10-17 |
+| M2 Vertical slice | window, camera, sector streaming, ground, objects, hero with animations, sound, a walk through the starting region in 4K; G2 met 2026-10-17, closed 2026-10-23 |
+| M3 Rules | Ghidra + MCP with community names; character, skills and combat arts, combat, items and loot, AI, spawning; the Unicorn oracle; the converter's two stages and the game's packed assets (#694, moved from M7 on 2026-10-23); closed 2026-10-26 |
+| M4 Quests and world | NetScript translated into Luau and run, dialogues, triggers, NPCs, day and night, the weather's choice (the trade and the blacksmith moved to M5 on 2026-10-26); closed 2026-10-26 |
+| M5 UI and effects | full UI with the inventory, the trade and the blacksmith (from M4, 2026-10-26), 178 effects, the weather drawn, profile-driven sound, movies, saves (from M6 on 2026-11-03, ahead of the rest of M5, so that the campaigns could be played through and checked); closed 2026-11-09 |
+| M6 Version 1.0 for Windows 11 | settings, 4K and HiDPI, polish, campaign playthroughs; the add-on's script forms and the difficulty's remaining AI chances, which waited for M6's Underworld campaign and bosses (from M5, 2026-11-03); the hero's export, which carries a hero from the Ancaria campaign into the Underworld's (from M9, 2026-11-10, #2358); the gamepad moved to M8 on 2026-11-09; every issue closed by 2026-11-17, the milestone open until the maintainer's play-through and version 1.0 (G5) |
+| M7 HD assets | upscaling, HD packs, built by stage B; its research begun (§10), the rest after version 1.0 |
+| M8 Platforms | Linux; Android; the gamepad (from M6, 2026-11-09, #1097) |
+| M9 Multiplayer | the campaigns played together over the network: the protocol, a host or a server, joining a game, the multiplayer script trees (docs/02 §7.2); how it is made is an open question (§13) |
 
 ## 10. Work order
 
@@ -393,7 +356,7 @@ The details are in their own documents: the formats in docs/02, the original's b
   The Cargo workspace (`opensacred-formats`, `opensacred-data`, `opensacred-convert` with its `verify`), `CLAUDE.md`, `rust-toolchain.toml`, `deny.toml`, CI on GitHub Actions, and the SHA-256 manifest of the reference GOG installation, `docs/manifest-gog-2.28.txt`, which the converter checks an installation against.
   The manifest lists 313 files: the files the game writes left it on 2026-10-17 (docs/02 §13), and the six that nothing of the project reads on 2026-10-29 (#1482).
   The process followed on 2026-10-17: every change reaches `main` through a squash-merged pull request with green checks (#1), each pull request carries its Claude Code usage (#16, docs/usage.md), and the queue is the issues (§10.1).
-* **M1 Converter: done 2026-10-17**, its four exit criteria met (docs/07 §2).
+* **M1 Converter: done 2026-10-17**, its four exit criteria met (docs/07 §1).
   The readers of `opensacred-formats`, cross-checked against the Python prototypes of `tools/analysis/`, and the converter's extractions: the textures, the Granny models with their animations as glTF that glTF-Validator passes without errors or warnings, the 6,050 sectors of the world with the statics' sprites, the sound, the texts, the videos, the interface, the tables, the hero templates and the NetScript trees (§7, docs/02).
   `coverage` accounts for every file of the manifest (G1), and each command records a manifest of its run, by which `all` skips what still holds.
   Since then the converter took its two stages (M3), the repairs of the original's data (#348), the scripts' translation into Luau (M4), and the player's run and the Steam installation (M6).
@@ -445,7 +408,7 @@ On 2026-11-17 the queue holds no bug and no `deps` issue: beside the documents' 
 ## 11. Top risks
 
 The table is the plan's of 2026-10-16 with its later rows; the full register is docs/08 §7.
-Where its first rows stand on 2026-11-17: the animations converted and passed their checks in M1; the rules are compared with the oracle's vectors and the running original since M3; both campaigns' scripts ran to their ends in M6 (#1099); Bevy has had no breaking release since the start; and an agent-hour costs more than the model said, while the whole stayed within the estimate (§9.1).
+Where its first rows stand on 2026-11-17: the animations converted and passed their checks in M1; the rules are compared with the oracle's vectors and the running original since M3; both campaigns' scripts ran to their ends in M6 (#1099); and Bevy has had no breaking release since the start.
 
 | Risk | Probability | Impact | What we do |
 |---|---|---|---|
@@ -453,7 +416,7 @@ Where its first rows stand on 2026-11-17: the animations converted and passed th
 | Combat and loot rules are recovered incorrectly | medium | medium | the Unicorn oracle and vectors; observations of the running original (#227, #448); fidelity is not a priority, but deviations are recorded |
 | NetScript semantics are harder than expected | medium | high | a disassembler and listings early; opcodes are covered by frequency: 45 types account for 95% of records; the translator refuses a control flow or a type it does not know (#723), and the running original is the reference (#448) |
 | Bevy breaks its API more often than is worthwhile | high | medium | scheduled updates; rules outside the engine; the fallback is Godot + godot-rust |
-| Token use exceeds the estimate (usage limits slow the pace) | medium | medium | tracking from day one; Sonnet for mechanical work; small tasks |
+| Claude Code usage limits slow the pace | medium | medium | the usage tracked from day one (docs/usage.md); a cheaper model for mechanical work; small tasks |
 | Maintainer burnout | medium | high | the vertical slice gives a visible result early; milestones are short |
 | Claude Code misunderstands the original's behavior | medium | medium | vector tests, screenshot tests, the decision log; Claude Code's own observations of the running original (#448); maintainer review of key formulas |
 | Game content gets into the repository (a test fixture, an issue attachment, converter output) | low | high | no game bytes in the repository or CI; tests use synthetic data or the user's local installation; the same rules for issues and pull requests (§12) |
@@ -477,9 +440,9 @@ This is not legal advice.
 ## 13. Open questions
 
 1. Whether Android is needed: a decision after version 1.0; the browser version was dropped on 2026-10-23.
-2. How multiplayer is made after version 1.0 (M9): our own protocol between OpenSacred games or the original's (TinCat 2, docs/09 §3.2), so that the original clients could join; a host's game or a dedicated server; which network crate; its estimate.
+2. How multiplayer is made after version 1.0 (M9): our own protocol between OpenSacred games or the original's (TinCat 2, docs/09 §3.2), so that the original clients could join; a host's game or a dedicated server; which network crate.
 
-Closed on 2026-10-16: the container and codecs of `sound.pak` (docs/02, §10.2), the channel order of format 6 textures (docs/02, §3.1), how completely the Granny animation curves carry over to glTF (all of them do, docs/02 §4.5); on 2026-10-17, where the image of the extensionless static templates of `Items.pak` lives (the `mixed.pak` sprite named at `+0x10`, docs/02 §3.3, §6.1); on 2026-11-17, the actual cost of an agent-hour on the project's tasks: ≈98M tokens, nearly all of them cache reads, and ≈$27 at API prices (§9.1).
+Closed on 2026-10-16: the container and codecs of `sound.pak` (docs/02, §10.2), the channel order of format 6 textures (docs/02, §3.1), how completely the Granny animation curves carry over to glTF (all of them do, docs/02 §4.5); on 2026-10-17, where the image of the extensionless static templates of `Items.pak` lives (the `mixed.pak` sprite named at `+0x10`, docs/02 §3.3, §6.1).
 
 ## 14. Document index
 
@@ -491,7 +454,7 @@ Closed on 2026-10-16: the container and codecs of `sound.pak` (docs/02, §10.2),
 | [docs/04-language-and-engine.md](docs/04-language-and-engine.md) | Rust or C++, engine comparison |
 | [docs/05-renderer-vulkan-4k.md](docs/05-renderer-vulkan-4k.md) | rendering on Bevy and wgpu, 4K, HD assets |
 | [docs/06-platform-backends.md](docs/06-platform-backends.md) | platforms, sound, input, video, files, saves |
-| [docs/07-roadmap-estimates.md](docs/07-roadmap-estimates.md) | milestones, agent-hours, tokens and their hypothetical cost at API prices |
+| [docs/07-roadmap.md](docs/07-roadmap.md) | the milestones: what each holds, its exit criterion and its status |
 | [docs/08-risks-legal.md](docs/08-risks-legal.md) | risks and the legal framework |
 | [docs/09-ecosystem.md](docs/09-ecosystem.md) | game versions, community work, comparable projects |
 | [docs/10-game-tools.md](docs/10-game-tools.md) | tools to test and drive the game: settings, menu, overlays, log, console, remote control |
