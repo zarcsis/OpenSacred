@@ -32,6 +32,7 @@
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
 use bevy::ui_render::prelude::MaterialNode;
+use opensacred_rules::drops::Dropped;
 use opensacred_rules::equipment::{Glow, Refusal, Wearer, frames, glow, refusal, slot_for, takes};
 use opensacred_rules::fight::{combat_with, regeneration_with};
 use opensacred_rules::set_bonuses;
@@ -553,10 +554,10 @@ fn refit(
         .and_then(|horse| bridles.get(horse).ok())
         .map(|bridle| bridle.0.clone());
     // The items in the hands, the selected weapon set's halves, whose sets count (#1727).
-    let hands: Vec<u32> = weapon_sets
+    let hands: Vec<Dropped> = weapon_sets
         .as_deref()
         .and_then(|sets| sets.halves.get(sets.selected))
-        .map(|halves| halves.iter().flatten().map(|d| d.item).collect())
+        .map(|halves| halves.iter().flatten().cloned().collect())
         .unwrap_or_default();
     // Set 23's statues carried in the pack, each once (`0x57AD5B`, #1808).
     let mut carried: Vec<u32> = pack
@@ -575,7 +576,11 @@ fn refit(
         .iter()
         .flatten()
         .map(|(key, d)| (*key, d.socketed.len()))
-        .chain(hands.iter().map(|&item| (item, usize::MAX)))
+        .chain(
+            hands
+                .iter()
+                .map(|d| (d.item, usize::MAX - d.socketed.len())),
+        )
         .chain(carried.iter().map(|&item| (item, usize::MAX - 1)))
         .chain(bridle.iter().map(|d| (d.item, usize::MAX - 2)))
         .chain(ridden.map(|_| (0, usize::MAX - 3)))
@@ -583,16 +588,29 @@ fn refit(
     if *seen == worn {
         return;
     }
-    // What the sets of the pieces worn and held give the hero (`0x5711F0`, `0x571710`).
-    let pieces = bridle
+    // What the sets of the pieces worn and held give the hero, the items in their sockets pieces
+    // too, and the sets whose sockets they fill (`0x5796A0`'s item loop, `0x5711F0`,
+    // `0x571710`; #2813).
+    let set_of = |item: u32| tables.set_of(item).unwrap_or(0);
+    let items = bridle
         .iter()
-        .map(|d| d.item)
-        .chain(pack.worn.iter().flatten().map(|(_, d)| d.item))
-        .chain(hands.iter().copied())
-        .chain(carried.iter().copied())
-        .filter_map(|item| Some((item, tables.set_of(item)?)));
+        .chain(pack.worn.iter().flatten().map(|(_, d)| d))
+        .chain(hands.iter())
+        .map(|d| {
+            let sockets: Vec<(u32, u8)> = d
+                .socketed
+                .iter()
+                .map(|socket| (socket.item.item, set_of(socket.item.item)))
+                .collect();
+            ((d.item, set_of(d.item)), sockets)
+        })
+        .chain(
+            carried
+                .iter()
+                .map(|&item| ((item, set_of(item)), Vec::new())),
+        );
     let difficulty = difficulty.map(|d| d.0).unwrap_or_default();
-    let set_stats = set_bonuses::stats(&set_bonuses::Worn::of(pieces), difficulty);
+    let set_stats = set_bonuses::stats(&set_bonuses::Worn::of_items(items), difficulty);
     for (entity, base, mut holding, mut combat, mut regenerates, effects, old, _) in &mut heroes {
         // Each item's values with its sockets', then the bonus slots of the items in its
         // sockets, as the stats take each item's record and then theirs (`0x5796A0`, #1661);
