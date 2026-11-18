@@ -1089,7 +1089,10 @@ pub fn run(
         ),
         Has<Dies>,
         Has<Flies>,
-        Option<&crate::effects::Effects>,
+        (
+            Option<&crate::effects::Effects>,
+            Option<&crate::fight::Holding>,
+        ),
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<GameSpeed>,
@@ -1103,7 +1106,7 @@ pub fn run(
         (making, picking, collects, (held, seat, downed)),
         dying,
         flies,
-        effects,
+        (effects, holding),
     ) in &mut bodies
     {
         // Held, it stands still, its clip too (`hero_held`); mounting a horse or getting off,
@@ -1429,9 +1432,11 @@ pub fn run(
         if moving.is_none() && body.stopping.is_some() {
             moving = body.moving;
         }
-        // Standing, in its stance while the last look found a hostile within 350 units (the
-        // client's bit `0x8000`, `0x547070`; 1,000 with a bow, not followed).
-        let fight = nearest.found && nearest.distance < opensacred_rules::fight::IN_FIGHT_WITHIN;
+        // Standing, in its stance while the last look found a hostile within 350 units, 1,000
+        // with a ranged weapon (the client's bit `0x8000`, `0x547070`, #2914).
+        let ranged = holding.is_some_and(|holding| holding.0.ranged);
+        let fight =
+            nearest.found && nearest.distance < opensacred_rules::fight::in_fight_within(ranged);
         let node = clips.node(moving, fight, riding);
         let Some((mut player, mut transitions)) =
             clips.player.and_then(|e| players.get_mut(e).ok())
