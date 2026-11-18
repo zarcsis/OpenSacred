@@ -1055,7 +1055,7 @@ mod tests {
             }
             entity.id()
         };
-        // Shareefa, hired with `0x6B` 1 (#2459); one of no `0x6B`; one of a creature's.
+        // Quest 59's companion, hired with `0x6B` 1 (#2459); one of no `0x6B`; one of a creature's.
         let shareefa = dead(&mut world, hero, true);
         let plain = dead(&mut world, hero, false);
         let creature = world.spawn_empty().id();

@@ -36,7 +36,7 @@ fetch() {
     url=$(field "$name" url)
     sum=$(field "$name" sha256)
     file=$work/$(basename "$url")
-    curl -fsSL --retry 5 --retry-all-errors -o "$file" "$url"
+    curl -fsSL -o "$file" "$url"
     echo "$sum  $file" | sha256sum -c -
     mkdir -p "$work/$name"
     tar -xf "$file" -C "$work/$name" --strip-components=1

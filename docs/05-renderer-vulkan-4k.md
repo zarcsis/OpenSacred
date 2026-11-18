@@ -5,7 +5,7 @@
 * The renderer is written from scratch on **Bevy 0.20 / wgpu 30**: Vulkan by default on Windows and Linux, DX12 as the fallback on Windows, Vulkan or GLES on Android.
   The code of the original renderer (D3D7) is not ported; only facts are taken from it: the projection, the diamond geometry, the order of passes.
 * The scene stays isometric under an orthographic camera with the original's angle, but becomes a real 3D scene: **the ground is a mesh from the heightmap**, objects are sprites in world space with depth, characters are skeletal glTF models with lighting and shadows.
-* **4K:** rendering at native resolution; by default the same area of the world is visible as in the original at zoom 1.0; an extended view is planned as an option (§3.4).
+* **4K:** rendering at native resolution; by default the same area of the world is visible as in the original at zoom 1.0 (§3.4).
   The UI and text are scaled separately from the scene, with the window's height, and rasterized at the window's resolution (§3.5).
 * The main limit of the image is the 256² ARGB4444 textures without mipmaps.
   The base textures go to the game as KTX2 with BC7 and mipmaps since M3 (#700); **HD packs** remove the size limit (milestone M7): offline upscaling with free models into masters that the converter's stage B packs the same way, path-based substitution on top of the base assets.
@@ -78,7 +78,6 @@ Where the game draws as the original does instead, a row of docs/decisions/drawi
 * An orthographic camera at a pitch of 30°, under which a cell shows the original's 2:1 diamond; the original's `atan 0.5` is the angle of its own view of the models (§3.6).
 * The base visible area is the original's 768-pixel-high screen at zoom 1, 607 world units tall (534×400 in the units of the models, §3.6); at 3840×2160 it fills the whole screen, keeping the proportions by height.
 * Zoom spans the original's range of views (0.5–2.0, §1).
-  An "extended view" that shows more of the world and streams in more sectors is in the plan (PLAN.md §8) and not in the game.
 * The ground and the sprites are filtered linearly at any zoom, each texel weighted by its alpha (docs/decisions/drawing.md, "Linear filter at every zoom"); a point filter and a sharp bilinear one were tried and dropped (#124, #136).
 
 ### 3.5 UI and text
@@ -87,7 +86,6 @@ Where the game draws as the original does instead, a row of docs/decisions/drawi
   The settings hold no scale of the interface (docs/10 §3).
 * Text: Bevy's text (parley) at native resolution.
   The original fonts (`ANTQS__.TTF`, `CAROLING.TTF`) are converted by `opensacred-convert ui`; the game sets its words over the world in `ANTQS__.TTF` (`game::FONT`), and its debug panels and console in Bevy's default font.
-  A free Unicode font (Noto, OFL) for missing characters is planned (PLAN.md §7) and not added yet.
 * The original's interface images are assembled at the original's pixels, one to one, into pictures that are scaled to the window and filtered once (`ui_layers`, #2636; docs/decisions/interface.md, "Interface assembled at the original's pixels"); no nine-slice stretching is used.
 
 ### 3.6 What `opensacred-game` does
@@ -226,13 +224,13 @@ HD packs are derived from the game assets and, like the assets themselves, are n
 
 ## 8. Rendering milestones
 
-| Step | Result | Agent-hours (estimate) | Plan milestone |
-|---|---|---|---|
-| R1 First sector | terrain mesh, tile atlas, orthographic camera, 4K | 8–15 | M2 |
-| R2 Slice | sector streaming, sprite objects, hero with animations, water | 15–30 | M2 |
-| R3 Full world | all object types, shadows, day and night lighting, weather, effects (the effects, the last of them, came with M5, closed 2026-11-09; §3.6) | 25–50 | M5 |
-| R4 4K polish | UI scale, graphics settings (the options window's graphic settings came, #2340; the interface scales with the window's height, with no setting of its own, §3.5) | 8–15 | M6 |
-| R5 HD pipeline | upscaling, KTX2, path-based substitution | 15–30 | M7 |
+| Step | Result | Plan milestone |
+|---|---|---|
+| R1 First sector | terrain mesh, tile atlas, orthographic camera, 4K | M2 |
+| R2 Slice | sector streaming, sprite objects, hero with animations, water | M2 |
+| R3 Full world | all object types, shadows, day and night lighting, weather, effects (the effects, the last of them, came with M5, closed 2026-11-09; §3.6) | M5 |
+| R4 4K polish | graphics settings (the options window's graphic settings came, #2340; the interface scales with the window's height, §3.5) | M6 |
+| R5 HD pipeline | upscaling, KTX2, path-based substitution | M7 |
 
 ## Open questions
 

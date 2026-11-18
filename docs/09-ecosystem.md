@@ -2,7 +2,7 @@
 
 Plan document 09.
 Scope: which Sacred Gold builds exist and which one is the baseline; what players report about the original on Windows 10/11 and how they fix it; what the community has already built (hooks, SDKs, reimplementations, lobby servers, middleware replacements) and on what terms it can be used; where players and modders gather, including Russian-speaking ones; what about twenty comparable projects teach.
-Formats are in docs/02-data-formats.md, tools in docs/03-toolchain.md, language and engine in docs/04-language-and-engine.md, timelines in docs/07-roadmap-estimates.md, the legal policy in docs/08-risks-legal.md.
+Formats are in docs/02-data-formats.md, tools in docs/03-toolchain.md, language and engine in docs/04-language-and-engine.md, the milestones in docs/07-roadmap.md, the legal policy in docs/08-risks-legal.md.
 
 Claim status.
 **Verified locally**: on the files of a GOG installation of Sacred Gold 2.28 (English), the project's reference build, or on strings of its executables.
@@ -282,7 +282,7 @@ Dates come from GitHub metadata, CHANGELOGs and release pages (verified from the
 * **Decompilation pace** in public projects is 27–77 functions/month per developer: OpenJKDF2 ≈27 (one person, 99 months), dethrace ≈29 on average and ≈77 in its peak 14 months with someone else's symbols, re47 solo for ≤22 months and stalled at ≈15–20%.
   For engineers with good names (RTTI, log strings, the functions shared with the server, sacred-bild's 7,631 names), ≈100–200 functions per FTE-month is plausible: a hypothesis not tested on Sacred.
 * **The Sacred baseline**: ≈5,900 game functions in 3.48 MB (≈180k logical lines of C++), 410 classes; this is about twice JKDF2 (3,169 functions per the OpenJKDF2 README) and, by estimate, about an order of magnitude more than LEGO Island (the isle function count was not obtained: hypothesis).
-  This calibration is for a team of people; the plan counts in Claude Code agent-hours (docs/07).
+  This calibration is for a team of people; the project's work is Claude Code's, whose usage every pull request records (docs/usage.md).
 * **Bridge → standalone exe**: TR2X 8 months, TR1X 10 months, OpenRCT2 ≈2.75 years, KeeperFX 15 years.
   The spread is explained not by the size of the game but by whether there is an exit criterion and comparison infrastructure.
   The plan has no bridge: the game is written from the start as its own Rust executable.
@@ -295,7 +295,7 @@ Dates come from GitHub metadata, CHANGELOGs and release pages (verified from the
 | Window/input | SDL2 → SDL3 (isle-portable, dethrace 0.10, Arx 1.2, DevilutionX) | Bevy (winit), gamepad via gilrs |
 | 3D rendering | SDL3 GPU + D3D9 + GL + software (isle-portable); Tempest Vulkan/DX12/Metal (OpenGothic); OpenGL 3.3 (TR1X, OpenJKDF2, re3/librw); DX11/GL/Metal (SoH) | Bevy on wgpu: Vulkan, DX12 |
 | 2D/UI in 4K | UI and text at native resolution, separately from 3D (OpenGothic); HUD/book/cursor scaling, letterbox (Arx 1.2); aspect/border/integer upscale (TR1X 4.13); Enlarged UI + DPI (OpenRCT2); virtual resolutions (DevilutionX 1.5) | Bevy UI on the original's 768-pixel-high screen, scaled with the window's height (docs/05 §3.5); the original's visible area by default |
-| Fonts | GDI → FreeType (Arx 1.0, 2012); a custom font with Cyrillic/CJK (DevilutionX 1.3) | Bevy's text (parley), the original TTFs; a free Unicode font (Noto) planned |
+| Fonts | GDI → FreeType (Arx 1.0, 2012); a custom font with Cyrillic/CJK (DevilutionX 1.3) | Bevy's text (parley), the original TTFs |
 | Audio | OpenAL (Arx, OpenJKDF2, swars); SDL3 + miniaudio (isle-portable); SDL2_mixer (SpaceCadetPinball, KeeperFX) | Kira; FLAC masters built into Ogg Opus, decoded by libopus (#701) |
 | Video | Smacker libraries (isle); most skip cutscenes | AV1 via FFmpeg during conversion, rav1d during playback; skipping |
 | Networking | ZeroTier + TCP (DevilutionX 1.3); custom (OpenRCT2); absent (swars) | after version 1.0 (PLAN.md ADR-09, §13) |

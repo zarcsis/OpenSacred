@@ -111,7 +111,7 @@ A constant table or formula taken from an MIT project carries the project's noti
 | 3 | NetScript semantics are harder than expected | medium | high | a disassembler early; coverage by type frequency | a quest cannot be completed |
 | 4 | Bevy breaks its API more often than is worthwhile | high | medium | rules outside the engine (`opensacred-rules`, #364); scheduled migrations; the fallback is Godot + godot-rust | a migration > 10 agent-hours |
 | 5 | Ecosystem crates lag behind Bevy | high | low | upgrade after the needed crates are out; keep critical parts in our own code | a crate does not build with the new Bevy |
-| 6 | Token use exceeds the estimate | medium | medium | tracking from day one (docs/usage.md); a cheaper model for mechanical work | agent-hour cost above the model |
+| 6 | Token use exceeds the estimate | retired 2026-11-17 | — | the estimates were dropped (#2846); the usage is recorded as it is made (docs/usage.md) | — |
 | 7 | Claude Code usage limits slow the work down | medium | medium | a task queue, scheduling heavy tasks, reviews in parallel | idle time due to limits |
 | 8 | Claude Code misunderstands the original's behavior | medium | medium | vector tests, screenshot tests, review of key formulas | a test passes, but the in-game behavior is odd |
 | 9 | Technical debt piles up from fast agent iterations | medium | medium | clippy, tests, milestone retrospectives, planned refactoring | task times grow |

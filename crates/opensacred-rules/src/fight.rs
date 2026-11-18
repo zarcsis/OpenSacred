@@ -1952,7 +1952,7 @@ fn whole_u32(x: f64) -> u32 {
     x.clamp(0.0, f64::from(u32::MAX)) as u32
 }
 
-/// The modifier of the hero's sight on the maps' lens (`Far Sight`, the text 1130).
+/// The modifier of the hero's sight on the maps' lens (the text 1130).
 const FAR_SIGHT: u32 = 853;
 
 /// The world units by which the sight on the maps' lens of a hero holding `holds` grows

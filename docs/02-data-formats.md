@@ -1038,7 +1038,6 @@ All of it is done: the converter and the IR in M1, the translator, the runtime a
    The network games' trees (`netscript`, `netscriptcamp`, `addon-netscript`, `addon-netscriptcamp`, `netscript::NETWORK`) stay among the masters alone until M9, as the game loads none of them before it.
    `luau0-src` is 0.22.0 of Luau 740, whose bytecode version 9 `mlua-sys` 0.13.0 knows; 0.22.1 of Luau 744, whose version 13 it does not, was held back (#869) until that release was yanked, and nothing holds the crate now (`tools/deps/holds.toml`).
 5. The runtime (#725, `opensacred-scripts`: mlua with Luau) and the API, in `opensacred-rules` (#724) and `opensacred-game` (#726): done; the 28 types absent from the release are not implemented.
-6. The estimates were 15–30 agent-hours for the converter and the IR (M1) and 25–50 for the translator, the runtime and the semantics (M4).
 
 ## 8. Localization: global.res and the hash
 
@@ -1269,7 +1268,7 @@ Since #827 the index names no file: it lists the ids of the samples and each mus
 ## 11. Fonts and UI assets
 
 - Fonts: `font/ANTQS__.TTF` ("AntiquaSSK", 63 KB) and `font/CAROLING.TTF` ("Carolingia", 39 KB); the original rasterizes them via GDI into 256² pages.
-  The game sets the same TTFs through Bevy's text (parley); a Noto (OFL) fallback for missing glyphs is planned.
+  The game sets the same TTFs through Bevy's text (parley).
 - UI bitmaps: 1024×1024 `UI_*.TGA` in format 6 (A8R8G8B8, §3.1), the cursor `MOUSE_MAIN.TGA`; the `cUI_*` widget layout is defined in code, there are no layout files.
   The interface follows the original's places and images (`tables/ui_images.ron`, [docs/re/interface.md](re/interface.md)).
 - Loading screens: `pak/loading0/1.bmp`, `loadgame.bmp`, `savegame.bmp`, `LoadingUW00/01.bmp`: BMP 1024×768, 24-bit, uncompressed, rows from the bottom; three files carry 2 bytes after the pixels.
@@ -1358,10 +1357,6 @@ The converter was written in the order of the vertical slice (PLAN.md, §9): tex
 * Tests on the real installation are marked `#[ignore = "needs the game files in OriginalGame/"]` and run only locally (CLAUDE.md, "Tests").
 * The run manifests (§12.2) hold the SHA-256 of every output, so a changed output of stage A shows up in them; stage B's lossy outputs may differ from run to run.
 * The Python prototypes in `tools/analysis/` are the reference of the readers in Rust: the cross-check tests on the game files run them through `uv run python -I` and compare.
-
-### 12.5 Estimate
-
-The whole converter was estimated at 80–160 agent-hours (milestone M1, whose exit criteria were met on 2026-10-17); the breakdown by format is in `docs/07-roadmap-estimates.md`, M1.
 
 ## 13. Specifics of the GOG release
 

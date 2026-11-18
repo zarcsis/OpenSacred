@@ -99,7 +99,7 @@ Tests that need the game files are marked `#[ignore]`: CI does not have them. Cr
 
 | Document | Contents |
 |---|---|
-| [PLAN.md](PLAN.md) | the main plan: goals, decisions, architecture, estimates, risks |
+| [PLAN.md](PLAN.md) | the main plan: goals, decisions, architecture, milestones, risks |
 | [docs/02-data-formats.md](docs/02-data-formats.md) | the original data formats and their conversion targets |
 | [docs/03-toolchain.md](docs/03-toolchain.md) | tools, workstation setup, CI, the workflow with Claude Code |
 | [docs/re/](docs/re/) | the original's behavior, recovered and described by subsystem |

@@ -386,7 +386,7 @@ Source: static analysis with `tools/analysis/pe/fpu_scan.py`, `detail_scan.py`, 
 | Libraries (CRT, STLport, zlib, D3DX7) | ≈2,750 | **not analyzed** |
 
 In total, on the order of 2,000–3,000 functions need analysis.
-At a pace of 8–15 functions per agent-hour (estimate), that is 130–375 agent-hours, which the estimates counted into milestones M3 and M4 ([docs/07-roadmap-estimates.md](07-roadmap-estimates.md)); both closed on 2026-10-26, and the code was read on through M5 and M6, for the interface, the effects, the sound and the saves (§8.2).
+Their reading was the work of milestones M3 and M4 ([docs/07-roadmap.md](07-roadmap.md)); both closed on 2026-10-26, and the code was read on through M5 and M6, for the interface, the effects, the sound and the saves (§8.2).
 
 ### 8.2 How to analyze
 

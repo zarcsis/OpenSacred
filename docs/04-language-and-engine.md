@@ -210,7 +210,6 @@ That is why the architecture insures against a wrong choice:
 3. Android needs a capability that wgpu or Bevy lacks.
 
 **What to do when switching to Godot:** connect `opensacred-rules` through godot-rust as a GDExtension, rewrite the presentation in Godot scenes, keep the converter.
-The switch was estimated on 2026-10-16 at 40–80 agent-hours, depending on the milestone at which it happens; the estimate has not been redone for the presentation written since.
 
 ## 6. Crate set
 

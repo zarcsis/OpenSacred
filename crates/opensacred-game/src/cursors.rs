@@ -193,8 +193,8 @@ pub(crate) fn item_name<'a>(
 }
 
 /// The item's name's place from the cursor, in the original's pixels, and its size: the
-/// tooltips' (seen, #1777: "Uriel's Helm of Faith" 162 pixels wide at 1024 × 768, as the
-/// tooltip's line of the same name).
+/// tooltips' (seen, #1777: a set's helm's name of 21 characters 162 pixels wide at 1024 × 768,
+/// as the tooltip's line of the same name).
 const NAME_OFFSET: Vec2 = Vec2::new(24.0, 16.0);
 const NAME_SIZE: f32 = crate::tooltip::FONT_SIZE;
 
