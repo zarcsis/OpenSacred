@@ -1076,6 +1076,23 @@ fn alchemy_of(
 /// its alchemy.
 type Killer = (u32, (f32, bool), Option<(f32, [f32; 3])>);
 
+/// Whether a player made the kill that `dies` tells, and the killer's values of its drops, of
+/// `heros` the hero's: the hero's own kill; else the kill of the hero's follower, hired or
+/// summoned, which the original drops for (the hero's list `+0x39C`, `0x4FC900`; seen, #2804) as
+/// no player's (no bonus of the time played or the luck) and of the follower's values, no greed
+/// and no alchemy, the local hero's set 22 still counted (`0x559CA9`); none where another
+/// creature killed it, which drops nothing (`0x533BA8`, #630).
+fn killer(dies: &Dies, heros: Killer) -> Option<(bool, Killer)> {
+    if !dies.by_creature {
+        Some((true, heros))
+    } else if dies.by_follower {
+        let (_, (_, potions), _) = heros;
+        Some((false, (0, (LUCK, potions), None)))
+    } else {
+        None
+    }
+}
+
 /// A creature's death as its drops take it: its type, class, level, worth and rank, the hero,
 /// the time played, its greed's `s` and its luck, on the game's difficulty.
 fn death(
@@ -1402,7 +1419,8 @@ fn listed(made: &[Dropped]) -> String {
 }
 
 /// Makes the drops of each NPC that dies (`0x533BA8`, the AI's state 9), before its dying clip:
-/// a hostile creature killed by the living hero drops, one that another creature killed nothing.
+/// a hostile creature killed by the living hero or its follower drops ([`killer`]), one that
+/// another creature killed nothing.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -1453,13 +1471,6 @@ fn dies(
     let Some(tables) = tables else {
         return;
     };
-    // Killed by a creature, not the hero, it drops nothing (#630). Not followed: the original
-    // drops where the killer is in the hero's list `+0x39C` (`0x4FC900`), which the fight's
-    // `by_creature` does not tell apart.
-    if dies.by_creature {
-        debug!("drops: {} drops nothing: a creature killed it", died.entity);
-        return;
-    }
     // An undead that rises again drops nothing at this death (`0x533C7F`, #1199).
     if dies.rises {
         debug!("drops: {} drops nothing: it rises again", died.entity);
@@ -1476,6 +1487,10 @@ fn dies(
         .iter()
         .next()
         .and_then(|(.., holding)| alchemy_of(holding, rules.as_deref()));
+    let Some((by_player, killer)) = killer(dies, (treasure, luck, alchemy)) else {
+        debug!("drops: {} drops nothing: a creature killed it", died.entity);
+        return;
+    };
     let hero = heroes
         .iter()
         .next()
@@ -1497,10 +1512,11 @@ fn dies(
         hero,
         (
             played.0,
-            (treasure, luck, alchemy),
+            killer,
             difficulty.map_or_else(Default::default, |difficulty| difficulty.0),
         ),
     );
+    death.kill.by_player = by_player;
     // A doll lying in the world or carried keeps the Medusa and the troll from making another
     // (#2269; **hypothesis** that the object manager's scan counts the carried ones).
     death.doll = lying.iter().any(|lying| lying.dropped.item == DOLL)
@@ -2065,6 +2081,22 @@ mod tests {
             level: 1,
         };
         assert!(hero_of(&base, &dead, 1).is_none());
+    }
+
+    #[test]
+    fn a_followers_kill_drops_as_no_players_and_another_creatures_drops_nothing() {
+        let heros: Killer = (7, (125.0, true), Some((5.0, [500.0, 502.0, 25.0])));
+        assert_eq!(killer(&Dies::new(0), heros), Some((true, heros)));
+        // The follower's kill: no player's, of no greed and no alchemy, set 22's potions still
+        // the local hero's.
+        let mut by_follower = Dies::by_creature(1);
+        by_follower.by_follower = true;
+        assert_eq!(
+            killer(&by_follower, heros),
+            Some((false, (0, (LUCK, true), None)))
+        );
+        assert_eq!(killer(&Dies::by_creature(1), heros), None);
+        assert_eq!(killer(&Dies::unkilled(), heros), None);
     }
 
     #[test]

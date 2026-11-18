@@ -11646,10 +11646,13 @@ fn put(
 pub struct Dies {
     pub choice: u32,
     played: bool,
-    /// Whether a creature killed it, not the hero: it drops nothing (`0x533BA8`, #630). The
-    /// original drops where the killer is in the hero's list `+0x39C` (`0x4FC900`), which this
-    /// does not tell apart (`drops`).
+    /// Whether a creature killed it, not the hero: it drops nothing (`0x533BA8`, #630), unless
+    /// that creature is the hero's follower ([`Self::by_follower`]).
     pub by_creature: bool,
+    /// Whether the creature that killed it follows the hero, hired or summoned, of the hero's
+    /// list `+0x39C` (`0x4FC900`): it drops, as no player's kill (`drops`; seen in the original,
+    /// #2804).
+    pub by_follower: bool,
     /// Whether anyone killed it: a `SetHP` of 0, a summoned follower replaced or a lifetime's
     /// end kills nobody's, which the scripts' kills do not count (`0x534F60`, #1021).
     pub killed: bool,
@@ -11668,6 +11671,7 @@ impl Dies {
             choice,
             played: false,
             by_creature: false,
+            by_follower: false,
             killed: true,
             rises: false,
             fallen: false,
