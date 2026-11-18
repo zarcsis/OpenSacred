@@ -38,8 +38,8 @@
 //! stopping the line by name.
 //!
 //! On a click (#1674): a press of the left button on a hireling of the types 361, 368 and 224, or
-//! on a companion by its name's text, says one of that creature's four click lines (the event
-//! (9, `0x5C`), `0x67E645`), while no line by name plays.
+//! on a companion by the beginning of its name's text, says one of that creature's four click
+//! lines (the event (9, `0x5C`), `0x67E645`), while no line by name plays.
 
 use std::collections::HashMap;
 
@@ -106,15 +106,20 @@ pub enum Remark {
 
 /// The hirelings whose clicks speak by their types, and the stems of their lines (`0x67E645`).
 const CLICKED_TYPES: [(u32, &str); 3] = [(361, "GARGADUKNQ"), (368, "PRUTUKNQ"), (224, "VILYANQ")];
-/// The companions whose clicks speak by their names' texts, and the stems of their lines.
-const CLICKED_NAMES: [(&str, &str); 7] = [
-    ("Baroness Vilya", "VILYA"),
-    ("Shareefa", "SHAREEFA"),
-    ("Laurelinad", "LAURELIN"),
-    ("Maegal", "MAEGAL"),
-    ("Glubba", "GLUBBA"),
-    ("Rocheford", "ROCHEFORD"),
-    ("Wilbur", "WILBUR"),
+/// The companions whose clicks speak by their names: the key of a text that begins with the
+/// name the original compares, that name's count of characters, and the stem of their lines. The
+/// original compares the beginning of the creature's name, of that count, with the name
+/// (`basic_string::compare(0, n, name)`, `0x691460`, from `0x67E83F`), so that a longer name that
+/// begins with it speaks too, as the Wood Elf's companion's of the keys 17443 and 17459 (#2860);
+/// the game takes the name from the key's text, and holds none of its own.
+const CLICKED_NAMES: [(&str, usize, &str); 7] = [
+    ("699", 14, "VILYA"),
+    ("697", 8, "SHAREEFA"),
+    ("17442", 10, "LAURELIN"),
+    ("17443", 6, "MAEGAL"),
+    ("77", 6, "GLUBBA"),
+    ("323", 9, "ROCHEFORD"),
+    ("83", 6, "WILBUR"),
 ];
 /// The companions whose names the original compares in German, "Novizin" and "Prinz Valor", which
 /// match no English text, so that it never plays their lines (#2652): the texts of the keys of
@@ -129,8 +134,9 @@ const CLICKED_KEYS: [(&str, &str); 4] = [
 ];
 
 /// The line `n`, from 0, of the four that a click on a creature of the type `creature` and of the
-/// name's text `name` says (`0x67E645`): a hireling's by its type, else a companion's by its name,
-/// or by the text of a key of [`CLICKED_KEYS`] (`named`); none of another. Wilbur's first is his
+/// name's text `name` says (`0x67E645`): a hireling's by its type, else a companion's by the
+/// beginning of its name, a key's text's of [`CLICKED_NAMES`], or by the whole text of a key of
+/// [`CLICKED_KEYS`] (`named` gives a key's text); none of another. The companion 83's first is its
 /// sample's name, `SFX_CLICKMYSHWILBUR_1`, where the original's code writes it with an underscore
 /// that no sample has, `SFX_CLICKMYSH_WILBUR_1`, and never plays it (#2684; docs/decisions/sound.md,
 /// "Wilbur's first click line named right").
@@ -151,10 +157,17 @@ fn click_line(
         .map(|&(_, stem)| stem);
     let stem = CLICKED_NAMES
         .iter()
-        .find(|&&(of, _)| of == name)
-        .map(|&(_, stem)| stem)
+        .find(|&&(key, count, _)| named(key).is_some_and(|text| begins(name, &text, count)))
+        .map(|&(_, _, stem)| stem)
         .or(keyed)?;
     Some(format!("SOUND_FX_SFX_CLICKMYSH{stem}_{n}"))
+}
+
+/// Whether `name` begins with the first `count` characters of `text`, which holds that many.
+fn begins(name: &str, text: &str, count: usize) -> bool {
+    let mut head = text.chars();
+    let mut name = name.chars();
+    (0..count).all(|_| matches!((head.next(), name.next()), (Some(a), Some(b)) if a == b))
 }
 
 /// The hirelings' lines of an item given (the case of (8, `0x10`)): by the keys of their names
@@ -892,8 +905,14 @@ mod tests {
 
     #[test]
     fn a_click_names_a_hirelings_line_by_its_type_and_a_companions_by_its_name() {
-        // The texts of the novice's and Prince Valor's keys, as English names would stand.
+        // Texts of the companions' keys, as names would stand: the key 17443's longer than the
+        // six characters that the original compares, the key 77's shorter than its six, and the
+        // keys 678's and 322's, which are compared whole.
         let named = |key: &str| match key {
+            "697" => Some("Healer of the sands".to_owned()),
+            "17443" => Some("Archeress".to_owned()),
+            "83" => Some("Squire".to_owned()),
+            "77" => Some("Ogre".to_owned()),
             "678" => Some("A novice".to_owned()),
             "322" => Some("A prince".to_owned()),
             _ => None,
@@ -907,17 +926,36 @@ mod tests {
             click_line(224, Some("Anyone"), 3).as_deref(),
             Some("SOUND_FX_VILYANQ_HIRELING_ONCLICK04")
         );
+        // A companion by the beginning of its name: as many characters of its key's text as
+        // the name that the original compares has (#2860), the key 697's eight.
         assert_eq!(
-            click_line(1, Some("Shareefa"), 1).as_deref(),
+            click_line(1, Some("Healer of the sands"), 1).as_deref(),
             Some("SOUND_FX_SFX_CLICKMYSHSHAREEFA_2")
         );
-        // Wilbur's first by his sample's name, as his others (#2684).
         assert_eq!(
-            click_line(1, Some("Wilbur"), 0).as_deref(),
+            click_line(1, Some("Healer or not"), 1).as_deref(),
+            Some("SOUND_FX_SFX_CLICKMYSHSHAREEFA_2")
+        );
+        assert_eq!(click_line(1, Some("Healer"), 1), None);
+        // The key 17443's six: its whole text, its beginning alone, and another beginning.
+        assert_eq!(
+            click_line(1, Some("Archeress"), 0).as_deref(),
+            Some("SOUND_FX_SFX_CLICKMYSHMAEGAL_1")
+        );
+        assert_eq!(
+            click_line(1, Some("Archer"), 3).as_deref(),
+            Some("SOUND_FX_SFX_CLICKMYSHMAEGAL_4")
+        );
+        assert_eq!(click_line(1, Some("Arched"), 0), None);
+        // A key whose text is shorter than the name's count names no line.
+        assert_eq!(click_line(1, Some("Ogre"), 0), None);
+        // The companion 83's first by its sample's name, as its others (#2684).
+        assert_eq!(
+            click_line(1, Some("Squire"), 0).as_deref(),
             Some("SOUND_FX_SFX_CLICKMYSHWILBUR_1")
         );
         assert_eq!(
-            click_line(1, Some("Wilbur"), 2).as_deref(),
+            click_line(1, Some("Squire"), 2).as_deref(),
             Some("SOUND_FX_SFX_CLICKMYSHWILBUR_3")
         );
         // The companions whose names the original compares in German, by their keys' texts
