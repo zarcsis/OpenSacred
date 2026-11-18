@@ -2787,7 +2787,7 @@ impl GroupState {
     }
 
     /// Gives a member in the world the change: its mind's flags word, side and dialogue, how it
-    /// stands in the hero's way, and its functions; its level is not changed in the world.
+    /// stands in the hero's way, and its functions; its level [`state_level`] gives it (#2894).
     fn apply_to(
         &self,
         mind: &mut ai::Mind,
@@ -11197,6 +11197,13 @@ pub(crate) fn script_records(
                     .entity(entity)
                     .insert((crate::followers::Hired(hire), crate::followers::ByState));
             }
+            // Its level, 1000 a boss (#2966).
+            if state.level > 0 {
+                let tag = state.level;
+                commands.queue(move |world: &mut bevy::prelude::World| {
+                    state_level(world, entity, tag);
+                });
+            }
             match state.rises {
                 Some(true) => {
                     commands.entity(entity).insert(RisesAgain);
@@ -11278,6 +11285,13 @@ pub(crate) fn script_records(
                     let mut functions = on_death.as_ref().map(|d| d.0.clone()).unwrap_or_default();
                     state.apply_to(&mut mind, way.map(|way| way.into_inner()), &mut functions);
                     talk_to(&mut commands, entity, state.talk.clone());
+                    // Its level, 1000 a boss (#2894).
+                    if state.level > 0 {
+                        let tag = state.level;
+                        commands.queue(move |world: &mut bevy::prelude::World| {
+                            state_level(world, entity, tag);
+                        });
+                    }
                     match on_death {
                         Some(mut on_death) => on_death.0 = functions,
                         None if functions.is_empty() => {}
@@ -12524,6 +12538,98 @@ pub(crate) fn level_follower(
         bevy::log::info!(
             "npcs: the follower {entity}, a {creature} of level {from}, set to {grade} by the \
              hero's {hero}"
+        );
+    });
+}
+
+/// Gives the creature `entity`, in the world, the level of a `SetNPCState`'s or a
+/// `SetGroupState`'s `0x1F`, `tag`, as the original's records give it to one in the world
+/// (`0x461540` at `0x46213D`; docs/re/spawning.md, "`SetNPCState`'s level"; #2894, #2966): 1000
+/// makes it a boss of the marker level 1, levelled by the hero at once where it is hostile to
+/// the hero, as one made so is (`fight::Rank::level`, docs/decisions/fight.md, "Bosses and
+/// champions levelled when made"), else at its first fight (`fight::Unfought`); any other level
+/// as the level's setter takes it, scaled and held
+/// (`opensacred_rules::fight::tagged_level`); its values made anew at it, its items as they are.
+pub(crate) fn state_level(world: &mut bevy::prelude::World, entity: Entity, tag: u32) {
+    if tag == 0 {
+        return;
+    }
+    let hero = world
+        .get_resource::<fight::Experience>()
+        .map_or(fight::HERO_LEVEL, |experience| experience.level);
+    let mut heroes = world.query_filtered::<&fight::Holding, With<hero::Body>>();
+    let time = {
+        let world = &*world;
+        let holding = heroes.iter(world).next();
+        world
+            .get_resource::<drops::Played>()
+            .map_or_else(fight::Played::default, |played| played.time(holding))
+    };
+    world.resource_scope(|world, npcs: bevy::prelude::Mut<Npcs>| {
+        let rules = &npcs.fight;
+        let mut creatures = world.query::<(
+            &Transform,
+            (&mut ai::Mind, &mut fight::Health, &mut fight::Combat),
+            (&Arms, &mut Npc),
+            (&mut fight::Ranked, Option<&crate::effects::Effects>),
+        )>();
+        let Ok((
+            transform,
+            (mut mind, mut health, mut combat),
+            (arms, mut npc),
+            (mut ranked, effects),
+        )) = creatures.get_mut(world, entity)
+        else {
+            return;
+        };
+        let values = npcs
+            .values
+            .get(&sector_of(transform.translation))
+            .copied()
+            .unwrap_or_default();
+        let boss = tag == fight::BOSS_TAG;
+        let waits = boss && !minds::hostile_to_heroes(mind.side, mind.creature);
+        let (rank, grade) = if boss {
+            let rank = fight::Rank::Boss;
+            let grade = if waits {
+                1
+            } else {
+                rank.level(1, (hero, time), &values, mind.big, rules)
+            };
+            (rank, grade)
+        } else {
+            let horse = mind.class == HORSES_CLASS;
+            let grade = opensacred_rules::fight::tagged_level(
+                tag,
+                Some(&values),
+                mind.creature,
+                horse,
+                rules,
+            )
+            .unwrap_or(health.level);
+            (ranked.0, grade)
+        };
+        ranked.0 = rank;
+        let from = health.level;
+        let regenerates = relevel(
+            grade,
+            rank,
+            (&mut *mind, &mut *health, &mut *combat, &mut *npc),
+            arms,
+            rules,
+            &effects
+                .map(crate::effects::Effects::list)
+                .unwrap_or_default(),
+        );
+        let (creature, big) = (mind.creature, mind.big);
+        let mut made = world.entity_mut(entity);
+        made.insert(regenerates);
+        if waits {
+            made.insert(fight::Unfought { big });
+        }
+        bevy::log::info!(
+            "npcs: the scripts set {entity}, a {creature} of level {from}, to {grade} as a \
+             {rank:?} by its level {tag}"
         );
     });
 }
