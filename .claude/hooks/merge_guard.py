@@ -5,11 +5,11 @@ CLAUDE.md, "Issues and pull requests"; docs/03-toolchain.md, §3.6).
 PreToolUse on Bash|PowerShell: a command that runs `gh pr merge` is refused when its pull request is labeled
 `needs-maintainer`, touches a path of MAINTAINER_PATHS (the guardrails: this hook among them), or was opened by someone
 other than the repository's owner; `--admin` is refused on any merge (`--disable-auto`, which merges nothing, passes
-first). Whether a decision, CLAUDE.md or a skill waits (a decision that departs far from the original or carries legal
-consequences, a change to the rules rather than a description) the hook cannot judge: Claude labels such a pull
-request `needs-maintainer`, and the label stops it. A pull request that cannot be looked up is refused too. Other
-commands pass untouched. Merges through other routes (`gh api`, the web interface) are not seen; they are left to the
-rules in CLAUDE.md.
+first). Whether a decision, CLAUDE.md or a skill waits (a decision whose harm to the play cannot be ruled out at a
+glance or that carries legal consequences, a change to the rules rather than a description) the hook cannot judge:
+Claude labels such a pull request `needs-maintainer`, and the label stops it. A pull request that cannot be looked up
+is refused too. Other commands pass untouched. Merges through other routes (`gh api`, the web interface) are not seen;
+they are left to the rules in CLAUDE.md.
 
 Example (the hook input is JSON on stdin)
   echo '{"tool_input": {"command": "gh pr merge 7 --squash --auto"}}' \
@@ -23,7 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 LABEL = 'needs-maintainer'
 # The decisions, a row each of a subsystem's table (docs/decisions/README.md); one is taken without the maintainer,
-# unless it departs far from the original or carries legal consequences, which Claude judges.
+# unless its harm to the play cannot be ruled out at a glance or it carries legal consequences: Claude judges which.
 DECISIONS = 'docs/decisions/'
 # What a pull request changes here always waits for the maintainer: the guardrails (the hooks, this one among them,
 # and the settings that run them), CI and the repository's GitHub files, the allowed licenses, the decision log's own

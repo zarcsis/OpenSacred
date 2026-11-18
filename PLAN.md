@@ -12,7 +12,8 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
 * **Approach: "convert the assets + rewrite the game", not "decompile and rebuild".**
   A toolset reads the assets of the user's own installation once and converts them into open formats (PNG/KTX2, glTF, FLAC/Ogg, AV1, RON/Fluent, Luau).
   The new game reads only these formats.
-  Where the game's rules are not evident from the data, `Sacred.exe` is studied only to understand them; the behavior is described in prose and implemented independently in Rust with a redesign; an exact copy of the behavior is not required.
+  Where the game's rules are not evident from the data, `Sacred.exe` is studied only to understand them; the behavior is described in prose and implemented independently in Rust.
+  The original is the reference, followed in spirit and not copied: the game departs from it where that makes the design simpler without harm to the play, makes the play better, or repairs a defect of the original (§1.1).
 * **Language: Rust for the entire product**: the game, the converter, the tools.
   VC6 and old toolchains are not needed: byte-for-byte matching is not a goal.
 * **Engine: Bevy 0.20 on wgpu** (Vulkan on Windows, Linux and Android).
@@ -33,7 +34,7 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
 | Requirement | Consequence for the plan |
 |---|---|
 | The main goal is to play comfortably on modern hardware | The success criterion is completing the Sacred and Underworld campaigns in 4K without crashes, not matching the original |
-| Fidelity to the original is not a priority; modern improvements are acceptable | No byte-for-byte matching, no VC6, no determinism requirements; behavior may be redesigned |
+| The original is the reference, followed in spirit, not copied with its flaws: a departure is worth making where it does no harm to the play and makes the design simpler, where it makes the play better, or where it repairs a defect of the original (reworded 2026-11-17, #2856: the row said that fidelity was not a priority and that the behavior may be redesigned) | The original's behavior is read and described first (`docs/re/`), so that a departure is a choice and not a guess; each is a row of `docs/decisions/` with its ground; no byte-for-byte matching, no VC6, no determinism requirements |
 | Multiplayer after version 1.0 (changed 2026-10-23: no network components were planned before) | No network code, TinCat, lobby or server before 1.0; the game is built so that a host can later run it for several players (ADR-09) |
 | Work only with the GOG version (changed 2026-10-30: the converter also takes a player's Steam installation, #1484) | The reference is GOG ENG 2.28; the tools read the user's own installation, the development tools (the oracle, the original's driver, the research scripts) the GOG one alone |
 | The game does not have to read the original formats and saves | An offline converter into open formats; the runtime reads only those; HD and upscale packs in the future |
@@ -83,7 +84,7 @@ Details: [docs/01-binary-analysis.md](docs/01-binary-analysis.md), [docs/02-data
 
 | ID | Decision | Why |
 |---|---|---|
-| ADR-01 Goal | A playable modern reimplementation on the original's converted assets, inspired by the original, not an exact copy | Requirement (§1.1); removes the most expensive requirements (matching, determinism, save compatibility) |
+| ADR-01 Goal | A playable modern reimplementation on the original's converted assets, with the original as its reference and improved where that is worth it, not an exact copy | Requirement (§1.1); removes the most expensive requirements (matching, determinism, save compatibility) |
 | ADR-02 Strategy | Asset converter + an independent reimplementation of the game; the original's behavior is studied in the binary selectively, only where the rules are not evident from the data, described in prose and implemented anew (§4.2); since M2 that includes what the player sees and hears, the interface, the sounds, the ways and the order of the draws among it (`docs/re/`) | Reproducing the original's rendering, UI, sound, input and file handling from its code is pointless; the binary's value lies in the rules and the content semantics |
 | ADR-03 Language | Rust (edition 2024, latest stable is 1.100.0) for the entire product; the Python research scripts remain as an archive | A single language, memory safety, a modern ecosystem |
 | ADR-04 Engine | Bevy 0.20 (wgpu 30) for presentation; the rules crate `opensacred-rules` does not depend on the engine (created 2026-10-21 with the spawning's rolls, then the fight's formulas, the ways and the creatures' decisions moved into it from `opensacred-game`, #364) | Pure Rust, everything in code and text, which suits Claude Code; Vulkan and Android from one codebase; the fallback is Godot 4.7 with godot-rust on top of the same rules crate |
@@ -141,9 +142,9 @@ A player's run is `opensacred-convert install` (#1497), which the packaged game 
    Where the oracle cannot reach (a rule spread over threads and frames, the engine's timing, the creatures' choices, what the screen shows), the running original is observed.
    Until 2026-10-21 that needed the maintainer at the game (#227); since 2026-10-22 the driver of #448 lets Claude Code do it itself: `tools/original/` runs the user's own `Sacred.exe` under Frida in the background, reads its state, sends its keys and clicks, runs commands, traces its functions and takes its frames (docs/03 §3.8).
    Its frames, logs and traces stay on the developer's machine; the results go into the issues and `docs/re/` as prose, and a frame of a problem, cropped to it, into its issue as an attachment (docs/08 §3).
-6. **Rust, written independently, then redesigned.**
+6. **Rust, written independently, then improved where that is worth it.**
    `opensacred-rules` implements the behavior from the description and passes the vectors.
-   After that it can be changed deliberately: every deviation from the original is recorded in the decision log (`docs/decisions/`).
+   A departure from the original is then a choice, made on one of the grounds of §1.1 and recorded in the decision log (`docs/decisions/`).
    What the crate holds is in §6.3.
    `opensacred-oracle` (#363) records the vectors of the levels' ends and the levels of an experience, the hit chance and the damage through a resistance (`0x43EEE0`), the most health, the factor of the levels and the game's roll between two bounds, which `opensacred-rules`' `tests/oracle.rs` compares with; its `fuzz` runs random inputs through the original's functions and the rules' in one process and shrinks the first mismatch (#1431).
    The first vectors, of 2026-10-21, agreed on the levels and showed five bugs in the rest, all fixed (#406, #407, #408, #417, #418); the checks in the original of #227 were worked through with the driver and closed on 2026-10-25.
@@ -158,7 +159,7 @@ A player's run is `opensacred-convert install` (#1497), which the packaged game 
 | Hybrid bridge inside the original's process (OpenRCT2 style) | Ties us to a 32-bit process and D3D7; needed only if parity is required |
 | Loading the original formats at runtime | Not needed per the requirements (§1.1); the converter gives open formats and HD packs |
 | Pure reimplementation without analyzing the binary | Combat and item rules and script semantics are undocumented; without the original's code the game will be "similar" but with different numbers |
-| Translating the decompiled code into Rust | The rules are implemented independently from prose descriptions of the behavior (§4.2), which also leaves room for the redesign |
+| Translating the decompiled code into Rust | The rules are implemented independently from prose descriptions of the behavior (§4.2), which also leaves room to depart from it |
 
 ## 5. Engine: our own in Rust or an existing engine
 
@@ -413,7 +414,7 @@ Where its first rows stand on 2026-11-17: the animations converted and passed th
 | Risk | Probability | Impact | What we do |
 |---|---|---|---|
 | Granny animations convert with errors (poses, weights) | medium | high | three open readers of the format as a reference; control poses; an early start in M1 |
-| Combat and loot rules are recovered incorrectly | medium | medium | the Unicorn oracle and vectors; observations of the running original (#227, #448); fidelity is not a priority, but deviations are recorded |
+| Combat and loot rules are recovered incorrectly | medium | medium | the Unicorn oracle and vectors; observations of the running original (#227, #448); a departure is a recorded choice, never an error left unnoticed |
 | NetScript semantics are harder than expected | medium | high | a disassembler and listings early; opcodes are covered by frequency: 45 types account for 95% of records; the translator refuses a control flow or a type it does not know (#723), and the running original is the reference (#448) |
 | Bevy breaks its API more often than is worthwhile | high | medium | scheduled updates; rules outside the engine; the fallback is Godot + godot-rust |
 | Claude Code usage limits slow the pace | medium | medium | the usage tracked from day one (docs/usage.md); a cheaper model for mechanical work; small tasks |
