@@ -388,7 +388,7 @@ Read 2026-11-04 for #1092 (**confirmed** by code unless marked).
 - **Seen** 2026-11-04 with the driver of #448 at the Seraphim's start: her `Attacke` (1071) on a goblin bursts a white glow of sparks at the strike, which scatter violet-blue and fall within about a second.
 
 `opensacred-game` follows the hits' bursts since #1092 (`hit_sparks`, `opensacred_rules::particles::{sparks_of, hit_sparks}`): each strike of a hero's art that the table names sends its sparks from `making`, drawn as the bursts of `puffs`, untinted, with the light at the striker; **seen** beside the original at the Seraphim's start, a white burst at the goblin as she strikes and violet-blue sparks falling about it.
-Not followed: the other values' looks but a trampling horse's floops (1077, drawn since #2329: `floops`, `opensacred_rules::particles::HorseFloops`; docs/re/horses.md, "Fighting from horseback"), the thrown weapons' hits' 864 (`0x44E570`) and the Wood Elf's arrows' 860 (`0x5BC660`, `0x5BC965`), and the creatures' specials of the melee state's sub-states 7, 11 and 13 (842, `0x4E166B`).
+Not followed: the other values' looks (those of 862 and 864 wait for #2923) but a trampling horse's floops (1077, drawn since #2329: `floops`, `opensacred_rules::particles::HorseFloops`; docs/re/horses.md, "Fighting from horseback"), the thrown weapons' hits' 864 (`0x44E570`) and the Wood Elf's arrows' 860 (`0x5BC660`, `0x5BC965`), and the creatures' specials of the melee state's sub-states 7, 11 and 13 (842, `0x4E166B`).
 
 ### Not followed here
 
@@ -2573,12 +2573,12 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 - Its burnt ground: a flat quad of a half side of 50, turned by a half turn, of `FX_GROUNDSTEP`'s 4 × 4 frames, added (`ONE`, `ONE`), white, at the ground's height with the depth test: the frames 4 to 0 over the first 0.3 s, the frame 0 to 8 s, the frames 0 to 15 over the ninth second (`⌊(t − 3)·16⌋ mod 16`), none after.
 - No sound of its own; the fires' loop takes it at 0.6 of the volume (`0x690420`).
 - Its hits (the system flag `0x400`, `0x5AB490`, `0x5AE436`): at most once a second, each living creature hostile to the hero, never the hero, within 30 and its size (50 for none) of the fire's place in x and y on its floor takes the event 5 from the hero of the physical `⌊min(0.2·S·m_p, 1000)⌋` and the fire `⌊0.2·min(D·m_f, 1000)⌋`, `S` and `D` his strength and dexterity and `m_p`, `m_f` his first damage multipliers (`+0x96`, `+0x9A`): no hit chance, through the resistances, not turned aside by the magic defence; each fire keeps its own second.
-- Its variant 1 (the end of a wall of fire 1006), the Big Demon's steps (type 53) and the spell 50, which make it too, are not followed; the variant 0 of the lava bursts is ("The lava bursts" above).
+- Its variant 1 (the end of a wall of fire 1006), the Big Demon's steps (type 53) and the spell 50, which make it too, are not followed yet (#2898); the variant 0 of the lava bursts is ("The lava bursts" above).
 
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn at every detail (the options' detail, a setting since #2352, stretches its emitters' intervals alone), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing (of the scripts' objects the element stones, the traps, the hell gates and the underworld's glyphs, whose classes no section above reads); the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
+Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing (of the scripts' objects the element stones, #2915, the traps, #2916, the hell gates, #2917, and the underworld's glyphs with the other objects of its quests and of the last fight, #2918 to #2921, whose classes no section above reads); the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions
@@ -2589,7 +2589,7 @@ The order above is #1092's: the machinery with the world's fires first, then the
 - Which statics the fires and fire smokes stand on (the units and the frame of their height, the scripts' tag `0x7E`, are read since #2728: "Who makes them").
 - The renderer's vector `+0x6C`, `+0x70` that the smoke's wind takes besides `+0x68` and `+0x74`.
 - Whether the butterflies' fade in step shows in the original (frames at 60 a second over 3 s).
-- The weapons' effects of `cWeapon3D` of the kinds `0x33`, `0x3C` and `0x52` and their systems (`0xB` is read in "776, a weapon's glow", `0x1C` and `0x1D` in "The arrows' elements").
+- The weapons' effects of `cWeapon3D` of the kinds `0x33`, `0x3C` and `0x52` and their systems, which with the glow 776 the game does not draw yet (#2922; `0xB` is read in "776, a weapon's glow", `0x1C` and `0x1D` in "The arrows' elements").
 - The FX event's words `+0x10` … `+0x1C`, and the kinds of the handler not listed in docs/re/arts.md.
 - The remaining helpers (`0x762650`, `0x763CB0`) and the classes of the catalogue that no section above reads.
 - `cParticleSystem_anducar_human`'s virtual table (`0x898FEC`) while `0x5A0C50` builds 1169 with `anducar_demon`'s constructor.

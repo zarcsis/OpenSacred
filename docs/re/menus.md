@@ -427,7 +427,7 @@ Every place above is **confirmed** in `0x718CA0` and agrees with the frame (the 
 ## In `opensacred-game`
 
 The main menu, its submenus and the choices of the hero follow the sections above (`menu`, `choice`, #1118, #1119).
-Not followed: the Multiplayer submenu's three items, which wait for the multiplayer (M9), and the Extras' Credits stand grey and do nothing (`menu::Item::works`).
+Not followed: the Multiplayer submenu's three items, which wait for the multiplayer (M9), and the Extras' Credits stand grey and do nothing (`menu::Item::works`; #2929).
 Since #2490 a choice's screen shows whole: black covers it (`choice::Veil`) until its pictures and fonts are there, every figure's scene and items are in place and its meshes have their own materials, and for three frames more, which let the figures' pipelines compile, five seconds at the most; where it filled piece by piece over some twelve frames before, its picture's tiles, then the figures, then their items, the original loads the screen before it shows it.
 The figures' scenes and items take the figures' layer from their first frame (`Propagate` of `RenderLayers`), so that the world's camera never draws one over the black.
 Since #1676 the Underworld campaign's choice stands the installation's two heroes on their pedestals in their summaries' items, labelled as the original labels them, chooses one of level 25 or more by a click, its name in the field and the difficulties it is offered in the list, and lights Start Game, which since #2360 starts the Underworld's game (docs/re/underworld.md); the choice is of a pedestal in both campaigns.

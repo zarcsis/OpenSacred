@@ -66,5 +66,5 @@ Each of the hero's followers lights as a hero of its own (#61): of the radius ab
 The lamps' glows (`statics`, `daynight::glow`) are quads of `PARTICLE_GLOW01` about the light sources' miniatures, a little in front of them, of the colour and alpha above, under the night pass, which darkens them as it does the rest (docs/decisions/drawing.md, "Night as a pass over the frame").
 The hero's items' effect of the light grows its radius as the original's rule above (#61, `opensacred_rules::fight::lit_radius`); its followers' items carry no values in the game, and their light grows by none.
 The spells', the arts' and the traps' lights came with their effects (#1092): an effect's entity carries its radius (`daynight::Light`) and is a light source as the statics are (docs/re/effects.md, "Lights").
-Not yet: a ridden horse's light, which the original gives its rider's radius.
+Not yet (#2909): a ridden horse's light, which the original gives its rider's radius.
 The ambient loops of the night play in the dusk and by night (`atmosphere`), and no music starts by night (`music`).
