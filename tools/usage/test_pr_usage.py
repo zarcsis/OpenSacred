@@ -52,12 +52,13 @@ class Session:
         with open(path, 'w', encoding='utf-8', newline='') as f:
             f.writelines(json.dumps(line) + '\n' for line in self.lines)
 
-    def counted(self, existing=(), linked=None):
-        """The branch each response counts toward, in order; linked holds the worktrees that exist now."""
+    def counted(self, existing=(), linked=None, pulls=None):
+        """The branch each response counts toward, in order; linked holds the worktrees that exist now, pulls the
+        branches of the pull requests of the run."""
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, 'session.jsonl')
             self.write(path)
-            events = pr_usage.session_events(path, set(), TOP, linked or {}, set(existing))
+            events = pr_usage.session_events(path, set(), TOP, linked or {}, set(existing), pulls)
         return [o for e, o in zip(events, pr_usage.owners(events)) if e[2] == 'assistant' and e[4]]
 
 
@@ -216,6 +217,170 @@ class RemovedWorktree(unittest.TestCase):
         self.assertEqual(s.counted(linked={WORKTREE: 'bug/2-b'}), ['bug/1-a'] * 2 + ['bug/2-b'] * 2)
         self.assertEqual(s.counted(existing={'feature/x'}), ['bug/1-a'] * 2 + ['feature/x'] * 2)
         self.assertEqual(s.counted(), ['bug/1-a'] * 2 + ['worktree ' + WORKTREE] * 2)
+
+
+A, B = 'bug/1-a', 'bug/2-b'
+
+
+class NextBlock(unittest.TestCase):
+    """A session that takes two issues in turn, each on its branch, in one checkout: after the first one's block
+    is written it stays on that branch until it switches to the second's."""
+
+    def begun(self, when=dt.datetime(2026, 11, 20, 12, tzinfo=dt.timezone.utc), create='gh pr create --title t'):
+        """The session on the first branch, with its pull request #1 opened: three responses."""
+        s = Session()
+        s.time = when
+        s.bash('git switch -c %s origin/main' % A)
+        s.branch = A
+        s.bash('cargo test')
+        if create:
+            s.call('Bash', 'https://github.com/o/r/pull/1\n', command=create)
+        else:
+            s.bash('cargo clippy')
+        return s
+
+    def update(self, s, *numbers, answer=''):
+        s.call('Bash', answer, command='uv run python -I tools/usage/pr_usage.py %s --update 2>&1 | tail -3'
+               % ' '.join(map(str, numbers)))
+
+    def second(self, s, create='gh pr create --title t'):
+        """The switch to the second branch, on the first still, then a response on the second and its pull
+        request #2 opened: three responses."""
+        s.bash('git switch -c %s origin/main' % B)
+        s.branch = B
+        s.bash('cargo test')
+        if create:
+            s.call('Bash', 'https://github.com/o/r/pull/2\n', command=create)
+        else:
+            s.bash('cargo clippy')
+
+    def test_what_follows_a_branchs_last_block_counts_toward_the_next_branchs(self):
+        s = self.begun()
+        self.update(s, 1)
+        s.bash('cargo fmt')  # a fix after the pull request was opened
+        self.update(s, 1)
+        s.bash('gh issue view 2')  # the next task begins on the merged branch
+        self.second(s)
+        self.update(s, 2)
+        self.assertEqual(s.counted(), [A] * 6 + [B] * 5)
+
+    def test_until_the_next_branchs_block_is_written_it_stays_the_branchs(self):
+        s = self.begun()
+        self.update(s, 1)
+        s.bash('gh issue view 2')
+        self.second(s)
+        self.assertEqual(s.counted(), [A] * 6 + [B] * 2)
+        self.update(s, 2)
+        self.assertEqual(s.counted(), [A] * 4 + [B] * 5)
+
+    def test_a_block_written_again_first_keeps_what_came_before_it(self):
+        s = self.begun()
+        self.update(s, 1)
+        s.bash('cargo fmt')
+        self.second(s)
+        self.update(s, 1)  # the first one's last run, on the second branch by then
+        self.update(s, 2)
+        self.assertEqual(s.counted(), [A] * 6 + [B] * 4)
+
+    def test_a_block_written_again_after_the_next_ones_takes_nothing_back(self):
+        s = self.begun()
+        self.update(s, 1)
+        s.bash('cargo fmt')
+        self.second(s)
+        self.update(s, 2)
+        self.update(s, 1)
+        self.assertEqual(s.counted(), [A] * 4 + [B] * 6)
+
+    def test_two_blocks_written_at_once_leave_the_messages_where_they_are(self):
+        s = self.begun()
+        self.update(s, 1)
+        s.bash('cargo fmt')
+        self.second(s)
+        self.update(s, 1, 2)
+        self.assertEqual(s.counted(), [A] * 6 + [B] * 3)
+
+    def test_the_messages_of_before_the_rule_stay_their_branchs(self):
+        s = self.begun(when=dt.datetime(2026, 11, 17, 12, tzinfo=dt.timezone.utc))
+        self.update(s, 1)
+        s.bash('gh issue view 2')
+        self.second(s)
+        self.update(s, 2)
+        self.assertEqual(s.counted(), [A] * 6 + [B] * 3)
+
+    def test_a_pull_request_is_known_by_the_run_or_by_the_tools_answer(self):
+        s = self.begun(create=None)
+        self.update(s, 1)
+        s.bash('gh issue view 2')
+        self.second(s, create=None)
+        self.update(s, 2)
+        moved, stays = [A] * 4 + [B] * 5, [A] * 6 + [B] * 3
+        self.assertEqual(s.counted(), stays)  # nothing tells which branch a number is
+        self.assertEqual(s.counted(pulls={1: A, 2: B}), moved)
+        self.assertEqual(s.counted(pulls={1: A}), stays)  # the next branch's pull request is not known
+        s = self.begun(create=None)
+        self.update(s, 1, answer='pull request #1, branch %s\nsessions: 0 (9 messages)\n' % A)
+        s.bash('gh issue view 2')
+        self.second(s, create=None)
+        self.update(s, 2, answer='pull request #2, branch %s and wip-b\nwritten into https://github.com/o/r/pull/2' % B)
+        self.assertEqual(s.counted(), moved)
+
+    def test_a_pull_request_opened_for_a_named_branch_is_that_branchs(self):
+        s = self.begun(create='gh pr create --head %s --title t' % A)
+        self.update(s, 1)
+        s.bash('gh issue view 2')
+        self.second(s, create=None)
+        s.bash('git switch main')
+        s.branch = 'main'
+        s.call('Bash', 'https://github.com/o/r/pull/2\n', command='git push && gh pr create -H me:%s' % B)
+        self.update(s, 2)
+        # The last three are on `main`, after the session's last branch.
+        self.assertEqual(s.counted(), [A] * 4 + [B] * 4 + [B] * 3)
+
+    def test_the_pull_requests_that_a_command_writes(self):
+        cases = {
+            'uv run python -I tools/usage/pr_usage.py 17 --update': [17],
+            'uv run --no-project python -I tools/usage/pr_usage.py 17 21 34 --update 2>&1 | tail -5': [17, 21, 34],
+            'python3.15 tools/usage/pr_usage.py --update 17': [17],
+            'cd x && uv run python -I ../tools/usage/pr_usage.py 17 --also wip-a --update': [17],
+            'gh pr create --title t; uv run python -I tools/usage/pr_usage.py 17 --update > out.txt': [17],
+            'uv run python -I tools/usage/pr_usage.py 17': [],
+            'uv run python -I tools/usage/pr_usage.py $(cat list.txt) --update': [],
+            'grep -n "pr_usage.py 17 --update" docs/usage.md': [],
+            'gh issue create --title "run pr_usage.py 17 --update"': [],
+        }
+        for command, numbers in cases.items():
+            with self.subTest(command=command):
+                self.assertEqual(pr_usage.updated_pulls(command), numbers)
+
+    def test_the_branch_of_the_pull_request_that_a_command_opens(self):
+        cases = {
+            'gh pr create --assignee @me --title t': '',
+            'gh pr create --head bug/1-a --title t': 'bug/1-a',
+            'gh pr create --head=me:bug/1-a': 'bug/1-a',
+            'git push -u origin bug/1-a && gh pr create -H bug/1-a': 'bug/1-a',
+            'gh pr create --head "$B"': '',
+            'gh pr view 5': None,
+            'echo "gh pr create"': None,
+        }
+        for command, head in cases.items():
+            with self.subTest(command=command):
+                self.assertEqual(pr_usage.created_head(command), head)
+
+    def test_the_next_branch_is_the_next_other_one_the_session_works_on(self):
+        day = dt.datetime(2026, 11, 20, tzinfo=dt.timezone.utc)
+
+        def at(minute, branch):
+            return (day.replace(minute=minute), branch, 'assistant', 'claude-opus-5-5', {}, True)
+
+        events = [at(1, A), at(3, A), at(4, 'main'), at(5, A), at(6, B), at(7, A), at(9, B)]
+        written = {A: [day.replace(minute=2)], B: [day.replace(minute=8)]}
+        # After its block at 2, the first branch's messages at 3 and 5 are the second's, whose block is written
+        # next; the one at 7 too, the second branch being the next other one after it.
+        self.assertEqual([e[1] for e in pr_usage.next_block(events, written)], [A, B, 'main', B, B, B, B])
+        self.assertEqual([e[1] for e in pr_usage.next_block(events, {A: written[A]})], [e[1] for e in events])
+        self.assertEqual([e[1] for e in pr_usage.next_block(events, written, day.replace(minute=6))],
+                         [A, A, 'main', A, B, B, B])
+        self.assertEqual(pr_usage.next_block(events, {}), events)
 
 
 class Count(unittest.TestCase):
