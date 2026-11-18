@@ -309,7 +309,11 @@ fn cut(value: f32) -> i64 {
 }
 
 /// The hero's label's text: its name, the player's where given, else its class's.
-fn hero_name(texts: &Texts, request: Option<&crate::game::Request>, class: u32) -> Option<String> {
+pub(crate) fn hero_name(
+    texts: &Texts,
+    request: Option<&crate::game::Request>,
+    class: u32,
+) -> Option<String> {
     request
         .and_then(|request| request.0.name.clone())
         .or_else(|| texts.named(&class.to_string()).map(str::to_owned))
