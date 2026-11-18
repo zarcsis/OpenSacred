@@ -84,8 +84,9 @@ use crate::{arts, drops, making};
 /// version 16 the type of a placement's prison, a magic one's or a bubble's (#2750); the version
 /// 17 the item on the cursor (#2822); the version 18 the runes of its class given the hero
 /// (#2799); the version 19 whether a follower rises again and how long one has lain dead to
-/// rise (#2947); the version 20 the creatures' queues and the scripts' modes (#2890).
-pub const VERSION: u32 = 20;
+/// rise (#2947); the version 20 the creatures' queues and the scripts' modes (#2890); the version
+/// 21 the scripts' functions done by their files and keys (#2810).
+pub const VERSION: u32 = 21;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -1099,7 +1100,7 @@ pub(crate) mod tests {
             seed: 0x5EED,
             scripts: crate::scripts::Saved {
                 state,
-                done: vec!["Region3Init".to_owned()],
+                done: vec![("start.luau".to_owned(), "Region3Init".to_owned())],
                 rng: opensacred_rules::spawning::Rng::of(1, 2, 3),
                 mode: crate::scripts::Mode {
                     anim: true,
@@ -1233,7 +1234,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (20, 0x4930_21C0_8940_648B),
+            (21, 0xD966_6BA1_13FA_0188),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
