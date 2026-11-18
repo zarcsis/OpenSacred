@@ -1382,7 +1382,7 @@ fn show(
         Res<crate::making::Selected>,
     ),
     heroes: Query<(&Base, &Combat, &Health, Option<&Holding>), With<Body>>,
-    (followers, entries, data): (
+    (followers, entries, data, request): (
         Query<
             (
                 &Combat,
@@ -1394,6 +1394,7 @@ fn show(
         >,
         Option<Res<bar::Entries>>,
         Option<Res<crate::game::Data>>,
+        Option<Res<crate::game::Request>>,
     ),
     (pointer, ui_scale, screens): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     windows: Query<Entity, With<StatsWindow>>,
@@ -1441,15 +1442,17 @@ fn show(
                 .zip(heroes.iter().next())
                 .filter(|_| on)
                 .map(|(texts, (base, combat, health, holding))| {
-                    // The hero's name, its class's: the player's own, which `game::Request`
-                    // keeps, is not shown.
+                    // The hero's name: the player's own, typed at the choice of the hero, else
+                    // its class's, as its label's (the creature's key `+0x3C`; **seen** in the
+                    // original, #2934).
                     let class = arts.as_deref().map_or(1, |arts| arts.kind);
-                    let name = texts.named(&class.to_string()).unwrap_or_default();
+                    let name = crate::labels::hero_name(texts, request.as_deref(), class)
+                        .unwrap_or_default();
                     let holds = holding.map(|holding| holding.0.clone()).unwrap_or_default();
                     let shield = holding.is_some_and(|holding| holding.0.shield);
                     let mut sheet = sheet(
                         texts,
-                        name,
+                        &name,
                         &experience.0,
                         (base, combat, health),
                         (&pack, &holds),
