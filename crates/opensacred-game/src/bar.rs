@@ -1338,7 +1338,7 @@ pub struct BarPlugin;
 impl Plugin for BarPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<UiImages>()
-            .hold_control(off_the_bar)
+            .hold_clicks(off_the_bar)
             .add_systems(OnEnter(AppState::InGame), spawn)
             .add_systems(
                 Update,

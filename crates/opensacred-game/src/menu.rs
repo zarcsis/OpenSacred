@@ -657,7 +657,7 @@ impl Plugin for MenuPlugin {
             .add_systems(Update, forget_first.run_if(state_changed::<Screen>))
             .add_systems(
                 Update,
-                (keys.in_set(crate::frame::Control), light)
+                (keys.in_set(crate::frame::Menus), light)
                     .chain()
                     .run_if(shown),
             );

@@ -148,8 +148,8 @@ impl Plugin for PausePlugin {
             .add_systems(
                 Update,
                 (
-                    toggle.in_set(crate::frame::Control),
-                    halt.after(crate::frame::Control),
+                    toggle.in_set(crate::frame::Menus),
+                    halt.after(crate::frame::Menus),
                 )
                     .run_if(in_state(AppState::InGame)),
             )

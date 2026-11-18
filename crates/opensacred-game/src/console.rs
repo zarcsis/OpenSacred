@@ -4,8 +4,9 @@
 //! Enter runs a command (`command`); Up and Down walk the history, kept beside the settings
 //! (`history.txt`, the last 100 lines), Tab completes, Ctrl+V pastes from the system's clipboard
 //! and Ctrl+C copies the line to it, PageUp, PageDown and the wheel scroll. While it is open the
-//! player's keys and mouse do nothing else (`frame::Control`, and the keys taken from the systems
-//! after it, #1981); F7, F10, F11 and F12 still work, and the game goes on under it.
+//! player's keys and mouse do nothing else (`frame::Control` and `frame::Menus`, and the keys
+//! taken from the systems after it, #1981); F7, F10, F11 and F12 still work, and the game goes on
+//! under it.
 //!
 //! The line of input is the console's own rather than Bevy's text input widget: a console needs
 //! a line, a cursor and the history.
@@ -610,7 +611,7 @@ mod tests {
 
     #[test]
     fn the_open_console_holds_the_keys_back_and_esc_closes_it_without_a_pause() {
-        use crate::frame::Control;
+        use crate::frame::Menus;
         #[derive(Resource, Default)]
         struct Controlled(u32);
         let mut app = App::new();
@@ -627,7 +628,7 @@ mod tests {
                         controlled.0 += 1;
                     }
                 })
-                .in_set(Control),
+                .in_set(Menus),
             );
         app.update();
         press(&mut app, KeyCode::Backquote);

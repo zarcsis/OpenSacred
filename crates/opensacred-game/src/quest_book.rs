@@ -2518,7 +2518,7 @@ impl Plugin for QuestBookPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Book>()
             .init_resource::<Measures>()
-            .hold_control(off_the_book)
+            .hold_clicks(off_the_book)
             .add_systems(OnEnter(AppState::InGame), reset)
             .add_systems(
                 PreUpdate,

@@ -5,7 +5,7 @@
 //! the top and the bottom of the original's 768-pixel-high screen (`cUI_Manager_render`,
 //! `0x758ED0`). The bar, the portraits and every other window of the interface are hidden
 //! meanwhile ([`Interface`]), and the player's keys and clicks go to none of them (`Control`
-//! held back). After a mode of a second or more the bars slide out the same way, and the
+//! and `Menus` held back). After a mode of a second or more the bars slide out the same way, and the
 //! interface comes back once they are gone. Meanwhile the keys but the game's own tools' go to
 //! nothing, and the windows' toggles open none (the manager's events go to the Esc menu and
 //! the tooltips alone, `0x757AB4`; seen: I, L, M and Esc opened nothing).

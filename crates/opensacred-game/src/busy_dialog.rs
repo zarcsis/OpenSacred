@@ -219,7 +219,7 @@ impl Plugin for BusyDialogPlugin {
             pause_key
                 .before(crate::pause::toggle)
                 .run_if(in_state(AppState::InGame))
-                .in_set(crate::frame::Control),
+                .in_set(crate::frame::Menus),
         );
     }
 }
@@ -241,6 +241,13 @@ mod tests {
 
     #[test]
     fn p_pauses_under_the_pause_window_esc_leaves_it_and_p_goes_on() {
+        use crate::frame::HoldsControl;
+        /// A window under the pointer, and what takes the keyboard.
+        #[derive(Resource, Default)]
+        struct Holds {
+            window: bool,
+            console: bool,
+        }
         let mut app = App::new();
         app.add_plugins((
             MinimalPlugins,
@@ -262,6 +269,10 @@ mod tests {
         .init_resource::<crate::hud::Pointer>()
         .init_resource::<UiScale>()
         .add_message::<crate::sfx::Play>();
+        crate::frame::held_back(&mut app);
+        app.init_resource::<Holds>()
+            .hold_clicks(|holds: Res<Holds>| !holds.window)
+            .hold_control(|holds: Res<Holds>| !holds.console);
         app.update();
         let play = |app: &App| *app.world().resource::<State<Play>>().get();
         let windows = |app: &mut App| {
@@ -291,5 +302,26 @@ mod tests {
         press(&mut app, KeyCode::KeyP);
         assert_eq!(play(&app), Play::Paused);
         assert_eq!((windows(&mut app), menus(&mut app)), (0, 5));
+        press(&mut app, KeyCode::Escape);
+        assert_eq!(play(&app), Play::Running);
+        // The pointer over the bar or a window, or a dialogue's window, holds back the clicks on
+        // the world alone (#2877): P and Esc pause as before.
+        app.world_mut().resource_mut::<Holds>().window = true;
+        press(&mut app, KeyCode::KeyP);
+        assert_eq!(play(&app), Play::Paused);
+        assert_eq!((windows(&mut app), menus(&mut app)), (1, 0));
+        press(&mut app, KeyCode::KeyP);
+        assert_eq!(play(&app), Play::Running);
+        press(&mut app, KeyCode::Escape);
+        assert_eq!(play(&app), Play::Paused);
+        assert_eq!((windows(&mut app), menus(&mut app)), (0, 5));
+        press(&mut app, KeyCode::Escape);
+        assert_eq!(play(&app), Play::Running);
+        // What takes the keyboard holds both keys back.
+        app.world_mut().resource_mut::<Holds>().console = true;
+        press(&mut app, KeyCode::KeyP);
+        assert_eq!(play(&app), Play::Running);
+        press(&mut app, KeyCode::Escape);
+        assert_eq!(play(&app), Play::Running);
     }
 }
