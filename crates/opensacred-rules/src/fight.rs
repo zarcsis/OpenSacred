@@ -169,6 +169,11 @@ pub fn creature_earns(points: &mut u64, level: u32, earned: u64) -> Option<u32> 
     (reached > level).then_some(reached)
 }
 
+/// The factor of the most health of a boss or a champion of class 10, the dragons and the flyers,
+/// by the difficulty (`0x5658F0` at `0x565AF1`, the doubles `0x891288`, `0x891280` and
+/// `0x8907B0`): 1.8 on bronze, 2.8 on silver, 4 from gold up ([`Rank::health`]).
+const FLYERS_HEALTH: [f32; 3] = [1.8, 2.8, 4.0];
+
 /// A creature's rank (docs/re/fight.md, "Bosses and champions"): a boss (`+0x1F4` bit
 /// `0x80000`), a champion (`+0x2B8` bit `0x40`, with a champion's levelling, `+0xB0` bit
 /// `0x400`), a champion's levelling alone, or neither.
@@ -279,7 +284,8 @@ impl Rank {
     }
 
     /// The factor of its most health (`0x5658F0`): `HPFakBoss` or `HPFakChamp`, three times for
-    /// the types 701, 137 and 53, 1.8 times for a creature of class 10 on bronze.
+    /// the types 701, 137 and 53, and for a creature of class 10 times its difficulty's factor
+    /// ([`FLYERS_HEALTH`]).
     pub fn health(self, creature: u32, class: u8, rules: &Rules) -> f32 {
         let factor = match self {
             Self::Common | Self::Levelled => return 1.0,
@@ -288,7 +294,7 @@ impl Rank {
         };
         match (creature, class) {
             (701 | 137 | 53, _) => 3.0 * factor,
-            (_, 10) => 1.8 * factor,
+            (_, 10) => FLYERS_HEALTH[rules.of.index().min(2)] * factor,
             _ => factor,
         }
     }
@@ -448,8 +454,8 @@ impl Bands {
 /// up to `t`, then `(r − t)/(UnterExpVoll − t)`, 1 from `UnterExpVoll` to `ObereEXPVoll`,
 /// `ObereEXPVoll/r` above, at least 0.04, and 1 for none; above `LevelKap`, read by the
 /// difficulty itself and none above gold, the hero's level `H` takes it down by `(LevelKap/H)²`,
-/// from level 100 the decay of a high hero (`0x57E050`), and above the bronze levels the fade of
-/// a difficulty outgrown (`StartLevMulti`); at least 1, whole. No bonuses of the killer
+/// from level 100 the decay of a high hero (`0x57E050`), and above the difficulty's levels the
+/// fade of a difficulty outgrown ([`fade`]); at least 1, whole. No bonuses of the killer
 /// ([`experience_with`]), bosses or champions.
 pub fn experience_of(worth: [u16; 2], level: u32, hero: u32, rules: &Rules) -> u32 {
     experience_with(worth, level, hero, rules, (0.0, 0.0))
@@ -653,13 +659,34 @@ pub fn decay(hero: u32) -> f32 {
     }
 }
 
-/// The fade of a difficulty outgrown, on bronze (`0x57D860`): 1 up to `S1 + 10`, then
-/// `(S2 + 1 − H)/(S2 − S1 − 9)`, at least 0, of the row `StartLevMulti`'s `S1` and `S2`.
-fn fade(h: f32, [s1, s2]: [f32; 2]) -> f32 {
+/// The fade of a difficulty outgrown (`0x57D860`, its cases at `0x57DEB2`): 1 up to `S1 + 10`,
+/// then `(S2 + 1 − H)/(S2 − S1 − 9)`, at least 0, of the difficulty's `S1` and `S2`
+/// ([`Rules::start_levels`]), and 1 where it has none.
+fn fade(h: f32, start_levels: Option<[f32; 2]>) -> f32 {
+    let Some([s1, s2]) = start_levels else {
+        return 1.0;
+    };
     if h <= s1 + 10.0 {
         return 1.0;
     }
     ((s2 + 1.0 - h) / (s2 - s1 - 9.0)).max(0.0)
+}
+
+/// The row `StartLevMulti` on file, which the fade reads where the balance lacks it.
+const START_LEVELS: [f32; 5] = [20.0, 60.0, 100.0, 140.0, 180.0];
+/// The fade's `S2` on platinum, a constant of the code where the other difficulties read the row
+/// (`0x57DF94`: the float 207 at `0x8912DC` over `197 − S1`).
+const PLATINUM_FADE_END: f32 = 206.0;
+
+/// The fade's `S1` and `S2` on `difficulty` ([`fade`], `0x57DEB2`'s cases), of the row
+/// `StartLevMulti` whose values `row` reads by their indices: the values `d + 1` and `d + 2` up
+/// to gold, the fifth and [`PLATINUM_FADE_END`] on platinum, none on niobium.
+fn start_levels(difficulty: Difficulty, row: impl Fn(usize) -> f32) -> Option<[f32; 2]> {
+    match difficulty.index() {
+        d @ 0..=2 => Some([row(d + 1), row(d + 2)]),
+        3 => Some([row(4), PLATINUM_FADE_END]),
+        _ => None,
+    }
 }
 
 /// A creature's regeneration (`0x562730`): its value (`+0x138`) and what it has gathered toward
@@ -811,7 +838,10 @@ pub struct Rules {
     curves: Curves,
     effects: EffectCurves,
     level_cap: f32,
-    start_levels: [f32; 2],
+    /// The fade's `S1` and `S2` of the difficulty ([`fade`]): the row `StartLevMulti`'s values
+    /// `d + 1` and `d + 2` up to gold, its fifth and [`PLATINUM_FADE_END`] on platinum, none on
+    /// niobium (`0x57DEB2`'s cases).
+    start_levels: Option<[f32; 2]>,
     skill_levels: [u32; 6],
     ranks: Ranks,
     range: [f32; 3],
@@ -872,7 +902,7 @@ impl Default for Rules {
             curves: Curves::default(),
             effects: EffectCurves::default(),
             level_cap: 50.0,
-            start_levels: [60.0, 100.0],
+            start_levels: Some([START_LEVELS[1], START_LEVELS[2]]),
             skill_levels: [3, 6, 12, 20, 30, 50],
             ranks: Ranks::default(),
             range: [250.0, 1000.0, 0.25],
@@ -1056,13 +1086,15 @@ impl Rules {
 
     /// The rules of the balance `balance` on `difficulty`: the values of its rows of six by the
     /// difficulty's column (`0x94E7C8`, docs/re/fight.md), the cap of the experience by the
-    /// difficulty itself; the original's bronze values where the balance lacks them.
+    /// difficulty itself; the original's bronze values where the balance lacks them, but for the
+    /// fade's start levels, which the difficulty picks out of the row on file.
     pub fn at(balance: Option<&Balance>, difficulty: Difficulty) -> Self {
         let default = Self::default();
         let Some(b) = balance else {
             return Self {
                 hardened: Hardened::on(difficulty),
                 of: difficulty,
+                start_levels: start_levels(difficulty, |i| START_LEVELS[i]),
                 ..default
             };
         };
@@ -1136,8 +1168,7 @@ impl Rules {
             },
             curves: Curves::of(b),
             effects: EffectCurves::of(b),
-            // The cap by the difficulty itself, bronze's first, none above gold's (0); the start
-            // levels of the fade, bronze's.
+            // The cap by the difficulty itself, bronze's first, none above gold's (0).
             level_cap: match difficulty.index() {
                 index @ 0..=2 => b
                     .row_i32("LevelKap", index)
@@ -1145,10 +1176,10 @@ impl Rules {
                     .map_or(default.level_cap, f32::from),
                 _ => 0.0,
             },
-            start_levels: [1, 2].map(|i| {
+            start_levels: start_levels(difficulty, |i| {
                 b.row_i32("StartLevMulti", i)
                     .and_then(|v| i16::try_from(v).ok())
-                    .map_or(default.start_levels[i - 1], f32::from)
+                    .map_or(START_LEVELS[i], f32::from)
             }),
             skill_levels: {
                 let mut levels = default.skill_levels;
@@ -3856,7 +3887,10 @@ pub fn combat_with(
         defence: multiplied(defence, defence_times),
         damage,
         resistance,
-        damping: base.damping.map(|by_difficulty| by_difficulty[0]),
+        // The defender's damping of the difficulty itself (`0x56C7DE` to `0x56C8E5`).
+        damping: base
+            .damping
+            .map(|by_difficulty| by_difficulty[rules.of.index()]),
         speed: (speed - slows).clamp(100.0, 220.0),
         pace: pace - slows,
         multipliers,
@@ -7386,6 +7420,73 @@ mod tests {
             ..holding(&items)
         };
         assert_eq!(hero_skills(&base, 2, &set), [(14, 4), (2, 7)]);
+    }
+
+    #[test]
+    fn each_difficulty_fades_its_own_outgrown_heros_kills() {
+        let row = |i: usize| START_LEVELS[i];
+        assert_eq!(start_levels(Difficulty::Bronze, row), Some([60.0, 100.0]));
+        assert_eq!(start_levels(Difficulty::Silver, row), Some([100.0, 140.0]));
+        assert_eq!(start_levels(Difficulty::Gold, row), Some([140.0, 180.0]));
+        assert_eq!(
+            start_levels(Difficulty::Platinum, row),
+            Some([180.0, 206.0])
+        );
+        assert_eq!(start_levels(Difficulty::Niobium, row), None);
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-6;
+        // Silver: whole up to 110, then (141 − H)/31.
+        let silver = Rules::at(None, Difficulty::Silver).start_levels;
+        assert!(near(fade(110.0, silver), 1.0));
+        assert!(near(fade(120.0, silver), 21.0 / 31.0));
+        // Gold: (181 − H)/31 above 150.
+        let gold = Rules::at(None, Difficulty::Gold).start_levels;
+        assert!(near(fade(150.0, gold), 1.0));
+        assert!(near(fade(160.0, gold), 21.0 / 31.0));
+        // Platinum: (207 − H)/17 above 190, nothing from 207.
+        let platinum = Rules::at(None, Difficulty::Platinum).start_levels;
+        assert!(near(fade(190.0, platinum), 1.0));
+        assert!(near(fade(200.0, platinum), 7.0 / 17.0));
+        assert!(near(fade(210.0, platinum), 0.0));
+        // Niobium: no fade.
+        assert!(near(
+            fade(216.0, Rules::at(None, Difficulty::Niobium).start_levels),
+            1.0
+        ));
+        // A silver hero of 80 earns its whole, where a bronze one's fades.
+        let worth = [52, 48];
+        assert!(
+            experience_of(worth, 80, 80, &Rules::at(None, Difficulty::Silver))
+                > experience_of(worth, 80, 80, &Rules::default())
+        );
+    }
+
+    #[test]
+    fn a_flying_bosss_health_and_the_dampings_go_by_the_difficulty() {
+        for (difficulty, flyer, damping) in [
+            (Difficulty::Bronze, 1.8, 15),
+            (Difficulty::Silver, 2.8, 30),
+            (Difficulty::Gold, 4.0, 45),
+            (Difficulty::Platinum, 4.0, 60),
+            (Difficulty::Niobium, 4.0, 75),
+        ] {
+            let rules = Rules::at(None, difficulty);
+            let boss = Rank::Boss.health(54, 10, &rules);
+            assert!((boss - 2.5 * flyer).abs() < 1e-5, "{difficulty:?}: {boss}");
+            // The types 701, 137 and 53 thrice, whatever the difficulty; another class alone.
+            assert!((Rank::Champion.health(53, 9, &rules) - 6.0).abs() < 1e-5);
+            assert!((Rank::Boss.health(76, 4, &rules) - 2.5).abs() < 1e-5);
+            assert!((Rank::Common.health(54, 10, &rules) - 1.0).abs() < 1e-5);
+            let base = Base {
+                damping: [[0; 5], [15, 30, 45, 60, 75], [0; 5], [10, 20, 30, 40, 50]],
+                ..Base::default()
+            };
+            let combat = combat(&base, 1, Holds::default(), &[], &rules);
+            assert_eq!(
+                combat.damping,
+                [0, damping, 0, damping * 2 / 3],
+                "{difficulty:?}"
+            );
+        }
     }
 
     #[test]
