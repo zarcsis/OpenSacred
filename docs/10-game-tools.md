@@ -82,7 +82,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
 * The first menu, which the original's replaced (below): New Game and Quit, in the original's interface font.
   New Game shows the eight classes of `--class` with their portraits (`gui_qbp_*`) and names; a choice starts the game (the Vampiress since #790).
   The mouse, or the arrows, Enter and Esc.
-  Done 2026-10-19 (#172), in a module `menu` (docs/decisions/interface.md, "Menus' scale, keys, text and figures"): the game's logo over the items, a sub-state `Screen { Main, Heroes }`, the items chosen by pointing (the picking of the interface's nodes, a feature of Bevy's now) or the arrows, and a hero starting a game with the command line's other options; while a game loads, the original's first loading screen shows (`ui/screens/loading0.ktx2`, a PNG until #700).
+  Done 2026-10-19 (#172), in a module `menu` (docs/decisions/interface.md, "Menus' scale and keys"): the game's logo over the items, a sub-state `Screen { Main, Heroes }`, the items chosen by pointing (the picking of the interface's nodes, a feature of Bevy's now) or the arrows, and a hero starting a game with the command line's other options; while a game loads, the original's first loading screen shows (`ui/screens/loading0.ktx2`, a PNG until #700).
   A game that the command line names starts at once, and a screenshot's, a recording's or a benchmark's ends the process when it does not load; any other goes back to the menu.
 * The original's main menu (#1118, docs/re/menus.md): its picture of 12 tiles with the water at its foot, the column of its items in Carolingia, gold, lit under the cursor with a glow and fading in, and the Multiplayer and Extras submenus, a sub-state `Screen { Main, Multiplayer, Extras, Heroes }`; the items' words come from the game's texts (`menu::Words`), and those whose screens the game does not have yet stand greyed and are passed over by the arrows.
   The picture keeps the original's 1024 × 768, scaled to the window's height, black at its sides in a wider window.
@@ -99,7 +99,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   The rest of a game's systems go on, standing still on the paused time, so that a model that comes in while the game is paused still takes its materials.
 * A game named on the command line (`--class` or another of the game's options but `--zoom` and `--no-music`, which only say how it shows, or `--screenshot`, `--record`, `--benchmark`, which need a scene) starts as if `new-game` with those options ran at the start (§6), not by a mechanism of its own.
   The remote protocol can drive the menu too (§8), but a one-shot run, such as a screenshot, a benchmark or a comparison with an older build, then needs no server, client or waiting.
-* Where the menus still depart from the original's screens (the picture's scale, the keyboard's arrows, Enter and Esc, the text, the unlit figures) is a decision: docs/decisions/interface.md, "Menus' scale, keys, text and figures".
+* Where the menus still depart from the original's screens (the picture's scale, the keyboard's arrows, Enter and Esc, the text, the unlit figures) is two decisions: docs/decisions/interface.md, "Menus' scale and keys" and docs/decisions/interface.md, "The choice of the hero's text and figures".
 
 ## 5. The HUD, the overlay and the log (#168, #170, #169)
 
