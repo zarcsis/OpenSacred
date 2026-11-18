@@ -339,7 +339,7 @@ mod tests {
     use bevy::input::keyboard::{Key, KeyboardInput};
 
     use super::*;
-    use crate::frame::Control;
+    use crate::frame::Menus;
 
     /// Every place, the columns' in turn.
     fn places() -> impl Iterator<Item = &'static Place> {
@@ -432,7 +432,7 @@ mod tests {
                         escaped.0 += 1;
                     }
                 })
-                .in_set(Control),
+                .in_set(Menus),
             );
         app.update();
         let press = |app: &mut App, key: KeyCode, logical: Key| {

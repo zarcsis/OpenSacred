@@ -51,13 +51,22 @@ pub struct Playing;
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Unpaused;
 
-/// The player's keys and mouse on the world, the pause and the menus, which the open console
-/// holds back (`console`), a movie and the scripts' cinema (`movies`, `cinema`), and the pointer
-/// over the bar or a window (`bar`, `inventory`, `purchase`, `quest_book`, `stables`, `talk`,
-/// `world_map`): each module's test of it ([`HoldsControl`]) taken as the frame begins
-/// ([`HeldBack`]).
+/// The player's mouse on the world and the keys that go with it, which hold back what takes the
+/// keyboard (the open console, a movie, the scripts' cinema, a question that waits and the world
+/// map: `console`, `movies`, `cinema`, `purchase`, `world_map`), the pointer over the bar or a
+/// window (`bar`, `inventory`, `quest_book`, `stables`) and a dialogue's window (`talk`): each
+/// module's test of it ([`HoldsControl`]) taken as the frame begins ([`HeldBack`]).
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Control;
+
+/// The keys of the pause and the menus (Esc and P of a game, `pause` and `busy_dialog`; the main
+/// menu's, `menu`), which only what takes the keyboard holds back
+/// ([`HoldsControl::hold_control`]). The pointer over the bar or a window and a dialogue's
+/// window leave them (#2877): the original's menu over a game opens and its pause stands with
+/// the cursor over the taskbar and through a talk (seen; docs/re/netscript.md, "The talk's own
+/// end, and the world meanwhile").
+#[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Menus;
 
 /// The player's clicks on the world, which the scripts' cinema refuses (`0x6172ED`,
 /// `scripts::no_cinema`, #1892): the hero's moves, its attacks, its arts, its talks and its
@@ -65,13 +74,19 @@ pub struct Control;
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct OnWorld;
 
-/// Whether [`Control`] is held back in this frame, by the tests of [`HoldsControl`] as the windows
-/// and the console stood when it began (#1593): taken in `PreUpdate` ([`Hold`]) before any key or
-/// click of the frame shows or hides one, so that a press that hides its window (a close button)
-/// does not reach the world in its frame, whichever of its systems runs first. The original's
-/// button takes the press it lies under, whatever it does with it (`0x72B560`).
+/// Whether [`Control`] and [`Menus`] are held back in this frame, by the tests of
+/// [`HoldsControl`] as the windows and the console stood when it began (#1593): taken in
+/// `PreUpdate` ([`Hold`]) before any key or click of the frame shows or hides one, so that a
+/// press that hides its window (a close button) does not reach the world in its frame, whichever
+/// of its systems runs first. The original's button takes the press it lies under, whatever it
+/// does with it (`0x72B560`).
 #[derive(Resource, Debug, Default)]
-pub struct HeldBack(bool);
+pub struct HeldBack {
+    /// [`Control`], by any test.
+    clicks: bool,
+    /// [`Menus`] too, by a test of what takes the keyboard.
+    keys: bool,
+}
 
 /// The step of `PreUpdate` that takes [`HeldBack`]: after Bevy reads the input and the pointer
 /// (`hud`), before the console's keys and the windows' toggles, which run after them.
@@ -80,13 +95,22 @@ pub struct Hold;
 
 /// A module's test of whether the player's keys and mouse go to the world, true where they do.
 pub trait HoldsControl {
-    /// Holds [`Control`] back in the frames that begin with `free` false.
+    /// Holds [`Control`] and [`Menus`] back in the frames that begin with `free` false: what
+    /// takes the keyboard.
     fn hold_control<M>(&mut self, free: impl IntoSystem<(), bool, M> + 'static) -> &mut Self;
+
+    /// Holds [`Control`] alone back in the frames that begin with `free` false: the pointer over
+    /// a window, or a dialogue's window, under which the pause's and the menus' keys go on.
+    fn hold_clicks<M>(&mut self, free: impl IntoSystem<(), bool, M> + 'static) -> &mut Self;
 }
 
 impl HoldsControl for App {
     fn hold_control<M>(&mut self, free: impl IntoSystem<(), bool, M> + 'static) -> &mut Self {
         self.add_systems(PreUpdate, free.pipe(hold).in_set(Hold))
+    }
+
+    fn hold_clicks<M>(&mut self, free: impl IntoSystem<(), bool, M> + 'static) -> &mut Self {
+        self.add_systems(PreUpdate, free.pipe(hold_clicks).in_set(Hold))
     }
 }
 
@@ -94,28 +118,42 @@ impl HeldBack {
     /// Whether a window or the console held the world's controls back as the frame began: the
     /// cursor then shows nothing of the world under it (`cursors`, #2507).
     pub fn held(&self) -> bool {
-        self.0
+        self.clicks
     }
 }
 
-/// A test that found the world's controls held back.
+/// A test that found the world's controls and the menus' keys held back.
 fn hold(In(free): In<bool>, mut held: ResMut<HeldBack>) {
     if !free {
-        held.0 = true;
+        held.clicks = true;
+        held.keys = true;
+    }
+}
+
+/// A test that found the world's controls alone held back.
+fn hold_clicks(In(free): In<bool>, mut held: ResMut<HeldBack>) {
+    if !free {
+        held.clicks = true;
     }
 }
 
 /// A new frame, held back by none yet.
 fn release(mut held: ResMut<HeldBack>) {
-    held.0 = false;
+    *held = HeldBack::default();
 }
 
 /// Whether no test held [`Control`] back as the frame began.
 fn free(held: Res<HeldBack>) -> bool {
-    !held.0
+    !held.clicks
 }
 
-/// [`HeldBack`], its taking each frame in its step and [`Control`]'s condition.
+/// Whether no test held [`Menus`] back as the frame began.
+fn keys_free(held: Res<HeldBack>) -> bool {
+    !held.keys
+}
+
+/// [`HeldBack`], its taking each frame in its step and the conditions of [`Control`] and
+/// [`Menus`].
 pub(crate) fn held_back(app: &mut App) {
     app.init_resource::<HeldBack>()
         .add_systems(First, release)
@@ -125,7 +163,7 @@ pub(crate) fn held_back(app: &mut App) {
                 .after(crate::hud::point)
                 .before(crate::console::keys),
         )
-        .configure_sets(Update, Control.run_if(free));
+        .configure_sets(Update, (Control.run_if(free), Menus.run_if(keys_free)));
 }
 
 /// The world's tick (`cEngine::renderThread::run`, `0x60E350`): the render loop adds each
@@ -249,5 +287,56 @@ mod tests {
         assert_eq!(app.world().resource::<Steered>().0, 0);
         app.update();
         assert_eq!(app.world().resource::<Steered>().0, 1);
+    }
+
+    #[test]
+    fn a_window_under_the_pointer_holds_the_clicks_back_and_leaves_the_menus_keys() {
+        use bevy::prelude::{IntoScheduleConfigs as _, MinimalPlugins};
+        #[derive(Resource, Default)]
+        struct Over(bool);
+        #[derive(Resource, Default)]
+        struct Typing(bool);
+        #[derive(Resource, Default)]
+        struct Ran {
+            clicks: u32,
+            keys: u32,
+        }
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins);
+        held_back(&mut app);
+        app.init_resource::<Over>()
+            .init_resource::<Typing>()
+            .init_resource::<Ran>()
+            .hold_clicks(|over: Res<Over>| !over.0)
+            .hold_control(|typing: Res<Typing>| !typing.0)
+            .add_systems(
+                Update,
+                (
+                    (|mut ran: ResMut<Ran>| ran.clicks += 1).in_set(Control),
+                    (|mut ran: ResMut<Ran>| ran.keys += 1).in_set(Menus),
+                ),
+            );
+        let ran = |app: &mut App| {
+            app.update();
+            let ran = app.world().resource::<Ran>();
+            (ran.clicks, ran.keys)
+        };
+        // Nothing holds: both run.
+        assert_eq!(ran(&mut app), (1, 1));
+        // The pointer over a window (#2877): the clicks wait, Esc and P go on, and the cursor
+        // shows nothing of the world.
+        app.world_mut().resource_mut::<Over>().0 = true;
+        assert_eq!(ran(&mut app), (1, 2));
+        assert!(app.world().resource::<HeldBack>().held());
+        // What takes the keyboard holds both, with the pointer over a window or off it.
+        app.world_mut().resource_mut::<Typing>().0 = true;
+        assert_eq!(ran(&mut app), (1, 2));
+        app.world_mut().resource_mut::<Over>().0 = false;
+        assert_eq!(ran(&mut app), (1, 2));
+        assert!(app.world().resource::<HeldBack>().held());
+        // And both go on once it lets go.
+        app.world_mut().resource_mut::<Typing>().0 = false;
+        assert_eq!(ran(&mut app), (2, 3));
+        assert!(!app.world().resource::<HeldBack>().held());
     }
 }

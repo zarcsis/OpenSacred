@@ -96,7 +96,7 @@ A tooltip's window (`cUI_Tooltip`, `UI_WND_TOOLTIP`), the first window of a new 
 A press inside a link (`0x6E74E0`, at the event's own point) runs its function by its index (`0x499DA0`, through the runner `0x46BA90`, after the creature event `0x10C` to the objects 1 to 16) and plays `(9, 0x5D)`; a press elsewhere inside the window is taken and goes no further.
 The functions' names are the records of `0x54` bytes from `sdk_TRIGGER_NAME_BEGIN` (`0xAAB708`), a name each, by the index.
 Seen on the Daemon's first window (2026-10-28): its OK runs `Tutorial_Trigger` and its Skip Tutorial `btn_Deamonstart`, which then runs `TT_KEINEMEHR`.
-A tooltip's window stays shown under the menu over a game, and takes the presses inside its rectangle: with the Daemon's first window open, the menu's Save Game, which lies inside it, does nothing (seen).
+A tooltip's window stays listed as shown under the menu over a game, which is drawn without it, and takes none of the menu's presses: with a hero's first window open, the menu's Continue, which lies inside the window's rectangle, closes the menu, and its Save Game does nothing because no save is made while the window shows (**seen** 2026-11-18, #2877; docs/re/netscript.md, "The talk's own end, and the world meanwhile").
 
 ## The program's screen
 

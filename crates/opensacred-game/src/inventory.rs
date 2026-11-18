@@ -694,7 +694,7 @@ impl Plugin for InventoryPlugin {
             .init_resource::<Page>()
             .init_resource::<SortByRows>()
             .init_resource::<Opening>()
-            .hold_control(off_the_windows)
+            .hold_clicks(off_the_windows)
             .add_systems(OnEnter(AppState::InGame), hide)
             .add_systems(
                 PreUpdate,

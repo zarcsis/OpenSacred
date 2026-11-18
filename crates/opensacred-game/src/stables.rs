@@ -962,7 +962,7 @@ pub struct StablesPlugin;
 impl Plugin for StablesPlugin {
     fn build(&self, app: &mut App) {
         use crate::frame::HoldsControl;
-        app.hold_control(off_the_window)
+        app.hold_clicks(off_the_window)
             .add_systems(OnExit(AppState::InGame), |mut commands: Commands| {
                 commands.remove_resource::<Opened>();
                 commands.insert_resource(Emptied::default());

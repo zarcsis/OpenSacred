@@ -6,8 +6,9 @@
 //! `cUI_Tooltip` (#1458). A button closes it, ends the talk and runs
 //! its function (`scripts::answer`); without buttons Enter or a click closes it; the talk ends too
 //! where the hero stands farther than 1,500 from the creature. Its voice-over ends as it closes.
-//! The world runs on meanwhile, the hero's clicks on it held back while the window shows
-//! (docs/decisions/interface.md, "Dialogue window holds back world clicks").
+//! The world runs on meanwhile, the hero's clicks on it held back while the window shows, as the
+//! original's hero in its talk acts on none (seen, #2877; docs/re/netscript.md, "The talk's own
+//! end, and the world meanwhile"), and Esc's menu and P's pause go on over the window.
 //!
 //! In a dialogue's place a talk opens the smith's, the merchant's or the combat master's window
 //! for such a creature without a dialogue, and the horse window for a horse trader or a stable's
@@ -1162,7 +1163,9 @@ fn end(world: &mut World, hero: Entity, creature: Entity) {
 /// Closes a window without buttons on Enter or a press of a mouse button (`0x655920`), and any
 /// window once the hero and the creature stand farther than 1,500 apart or the creature is gone,
 /// its body lying on (`0x5370B0`): a dead one's dialogue that takes its dialogue away (`DelDlg`)
-/// keeps its window to the end ([`corpse_speech`]).
+/// keeps its window to the end ([`corpse_speech`]). The press closes it only while the game
+/// runs, as the original's talk tests it at its ticks: a press on the menu over a game or on the
+/// pause's window, which show over the dialogue's (#2877), leaves it.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -1171,14 +1174,19 @@ fn dismiss(
     mut commands: Commands,
     shown: Option<Res<Shown>>,
     keys: crate::controls::Keys,
-    buttons: Res<ButtonInput<MouseButton>>,
+    (buttons, play): (
+        Res<ButtonInput<MouseButton>>,
+        Option<Res<State<crate::pause::Play>>>,
+    ),
     heroes: Query<&Transform, With<Body>>,
     creatures: Query<&Transform, Or<(Without<Dies>, With<Corpse>)>>,
 ) {
     let Some(shown) = shown else {
         return;
     };
-    let pressed = shown.functions.is_empty()
+    let running = play.is_none_or(|play| *play.get() == crate::pause::Play::Running);
+    let pressed = running
+        && shown.functions.is_empty()
         && (keys.just_pressed(crate::controls::Action::Confirm)
             || buttons.get_just_pressed().next().is_some());
     let apart = match (heroes.iter().next(), creatures.get(shown.creature)) {
@@ -1189,6 +1197,35 @@ fn dismiss(
     };
     if pressed || apart {
         commands.queue(close);
+    }
+}
+
+/// Hides the window while the menu over a game shows, and shows it again as the menu goes: the
+/// original draws its menu alone over a talk, and the window again once the menu is closed,
+/// where its pause's window darkens the dialogue's with the rest of the screen (seen, #2877).
+/// The pauses that show no menu leave it: the scripts' own, under which a tip's window waits,
+/// and the key P's.
+fn veil(
+    shown: Option<Res<Shown>>,
+    play: Option<Res<State<crate::pause::Play>>>,
+    (still, busy): (
+        Option<Res<crate::pause::Still>>,
+        Option<Res<crate::pause::Busy>>,
+    ),
+    mut windows: Query<&mut Visibility>,
+) {
+    let Some(shown) = shown else {
+        return;
+    };
+    let menu = play.is_some_and(|play| *play.get() == crate::pause::Play::Paused)
+        && !still.is_some_and(|still| still.0)
+        && !busy.is_some_and(|busy| busy.0);
+    if let Ok(mut visibility) = windows.get_mut(shown.root) {
+        visibility.set_if_neq(if menu {
+            Visibility::Hidden
+        } else {
+            Visibility::Inherited
+        });
     }
 }
 
@@ -1422,7 +1459,7 @@ pub struct TalkPlugin;
 
 impl Plugin for TalkPlugin {
     fn build(&self, app: &mut App) {
-        app.hold_control(no_window)
+        app.hold_clicks(no_window)
             .add_systems(OnExit(AppState::InGame), forget)
             .add_systems(
                 Update,
@@ -1442,6 +1479,7 @@ impl Plugin for TalkPlugin {
                 Update,
                 (
                     dismiss,
+                    veil,
                     notices.after(popups),
                     popups,
                     close_first.after(popups),
@@ -1488,6 +1526,77 @@ mod tests {
         let talking = world.get::<Talking>(hero).unwrap();
         assert_eq!(talking.creature, wilbur);
         assert!(matches!(&talking.dialogue, Speech::Dialogue(d) if d == "DlgWillbur45"));
+    }
+
+    #[test]
+    fn under_a_pause_a_press_leaves_the_window_and_the_menu_over_a_game_hides_it() {
+        use crate::pause::{Busy, Play, Still};
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::state::app::StatesPlugin))
+            .insert_state(AppState::InGame)
+            .add_sub_state::<Play>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<ButtonInput<MouseButton>>()
+            .init_resource::<Still>()
+            .init_resource::<Busy>()
+            .add_systems(Update, (dismiss, veil));
+        app.world_mut()
+            .spawn((Body::standing(), Transform::default()));
+        let creature = app
+            .world_mut()
+            .spawn(Transform::from_xyz(100.0, 0.0, 0.0))
+            .id();
+        let show = |app: &mut App, functions: &[&str]| {
+            let root = app.world_mut().spawn(Visibility::default()).id();
+            app.insert_resource(Shown {
+                root,
+                creature,
+                functions: functions.iter().map(|&f| f.to_owned()).collect(),
+                text: String::new(),
+                labels: Vec::new(),
+            });
+            root
+        };
+        let press = |app: &mut App| {
+            app.world_mut()
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .press(MouseButton::Left);
+            app.update();
+            let mut buttons = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+            buttons.release(MouseButton::Left);
+            buttons.clear();
+            app.world().contains_resource::<Shown>()
+        };
+        let set = |app: &mut App, play: Play| {
+            app.world_mut().resource_mut::<NextState<Play>>().set(play);
+            app.update();
+            app.update();
+        };
+        let drawn = |app: &App, root: Entity| *app.world().get::<Visibility>(root).unwrap();
+        app.update();
+        // Under the menu over a game (#2877) a press leaves the window, which the menu hides.
+        let root = show(&mut app, &[]);
+        set(&mut app, Play::Paused);
+        assert!(press(&mut app));
+        assert_eq!(drawn(&app, root), Visibility::Hidden);
+        // Under the key P's pause and the scripts' own, which show no menu, it is drawn.
+        app.world_mut().resource_mut::<Busy>().0 = true;
+        assert!(press(&mut app));
+        assert_eq!(drawn(&app, root), Visibility::Inherited);
+        app.world_mut().resource_mut::<Busy>().0 = false;
+        app.world_mut().resource_mut::<Still>().0 = true;
+        app.update();
+        assert_eq!(drawn(&app, root), Visibility::Inherited);
+        app.world_mut().resource_mut::<Still>().0 = false;
+        app.update();
+        assert_eq!(drawn(&app, root), Visibility::Hidden);
+        // The game going on, it is drawn again and a press closes it.
+        set(&mut app, Play::Running);
+        assert_eq!(drawn(&app, root), Visibility::Inherited);
+        assert!(!press(&mut app));
+        // One with buttons stays through a press beside them.
+        show(&mut app, &["exit01"]);
+        assert!(press(&mut app));
     }
 
     #[test]
