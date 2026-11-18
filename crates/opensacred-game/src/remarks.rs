@@ -401,7 +401,11 @@ fn input(
     }
 }
 
-/// Starts the idle clock and the hero's places with each game, and takes the sectors' areas.
+/// Starts the idle clock and the hero's places with each game, and takes the sectors' areas. The
+/// remarks' timers and the latch of the place come near stay from a game before, as the
+/// original's do: only the approach writes the latch (`0xAD4400` at `0x59410A` and `0x594174`,
+/// read 2026-11-18 for #2829), and the timers are the sound manager's (`0x691700`; **hypothesis**:
+/// it keeps them through the games of a run).
 fn begin(mut remarks: ResMut<Remarks>, data: Option<Res<Data>>) {
     remarks.idle = 0.0;
     remarks.sector = None;
