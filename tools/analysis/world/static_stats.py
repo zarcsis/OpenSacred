@@ -74,7 +74,7 @@ for s in (915, 1498, 1731):
     m = sec == s
     if m.any(): w('sector ordinal %d: n=%d x %d..%d y %d..%d z set %s' % (s, m.sum(), x[m].min(), x[m].max(), y[m].min(), y[m].max(), sorted(set(z[m].tolist()))))
 # other u16 fields in the record
-for o in range(0x16, 0x4c, 2):
+for o in range(0x16, STRIDE, 2):
     a = u16(o); c = collections.Counter(a.tolist())
     w('u16 +0x%02x: distinct=%d top: %s' % (o, len(c), ' '.join('%d:%d' % kv for kv in c.most_common(6))))
 # cross z x scale

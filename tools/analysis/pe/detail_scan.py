@@ -10,7 +10,7 @@ Modes (can be combined)
   --vp             for each VirtualProtect: the instruction that sets lpAddress, and a summary between paired calls
   --threads [--beginthread VA]  CreateThread/_beginthreadex sites with push arguments (thread entry points)
   --refs VA        instructions that carry VA as an immediate operand (not call)
-  --writers VA     instructions that write to the global [VA], with the 12 preceding ones
+  --writers VA     instructions that write to the global [VA], each with the 12 before it and the one after
   --strfunc SUBSTR functions that reference a string: a summary of x87/operand widths + listing
 
 Purpose: the evidence for the threads, rounding, random numbers and VirtualProtect facts of docs/01 §7, and dumps
@@ -40,7 +40,7 @@ ap.add_argument('--rand', type=hexkey); ap.add_argument('--check', nargs='*', de
 ap.add_argument('--range', action='append', default=[]); ap.add_argument('--vp', action='store_true')
 ap.add_argument('--callers', action='append', default=[], help='VA: list callers split game/lib')
 ap.add_argument('--refs', action='append', default=[], help='VA: instructions carrying this immediate (push/mov), e.g. thread entry points')
-ap.add_argument('--writers', action='append', default=[], help='abs VA: instructions writing this global, with 10 preceding instructions')
+ap.add_argument('--writers', action='append', default=[], help='abs VA: instructions writing this global, each with the 12 before it and the one after')
 ap.add_argument('--beginthread', action='append', default=[], help='VA of CRT _beginthreadex wrapper: treat its calls like CreateThread')
 ap.add_argument('--threads', action='store_true', help='list CreateThread call sites with pushed immediates (thread entry points)')
 ap.add_argument('--strfunc', action='append', default=[], help='substring: find referencing code, print x87/mem summary + listing of that function')
