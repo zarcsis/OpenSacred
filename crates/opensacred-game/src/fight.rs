@@ -1803,9 +1803,8 @@ mod tests {
         let mut world = World::new();
         world.init_resource::<Messages<crate::sfx::Play>>();
         world.insert_resource(Rules::default());
-        let mut experience = Experience::default();
-        experience.level = 5;
-        world.insert_resource(experience);
+        world.init_resource::<Experience>();
+        world.resource_mut::<Experience>().level = 5;
         let base = opensacred_rules::fight::Base {
             attributes: [30, 20, 20, 25, 10, 10],
             ..opensacred_rules::fight::Base::default()
