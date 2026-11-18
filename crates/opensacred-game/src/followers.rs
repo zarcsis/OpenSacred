@@ -66,6 +66,12 @@ pub enum Hire {
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Hired(pub Hire);
 
+/// A hire that a `SetNPCState` asks, which sets its creature's level whatever its flag
+/// (`sdk_HIRE` at `0x462A1F`), where a `CreateNPC`'s of `0x37` or `0x71` leaves it (the event
+/// `0x10B`, `0x484774`; #2896).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ByState;
+
 /// How near its master a follower of the flag 4 runs from a creature that comes at the master,
 /// and how far beyond its own place, along the line from the master; with the master nearer than
 /// 10 or farther than 1,000, it runs to a point within 400 of itself along each axis
@@ -260,7 +266,9 @@ pub(crate) fn rehire(world: &mut World, entity: Entity, master: Entity, escorted
 }
 
 /// Carries out the scripts' hires and lettings go (#657): a hire by the local hero
-/// (`sdk_HIRE`, [`hire`]), of the flag 4 for `0x37` and `0x71` (`0x462A99`); a letting go
+/// (`sdk_HIRE`, [`hire`]), of the flag 4 for `0x37` and `0x71` (`0x462A99`), the follower's
+/// level set by the hero's for `0x4B` and for any of a `SetNPCState` ([`ByState`],
+/// `npcs::level_follower`, #2896); a letting go
 /// (`0x462BB9`, the event `0x10B` without a master): out of the hero's list, its master −1, the
 /// flags word's bits 4 and `0x100` cleared, stopped (`0x54E6D0`), its side and home kept.
 fn take_hires(world: &mut World) {
@@ -278,6 +286,7 @@ fn take_hires(world: &mut World) {
             continue;
         };
         creature.remove::<Hired>();
+        let by_state = creature.take::<ByState>().is_some();
         match (hire_of, hero) {
             (Hire::LetsGo, _) => {
                 if creature.take::<Follower>().is_some() {
@@ -299,6 +308,12 @@ fn take_hires(world: &mut World) {
                     && let Some(mut follower) = world.get_mut::<Follower>(entity)
                 {
                     follower.escorted = true;
+                }
+                if hire_of == Hire::Fights || by_state {
+                    let level = world
+                        .get_resource::<crate::fight::Experience>()
+                        .map_or(1, |experience| experience.level);
+                    crate::npcs::level_follower(world, entity, level, true);
                 }
             }
             (_, None) => {}
@@ -978,6 +993,22 @@ fn rise_again(
             stashed.mind.creature, health.current, health.most
         );
         lift(&mut commands, entity, &stashed);
+    }
+}
+
+/// Raises each follower of the hero `hero` made of a placement (the scripts' and the hirelings',
+/// not the summoned nor the raised), whose level stands below the hero's new level `level`
+/// scaled, as the hero's own setting of its level raises those of its list it keeps (`0x564D60`
+/// at its end, read 2026-11-18 for #2896; `npcs::level_follower`).
+pub(crate) fn rise_with(world: &mut World, hero: Entity, level: u32) {
+    let followers: Vec<Entity> = world
+        .query_filtered::<(Entity, &Follower), With<crate::npcs::Placed>>()
+        .iter(world)
+        .filter(|(_, follower)| follower.master == hero)
+        .map(|(entity, _)| entity)
+        .collect();
+    for follower in followers {
+        crate::npcs::level_follower(world, follower, level, false);
     }
 }
 

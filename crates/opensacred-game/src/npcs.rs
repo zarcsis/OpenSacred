@@ -11195,7 +11195,7 @@ pub(crate) fn script_records(
             if let Some(hire) = state.hire {
                 commands
                     .entity(entity)
-                    .insert(crate::followers::Hired(hire));
+                    .insert((crate::followers::Hired(hire), crate::followers::ByState));
             }
             match state.rises {
                 Some(true) => {
@@ -12471,6 +12471,61 @@ pub(crate) fn earn(
             health.most
         );
     }
+}
+
+/// Sets the level of the follower `entity` as the hero of level `hero` sets it (#2896): at its
+/// hire `always` (`sdk_HIRE`, `0x54D14C`), else only where it stands below the hero's level
+/// scaled, as the hero's own setting of its level raises the followers it keeps (`0x564D60` at
+/// its end): the level of [`opensacred_rules::fight::follower_level`], held by its own sector,
+/// its values made anew at it as the level's setter makes them, its items as they are.
+pub(crate) fn level_follower(
+    world: &mut bevy::prelude::World,
+    entity: Entity,
+    hero: u32,
+    always: bool,
+) {
+    world.resource_scope(|world, npcs: bevy::prelude::Mut<Npcs>| {
+        let rules = &npcs.fight;
+        let mut creatures = world.query::<(
+            &Transform,
+            (&mut ai::Mind, &mut fight::Health, &mut fight::Combat),
+            (&Arms, &mut Npc),
+            (Option<&fight::Ranked>, Option<&crate::effects::Effects>),
+        )>();
+        let Ok((transform, (mut mind, mut health, mut combat), (arms, mut npc), (ranked, effects))) =
+            creatures.get_mut(world, entity)
+        else {
+            return;
+        };
+        if !always && health.level >= opensacred_rules::fight::follower_scale(hero, rules) {
+            return;
+        }
+        let rank = ranked.map_or(fight::Rank::Common, |ranked| ranked.0);
+        let values = npcs.values.get(&sector_of(transform.translation));
+        let grade = opensacred_rules::fight::follower_level(
+            hero,
+            (rank, mind.creature, mind.big),
+            values,
+            rules,
+        );
+        let from = health.level;
+        let regenerates = relevel(
+            grade,
+            rank,
+            (&mut *mind, &mut *health, &mut *combat, &mut *npc),
+            arms,
+            rules,
+            &effects
+                .map(crate::effects::Effects::list)
+                .unwrap_or_default(),
+        );
+        let creature = mind.creature;
+        world.entity_mut(entity).insert(regenerates);
+        bevy::log::info!(
+            "npcs: the follower {entity}, a {creature} of level {from}, set to {grade} by the \
+             hero's {hero}"
+        );
+    });
 }
 
 /// The sector that the point `here` of the world stands in.

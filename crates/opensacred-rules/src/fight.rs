@@ -5135,6 +5135,29 @@ pub fn tagged_level(
     }
 }
 
+/// The level that the hero of level `hero` gives a follower of its hire, of rank `rank` and type
+/// `creature`, big or not, standing in a sector of `values` (`sdk_HIRE`'s second setting,
+/// `0x54D14C`), and that the hero's own setting of its level gives each follower it keeps whose
+/// level is below the hero's scaled (the level's setter `0x564D60` at its end; read 2026-11-18 for
+/// #2896): the hero's level scaled by the difficulty with no time played (`0x552230(L, 0)`), held
+/// as the setter holds the follower ([`Rank::held`]) by its own sector's highest and the
+/// difficulty's `LevelKap`. **Seen**: a Seraphim of level 15 hired a creature of level 2 at her
+/// start on bronze, which then stood at its sector's 4.
+pub fn follower_level(
+    hero: u32,
+    (rank, creature, big): (Rank, u32, bool),
+    values: Option<&SpawnValues>,
+    rules: &Rules,
+) -> u32 {
+    rank.held(follower_scale(hero, rules), values, creature, big, rules)
+}
+
+/// The hero's level `hero` scaled by the difficulty with no time played (`0x552230(L, 0)`), which
+/// a follower kept below it rises toward ([`follower_level`]).
+pub fn follower_scale(hero: u32, rules: &Rules) -> u32 {
+    played_level(hero, Played::default(), rules)
+}
+
 /// A level `level` scaled by the difficulty and raised by the time played (`0x552230`, docs/re/
 /// spawning.md): `⌊L·(1 + (P + x)/100) + B + 0.5⌋`, at least 1, with `P` and `B` the difficulty's
 /// `OffLevelProz` and `BaseOffLevel` (0 and 0 on bronze) and `x` the per cent of `played`
@@ -7487,6 +7510,36 @@ mod tests {
                 "{difficulty:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_follower_takes_the_heros_level_held_by_its_own_sector() {
+        let rules = Rules::default();
+        let start = SpawnValues {
+            density: 0,
+            lowest: 1,
+            highest: 4,
+        };
+        let deep = SpawnValues {
+            highest: 40,
+            ..start
+        };
+        let common = (Rank::Common, 679, false);
+        // A hero of level 15 hires at the start: its sector's 4, as seen; deeper the hero's.
+        assert_eq!(follower_level(15, common, Some(&start), &rules), 4);
+        assert_eq!(follower_level(15, common, Some(&deep), &rules), 15);
+        // The type 701 at most 300; a boss two above its sector's highest.
+        assert_eq!(
+            follower_level(90, (Rank::Common, 701, false), Some(&start), &rules),
+            90
+        );
+        assert_eq!(
+            follower_level(15, (Rank::Boss, 679, false), Some(&start), &rules),
+            6
+        );
+        // On bronze the scale keeps the hero's level.
+        assert_eq!(follower_scale(15, &rules), 15);
+        assert_eq!(follower_scale(0, &rules), 1);
     }
 
     #[test]
