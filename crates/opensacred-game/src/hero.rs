@@ -333,7 +333,7 @@ pub struct Body {
 pub struct Flies;
 
 /// How a hero that a command put on a cell lands there ([`land`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Arrival {
     /// Where it can stand and walk on (`sector`, #458): on the cell, on the ground or in a room
     /// of a building's floor, else on the cell of the ground nearest it.

@@ -144,12 +144,19 @@ impl Casting {
 
 /// A cast that a script's `Attack` of a spell's art orders, at once or at its turn (the event
 /// `0x105`; #1871): its spell, its target (`Entity::PLACEHOLDER` for a place) and its target's
-/// place as it was ordered, made a [`Casting`] at its target's place as it comes.
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
+/// place as it was ordered, made a [`Casting`] at its target's place as it comes. A save keeps it
+/// as a cast at that place (`npcs::SavedQueue`, #2890): the target's entity is the run's own.
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ScriptCast {
     spell: u16,
+    #[serde(skip, default = "at_a_place")]
     target: Entity,
     point: Vec3,
+}
+
+/// The target of a cast at a place ([`ScriptCast`]).
+fn at_a_place() -> Entity {
+    Entity::PLACEHOLDER
 }
 
 impl ScriptCast {

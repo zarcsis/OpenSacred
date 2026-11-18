@@ -30,7 +30,7 @@ const PHASE_SOUND: u32 = 2023;
 /// A creature's teleport that a script's `Attack` of `ECS_TELEPORT` orders (`0x4A2B40`,
 /// `PHASEN`; #1831): where to, on which level, whether it goes there with no test of the way
 /// (a cell of negative numbers), and the seconds left until it is there once it casts.
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Phase {
     to: Vec3,
     level: Level,
@@ -39,6 +39,12 @@ pub struct Phase {
 }
 
 impl Phase {
+    /// The same teleport not yet cast, as a save keeps a creature's queue (`npcs::SavedQueue`,
+    /// #2890).
+    pub fn again(self) -> Self {
+        Self { left: None, ..self }
+    }
+
     /// To the place `to` on the level `level`.
     pub fn to(to: Vec3, level: Level) -> Self {
         Self {
