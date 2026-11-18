@@ -85,7 +85,7 @@ For those the description is checked against more vectors and edge cases, not ag
 ### 2.3 The oracle: the original's functions in an emulator
 
 `opensacred-oracle` (#363) loads the image of the developer's own GOG `Sacred.exe` into the memory of the Unicorn emulator (the `unicorn-engine` 2.1.5 crate, GPL-2.0), substitutes stubs for the calls that would reach the engine and for the imports, and executes the chosen function on a set of inputs.
-The results are written to JSON outside the repository and become the reference for the Rust tests (`opensacred-rules`' `tests/oracle.rs`).
+The results are written to JSON outside the repository and become the reference for the Rust tests (`opensacred-rules`' `tests/oracle.rs`, and `opensacred-convert`'s `item_patches` for the items' load).
 How it lays out the image, what it stubs and how it is run are in docs/03 §3.4.
 
 It is a local development tool: it needs the developer's own copy of the game, so it runs on the developer's machine, never in CI.
@@ -95,6 +95,7 @@ Advantages: it works on any OS, does not require running the game, and is determ
 Limitation: it suits "pure" functions: formulas, generators, transformations, and a method whose `this` can be laid out from docs/re's offsets (the stats of `0x5658F0`).
 Its first sets (2026-10-21) covered the levels' ends and the levels of an experience, the hit chance and each kind's damage through its resistance, and the most health; five differences from `opensacred-rules` were found and filed, all five fixed since (#406, #407, #408, #417, #418).
 Two sets followed: the factor of the levels of a creature against a hero (`0x551530`) and the game's roll between two bounds (`0x443B20`), for which the emulated `rand()` answers a script of values as the rules' `Script` dice do (#1433).
+A set of another kind checks the converter's constants (#2865): the two passes of the items' load (`0x4293B0`, `0x429950`) run over a table filled from `Items.pak`, and what they change in it is compared with `opensacred-convert`'s `item_patches`.
 Its `fuzz` runs random inputs through a set's function and through `opensacred-rules`' in one process, and prints the first mismatch shrunk (#1431; docs/03 §3.4).
 Functions that touch D3D, files or threads cannot be checked this way; for those there is x64dbg on Windows 11 (`docs/03-toolchain.md`) and the running original that Claude Code drives under Frida (#448; docs/03 §3.8).
 

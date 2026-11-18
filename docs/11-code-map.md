@@ -412,6 +412,7 @@ A file's line is changed by changing its header.
 
 - `crates/opensacred-oracle/src/fight.rs`: The vector sets of the fight's formulas
 - `crates/opensacred-oracle/src/fuzz.rs`: The fight's formulas and the rolls of `Sacred.exe` against `opensacred-rules`' on random inputs
+- `crates/opensacred-oracle/src/items.rs`: The items' load
 - `crates/opensacred-oracle/src/machine.rs`: The emulated machine
 - `crates/opensacred-oracle/src/main.rs`: `opensacred-oracle`: a development tool
 - `crates/opensacred-oracle/src/pe.rs`: A 32-bit PE image laid out as the Windows loader lays it out

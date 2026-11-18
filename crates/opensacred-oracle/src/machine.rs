@@ -7,7 +7,9 @@
 //! FPU to the control word chosen, calls the function with its arguments on the stack (and `this`
 //! in `ECX`), and keeps what it returns: `EAX`, and `ST0` stored as a double for a function that
 //! returns a float. A function the code calls that the oracle replaces is a stub: it returns a
-//! value and removes its arguments, as the function would. A call into an import that has no
+//! value and removes its arguments, as the function would; one that takes a text answers a marker
+//! that tells the text asked, or writes what the function would leave in memory for it (#2865).
+//! A call into an import that has no
 //! stub, an access to memory that is not mapped, an invalid instruction or an interrupt stops the
 //! call with an error that names it and the address: the oracle never guesses.
 
@@ -49,6 +51,20 @@ pub struct Stub {
     pub pops: u32,
 }
 
+/// What a stub does with the text that its first argument on the stack points at (#2865).
+#[derive(Clone, Debug)]
+pub enum Text {
+    /// It answers this marker plus the text's place among the texts asked of the stubs, so that
+    /// a value the code stores tells which text it asked for.
+    Marker(u32),
+    /// It writes the bytes at the addresses that go with the text, where any do, and answers 0:
+    /// what a function that reads a file by its name leaves in memory.
+    Writes(HashMap<String, Vec<(u32, Vec<u8>)>>),
+}
+
+/// The longest text that a stub reads.
+const MOST_TEXT: usize = 260;
+
 /// What a call returned.
 #[derive(Clone, Copy, Debug)]
 pub struct Returned {
@@ -71,6 +87,10 @@ struct State {
     /// The script's values, and how many of them the calls of `rand()` took.
     rolls: Vec<u32>,
     taken: usize,
+    /// The stubs that take a text, by their addresses, and the texts asked of them, each stub's
+    /// each text once, in the order first asked.
+    texts: HashMap<u32, Text>,
+    asked: Vec<(u32, String)>,
 }
 
 pub struct Machine<'a> {
@@ -263,6 +283,20 @@ impl<'a> Machine<'a> {
         self.uc.get_data().taken
     }
 
+    /// Replaces the image's function at `address` by `stub`, which takes the text that its first
+    /// argument on the stack points at and does `text` with it (#2865).
+    pub fn stub_text(&mut self, address: u32, stub: Stub, text: Text) -> Result<()> {
+        self.stub_function(address, stub)?;
+        self.uc.get_data_mut().texts.insert(address, text);
+        Ok(())
+    }
+
+    /// The texts asked of the stubs that take one, each with its stub's address, in the order
+    /// first asked: a text's place here is what a [`Text::Marker`] adds to its marker.
+    pub fn asked(&self) -> &[(u32, String)] {
+        &self.uc.get_data().asked
+    }
+
     /// Writes `bytes` at `address`.
     pub fn write(&mut self, address: u32, bytes: &[u8]) -> Result<()> {
         self.uc
@@ -410,8 +444,17 @@ fn run_stub(uc: &mut Unicorn<'_, State>, address: u64) {
         }
         return;
     };
+    let texted = match take_text(uc, address) {
+        Ok(texted) => texted,
+        Err(error) => {
+            fault(uc, format!("the stub {}: {error:#}", stub.name));
+            return;
+        }
+    };
     let state = uc.get_data_mut();
-    let value = if state.rand == Some(address) {
+    let value = if let Some(value) = texted {
+        value
+    } else if state.rand == Some(address) {
         let value = state.rolls.get(state.taken).copied().unwrap_or(0);
         state.taken += 1;
         value
@@ -429,6 +472,56 @@ fn run_stub(uc: &mut Unicorn<'_, State>, address: u64) {
     if let Err(error) = result {
         fault(uc, format!("the stub {}: {error:#}", stub.name));
     }
+}
+
+/// What the stub at `address` answers for the text its first argument on the stack points at,
+/// the text counted among those asked and its writes made; `None` for a stub that takes no text.
+fn take_text(uc: &mut Unicorn<'_, State>, address: u32) -> Result<Option<u32>> {
+    if !uc.get_data().texts.contains_key(&address) {
+        return Ok(None);
+    }
+    let esp = uc.reg_read(RegisterX86::ESP)?;
+    let pointer: [u8; 4] = uc
+        .mem_read_as_vec(esp + 4, 4)?
+        .try_into()
+        .unwrap_or_default();
+    let pointer = u32::from_le_bytes(pointer);
+    // Byte by byte, so that a text at the end of its memory is read no further than its end.
+    let mut bytes = Vec::new();
+    loop {
+        let at = u64::from(pointer) + u64::try_from(bytes.len())?;
+        let byte = uc
+            .mem_read_as_vec(at, 1)
+            .with_context(|| format!("the text at {pointer:#x}"))?;
+        match byte.first() {
+            Some(0) | None => break,
+            Some(&byte) => bytes.push(byte),
+        }
+        if bytes.len() >= MOST_TEXT {
+            bail!("the text at {pointer:#x} does not end within {MOST_TEXT} bytes");
+        }
+    }
+    // Latin-1, as the client's names are.
+    let text: String = bytes.iter().map(|&byte| char::from(byte)).collect();
+    let state = uc.get_data_mut();
+    let asked = (address, text);
+    let place = match state.asked.iter().position(|other| *other == asked) {
+        Some(place) => place,
+        None => {
+            state.asked.push(asked.clone());
+            state.asked.len() - 1
+        }
+    };
+    let (value, writes) = match state.texts.get(&address) {
+        Some(Text::Marker(marker)) => (marker.wrapping_add(u32::try_from(place)?), Vec::new()),
+        Some(Text::Writes(by_text)) => (0, by_text.get(&asked.1).cloned().unwrap_or_default()),
+        None => return Ok(None),
+    };
+    for (at, bytes) in writes {
+        uc.mem_write(u64::from(at), &bytes)
+            .with_context(|| format!("writing {} bytes at {at:#x}", bytes.len()))?;
+    }
+    Ok(Some(value))
 }
 
 /// The return address on the top of the stack.
@@ -450,7 +543,8 @@ mod tests {
     /// - 0x401030: `int field(this)`, `thiscall`, the word at `this + 4`;
     /// - 0x401040: a read of 0x10 (unmapped);
     /// - 0x401050: `int twice(int a)`, which calls 0x401060 with `a` and doubles what it returns;
-    /// - 0x401060: a function that the test replaces.
+    /// - 0x401060: a function that the test replaces;
+    /// - 0x401061: `int named(void)`, which calls 0x401060 with the text at 0x401078, `ab`.
     fn image() -> Image {
         let mut code = vec![0x90; 0x80];
         let mut put = |at: usize, bytes: &[u8]| code[at..at + bytes.len()].copy_from_slice(bytes);
@@ -482,7 +576,15 @@ mod tests {
         );
         // int3
         put(0x60, &[0xCC]);
+        // push 0x401078; call 0x401060; ret
+        put(
+            0x61,
+            &[
+                0x68, 0x78, 0x10, 0x40, 0x00, 0xE8, 0xF5, 0xFF, 0xFF, 0xFF, 0xC3,
+            ],
+        );
         put(0x70, &0.5_f32.to_le_bytes());
+        put(0x78, b"ab\0");
         Image::parse(&synthetic(&code)).unwrap()
     }
 
@@ -548,6 +650,41 @@ mod tests {
         machine.script_rand(&[5]);
         assert_eq!(machine.rand_taken(), 0);
         assert_eq!(machine.call(0x40_1050, None, &[0], false).unwrap().eax, 10);
+    }
+
+    #[test]
+    fn a_stub_answers_the_text_asked_by_its_marker_or_writes_what_goes_with_it() {
+        let stub = || Stub {
+            name: "named".to_owned(),
+            value: 0,
+            pops: 4,
+        };
+        let mut machine = Machine::new(&image(), control_word(53).unwrap()).unwrap();
+        machine
+            .stub_text(0x40_1060, stub(), Text::Marker(0x1000))
+            .unwrap();
+        // The same text keeps its place, and so its marker.
+        assert_eq!(
+            machine.call(0x40_1061, None, &[], false).unwrap().eax,
+            0x1000
+        );
+        assert_eq!(
+            machine.call(0x40_1061, None, &[], false).unwrap().eax,
+            0x1000
+        );
+        assert_eq!(machine.asked(), [(0x40_1060, "ab".to_owned())]);
+
+        let mut machine = Machine::new(&image(), control_word(53).unwrap()).unwrap();
+        let object = machine.object(8).unwrap();
+        let writes = HashMap::from([
+            ("ab".to_owned(), vec![(object + 2, vec![7, 9])]),
+            ("cd".to_owned(), vec![(object, vec![1])]),
+        ]);
+        machine
+            .stub_text(0x40_1060, stub(), Text::Writes(writes))
+            .unwrap();
+        assert_eq!(machine.call(0x40_1061, None, &[], false).unwrap().eax, 0);
+        assert_eq!(machine.read(object, 4).unwrap(), [0, 0, 7, 9]);
     }
 
     #[test]
