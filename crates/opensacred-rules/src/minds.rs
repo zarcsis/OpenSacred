@@ -494,10 +494,12 @@ const SHOOTS: (f32, f32) = (250.0, 650.0);
 /// The archers' switch to melee (`0x4D4B70`, docs/re/fight.md, "The archers"): an archer whose
 /// target attacks it from within 1.5 times the reach between them (`0x4DBC60`) goes to melee in
 /// one case of two; before its sub-states, one of class 5 within 150 of its target goes in one
-/// case of four, its bow put away (`0x4DBFC0`); and a creature that went to melee from its bow
-/// takes one again for a target beyond its reach + 100 (`0x4D4A80`).
+/// case of four, its bow put away, unless its mark (`+0x25F`) is the black rider's 10
+/// (`0x4DBFC0`); and a creature that went to melee from its bow takes one again for a target
+/// beyond its reach + 100 (`0x4D4A80`).
 const SWITCHES_WITHIN: f32 = 1.5;
 const DROPS_BOW_WITHIN: f32 = 150.0;
+const KEEPS_BOW_MARK: u16 = 0xA;
 /// How near a rider shoots from the saddle (`0x4DBFC0`'s sub-state 1), and how its horse turns
 /// about the hero between its shots, the vector from the hero shorter than four times the reach
 /// lengthened to five times it (`0x4F4A85`, `0x5455A4`; #2288).
@@ -2453,8 +2455,8 @@ impl Mind {
     /// back off standing: its bow put away, a sword, a dagger, a bastard sword or a mace in its
     /// right hand, and, by its type, the bit by which it takes a bow again
     /// ([`Self::pursue`]). Before all that, one of class 5 within 150 of the hero goes to melee in
-    /// one case of four with its bow put away and no other weapon (the original's only where its
-    /// `+0x25F` is not 10, the black rider's mark, which is not tested).
+    /// one case of four with its bow put away and no other weapon, unless its mark (`+0x25F`,
+    /// [`Self::mark`]) is 10, the black rider's, who keeps his bow on foot too.
     fn at_range(
         &mut self,
         sight: &Pursuit,
@@ -2499,7 +2501,11 @@ impl Mind {
             });
         }
         let d = (hero - here).length();
-        if d < DROPS_BOW_WITHIN && self.class == 5 && rng.below(4) == 0 {
+        if d < DROPS_BOW_WITHIN
+            && self.class == 5
+            && self.mark() != KEEPS_BOW_MARK
+            && rng.below(4) == 0
+        {
             return Some(self.goes_to_melee(None));
         }
         if self.deciding {
@@ -6415,6 +6421,35 @@ mod tests {
         for _ in 0..50 {
             let next = skeleton().pursue(&at_range(160.0, None), || true, &mut rng);
             assert!(matches!(next, Some(Pursues::BacksOff { .. })), "{next:?}");
+        }
+        // Not at 150 itself; the distance is the hero's from where the archer stands.
+        for _ in 0..50 {
+            let next = skeleton().pursue(&at_range(150.0, None), || true, &mut rng);
+            assert!(!matches!(next, Some(Pursues::ToMelee(_))), "{next:?}");
+        }
+        let away = Pursuit {
+            here: at(1_000.0, 0.0),
+            hero: at(1_140.0, 0.0),
+            ..at_range(140.0, None)
+        };
+        let gone = (0..100)
+            .filter(|_| {
+                let next = skeleton().pursue(&away, || true, &mut rng);
+                matches!(next, Some(Pursues::ToMelee(None)))
+            })
+            .count();
+        assert!(gone > 0, "{gone}");
+        // The black rider (256, class 5) on foot, of the mark 10, keeps his bow.
+        let rider = || {
+            let mut rider = Mind::new(Spot::default(), 0x1, (true, false), None, SPEEDS, (256, 5));
+            rider.ranged = true;
+            rider.fighting = true;
+            rider
+        };
+        assert_eq!(rider().mark(), KEEPS_BOW_MARK);
+        for _ in 0..100 {
+            let next = rider().pursue(&at_range(140.0, None), || true, &mut rng);
+            assert!(!matches!(next, Some(Pursues::ToMelee(_))), "{next:?}");
         }
     }
 
