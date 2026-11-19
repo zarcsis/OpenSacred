@@ -194,6 +194,15 @@ pub struct Downed {
     pub thrown: f32,
 }
 
+/// A player's hero knocked back by a whirlwind's strike (the event of the kind 3, `0x531AF7`,
+/// #2901): where the whirlwind struck from, and how far it still slides (`+0x24D`), which each
+/// new knock sets anew (`knock_down::slide`).
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct Pushed {
+    pub from: Vec3,
+    pub left: f32,
+}
+
 /// How many times a hero was knocked down since its marks were cleared (the stats' `+0x2B7`
 /// bits `0x80` and `0x100`), which its whole health in a settlement clears (`0x54808A`).
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]

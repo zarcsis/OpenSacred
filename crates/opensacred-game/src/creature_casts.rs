@@ -496,10 +496,13 @@ fn act(
                 });
             }
             spells::WHIRLWIND | spells::SPLINTERS => {
-                // The hero's fan (`0x524EA2`, `0x5258B5`), the whirlwind's without its knockback,
-                // which strikes creatures.
+                // The hero's fan (`0x524EA2`, `0x5258B5`), the whirlwind's knocking the hero back
+                // at each strike as its own knock the creatures (`0x5AD135`, #2901).
                 let course = if cast.spell == spells::WHIRLWIND {
-                    crate::bolts::Course::passing(spells::WHIRLWIND_COURSE, 4)
+                    crate::bolts::Course {
+                        knocks: Some(spells::whirlwind_knocks(record, level, mind.level)),
+                        ..crate::bolts::Course::passing(spells::WHIRLWIND_COURSE, 4)
+                    }
                 } else {
                     crate::bolts::Course::passing(spells::SPLINTERS_COURSE, 5)
                 };
