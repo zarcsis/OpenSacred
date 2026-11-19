@@ -1492,6 +1492,68 @@ fn a_containers_key_rises_with_the_time_played_and_the_openers_luck() {
 }
 
 #[test]
+fn a_rewards_set_piece_is_one_of_a_least_level_up_to_the_heros_but_the_classes_sets() {
+    let piece = |least| record(ANY, [least, 1], [1, 0, 0]);
+    let mut catalogue = catalogue(&[
+        (4001, 6, piece(1)),
+        (4002, 6, piece(6)),
+        (4003, 6, piece(7)),
+        (4033, 6, piece(1)),
+    ]);
+    // The set 1 of three pieces; the sets 2 to 32 empty; the class's set 33 of its own.
+    let mut sets = vec![Vec::new(); 33];
+    sets[0] = vec![4001, 4002, 4003, 9999];
+    sets[32] = vec![4033];
+    catalogue.sets = sets;
+    // At level 1 the least is 6: 4001 and 4002, by `R(0, 1)`; never the class's set's.
+    assert_eq!(catalogue.reward_set_piece(1, &mut script(&[0])), Some(4001));
+    assert_eq!(catalogue.reward_set_piece(1, &mut script(&[1])), Some(4002));
+    // At level 7 the third too.
+    assert_eq!(catalogue.reward_set_piece(7, &mut script(&[2])), Some(4003));
+    // One alone, no roll; none, none.
+    catalogue.sets[0] = vec![4001];
+    assert_eq!(catalogue.reward_set_piece(1, &mut script(&[])), Some(4001));
+    catalogue.sets[0].clear();
+    assert_eq!(catalogue.reward_set_piece(1, &mut script(&[])), None);
+}
+
+#[test]
+fn a_forced_set_piece_is_only_raised_to_its_droppers_level() {
+    const PIECE: u32 = 4001;
+    let rules = Rules::default();
+    let templates = Templates::new(&[dagger_template()], &[]);
+    let piece = Record {
+        set: true,
+        ..record(ANY, [1, 1], [1, 0, 0])
+    };
+    let mut catalogue = catalogue(&[(PIECE, 6, piece)]);
+    catalogue.sets = vec![vec![PIECE]];
+    let death = Death {
+        dead: Dead {
+            level: 12,
+            ..dead(1, 12, Rank::Common)
+        },
+        hero: Hero {
+            level: 12,
+            ..Hero::default()
+        },
+        kill: Kill::default(),
+        difficulty: Difficulty::Bronze,
+        doll: false,
+    };
+    // One pass of the chance 350: its key's roll, then the piece of the key 1, no made values.
+    let made = forced(
+        &death,
+        (&rules, &catalogue, &templates),
+        PIECE,
+        &mut LastJewel::default(),
+        &mut script(&[9_999]),
+    );
+    assert_eq!(made.len(), 1);
+    assert_eq!((made[0].item, made[0].key, made[0].quality), (PIECE, 1, 0));
+}
+
+#[test]
 fn a_rune_comes_by_the_heros_level_its_runes_and_its_arts() {
     let rules = Rules::default();
     let seraphim = |level, runes, arts| Hero {

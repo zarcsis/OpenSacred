@@ -1950,6 +1950,59 @@ const UNIQUE_CATEGORIES: [u8; 22] = [
 const CLASS_SETS: std::ops::RangeInclusive<usize> = 33..=38;
 const CLASS_ITEMS: [u32; 9] = [7921, 7920, 7924, 7923, 7922, 7925, 7925, 7926, 7927];
 
+/// The least level by which a quest's reward chooses its set's piece (`0x4ACC2E`).
+const REWARD_LEAST_LEVEL: u32 = 6;
+
+impl Catalogue {
+    /// The piece of a set that a quest's reward has the hero drop (`0x4AC940`,
+    /// `rewards::QuestCounts`): of the sets from `sets.bin`'s second record on but the classes'
+    /// 33 to 38 ([`CLASS_SETS`]), every piece whose record asks a least level (`+0x94`) up to the
+    /// hero's `level`, 6 at least, one at `R(0, n − 1)`, no roll for one; none where none is.
+    pub fn reward_set_piece(&self, level: u32, dice: &mut impl Dice) -> Option<u32> {
+        let level = level.max(REWARD_LEAST_LEVEL);
+        let pieces: Vec<u32> = self
+            .sets
+            .iter()
+            .enumerate()
+            .filter(|&(index, _)| !CLASS_SETS.contains(&(index + 1)))
+            .flat_map(|(_, pieces)| pieces.iter().copied())
+            .filter(|piece| {
+                self.records
+                    .get(piece)
+                    .is_some_and(|record| u32::from(record.levels[0]) <= level)
+            })
+            .collect();
+        let last = i64::try_from(pieces.len()).ok()? - 1;
+        if last < 0 {
+            return None;
+        }
+        let index = usize::try_from(between(0, last, dice)).ok()?;
+        pieces.get(index).copied()
+    }
+}
+
+/// What a call of the drop whose type `item` is forced makes as the creature of `death` drops
+/// it (`0x559BF0(T, 0, 0, 0)`): its passes while its chance per mille lasts, one for an ordinary
+/// creature; a set's piece of the key 1 and a unique of the key 0 only raised to the level that
+/// the creature's gives (#2268). A quest's reward has the hero drop its set's piece so
+/// (`0x4AC940`, #2886), the hero for the creature.
+pub fn forced(
+    death: &Death,
+    (rules, catalogue, templates): (&Rules, &Catalogue, &Templates),
+    item: u32,
+    last: &mut LastJewel,
+    dice: &mut impl Dice,
+) -> Vec<Dropped> {
+    let mut dropping = Dropping {
+        death,
+        rules,
+        catalogue,
+        templates,
+        last,
+    };
+    dropping.forced_call(item, dice)
+}
+
 impl Dropping<'_> {
     /// A call of the drop whose type is forced, of no bonus and no greed (`0x559BF0(T, 0, 0, 0)`):
     /// its passes while its chance per mille lasts.

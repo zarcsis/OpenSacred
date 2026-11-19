@@ -1166,6 +1166,42 @@ fn throw(
     }
 }
 
+/// Throws what the hero `hero` standing at `at` on `level` drops by a call of the drop whose type
+/// `item` is forced (`opensacred_rules::drops::forced`, `0x559BF0(T, 0, 0, 0)` on the hero) on
+/// `difficulty`, as a quest's reward has it drop a set's piece (`0x4AC940`, #2886): from its
+/// place as a creature's drop is thrown; the types it made.
+pub(crate) fn hero_forced(
+    commands: &mut Commands,
+    (assets, tables, dice, difficulty): (&AssetServer, &Tables, &mut Dice, drops::Difficulty),
+    (hero, at, level): (&Hero, Vec3, Level),
+    item: u32,
+) -> Vec<u32> {
+    let death = Death {
+        dead: Dead {
+            id: 0,
+            creature: hero.creature,
+            class: 0,
+            level: hero.level,
+            worth: 0,
+            rank: fight::Rank::Common,
+        },
+        hero: hero.clone(),
+        kill: Kill::default(),
+        difficulty,
+        doll: false,
+    };
+    let made = drops::forced(
+        &death,
+        (&tables.rules, &tables.catalogue, &tables.templates),
+        item,
+        &mut drops::LastJewel::default(),
+        &mut dice.0,
+    );
+    let types = made.iter().map(|dropped| dropped.item).collect();
+    throw(commands, assets, tables, &mut dice.0, (at, level), made);
+    types
+}
+
 /// The quality key of a plain item, of no pass (docs/re/items.md).
 const PLAIN_KEY: u8 = 16;
 
