@@ -187,25 +187,31 @@ pub fn warrior(kind: u32) -> bool {
 }
 
 /// The type that a skeleton warrior of the type `kind` changes into as it rises from a strike's
-/// death (`0x532E3C`'s cases 0 and 2 to 5), by two draws of `rand() % 3`, `draws`: the whole
-/// warrior loses its right arm (113) at a first draw of 0, else its left (116) at a second of 0,
-/// else its head (112), a third, two ninths and four ninths of the time; the headless its right
-/// or its left arm at even odds, the first draw's odd or even (114, 117); one armless its head
-/// (114, 117); one of an arm and no head its other arm (115); none for the last, 115, whose death
-/// is its last (**hypothesis** for how the original draws: the shares are read, `0x53305B`,
-/// `0x53317B`).
+/// death (`0x532E3C`'s cases 0 and 2 to 5), by two draws `draws` of [`change_faces`]' faces:
+/// the whole warrior loses its right arm (113) at a first draw of 0, else its left (116) at a
+/// second of 0, else its head (112), a third, two ninths and four ninths of the time; the
+/// headless its right arm (114) at a first draw of 0, else its left (117), at even odds; one
+/// armless its head (114, 117); one of an arm and no head its other arm (115); none for the last,
+/// 115, whose death is its last (**hypothesis** for how the original draws: the shares are read,
+/// `0x53305B`, `0x53317B`).
 pub fn changes(kind: u32, draws: [u32; 2]) -> Option<u32> {
     match kind {
         WARRIOR if draws[0] == 0 => Some(113),
         WARRIOR if draws[1] == 0 => Some(116),
         WARRIOR => Some(HEADLESS),
-        HEADLESS if draws[0].is_multiple_of(2) => Some(114),
+        HEADLESS if draws[0] == 0 => Some(114),
         HEADLESS => Some(117),
         113 => Some(114),
         116 => Some(117),
         114 | 117 => Some(115),
         _ => None,
     }
+}
+
+/// The faces of the two draws by which a skeleton warrior of the type `kind` changes
+/// ([`changes`]): three each for the whole warrior's part, two for the headless's arm.
+pub fn change_faces(kind: u32) -> [u32; 2] {
+    if kind == HEADLESS { [2, 1] } else { [3, 3] }
 }
 
 /// The skeleton warrior's head (`Skeleton_warrior_Head.GRN`), an item that goes into a socket,
@@ -701,6 +707,9 @@ mod tests {
         // The headless an arm, an armless its head, then the other arm, and 115's is the last.
         assert_eq!(changes(112, [0, 0]), Some(114));
         assert_eq!(changes(112, [1, 0]), Some(117));
+        // The headless's arm by a draw of two faces, the whole warrior's part by two of three.
+        assert_eq!(change_faces(112), [2, 1]);
+        assert_eq!(change_faces(32), [3, 3]);
         assert_eq!(changes(113, [2, 2]), Some(114));
         assert_eq!(changes(116, [2, 2]), Some(117));
         assert_eq!(changes(114, [0, 0]), Some(115));
