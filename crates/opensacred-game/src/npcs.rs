@@ -1948,12 +1948,15 @@ struct Gear {
     group: u16,
 }
 
-/// A `MakeGroup` rule (`0x4AB940`): the creature types it equips, and its three items' pools and
-/// chances in percent (`87`, `88`, `89`; a pool of −1 or a chance of 0 gives nothing).
+/// A `MakeGroup` rule (`0x4AB940`): the creature types it equips, its three items' pools and
+/// chances in percent (`87`, `88`, `89`; a pool of −1 or a chance of 0 gives nothing), and its
+/// spells (`67`, up to ten, each kept as a `CreateNPC`'s, [`script_spell`]), of which each
+/// creature it equips takes one at random (#2949).
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Rule {
     types: Vec<u32>,
     items: [(i32, u32); 3],
+    spells: Vec<u8>,
 }
 
 /// The scripts' weapon pools (`Waffenpool`, type 114, `0x475F1A`): each record adds its last
@@ -2041,10 +2044,37 @@ fn rules(tree: &Tree) -> HashMap<(u32, u32), Vec<Rule>> {
                     items[usize::from(o.tag - 0x87)] = (*pool, u32::try_from(*chance).unwrap_or(0));
                 }
             }
-            out.entry(sector).or_default().push(Rule { types, items });
+            let spells = ops
+                .iter()
+                .filter_map(|o| match (o.tag, &o.value) {
+                    (ART, Value::Str(name)) => Some(script_spell(name)),
+                    (ART, Value::I32(spell)) => u8::try_from(*spell).ok(),
+                    _ => None,
+                })
+                .take(RULE_SPELLS)
+                .collect();
+            out.entry(sector).or_default().push(Rule {
+                types,
+                items,
+                spells,
+            });
         }
     }
     out
+}
+
+/// The most spells a `MakeGroup` rule carries (`0x4AB940`).
+const RULE_SPELLS: usize = 10;
+
+/// The spell that a creature of `creature` takes by the first of the sector's rules that names
+/// it, one of the rule's at random (`0x47F8E0`, `+0x2B6`; **hypothesis** for the roll, a draw of
+/// the fill's dice after its items'); none where no rule names it or its rule has none (#2949).
+fn spell_of(rules: &[Rule], creature: u32, rng: &mut spawning::Rng) -> Option<u8> {
+    let rule = rules.iter().find(|r| r.types.contains(&creature))?;
+    let count = u32::try_from(rule.spells.len()).ok().filter(|&n| n > 0)?;
+    rule.spells
+        .get(usize::try_from(rng.below(count)).unwrap_or(0))
+        .copied()
 }
 
 /// What a rule's first item of 1800 to 1804 becomes, 1723, 1720, 1759, 1729 and 1752, for most
@@ -5867,6 +5897,10 @@ pub fn place(
                     &npcs.makers.switches,
                     &mut rng,
                 );
+                // A magician's spell of the rule (#2949).
+                if let Some(spell) = spell_of(rules, made.creature, &mut rng) {
+                    placement.spell = spell;
+                }
                 let worn_model = worn.and_then(|(item, worn)| {
                     placement.worn = vec![(item, worn.category)];
                     (!ATTACHED.contains(&worn.category)).then_some(())?;
@@ -16766,6 +16800,27 @@ mod tests {
     }
 
     #[test]
+    fn a_filled_magician_takes_one_of_its_rules_spells() {
+        let rule = |types: Vec<u32>, spells: Vec<u8>| Rule {
+            types,
+            items: [(-1, 0), (0, 0), (-1, 0)],
+            spells,
+        };
+        let rules = [rule(vec![258, 262], vec![5, 43]), rule(vec![258], vec![34])];
+        let mut rng = spawning::Rng::of(48, 39, 0);
+        let taken: HashSet<u8> = (0..50)
+            .filter_map(|_| spell_of(&rules, 258, &mut rng))
+            .collect();
+        // By the first rule that names it, either of its spells.
+        assert_eq!(taken, HashSet::from([5, 43]));
+        assert_eq!(spell_of(&rules, 999, &mut rng), None);
+        assert_eq!(
+            spell_of(&[rule(vec![311], Vec::new())], 311, &mut rng),
+            None
+        );
+    }
+
+    #[test]
     fn the_spawned_creatures_take_their_items_by_the_first_rule_that_names_them() {
         let op = |tag, value| Operand { tag, value };
         let record = |kind, ops| Record {
@@ -16792,7 +16847,11 @@ mod tests {
         assert_eq!(pools[&125], [1811, 1812, 1812]);
         // Thieves: always a bow from 125, a shield never after a bow; a sword's wielder 304
         // takes the shield by its chance; 307 a crossbow from 124.
-        let rule = |types: Vec<u32>, items| Rule { types, items };
+        let rule = |types: Vec<u32>, items| Rule {
+            types,
+            items,
+            spells: Vec::new(),
+        };
         let rules = [
             rule(vec![306, 313], [(125, 100), (50, 100), (-1, 0)]),
             rule(vec![304], [(134, 100), (50, 100), (-1, 0)]),
