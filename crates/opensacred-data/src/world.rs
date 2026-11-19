@@ -326,6 +326,8 @@ pub fn sprite_image(record: u32, extension: &str) -> String {
 /// (`0x62AE90`), and of a miniature, which it cuts from its type's atlas.
 const NOT_DRAWN: u32 = 0x290;
 const MINIATURE: u32 = 0x20;
+/// The flag of an animated miniature, whose parameters are its atlas's columns and rows.
+const ANIMATED: u32 = 0x40;
 /// The side of a miniatures' atlas in pixels, which an animated one's columns and rows divide.
 const MINIATURE_ATLAS: i64 = 256;
 
@@ -361,10 +363,14 @@ impl Sector {
                     continue;
                 };
                 let [a, b, c, _, _] = miniature.params.map(i64::from);
-                let side = if a > 0 && b > 0 {
+                // A still one's square of its size; an animated one's frame, the atlas divided
+                // by its columns and rows, which the game does not draw while either is 0.
+                let side = if object.flags & ANIMATED == 0 {
+                    c
+                } else if a > 0 && b > 0 {
                     (MINIATURE_ATLAS / a).max(MINIATURE_ATLAS / b)
                 } else {
-                    c
+                    continue;
                 };
                 // Twice the diagonal, rounded up.
                 let around = side * 29 / 10;
@@ -549,6 +555,26 @@ mod tests {
         assert_eq!(sector.reach(&sprites), [300, 46, 46, 46]);
         // The corners' highest, 125, without the objects.
         sector.statics.clear();
+        assert_eq!(sector.reach(&sprites), [125, 5, 0, 0]);
+        // A still miniature's square of 64 at 128, 64 of its atlas reaches by its size; an
+        // animated one's frame of 4 columns and 2 rows by the larger of 64 and 128; one of no
+        // columns or rows is not drawn.
+        let miniature = |flags: u32, params| {
+            object(
+                0x20 | flags,
+                (x, y),
+                0,
+                Some(Miniature { atlas: 0, params }),
+            )
+        };
+        sector.statics = vec![miniature(0, [128, 64, 64, 0, 0])];
+        assert_eq!(sector.reach(&sprites), [185; 4]);
+        sector.statics = vec![miniature(0x40, [4, 2, 64, 0, 0])];
+        assert_eq!(sector.reach(&sprites), [371; 4]);
+        sector.statics = vec![
+            miniature(0x40, [0, 2, 64, 0, 0]),
+            miniature(0x40, [2, 0, 64, 0, 0]),
+        ];
         assert_eq!(sector.reach(&sprites), [125, 5, 0, 0]);
     }
 
