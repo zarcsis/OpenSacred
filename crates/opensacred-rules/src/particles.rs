@@ -3790,13 +3790,10 @@ pub struct ElementStone {
 }
 
 impl ElementStone {
-    /// The stone `dt` seconds on: its phase by 1 radian a second, a whole turn taken off it past
+    /// The stone `dt` seconds on: its phase by 1 radian a second, a whole turn taken off it at
     /// one.
     pub fn update(&mut self, dt: f32) {
-        self.phase += dt;
-        if self.phase > std::f32::consts::TAU {
-            self.phase -= std::f32::consts::TAU;
-        }
+        self.phase = (self.phase + dt).rem_euclid(std::f32::consts::TAU);
     }
 
     /// The colours of its beam's foot, its large glow and its small glow by its `variant`
@@ -17007,13 +17004,16 @@ mod tests {
         let ([x, y, _], _) = still.sign(1);
         let angle = std::f32::consts::TAU / 3.0;
         assert!((x - 40.0 * angle.sin()).abs() < 1e-4 && (y - 40.0 * angle.cos()).abs() < 1e-4);
-        // A quarter turn on, the first sign at x 40.
-        let ([x, y, _], _) = ElementStone {
+        // A quarter turn on, the first sign at x 40, its across turned with it.
+        let ([x, y, _], across) = ElementStone {
             phase: std::f32::consts::FRAC_PI_2,
         }
         .sign(0);
         assert!((x - 40.0).abs() < 1e-4 && y.abs() < 1e-4);
-        // The colours: the unholy symbol's red.
+        assert!(across[0].abs() < 1e-4 && (across[1] + 1.0).abs() < 1e-4);
+        // The colours: the signs' pale blue, the unholy symbol's red.
+        assert!((ELEMENT_SIGN_COLOUR[0] - 0.627).abs() < 1e-3);
+        assert!((ELEMENT_SIGN_COLOUR[1] - 0.627).abs() < 1e-3);
         assert_eq!(ElementStone::colours(1)[0], [1.0; 4]);
         assert_eq!(ElementStone::colours(7)[0][1], 64.0 / 255.0);
         assert_eq!(ElementStone::colours(6), ElementStone::colours(2));
