@@ -331,7 +331,7 @@ const ACTIONS: [(Action, Section, &str, &[&str], &str); 51] = [
         Section::World,
         "art_key_6",
         &["F6"],
-        "as art_key_5",
+        "as art_key_1",
     ),
     (
         Action::BeltPotion,

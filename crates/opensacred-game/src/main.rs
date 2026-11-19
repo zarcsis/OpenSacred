@@ -571,8 +571,8 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .add_plugins((
         dragon_fires::DragonFiresPlugin,
-        dryad_ghosts::DryadGhostsPlugin,
         drops::DropsPlugin,
+        dryad_ghosts::DryadGhostsPlugin,
         dwarf_armours::DwarfArmoursPlugin,
         dwarf_berserks::DwarfBerserksPlugin,
         dwarf_burrows::DwarfBurrowsPlugin,

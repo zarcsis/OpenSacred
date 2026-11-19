@@ -1260,10 +1260,15 @@ mod tests {
     }
 
     #[test]
-    fn a_game_is_named_by_its_options_but_the_zoom_and_the_music() {
+    fn a_game_is_named_by_its_options_but_how_it_shows_and_what_the_choice_of_the_hero_takes() {
         let parse = |args: &[&str]| Line::parse_from(["game"].iter().chain(args)).game;
         assert!(!parse(&[]).named());
         assert!(!parse(&["--zoom", "1.5", "--no-music"]).named());
+        // The name, the difficulty and a saved or an exported hero's slot alone lead to the
+        // menu, whose choice of the hero sets them again.
+        assert!(!parse(&["--name", "Ann", "--difficulty", "gold"]).named());
+        assert!(!parse(&["--saved", "1"]).named());
+        assert!(!parse(&["--exported", "1"]).named());
         assert!(parse(&["--class", "dwarf"]).named());
         assert!(parse(&["--sector", "50,39"]).named());
         assert!(parse(&["--time", "20:00"]).named());

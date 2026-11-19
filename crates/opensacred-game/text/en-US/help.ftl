@@ -52,7 +52,7 @@ help-quick-save = the quick save
 help-quick-load = load the quick save
 help-saves = the saves' window
 help-options = the options window
-help-pause-menu = pause: Continue, Main menu, Quit
+help-pause-menu = pause: Options, Save Game, Export, Quit, Continue
 
 ## In the menus
 

@@ -54,7 +54,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(
     version = env!("OPENSACRED_VERSION"),
-    about = "Convert a GOG Sacred Gold 2.28 installation into open formats"
+    about = "Convert a GOG or Steam Sacred Gold 2.28 installation into open formats"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -131,7 +131,11 @@ enum Command {
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
         /// The masters' directory (stage A)
-        #[arg(long = "assets-src", default_value = "assets-src")]
+        #[arg(
+            long = "assets-src",
+            value_name = "ASSETS_SRC",
+            default_value = "assets-src"
+        )]
         out: PathBuf,
     },
     /// Convert the GRN models and motions of PAK/models*.pak into glTF binaries under
@@ -142,7 +146,11 @@ enum Command {
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
         /// The masters' directory (stage A)
-        #[arg(long = "assets-src", default_value = "assets-src")]
+        #[arg(
+            long = "assets-src",
+            value_name = "ASSETS_SRC",
+            default_value = "assets-src"
+        )]
         out: PathBuf,
         /// Convert only the record with this name, such as SERAPHIM.GRN (repeatable)
         #[arg(long = "model", value_name = "NAME")]
@@ -157,7 +165,11 @@ enum Command {
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
         /// The masters' directory (stage A)
-        #[arg(long = "assets-src", default_value = "assets-src")]
+        #[arg(
+            long = "assets-src",
+            value_name = "ASSETS_SRC",
+            default_value = "assets-src"
+        )]
         out: PathBuf,
         /// Convert only the sector at this grid position, such as 50,39
         #[arg(long, value_name = "X,Y", value_parser = parse_position)]
@@ -170,7 +182,11 @@ enum Command {
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
         /// The masters' directory (stage A)
-        #[arg(long = "assets-src", default_value = "assets-src")]
+        #[arg(
+            long = "assets-src",
+            value_name = "ASSETS_SRC",
+            default_value = "assets-src"
+        )]
         out: PathBuf,
         /// Convert only the sample with this id (repeatable)
         #[arg(long = "sample", value_name = "ID")]
@@ -182,7 +198,11 @@ enum Command {
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
         /// The masters' directory (stage A)
-        #[arg(long = "assets-src", default_value = "assets-src")]
+        #[arg(
+            long = "assets-src",
+            value_name = "ASSETS_SRC",
+            default_value = "assets-src"
+        )]
         out: PathBuf,
     },
     /// Convert the loading and save screens (BMP to PNG), the menus' pictures, the fonts and the
@@ -192,7 +212,11 @@ enum Command {
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
         /// The masters' directory (stage A)
-        #[arg(long = "assets-src", default_value = "assets-src")]
+        #[arg(
+            long = "assets-src",
+            value_name = "ASSETS_SRC",
+            default_value = "assets-src"
+        )]
         out: PathBuf,
     },
     /// Convert the NetScript bytecode of the 20 trees of bin/ into one tree file each under
@@ -202,7 +226,11 @@ enum Command {
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
         /// The masters' directory (stage A)
-        #[arg(long = "assets-src", default_value = "assets-src")]
+        #[arg(
+            long = "assets-src",
+            value_name = "ASSETS_SRC",
+            default_value = "assets-src"
+        )]
         out: PathBuf,
         /// Also write a readable listing of each tree (`<tree>.txt`) and of its functions'
         /// structured flow (`<tree>.flow.txt`), about 130 MB each in all
@@ -218,7 +246,11 @@ enum Command {
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
         /// The masters' directory (stage A)
-        #[arg(long = "assets-src", default_value = "assets-src")]
+        #[arg(
+            long = "assets-src",
+            value_name = "ASSETS_SRC",
+            default_value = "assets-src"
+        )]
         out: PathBuf,
     },
     /// Convert the hero templates of Templates/, and the two heroes that the installation ships
@@ -229,7 +261,11 @@ enum Command {
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
         /// The masters' directory (stage A)
-        #[arg(long = "assets-src", default_value = "assets-src")]
+        #[arg(
+            long = "assets-src",
+            value_name = "ASSETS_SRC",
+            default_value = "assets-src"
+        )]
         out: PathBuf,
     },
     /// Convert the WMV cutscenes of movie/ into lossless masters under <ASSETS_SRC>/video/ with
@@ -239,7 +275,11 @@ enum Command {
         #[arg(long, default_value = "OriginalGame")]
         game_dir: PathBuf,
         /// The masters' directory (stage A)
-        #[arg(long = "assets-src", default_value = "assets-src")]
+        #[arg(
+            long = "assets-src",
+            value_name = "ASSETS_SRC",
+            default_value = "assets-src"
+        )]
         out: PathBuf,
         /// Convert only the cutscene with this name, such as intro (repeatable)
         #[arg(long = "movie", value_name = "NAME")]
