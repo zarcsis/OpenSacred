@@ -377,14 +377,15 @@ fn taken(
 }
 
 /// A trample ends with its horse's rider off it, however it got off, and with the horse's death
-/// (every dismount clears `+0x2B7` bit `0x10` on both, `0x53ECA0` at the death).
+/// (every dismount clears `+0x2B7` bit `0x10` on both, `0x53ECA0` at the death): the hero's or a
+/// black rider's, whose charge's trample holds its 10 s (#2824).
 fn end(
     mut commands: Commands,
-    heroes: Query<&Seat, With<Body>>,
+    riders: Query<&Seat>,
     horses: Query<(Entity, Has<Dies>), With<Trampling>>,
 ) {
     for (horse, dies) in &horses {
-        let ridden = heroes.iter().any(|seat| seat.ridden() == Some(horse));
+        let ridden = riders.iter().any(|seat| seat.ridden() == Some(horse));
         if dies || !ridden {
             commands.entity(horse).remove::<Trampling>();
         }
@@ -414,5 +415,29 @@ mod tests {
         assert!(!timer.ready());
         assert!((timer.share() - 0.25).abs() < 1e-6);
         assert_eq!(Timer::default().share(), 1.0);
+    }
+
+    #[test]
+    fn a_trample_holds_while_any_rider_sits_on_its_horse() {
+        let mut app = App::new();
+        app.add_systems(Update, end);
+        let trampling = || Trampling {
+            value: 0.0,
+            factor: 0.0,
+            left: 10.0,
+            at: Vec3::ZERO,
+            pending: Vec::new(),
+        };
+        // A black rider's horse, its rider no hero, and a horse no one rides.
+        let ridden = app.world_mut().spawn(trampling()).id();
+        app.world_mut().spawn(Seat::Riding {
+            horse: ridden,
+            speeds: [0.0; 2],
+            offset: Vec3::ZERO,
+        });
+        let alone = app.world_mut().spawn(trampling()).id();
+        app.update();
+        assert!(app.world().get::<Trampling>(ridden).is_some());
+        assert!(app.world().get::<Trampling>(alone).is_none());
     }
 }
