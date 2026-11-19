@@ -136,13 +136,25 @@ pub struct Highlit(pub Option<Entity>);
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Glow(pub bool);
 
-/// Whether an art of the launch type `launch` (`making::launch`) admits what lies under the
-/// cursor, `foe` whether a foe does (`0x51D840`): an art on an enemy a foe, one on the ground, on
-/// its maker or of any target anything; one on a friend or on the dead nothing, their targets not
-/// followed for the glow.
-fn admits(launch: Option<u8>, foe: bool) -> bool {
+/// What lies under the cursor that an art's launch asks for ([`admits`]): a foe, the hero
+/// himself nearer the cursor's line than a foe, and a dead creature, as the right button picks
+/// them (`making::aim`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Under {
+    foe: bool,
+    hero: bool,
+    dead: bool,
+}
+
+/// Whether an art of the launch type `launch` (`making::launch`) admits what lies `under` the
+/// cursor (`0x51D840`), as the right button makes it there (`making::aim`): an art on an enemy a
+/// foe; on a friend (the type 2) the hero himself, and on the dead (the type 4) a dead creature
+/// (#2938); one on the ground, on its maker or of any target anything.
+fn admits(launch: Option<u8>, under: Under) -> bool {
     match launch {
-        Some(1) => foe,
+        Some(1) => under.foe,
+        Some(2) => under.hero,
+        Some(4) => under.dead,
         Some(0 | 3 | 5) => true,
         _ => false,
     }
@@ -279,11 +291,12 @@ fn choose(
         ),
         Without<Dies>,
     >,
-    (items, doors, containers, stashes): (
+    (items, doors, containers, stashes, corpses): (
         Query<(Entity, &GlobalTransform, &Lying, Option<&TextName>)>,
         Query<&GlobalTransform, With<Door>>,
         Query<(Entity, &GlobalTransform, &crate::containers::Container)>,
         Query<(&GlobalTransform, &crate::stashes::Stash)>,
+        Query<&GlobalTransform, With<crate::npcs::Corpse>>,
     ),
     (heights, buildings, data): (
         Option<Res<Heights>>,
@@ -321,6 +334,7 @@ fn choose(
     let mut item = None;
     let mut foe_under = None;
     let mut container_under = None;
+    let mut under = Under::default();
     let look = match ray {
         Some(ray) if in_game && window.is_none() && !over_interface => {
             let near = |at: &GlobalTransform| {
@@ -366,6 +380,21 @@ fn choose(
                 .filter_map(|(entity, at, ..)| Some((picked(entity, at)?, entity)))
                 .min_by(|a, b| a.0.total_cmp(&b.0))
                 .map(|(_, entity)| entity);
+            // The hero himself nearer the line than a foe, and a dead creature, for the arts on a
+            // friend and on the dead (`making::aim`, #2938).
+            let foe_distance = foe_under
+                .and_then(|foe| creatures.get(foe).ok())
+                .and_then(|(_, at, ..)| near(at));
+            under = Under {
+                foe: foe_under.is_some(),
+                hero: hero
+                    .and_then(|(_, at, ..)| {
+                        let distance = attack::from_line(ray, at.translation);
+                        (distance <= attack::PICKED_WITHIN).then_some(distance)
+                    })
+                    .is_some_and(|on_hero| foe_distance.is_none_or(|foe| on_hero < foe)),
+                dead: corpses.iter().any(|at| near(at).is_some()),
+            };
             let foe = foe_under.map(|_| foe_look(holding.map(|holding| &holding.0), by_night));
             foe.or_else(|| {
                 nearest(
@@ -451,7 +480,7 @@ fn choose(
                 effects.is_some_and(|effects| effects.holds_any(&[key]))
             });
             crate::making::may_make(arts, art, (effects, pack.as_deref(), riding)).is_ok()
-                && admits(crate::making::launch(arts, art), foe_under.is_some())
+                && admits(crate::making::launch(arts, art), under)
         });
     glow.set_if_neq(Glow(glows));
 }
@@ -542,10 +571,26 @@ mod tests {
 
     #[test]
     fn the_cursor_glows_over_what_the_arts_launch_admits() {
-        assert!(admits(Some(1), true));
-        assert!(!admits(Some(1), false));
-        assert!(admits(Some(3), false) && admits(Some(5), false) && admits(Some(0), false));
-        assert!(!admits(Some(2), true) && !admits(Some(4), true) && !admits(None, true));
+        let foe = Under {
+            foe: true,
+            ..Under::default()
+        };
+        let hero = Under {
+            hero: true,
+            ..Under::default()
+        };
+        let dead = Under {
+            dead: true,
+            ..Under::default()
+        };
+        let nothing = Under::default();
+        assert!(admits(Some(1), foe));
+        assert!(!admits(Some(1), nothing));
+        assert!(admits(Some(3), nothing) && admits(Some(5), nothing) && admits(Some(0), nothing));
+        // On a friend the hero himself, on the dead a corpse (#2938).
+        assert!(admits(Some(2), hero) && !admits(Some(2), foe) && !admits(Some(2), nothing));
+        assert!(admits(Some(4), dead) && !admits(Some(4), foe));
+        assert!(!admits(None, foe));
     }
 
     #[test]
