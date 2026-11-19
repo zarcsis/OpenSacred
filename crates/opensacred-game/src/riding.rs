@@ -10,9 +10,10 @@
 //! A horse's slot 0 holds its bridle ([`Bridle`], #2316): a bridle of the backpack used with the
 //! right button goes onto the hero's own horse, the one there before back into its cell
 //! (`0x6C0D96`); the button's right click takes it back into the backpack where it fits
-//! (`0x6D6EDB`); and the ridden horse's counts among its rider's items (`0x552660`,
-//! `equipment::refit`). A stable's horse holds its gear in its slot 1 (`EquipNPC`, `0x54ACC0`),
-//! which neither reads.
+//! (`0x6D6EDB`); the ridden horse's counts among its rider's items (`0x552660`,
+//! `equipment::refit`); and a horse let go as the hero takes another throws it down where the
+//! hero wears a helmet ([`own`], #2910). A stable's horse holds its gear in its slot 1
+//! (`EquipNPC`, `0x54ACC0`), which neither reads.
 //!
 //! Beside them: the horse's description ([`description`], `0x55C9F0`, #2301, #2401), which the
 //! mount's bar shows (`bar_tips`), and from the saddle the slot of an art that may not be made on
@@ -284,13 +285,37 @@ fn truncated(x: f32) -> u32 {
 pub struct OwnHorse;
 
 /// Makes `horse` the hero's own (the owners linked both ways, `0x555300`): no sector keeps it
-/// any longer, and it goes with the game alone. A horse owned before is no longer.
+/// any longer, and it goes with the game alone. A horse owned before is no longer, and where
+/// the hero's own slot 0, its helmet's, holds an item, it throws down its bridle, its slot 0's
+/// (`0x55C640`, `0x4E9900(0)`; the test of the hero's slot rather than the horse's is the
+/// original's, #2910).
 pub fn own(world: &mut World, horse: Entity) {
     let before = world.get_resource::<Owned>().and_then(|owned| owned.0);
+    let helmet = world
+        .get_resource::<crate::pickup::Pack>()
+        .is_some_and(|pack| pack.worn.first().is_some_and(Option::is_some));
     if let Some(before) = before.filter(|&before| before != horse)
         && let Ok(mut entity) = world.get_entity_mut(before)
     {
         entity.remove::<OwnHorse>();
+        let thrown = helmet.then(|| entity.take::<Bridle>()).flatten();
+        let place = entity
+            .get::<GlobalTransform>()
+            .map(GlobalTransform::translation);
+        let floor = entity
+            .get::<crate::crowd::InTheWay>()
+            .and_then(|way| way.level);
+        if let (Some(Bridle(bridle)), Some(at)) = (thrown, place) {
+            info!(
+                "riding: {before}, let go, throws down its bridle {}",
+                bridle.item
+            );
+            if let Err(error) =
+                world.run_system_cached_with(crate::drops::throw_down, (bridle, (at, floor)))
+            {
+                warn!("riding: the bridle is not thrown down: {error}");
+            }
+        }
     }
     world.insert_resource(Owned(Some(horse)));
     if let Some(mut streamer) = world.get_resource_mut::<crate::sectors::Streamer>() {
@@ -1279,6 +1304,44 @@ mod tests {
                 Piece::Image(..) => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn a_horse_let_go_throws_its_bridle_down_where_the_hero_wears_a_helmet() {
+        use opensacred_rules::drops::{Dropped, Kind};
+        let item = |item| Dropped {
+            kind: Kind::Armour,
+            item,
+            level: 1,
+            key: 16,
+            quality: 0,
+            amount: 1,
+            values: None,
+            named: None,
+            socketed: Vec::new(),
+            name_key: 0,
+        };
+        let let_go = |helmet: bool| {
+            let mut world = World::new();
+            let mut pack = crate::pickup::Pack::default();
+            if helmet {
+                pack.worn[0] = Some((1, item(2088)));
+            }
+            world.insert_resource(pack);
+            let old = world
+                .spawn((GlobalTransform::default(), OwnHorse, Bridle(item(3197))))
+                .id();
+            world.insert_resource(Owned(Some(old)));
+            let new = world.spawn(Transform::default()).id();
+            own(&mut world, new);
+            assert!(world.get::<OwnHorse>(old).is_none());
+            assert!(world.get::<OwnHorse>(new).is_some());
+            world.get::<Bridle>(old).is_some()
+        };
+        // Its owner's own slot 0, the helmet's, holding an item: the bridle goes off it.
+        assert!(!let_go(true));
+        // Bareheaded: the bridle stays on the horse let go.
+        assert!(let_go(false));
     }
 
     #[test]
