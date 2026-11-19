@@ -56,10 +56,28 @@ pub fn decode(data: &[u8]) -> Result<Bitmap> {
         return Err(file.error_at(height_at, field("BMP height", 0, "not 0".into())));
     }
     let pixel_len = usize::from(bits / 8);
-    let row_len = (to_usize(width) * pixel_len).next_multiple_of(4);
-    let pixels = file.window(pixels_at, row_len * to_usize(rows), "BMP pixels")?;
+    // A header's sizes may be anything: each product is checked, as `tex::image_bytes` checks its.
+    let too_large = || {
+        file.error_at(
+            height_at,
+            ErrorKind::ImageTooLarge {
+                width,
+                height: rows,
+            },
+        )
+    };
+    let row_len = to_usize(width)
+        .checked_mul(pixel_len)
+        .and_then(|len| len.checked_next_multiple_of(4))
+        .ok_or_else(too_large)?;
+    let pixels_len = row_len.checked_mul(to_usize(rows)).ok_or_else(too_large)?;
+    let rgba_len = to_usize(width)
+        .checked_mul(to_usize(rows))
+        .and_then(|len| len.checked_mul(4))
+        .ok_or_else(too_large)?;
+    let pixels = file.window(pixels_at, pixels_len, "BMP pixels")?;
     let pixels = pixels.rest();
-    let mut rgba = Vec::with_capacity(to_usize(width) * to_usize(rows) * 4);
+    let mut rgba = Vec::with_capacity(rgba_len);
     for y in 0..to_usize(rows) {
         // A positive height stores the bottom row first.
         let stored = if height > 0 {
@@ -129,6 +147,15 @@ mod tests {
         // A negative height stores the top row first.
         let top_down = decode(&sample(-2)).unwrap();
         assert_eq!(&top_down.rgba[..4], [0, 0, 255, 255]);
+    }
+
+    #[test]
+    fn sizes_past_memory_are_an_error() {
+        let mut data = sample(2);
+        data[18..22].copy_from_slice(&u32::MAX.to_le_bytes());
+        data[22..26].copy_from_slice(&i32::MIN.to_le_bytes());
+        let error = decode(&data).unwrap_err().to_string();
+        assert!(error.contains("does not fit in memory"), "{error}");
     }
 
     #[test]

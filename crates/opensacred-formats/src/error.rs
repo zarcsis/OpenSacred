@@ -91,7 +91,7 @@ pub enum ErrorKind {
         expected: String,
     },
     #[error("image {width}x{height} does not fit in memory")]
-    ImageTooLarge { width: u16, height: u16 },
+    ImageTooLarge { width: u32, height: u32 },
     /// Message of `miniz_oxide`; the partially unpacked data is dropped.
     #[error("zlib stream: {0}")]
     Zlib(String),
