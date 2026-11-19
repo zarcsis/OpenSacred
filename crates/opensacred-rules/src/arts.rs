@@ -1818,25 +1818,16 @@ pub const MASTER_BITES: f32 = 0.6;
 const MASTER_BITE_BOSS: f64 = 1.3;
 
 /// Whether the master's bite at the level in play `level` of the Vampiress of level `hero` takes
-/// a creature of `Creature.pak` class `class`, of a big type or not, of the level `creature`, a
-/// boss or not (`0x50E6C0`): of none of the classes 10 and 9 nor a big type (`0x426B70`,
-/// `0x426B20`, `0x426CB0`), its level, a boss's times 1.3, below `0.4·l + 5·L`.
-pub fn master_bites(
-    class: u8,
-    big: bool,
-    creature: u32,
-    boss: bool,
-    hero: u32,
-    level: u32,
-) -> bool {
+/// a creature of a big type or not, of the level `creature`, a boss or not (`0x50E6C0` at
+/// `0x50FBB3`): of no big type (`0x426CB0`; its tests of the classes 10 and 9, `0x426B70` and
+/// `0x426B20`, both lead to that one, #2994), its level, a boss's times 1.3, below `0.4·l + 5·L`.
+pub fn master_bites(big: bool, creature: u32, boss: bool, hero: u32, level: u32) -> bool {
     let creature = if boss {
         f64::from(creature) * MASTER_BITE_BOSS
     } else {
         f64::from(creature)
     };
-    !matches!(class, 9 | 10)
-        && !big
-        && creature < 0.4f64.mul_add(f64::from(hero), 5.0 * f64::from(level))
+    !big && creature < 0.4f64.mul_add(f64::from(hero), 5.0 * f64::from(level))
 }
 
 /// How long the master's bite of `record` at the level in play `level` turns its target over:

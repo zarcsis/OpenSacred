@@ -1184,12 +1184,10 @@ fn the_master_bite_turns_a_weak_creature_over_for_its_seconds() {
     // Seen: 15 s at level 1.
     assert_eq!(master_bite_seconds(&bite, 1), 15.0);
     // Below 0.4·l + 5·L: 5.4 for her level 1 at the bite's 1.
-    assert!(master_bites(8, false, 5, false, 1, 1));
-    assert!(!master_bites(8, false, 6, false, 1, 1));
-    assert!(!master_bites(8, false, 5, true, 1, 1));
-    assert!(!master_bites(8, true, 1, false, 1, 1));
-    assert!(!master_bites(9, false, 1, false, 1, 1));
-    assert!(!master_bites(10, false, 1, false, 1, 1));
+    assert!(master_bites(false, 5, false, 1, 1));
+    assert!(!master_bites(false, 6, false, 1, 1));
+    assert!(!master_bites(false, 5, true, 1, 1));
+    assert!(!master_bites(true, 1, false, 1, 1));
 }
 
 #[test]

@@ -1294,8 +1294,8 @@ fn make(
                 end(&mut commands);
             }
             Style::MasterBite => {
-                // Below 0.6 left of its clip its target, of none of the classes 9 and 10 nor a
-                // big type and below her bound, takes the effect 14 for 12 + 3·L s, which turns
+                // Below 0.6 left of its clip its target, of no big type and below her bound,
+                // takes the effect 14 for 12 + 3·L s, which turns
                 // its sides over, so that it fights its old friends (seen); then it ends
                 // (`0x50E6C0`).
                 if !due(1.0 - arts::MASTER_BITES, done) {
@@ -1313,7 +1313,6 @@ fn make(
                     && mind.hostile()
                     && health.current > 0
                     && arts::master_bites(
-                        mind.class,
                         mind.big,
                         health.level,
                         boss,
