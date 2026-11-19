@@ -262,6 +262,51 @@ mod tests {
     }
 
     #[test]
+    fn every_type_of_a_size_of_its_own_takes_it() {
+        let sizes = [
+            (35, (60, 110, 0)),
+            (41, (25, 180, 0)),
+            (182, (30, 195, 0)),
+            (60, (25, 190, 0)),
+            (137, (30, 230, 0)),
+            (247, (100, 280, 0)),
+            (183, (30, 430, 0)),
+            (55, (75, 280, 0)),
+            (191, (30, 70, 0)),
+            (589, (20, 20, 0)),
+            (550, (60, 160, 0)),
+            (75, (40, 40, 0)),
+            (568, (50, 80, 0)),
+            (1249, (15, 50, 0)),
+        ];
+        for (kind, size) in sizes {
+            assert_eq!(creature_size(kind), size, "{kind}");
+        }
+    }
+
+    #[test]
+    fn a_short_side_widens_to_35_about_its_middle() {
+        // A point: the square 17 before it and 18 after, as the original's whole halves.
+        let point = Rect::between([100.0, 100.0], [100.0, 100.0]).held();
+        assert_eq!((point.at, point.size), ([83.0, 83.0], [35.0, 35.0]));
+        // A narrow side widened about its middle, a tall one kept.
+        let narrow = Rect::between([100.0, 50.0], [120.0, 250.0]).held();
+        assert_eq!((narrow.at, narrow.size), ([93.0, 50.0], [35.0, 200.0]));
+        // A side of 35 kept as it is.
+        let least = Rect::between([0.0, 0.0], [35.0, 35.0]);
+        assert_eq!(least.held(), least);
+    }
+
+    #[test]
+    fn a_middle_whose_squared_distance_is_9999_picks_nothing() {
+        let rect = Rect::between([-100.0, -100.0], [100.0, 100.0]);
+        let drawn = [(1, Class::Other, rect)];
+        // 60² + 79.99375² is 9,999 exactly in single precision.
+        assert_eq!(choose(&drawn, [60.0, 79.993_75], false), None);
+        assert_eq!(choose(&drawn, [60.0, 79.99], false), Some(1));
+    }
+
+    #[test]
     fn more_than_a_thousand_rectangles_pick_nothing() {
         let rect = Rect::between([0.0, 0.0], [10.0, 10.0]);
         let many: Vec<_> = (0..=MOST).map(|k| (k, Class::Other, rect)).collect();
