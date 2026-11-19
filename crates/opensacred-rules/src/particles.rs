@@ -1308,7 +1308,7 @@ pub fn rise_ring() -> Burst {
     Burst {
         texture: "PARTICLE_GLOW03",
         grid: 1,
-        blend: Blend::Add,
+        blend: Blend::Whole,
         layer: Layer {
             life: -200.0,
             size: -8.0,
@@ -7207,6 +7207,17 @@ pub fn glad_green() -> Ramp {
 const GLAD_COUNT: usize = 100;
 /// The hand of god's seconds and the heroism's start and end.
 const HAND_OF_GOD: f32 = 2.6;
+
+/// The factor of the hand of god's interval at the options' detail `detail`, its class's own
+/// (`0x78FD20`): 1 at 2, 0.75 at 1 and 1.1 at 0, its spark every 0.05, 0.0375 and 0.055 s
+/// (docs/re/effects.md, "The Gladiator's sights", #2817).
+pub fn hand_of_god_factor(detail: u8) -> f32 {
+    match detail {
+        0 => 1.1,
+        1 => 0.75,
+        _ => 1.0,
+    }
+}
 const HEROISM: [f32; 2] = [0.65, 1.3];
 
 /// One of the Gladiator's arts' sights (803, `cParticleSystem_glad_sm_cast`, its start
@@ -7234,7 +7245,10 @@ impl GladSight {
         }
         Some(Self {
             art,
-            system: System::new(GLAD_COUNT),
+            system: System::at_factor(
+                GLAD_COUNT,
+                hand_of_god_factor(DETAIL.load(Ordering::Relaxed)),
+            ),
             timers,
             burst: false,
         })
@@ -13416,8 +13430,15 @@ pub const SPIKE_MODELS: [&str; 5] = [
 ];
 pub const SPIKE_TEXTURE: &str = "ANDUKAR_DEMON_512";
 pub const SPIKE_GLOWS: [&str; 2] = ["ANDUKAR_DEMON_GLOW", "ANDUKAR_DEMON_GLOW2"];
-/// How many spikes an object raises at the detail 2 (3 at 0, 6 at 1).
-const SPIKES: usize = 10;
+/// How many spikes an object raises at the options' detail `detail` (`0x7C04B0`, `0x7C0CC0`): 3
+/// at 0, 6 at 1 and 10 at 2 (#2817).
+pub fn spikes_at(detail: u8) -> usize {
+    match detail {
+        0 => 3,
+        1 => 6,
+        _ => 10,
+    }
+}
 
 /// Whose spikes: Anducar's demon's rings (1163, `FX_ANDUCAR_DEMON`, of the spell 69) or the demon
 /// prince's fan (1166, `FX_DAEMONENFUERST`, of the spell 71).
@@ -13499,7 +13520,8 @@ impl Spike {
 
 /// The spikes of one object of Anducar's demon's rings or the demon prince's fan
 /// (`cParticleSystem_anducar_demon`, `cParticleSystem_daemonenfuerst`; `0x7C04B0`, `0x7C0150`;
-/// `0x7C0CC0`, `0x7C0960`): ten spikes about its place, each waiting its distance from the wave's
+/// `0x7C0CC0`, `0x7C0960`): 3, 6 or 10 spikes by the detail ([`spikes_at`]) about its place, each
+/// waiting its distance from the wave's
 /// origin over the wave's speed, then rising in half a second, standing, and sinking in half a
 /// second.
 #[derive(Clone, Debug, PartialEq)]
@@ -13511,7 +13533,7 @@ impl Spikes {
     /// The spikes of an object `from` away from the wave's origin, in the models' frame.
     pub fn new(kind: SpikesKind, from: [f32; 3], dice: &mut impl Dice) -> Self {
         let (least, spread, place, wave, stands) = kind.rolls();
-        let spikes = (0..SPIKES)
+        let spikes = (0..spikes_at(DETAIL.load(Ordering::Relaxed)))
             .map(|_| {
                 let size = least + spread * share(dice);
                 let turn = std::f32::consts::TAU * share(dice);
@@ -13845,7 +13867,8 @@ impl DwarfMagic {
     /// A magic of its variant, 1 or 2.
     pub fn new(variant: u8) -> Self {
         Self {
-            system: System::new(DWARF_MAGIC_COUNT),
+            // One every 0.2 s whatever the detail (`0x78A5D0`, #2817).
+            system: System::at_factor(DWARF_MAGIC_COUNT, 1.0),
             variant,
         }
     }
@@ -18712,6 +18735,17 @@ mod tests {
         }];
         system.update_toward(0.1, &layers, [0.0; 3]);
         assert_eq!(system.particles[0].velocity, [-5.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn four_systems_take_the_notes_figures() {
+        // The rising ring added whole, the flags 0x19.
+        assert_eq!(rise_ring().blend, Blend::Whole);
+        // The dwarves' magic every 0.2 s whatever the detail.
+        assert_eq!(DwarfMagic::new(1).system.factor(), 1.0);
+        // The hand of god's own factors, and the spikes by the detail.
+        assert_eq!([0, 1, 2].map(hand_of_god_factor), [1.1, 0.75, 1.0]);
+        assert_eq!([0, 1, 2].map(spikes_at), [3, 6, 10]);
     }
 
     #[test]
