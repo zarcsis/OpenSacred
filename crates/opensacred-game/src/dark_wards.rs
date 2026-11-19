@@ -12,6 +12,7 @@
 //! by its effect `0x1A`, which nothing in the game reads: a spell is turned aside by its target's
 //! magic defence alone (`fight`, #2277).
 
+use bevy::camera::visibility::RenderLayers;
 use bevy::gltf::Gltf;
 use bevy::prelude::*;
 use opensacred_rules::particles::{DARK_WARD_LIGHT, DARK_WARD_MODELS, DarkWard};
@@ -184,10 +185,12 @@ fn dress(
             &anchors,
             Pass::Under(Layer::Objects),
         ));
+        // After the night's pass, which leaves it as it is (#2828).
         for (entity, _) in own {
-            commands
-                .entity(entity)
-                .insert(MeshMaterial3d(material.clone()));
+            commands.entity(entity).insert((
+                MeshMaterial3d(material.clone()),
+                RenderLayers::layer(iso::UNTINTED),
+            ));
         }
         look.material = Some(material);
     }
