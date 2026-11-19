@@ -7287,7 +7287,7 @@ fn spawn(
                 .iter()
                 .map(|&(item, category)| {
                     let values = templates.make(item, grade, (rules.difficulty(), 0), &mut dice);
-                    (category, values)
+                    (item, category, values)
                 })
                 .collect(),
             mounted: placement.rides,
@@ -12743,8 +12743,9 @@ pub struct Arms {
     plain: bool,
     model: String,
     holding: Vec<(InHand, Option<fight::ItemValues>)>,
-    /// The items it wears, each its category and its values, made at its level (#2286).
-    worn: Vec<(u8, Option<fight::ItemValues>)>,
+    /// The items it wears, each its type, its category and its values, made at its level
+    /// (#2286).
+    worn: Vec<(u32, u8, Option<fight::ItemValues>)>,
     /// Whether it rides a horse, a fill's rider seated as it is made (`npcs::seat_rider`), whose
     /// riding skill weighs its `A` multiplier (`0x552660`, #2385).
     mounted: bool,
@@ -12802,7 +12803,7 @@ impl Arms {
     pub(crate) fn item_values(&self) -> Vec<fight::ItemValues> {
         self.held_values()
             .into_iter()
-            .chain(self.worn.iter().filter_map(|&(_, values)| values))
+            .chain(self.worn.iter().filter_map(|&(_, _, values)| values))
             .collect()
     }
 
@@ -12898,7 +12899,7 @@ impl Arms {
                 .chain(
                     self.worn
                         .iter()
-                        .filter_map(|&(category, values)| Some((category, values?))),
+                        .filter_map(|&(_, category, values)| Some((category, values?))),
                 )
                 .map(|(class, values)| fight::ItemValues { class, ..values })
                 .collect(),
@@ -13021,11 +13022,12 @@ impl Rearms {
         }
     }
 
-    /// A disarming (`0x4E9900`, #2298): what `hand` holds thrown away, its values made anew of
-    /// what it holds then, of which it keeps a share alone.
-    fn disarm(hand: Hand) -> Self {
+    /// A disarming (`0x4E9900`, #2298): what `hand` holds thrown away, else nothing more where
+    /// it took a worn item off ([`disarm`]), its values made anew of what it holds then, of which
+    /// it keeps a share alone.
+    fn disarm(hand: Option<Hand>) -> Self {
         Self {
-            away: vec![hand],
+            away: hand.into_iter().collect(),
             takes: Vec::new(),
             disarmed: true,
             wears: Vec::new(),
@@ -13058,9 +13060,9 @@ impl Rearms {
 /// hero's throws down what its right hand holds, else its left (the slots 13 and 12), from its
 /// model's place, the item with its values ([`crate::drops::throw_disarmed`]); a living one's
 /// values are made anew of what it holds then, of which it keeps a share
-/// (`opensacred_rules::fight::disarmed`), a dying one's model alone goes. Its items of the slots
-/// 1 and 0, which the original takes where its hands are empty, are not followed: what it wears
-/// stays on it.
+/// (`opensacred_rules::fight::disarmed`), a dying one's model alone goes. With its hands empty it
+/// takes off what it wears of the slot 1, else the slot 0 (the armour, the helmet; #2816), from
+/// its neck's bone ([`disarm_worn`]).
 pub(crate) fn disarm(world: &mut bevy::prelude::World, entity: Entity) {
     if world.get::<crate::followers::Follower>(entity).is_some() {
         return;
@@ -13075,6 +13077,7 @@ pub(crate) fn disarm(world: &mut bevy::prelude::World, entity: Entity) {
             .map(|&(held, values)| (held, values))
     };
     let Some((held, values)) = held(Hand::Right).or_else(|| held(Hand::Left)) else {
+        disarm_worn(world, entity);
         return;
     };
     let level = world.get::<ai::Mind>(entity).map_or(1, |mind| mind.level);
@@ -13103,7 +13106,9 @@ pub(crate) fn disarm(world: &mut bevy::prelude::World, entity: Entity) {
             arms.holding.retain(|(other, _)| other.hand != held.hand);
         }
     } else {
-        world.entity_mut(entity).insert(Rearms::disarm(held.hand));
+        world
+            .entity_mut(entity)
+            .insert(Rearms::disarm(Some(held.hand)));
     }
     if let Err(error) = world.run_system_cached_with(
         crate::drops::throw_disarmed,
@@ -13111,6 +13116,93 @@ pub(crate) fn disarm(world: &mut bevy::prelude::World, entity: Entity) {
     ) {
         bevy::log::warn!("npcs: {entity}'s weapon is not thrown down: {error}");
     }
+}
+
+/// The equipment's slots whose worn item the disarming takes off where the hands are empty, in
+/// turn: the armour's and the helmet's (`0x4E9900`).
+const DISARMED_WORN: [u8; 2] = [1, 0];
+
+/// The bone from which the disarming throws an item that has no socket (`0x4E9900`).
+const DISARMED_FROM: &str = "Bip01 Neck";
+
+/// Takes off what `entity` wears of the slot 1, else 0 ([`DISARMED_WORN`]), as its disarming does
+/// with its hands empty (`0x4E9900`, #2816): out of its [`Arms`] and its [`Equipment`], its model
+/// gone, and thrown down from its neck's bone (else its own place) with its values; a living
+/// one's values made anew of what it holds and wears then, of which it keeps a share
+/// ([`Rearms::disarm`]).
+fn disarm_worn(world: &mut bevy::prelude::World, entity: Entity) {
+    let Some(arms) = world.get::<Arms>(entity) else {
+        return;
+    };
+    let slot_of = |category: u8| opensacred_rules::equipment::slot_for(category, |_| false);
+    let Some((item, values)) = DISARMED_WORN.iter().find_map(|&slot| {
+        arms.worn
+            .iter()
+            .find(|&&(_, category, _)| slot_of(category) == Some(slot))
+            .map(|&(item, _, values)| (item, values))
+    }) else {
+        return;
+    };
+    let level = world.get::<ai::Mind>(entity).map_or(1, |mind| mind.level);
+    let floor = world
+        .get::<crowd::InTheWay>(entity)
+        .and_then(|way| way.level);
+    let Some(at) = bone_place(world, entity, DISARMED_FROM).or_else(|| {
+        world
+            .get::<GlobalTransform>(entity)
+            .map(GlobalTransform::translation)
+    }) else {
+        return;
+    };
+    bevy::log::debug!("npcs: {entity} is disarmed of {item}, which it wore");
+    let mut pieces = world.query::<(Entity, &WornBy, &Piece)>();
+    let models: Vec<Entity> = pieces
+        .iter(world)
+        .filter(|(_, by, piece)| by.0 == entity && piece.item == item)
+        .map(|(model, ..)| model)
+        .collect();
+    for model in models {
+        world.despawn(model);
+    }
+    if let Some(mut arms) = world.get_mut::<Arms>(entity)
+        && let Some(index) = arms.worn.iter().position(|&(worn, ..)| worn == item)
+    {
+        arms.worn.remove(index);
+    }
+    if let Some(mut equipment) = world.get_mut::<Equipment>(entity) {
+        equipment
+            .0
+            .retain(|equip| equip.piece.mount != Mount::Worn || equip.piece.item != item);
+    }
+    if world.get::<Dies>(entity).is_none() {
+        world.entity_mut(entity).insert(Rearms::disarm(None));
+    }
+    if let Err(error) = world.run_system_cached_with(
+        crate::drops::throw_disarmed,
+        ((item, level, values), (at, floor)),
+    ) {
+        bevy::log::warn!("npcs: {entity}'s worn item is not thrown down: {error}");
+    }
+}
+
+/// Where the bone `bone` of `entity`'s own skeleton is, not of a model it holds or wears.
+fn bone_place(world: &bevy::prelude::World, entity: Entity, bone: &str) -> Option<Vec3> {
+    let mut stack = vec![entity];
+    while let Some(next) = stack.pop() {
+        if next != entity && world.get::<Piece>(next).is_some() {
+            continue;
+        }
+        if world
+            .get::<Name>(next)
+            .is_some_and(|name| name.as_str() == bone)
+        {
+            return world
+                .get::<GlobalTransform>(next)
+                .map(GlobalTransform::translation);
+        }
+        stack.extend(world.get::<Children>(next).into_iter().flatten());
+    }
+    None
 }
 
 /// Changes the weapons of each NPC that rearms ([`Rearms`]): the items it puts away leave its
@@ -13219,7 +13311,7 @@ fn rearm(
             let values = npcs
                 .items
                 .make(*item, grade, (rules.difficulty(), 0), &mut dice);
-            arms.worn.push((*category, values));
+            arms.worn.push((*item, *category, values));
             if let Some(held) = held {
                 equips.push(Equip {
                     piece: held.piece(),
