@@ -165,9 +165,9 @@ const ANIMALS: u8 = 6;
 
 /// Whether a creature of side `side` and type `creature` is hostile to the heroes (`0x548F60`,
 /// `0x423580`): its side's row of [`FRIENDS`] without the heroes' bit, or its type
-/// [`AGAINST_ALL`]. The client's other cases are not followed: the pairs of the types 189 and
-/// 334 against 245 and 188, the creatures of `+0x200` bit `0x10000000` and their lists, a horse
-/// taken by its rider's side, and the flags word's bit `0x40000`, which turns the answer over.
+/// [`AGAINST_ALL`]. The client's other cases are not followed: the creatures of `+0x200` bit
+/// `0x10000000` and their lists, a horse taken by its rider's side, and the flags word's bit
+/// `0x40000`, which turns the answer over.
 pub fn hostile_to_heroes(side: u8, creature: u32) -> bool {
     hostile(side, creature, HEROES, 0)
 }
@@ -175,17 +175,89 @@ pub fn hostile_to_heroes(side: u8, creature: u32) -> bool {
 /// The types that the type [`AGAINST_ALL`] is a friend of, and they of it.
 const SPIDERS_FRIENDS: [u32; 3] = [AGAINST_ALL, 99, 109];
 
+/// The Underworld's two pairs of types each hostile to the other's whatever their sides
+/// (`0x423699` to `0x4236DB`, #2905), and the reach of the first's look for the second among the
+/// hero's hostiles ([`underworld_foe`]).
+pub const UNDERWORLD_HUNTERS: [u32; 2] = [189, 334];
+pub const UNDERWORLD_HUNTED: [u32; 2] = [188, 245];
+pub const HUNTERS_LOOK: f32 = 500.0;
+
+/// The classes of `Creature.pak` of which each takes one of the other for its foe in one case of
+/// two among the hero's hostiles ([`underworld_foe`]): the dryads' and the guards'; and the reach
+/// of the first's look.
+pub const DRYADS_CLASS: u8 = 15;
+pub const GUARDS_CLASS: u8 = 9;
+pub const DRYADS_LOOK: f32 = 700.0;
+
 /// Whether a creature of side `side` and type `creature` is hostile to one of side `other_side`
 /// and type `other` (`0x423580`, through `0x548F60` and `0x549000`): its side's row of
-/// [`FRIENDS`] without the other's side's bit, or either of them of the type [`AGAINST_ALL`] and
-/// the other not of its friends' types, 75, 99 and 109 (`0x4236D9` to `0x423707`). The client's
-/// other cases are not followed ([`hostile_to_heroes`]).
+/// [`FRIENDS`] without the other's side's bit, either of them of the type [`AGAINST_ALL`] and
+/// the other not of its friends' types, 75, 99 and 109 (`0x4236D9` to `0x423707`), or either of
+/// [`UNDERWORLD_HUNTERS`] and the other of [`UNDERWORLD_HUNTED`]. The client's other cases are
+/// not followed ([`hostile_to_heroes`]).
 pub fn hostile(side: u8, creature: u32, other_side: u8, other: u32) -> bool {
     let friends = FRIENDS.get(usize::from(side)).is_some_and(|row| {
         u32::from(*row) & 1_u32.checked_shl(u32::from(other_side)).unwrap_or(0) != 0
     });
     let spider = |a: u32, b: u32| a == AGAINST_ALL && !SPIDERS_FRIENDS.contains(&b);
-    !friends || spider(creature, other) || spider(other, creature)
+    let hunts = |a: u32, b: u32| UNDERWORLD_HUNTERS.contains(&a) && UNDERWORLD_HUNTED.contains(&b);
+    !friends
+        || spider(creature, other)
+        || spider(other, creature)
+        || hunts(creature, other)
+        || hunts(other, creature)
+}
+
+/// A creature of the hero's list of hostiles (`0xAD3CE0`) as an idle hostile's look sees it
+/// ([`underworld_foe`]): its type, its class, whether the two are hostile one way or the other
+/// by their sides and types ([`hostile`]), its distance from the looker, and the looker's own
+/// distance from the hero where it is in the list.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Listed {
+    pub creature: u32,
+    pub class: u8,
+    pub hostile: bool,
+    pub distance: f32,
+}
+
+/// The foe that an idle hostile of the type `creature` and the class `class` takes among the
+/// hero's hostiles `listed` after its look among the fighting creatures (`0x543631` to
+/// `0x543B9E`, #2905), its index in `listed`, `own` its own distance from the hero where it is in
+/// the list (else the first's), `roll` a `rand() % 2`, rolled only where one is found:
+/// - one of [`UNDERWORLD_HUNTERS`] the nearest of [`UNDERWORLD_HUNTED`] within [`HUNTERS_LOOK`];
+/// - else one of [`DRYADS_CLASS`] the nearest of [`GUARDS_CLASS`] within [`DRYADS_LOOK`] hostile
+///   to it one way or the other, by a roll not 0;
+/// - else one of [`GUARDS_CLASS`] the nearest of [`DRYADS_CLASS`] nearer it than its own
+///   distance from the hero, by a roll not 0;
+///
+/// none otherwise, the foe it had kept.
+pub fn underworld_foe(
+    (creature, class): (u32, u8),
+    listed: &[Listed],
+    own: f32,
+    roll: impl FnOnce() -> u32,
+) -> Option<usize> {
+    let nearest = |within: f32, takes: &dyn Fn(&Listed) -> bool| {
+        listed
+            .iter()
+            .enumerate()
+            .filter(|(_, other)| other.distance < within && takes(other))
+            .min_by(|a, b| a.1.distance.total_cmp(&b.1.distance))
+            .map(|(index, _)| index)
+    };
+    if UNDERWORLD_HUNTERS.contains(&creature) {
+        return nearest(HUNTERS_LOOK, &|other| {
+            UNDERWORLD_HUNTED.contains(&other.creature)
+        });
+    }
+    let found = match class {
+        DRYADS_CLASS => nearest(DRYADS_LOOK, &|other| {
+            other.class == GUARDS_CLASS && other.hostile
+        }),
+        GUARDS_CLASS => nearest(own, &|other| other.class == DRYADS_CLASS),
+        _ => None,
+    }?;
+    (!roll().is_multiple_of(2)).then_some(found)
 }
 
 /// The side hostile to and from every side, which a script's `Attack` gives one of a pair that
@@ -1188,6 +1260,8 @@ impl Mind {
             sliding,
             foes,
             hero_size,
+            listed,
+            own,
         } = *senses;
         let mut thought = Thought::default();
         if self.flags & TIMED != 0 || self.held {
@@ -1232,9 +1306,22 @@ impl Mind {
                         thought.home = Some(self.home);
                     }
                 } else {
-                    // Its target: the hero, or a creature that fights near it (`0x54338B`).
+                    // Its target: the hero, or a creature that fights near it (`0x54338B`); else
+                    // the Underworld's foe of its pair among the hero's hostiles (`0x543631`,
+                    // #2905), its index after the fighters'.
                     let foe = self.picks_foe(here, hero, foes, rng);
-                    let (target, takes_on, size) = match foe.and_then(|index| foes.get(index)) {
+                    let pairs: Vec<Listed> = listed.iter().map(|&(_, seen)| seen).collect();
+                    let foe =
+                        underworld_foe((self.creature, self.class), &pairs, own, || rng.below(2))
+                            .map(|index| foes.len() + index)
+                            .or(foe);
+                    let picked = foe.and_then(|index| {
+                        foes.get(index).or_else(|| {
+                            let index = index.checked_sub(foes.len())?;
+                            listed.get(index).map(|(foe, _)| foe)
+                        })
+                    });
+                    let (target, takes_on, size) = match picked {
                         Some(foe) => (foe.at, foe.takes_on, foe.size),
                         None => (hero, takes_on, hero_size),
                     };
@@ -2949,7 +3036,9 @@ impl Look {
 /// and the hero stand; whether the hero moves; whether the creature takes on the hero by the test
 /// of the levels (`fight::takes_on`); whether it walks; and the creatures of its sector that it
 /// may take for its foe instead of the hero, those that fight, of another side than its own,
-/// alive and hostile to it (`0x54338B`).
+/// alive and hostile to it (`0x54338B`); and the hero's list of hostiles but itself, each as a
+/// foe and as the Underworld's pairs see it, with its own distance from the hero where it is in
+/// the list, else the first's ([`underworld_foe`], #2905).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Senses<'a> {
     pub dt: f32,
@@ -2965,6 +3054,8 @@ pub struct Senses<'a> {
     /// The hero's size ([`size`]), of which and the creature's the reach is the mean.
     pub hero_size: u32,
     pub foes: &'a [Foe],
+    pub listed: &'a [(Foe, Listed)],
+    pub own: f32,
 }
 
 /// A creature that an idle hostile creature may take for its foe ([`Senses::foes`]): where it
@@ -7039,6 +7130,8 @@ mod tests {
             walking: false,
             sliding: false,
             foes: &[],
+            listed: &[],
+            own: 0.0,
         };
         let thought = opener.think(&senses, |_| true, || true, &mut rng);
         assert_eq!(thought, Thought::default());
@@ -7072,6 +7165,8 @@ mod tests {
             walking: false,
             sliding,
             foes: &[],
+            listed: &[],
+            own: 0.0,
         };
         // A creature of a script, woken as it is made, with the period 2.5 s.
         let mut goblin = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
@@ -7128,6 +7223,8 @@ mod tests {
             walking: false,
             sliding: false,
             foes: &[],
+            listed: &[],
+            own: 0.0,
         };
         // A creature of a script, awake as it is made, by the hero: with a straight line it
         // attacks; without, it goes for a door that is found, and is busy with it.
@@ -8130,6 +8227,8 @@ mod tests {
             sliding: false,
             hero_size: SIZE,
             foes: &[],
+            listed: &[],
+            own: 0.0,
         };
         // The hero's look gives it the idle action alone, without bit 0.
         let thought = bear.think(&senses, |_| true, || true, &mut rng);
@@ -8200,6 +8299,8 @@ mod tests {
             sliding: false,
             hero_size: SIZE,
             foes,
+            listed: &[],
+            own: 0.0,
         };
         let bear = || {
             let mut bear = Mind::new(Spot::default(), 0x1, (false, false), None, SPEEDS, (537, 6));
@@ -8260,5 +8361,133 @@ mod tests {
             taken += usize::from(thought.foe == Some(0));
         }
         assert!((100..170).contains(&taken), "{taken}");
+    }
+
+    #[test]
+    fn the_underworlds_pairs_are_foes_and_take_each_other_among_the_heros_hostiles() {
+        // 189 and 334 against 188 and 245, whatever their sides, both ways.
+        for hunter in UNDERWORLD_HUNTERS {
+            for hunted in UNDERWORLD_HUNTED {
+                assert!(hostile(2, hunter, 2, hunted) && hostile(2, hunted, 2, hunter));
+            }
+        }
+        assert!(!hostile(2, 189, 2, 334) && !hostile(2, 188, 2, 245));
+        let listed = |creature, class, hostile, distance| Listed {
+            creature,
+            class,
+            hostile,
+            distance,
+        };
+        let no_roll = || -> u32 { unreachable!("no roll here") };
+        // A hunter the nearest hunted within 500, with no roll.
+        let near = [
+            listed(245, 3, false, 450.0),
+            listed(188, 3, false, 300.0),
+            listed(700, 3, true, 100.0),
+        ];
+        assert_eq!(underworld_foe((189, 3), &near, 0.0, no_roll), Some(1));
+        assert_eq!(underworld_foe((334, 15), &near[..1], 0.0, no_roll), Some(0));
+        assert_eq!(
+            underworld_foe((189, 3), &[listed(188, 3, false, 500.0)], 0.0, no_roll),
+            None
+        );
+        // A dryad the nearest guard within 700 hostile one way or the other, by 1 of 2.
+        let guards = [
+            listed(10, GUARDS_CLASS, false, 100.0),
+            listed(11, GUARDS_CLASS, true, 650.0),
+            listed(12, GUARDS_CLASS, true, 300.0),
+            listed(13, GUARDS_CLASS, true, 700.0),
+        ];
+        assert_eq!(
+            underworld_foe((216, DRYADS_CLASS), &guards, 0.0, || 1),
+            Some(2)
+        );
+        assert_eq!(
+            underworld_foe((216, DRYADS_CLASS), &guards, 0.0, || 0),
+            None
+        );
+        assert_eq!(
+            underworld_foe((216, DRYADS_CLASS), &guards[3..], 0.0, no_roll),
+            None
+        );
+        // A guard the nearest dryad nearer than it stands from the hero, hostile or not.
+        let dryads = [
+            listed(216, DRYADS_CLASS, false, 400.0),
+            listed(217, DRYADS_CLASS, false, 250.0),
+        ];
+        assert_eq!(
+            underworld_foe((10, GUARDS_CLASS), &dryads, 300.0, || 3),
+            Some(1)
+        );
+        assert_eq!(
+            underworld_foe((10, GUARDS_CLASS), &dryads, 250.0, no_roll),
+            None
+        );
+        // Another creature none.
+        assert_eq!(underworld_foe((537, 3), &near, 900.0, no_roll), None);
+    }
+
+    #[test]
+    fn an_idle_hunter_of_the_underworld_takes_its_hunted_for_its_foe() {
+        let mut rng = Rng::of(22, 55, 1);
+        let hunted = Foe {
+            at: at(0.0, 200.0),
+            takes_on: true,
+            size: SIZE,
+        };
+        let listed = [(
+            hunted,
+            Listed {
+                creature: 188,
+                class: 3,
+                hostile: true,
+                distance: 200.0,
+            },
+        )];
+        let senses = Senses {
+            dt: 0.1,
+            seen: true,
+            here: Spot::default(),
+            hero: at(600.0, 0.0),
+            hero_moves: false,
+            takes_on: true,
+            walking: false,
+            sliding: false,
+            hero_size: SIZE,
+            foes: &[],
+            listed: &listed,
+            own: 600.0,
+        };
+        let mut hunter = Mind::new(Spot::default(), 0x1, (false, false), None, SPEEDS, (189, 6));
+        hunter.side = 2;
+        let thought = hunter.think(&senses, |to| to == at(0.0, 200.0), || true, &mut rng);
+        assert!(thought.attacks && thought.foe == Some(0), "{thought:?}");
+        // Its index comes after the fighters': a fighter far beyond its look, and the nearer of
+        // two hunted, the second of the list.
+        let fighter = [Foe {
+            at: at(-900.0, 0.0),
+            takes_on: true,
+            size: SIZE,
+        }];
+        let far = (
+            Foe {
+                at: at(0.0, 450.0),
+                ..hunted
+            },
+            Listed {
+                distance: 450.0,
+                ..listed[0].1
+            },
+        );
+        let two = [far, listed[0]];
+        let senses = Senses {
+            foes: &fighter,
+            listed: &two,
+            ..senses
+        };
+        let mut hunter = Mind::new(Spot::default(), 0x1, (false, false), None, SPEEDS, (189, 6));
+        hunter.side = 2;
+        let thought = hunter.think(&senses, |to| to == at(0.0, 200.0), || true, &mut rng);
+        assert!(thought.attacks && thought.foe == Some(2), "{thought:?}");
     }
 }
