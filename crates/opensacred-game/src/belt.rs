@@ -218,28 +218,61 @@ fn drink(
         Some((_, _, health)) => health,
         None => health,
     };
+    let drinking = (follower.unwrap_or(hero), follower.is_none());
     let dice = dice.get_or_insert_with(|| crate::seed::dice(1311));
+    if drunk(
+        &mut commands,
+        drinking,
+        &mut drinker,
+        (item, &healing),
+        (combos.as_deref_mut(), &mut sounds, dice),
+    ) {
+        pack.use_up(key);
+        play(&mut sounds, USED_UP);
+    }
+}
+
+/// Plays the sound `id` at the listener.
+fn play(sounds: &mut MessageWriter<sfx::Play>, id: u32) {
+    sounds.write(sfx::Play {
+        sound: sfx::Of::Id(id),
+        at: None,
+        rate: (0.5, sfx::Roll::None),
+    });
+}
+
+/// `drinker`, the hero or a creature (`hero`), of the health `health`, drinks the potion `item`
+/// (`0x54AA80`, the potion's event `0x10`): a drink's sound by a roll of three, and what the drink
+/// does by the potion's kind (#1353), the combos refilled for the hero alone; whether it did
+/// anything, so that the potion is used up, a heal of one at its whole health doing nothing.
+pub(crate) fn drunk(
+    commands: &mut Commands,
+    (drinker, hero): (Entity, bool),
+    health: &mut Health,
+    (item, healing): (u32, &potions::Potions),
+    (combos, sounds, dice): (
+        Option<&mut crate::combos::HeroCombos>,
+        &mut MessageWriter<sfx::Play>,
+        &mut Rng,
+    ),
+) -> bool {
     let roll = usize::try_from(dice.below(3)).unwrap_or(0);
-    let play = |sounds: &mut MessageWriter<sfx::Play>, id: u32| {
-        sounds.write(sfx::Play {
-            sound: sfx::Of::Id(id),
-            at: None,
-            rate: (0.5, sfx::Roll::None),
-        });
+    play(sounds, DRINKS.get(roll).copied().unwrap_or(DRINKS[0]));
+    let who = if hero {
+        "the hero".to_owned()
+    } else {
+        format!("{drinker}")
     };
-    play(&mut sounds, DRINKS.get(roll).copied().unwrap_or(DRINKS[0]));
-    let who = follower.map_or_else(|| "the hero".to_owned(), |f| format!("{f}"));
-    let drinking = follower.unwrap_or(hero);
     match healing.drink(item) {
-        Some(Drink::Heals(share)) if drinker.current < drinker.most => {
-            drinker.current = healed(drinker.current, drinker.most, share);
+        Some(Drink::Heals(share)) if health.current < health.most => {
+            health.current = healed(health.current, health.most, share);
             info!(
                 "belt: {who} drinks {item}: health {} of {}",
-                drinker.current, drinker.most
+                health.current, health.most
             );
         }
         Some(Drink::Lasts(effect, seconds)) => {
-            affect(&mut commands, drinking, move |effects| {
+            affect(commands, drinker, move |effects| {
                 effects.add_alone(effect, seconds);
             });
             info!(
@@ -248,25 +281,27 @@ fn drink(
             );
         }
         Some(Drink::Cures(per_cent)) => {
-            affect(&mut commands, drinking, move |effects| {
-                effects.cure(per_cent)
-            });
+            affect(commands, drinker, move |effects| effects.cure(per_cent));
             info!("belt: {who} drinks {item}: the poison cured by {per_cent} %");
         }
         // The combos' regeneration set to the cocktail's factor of their times (#1531).
-        Some(Drink::Refills(factor)) => {
-            if let Some(combos) = combos.as_deref_mut() {
+        Some(Drink::Refills(factor)) if hero => {
+            if let Some(combos) = combos {
                 opensacred_rules::combos::refilled(&mut combos.0, factor);
             }
             info!("belt: {who} drinks {item}: the combos refilled by {factor} times");
         }
         _ => {
             debug!("belt: {who} drinks {item} to no effect");
-            return;
+            return false;
         }
     }
-    pack.use_up(key);
-    play(&mut sounds, USED_UP);
+    true
+}
+
+/// The sound of a potion used up (`0x5DEBC0`).
+pub(crate) fn used_up(sounds: &mut MessageWriter<sfx::Play>) {
+    play(sounds, USED_UP);
 }
 
 /// Changes the effects of `drinker` by `change`, its list made where it has none.
@@ -329,5 +364,57 @@ mod tests {
         // Of equal most healths the first.
         assert_eq!(weakest([("a", 1, 50), ("b", 2, 50)]), Some("a"));
         assert_eq!(weakest::<&str>([]), None);
+    }
+
+    #[derive(Resource, Default)]
+    struct Drunk(Vec<bool>);
+
+    /// Each of the potions `items` drunk in turn by a follower of the health `health`.
+    fn drinks(items: Vec<u32>, health: Health) -> (Vec<bool>, Health) {
+        let mut app = App::new();
+        app.add_message::<sfx::Play>().init_resource::<Drunk>();
+        let follower = app.world_mut().spawn(health).id();
+        app.add_systems(
+            Update,
+            move |mut commands: Commands,
+                  mut healths: Query<&mut Health>,
+                  mut sounds: MessageWriter<sfx::Play>,
+                  mut done: ResMut<Drunk>| {
+                let mut health = healths.get_mut(follower).unwrap();
+                let mut dice = Rng::of(1, 2, 3);
+                for &item in &items {
+                    let did = drunk(
+                        &mut commands,
+                        (follower, false),
+                        &mut health,
+                        (item, &potions::Potions::default()),
+                        (None, &mut sounds, &mut dice),
+                    );
+                    done.0.push(did);
+                }
+            },
+        );
+        app.update();
+        let health = *app.world().get::<Health>(follower).unwrap();
+        (app.world().resource::<Drunk>().0.clone(), health)
+    }
+
+    #[test]
+    fn a_follower_drinks_a_potion_given_it_and_no_yellow_one() {
+        let wounded = Health {
+            current: 10,
+            most: 48,
+            level: 1,
+        };
+        // The small healing potion heals the novice; the yellow one does nothing for a follower.
+        let (did, health) = drinks(vec![5171, 5172], wounded);
+        assert_eq!(did, vec![true, false]);
+        assert!(health.current > 10 && health.current <= 48, "{health:?}");
+        // At its whole health a healing potion does nothing, so that it is not used up.
+        let whole = Health {
+            current: 48,
+            ..wounded
+        };
+        assert_eq!(drinks(vec![5171], whole).0, vec![false]);
     }
 }

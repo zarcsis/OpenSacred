@@ -8,11 +8,14 @@
 //! makes them (`npcs::Rearms`). An item that it may use, put on or not, makes it remark how the
 //! item compares with its hands' old ones (the event (8, `0x10`), `remarks::Remark::Equipment`,
 //! #1733); an item refused posts (8, `0x11`), which no case of the sound manager plays. A potion
-//! held given to a follower to drink (`0x54AA80`) is not followed.
+//! held the follower drinks (`0x54AA80` on it, #2904), as the belt's are drunk (`belt::drunk`),
+//! the potion gone from the cursor where it does anything.
 
 use bevy::prelude::*;
 use opensacred_rules::drops::Dropped;
 use opensacred_rules::equipment::{self, Hands, LEFT_HAND, RIGHT_HAND};
+use opensacred_rules::potions;
+use opensacred_rules::spawning::Rng;
 
 use crate::ai::Mind;
 use crate::bar::{self, Entries};
@@ -76,15 +79,20 @@ fn press(
     entries: Option<Res<Entries>>,
     mut pack: ResMut<Pack>,
     (npcs, tables, rules): (Option<Res<Npcs>>, Option<Res<Tables>>, Res<Rules>),
-    followers: Query<
+    mut followers: Query<
         (
-            (&Arms, &Mind, &Health, &crate::fight::Combat),
+            (&Arms, &Mind, &mut Health, &crate::fight::Combat),
             Option<&Given>,
             Option<&ScriptName>,
         ),
         With<Follower>,
     >,
     mut remarks: MessageWriter<Remark>,
+    (healing, mut sounds, mut dice): (
+        Option<Res<crate::belt::Potions>>,
+        MessageWriter<crate::sfx::Play>,
+        Local<Option<Rng>>,
+    ),
 ) {
     if !buttons.just_pressed(MouseButton::Left) {
         return;
@@ -100,9 +108,32 @@ fn press(
     let Some(&follower) = k.checked_sub(1).and_then(|k| entries.0.get(k)) else {
         return;
     };
-    let Ok(((arms, mind, health, combat), given, name)) = followers.get(follower) else {
+    let Ok(((arms, mind, mut health, combat), given, name)) = followers.get_mut(follower) else {
         return;
     };
+    // A potion held the follower drinks, and it leaves the cursor used up where it does anything
+    // (`0x6D6C70`, `0x54AA80` on the follower; seen, #2904).
+    if let Some(item) = pack
+        .held
+        .as_ref()
+        .map(|held| held.dropped.item)
+        .filter(|&item| potions::kind(item).is_some())
+    {
+        let healing = healing.map(|h| h.0).unwrap_or_default();
+        let dice = dice.get_or_insert_with(|| crate::seed::dice(2904));
+        if crate::belt::drunk(
+            &mut commands,
+            (follower, false),
+            &mut health,
+            (item, &healing),
+            (None, &mut sounds, dice),
+        ) {
+            pack.held = None;
+            crate::belt::used_up(&mut sounds);
+        }
+        return;
+    }
+    let health = &*health;
     debug!(
         "mercenaries: {follower} of type {} pressed, the cursor holding {:?}",
         mind.creature,
