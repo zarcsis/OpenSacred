@@ -575,7 +575,7 @@ Since #657 the scripts hire too (`followers::Hired`, `npcs::hire_of`): a `Create
 - In the game, `QIS_OnEnter15002` made quest 15002's escort and `Dialog:od_15002` hired it (`script`, the console): it followed the hero, and `btn_ok_dq_15002` let it go, where it stayed.
 
 Since #1771 a follower's entry of the column takes a weapon or a shield from the cursor and gives its hands' items back (`mercenaries`, "A hireling's hands" above; `opensacred_rules::equipment::handed`, `grip`, `may_use` of a creature's type; `npcs::Rearms::handing`): its values, its clips and its fight made anew as an archer's rearming makes them; an item given comes back as it was given, a hand's own item as its maker made it at the follower's level.
-Since #1733 the event (8, `0x10`)'s remark plays (`remarks::Remark::Equipment`, docs/re/sound.md, the companions), and the refusal's (8, `0x11`) none, as the original's; the potion given to drink (#2904) and the items' bonuses to the follower's skills, that of two weapons among them (#2948), are not followed yet, and the attributes and the skill asked are since #2411 ("A hireling's hands" above).
+Since #1733 the event (8, `0x10`)'s remark plays (`remarks::Remark::Equipment`, docs/re/sound.md, the companions), and the refusal's (8, `0x11`) none, as the original's; the potion given to drink (#2904) is not followed yet; the items' bonuses to the follower's skills, that of two weapons among them, are since #2948, and the attributes and the skill asked since #2411 ("A hireling's hands" above).
 The console's `hire ID` hires a creature as a script's `0x4B` does, and the original's driver's `hire ID` calls `sdk_HIRE` as `SetNPCState` does (#1771).
 
 Not followed yet: the healers (#2895).
