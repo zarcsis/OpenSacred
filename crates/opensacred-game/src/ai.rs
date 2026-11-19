@@ -1959,10 +1959,11 @@ fn behave(
         (Entity, &mut Transform, &InTheWay, &mut Mind, Option<&Walk>),
         (Without<Body>, Without<crate::npcs::Dies>),
     >,
-    (arts, experience, effects): (
+    (arts, experience, effects, forms): (
         Option<Res<crate::arts::HeroArts>>,
         Option<Res<crate::fight::Experience>>,
         Query<&crate::effects::Effects>,
+        Option<Res<crate::forms::Forms>>,
     ),
     (followers, queued, arms, clips): (
         Query<(), With<crate::followers::Follower>>,
@@ -2570,10 +2571,14 @@ fn behave(
                     continue;
                 }
                 Decision::Child => {
+                    // A child flees before a hero of the type 7, the Vampiress by night, as
+                    // before the Daemon's 9 (`0x4F2AD7`, #2897).
+                    let feared =
+                        daemon.0 || forms.as_deref().is_some_and(crate::forms::Forms::by_night);
                     let does = child(
                         &mind,
                         spot(here),
-                        (spot(hero), daemon.0, shoos),
+                        (spot(hero), feared, shoos),
                         in_settlement,
                         &mut minds.rng,
                     );
