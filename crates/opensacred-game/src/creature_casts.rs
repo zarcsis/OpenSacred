@@ -324,12 +324,13 @@ fn act(
         Res<crate::fight::Rules>,
         ResMut<crate::spells::Dice>,
     ),
-    (mut launches, mut hits, mut healths, mut points, mut spat): (
+    (mut launches, mut hits, mut healths, mut points, mut spat, mut small_fires): (
         MessageWriter<crate::bolts::Launch>,
         MessageWriter<crate::fight::Hit>,
         Query<&mut crate::fight::Health>,
         MessageWriter<crate::sfx::PlayAt>,
         MessageWriter<crate::spits::Spat>,
+        MessageWriter<crate::fx::SmallFire>,
     ),
 ) {
     for (entity, cast, at, (mind, way), rank, combat, clip) in &acting {
@@ -966,6 +967,11 @@ fn act(
                 }
             }
             casts::DEMON_FIRE => {
+                // A small fire at its feet that strikes nothing (`0x527669`, #2898).
+                small_fires.write(crate::fx::SmallFire {
+                    at: here,
+                    level: way.level,
+                });
                 // Its fire charging at its hand, a jolt of the screen and its sound (`0x5274ED`).
                 let mut fire = commands.spawn((
                     HomingFire {

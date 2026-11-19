@@ -6,7 +6,8 @@
 //! generic sparks of its figure, an object 856 of the variant 0 by the FX event `0x50`
 //! (`0x49F172`, `0x49F276`), red as it turns hostile and near white as it turns peaceful
 //! (`opensacred_rules::minds::grouped_flash`), as an undead goblin burns away (`puffs`). Each
-//! takes the member's figure as the record runs, before the member goes.
+//! takes the member's figure as the record runs, before the member goes. The flash serves the
+//! black magician 271's blink too, its pale green sparks where it stood (`0x4D72E8`, #2898).
 
 use bevy::ecs::system::SystemState;
 use bevy::prelude::*;
