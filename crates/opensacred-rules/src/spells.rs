@@ -625,6 +625,33 @@ pub const PIERCES: u32 = 56;
 /// The effect by which spells are turned aside (`0x1A`; docs/re/fight.md).
 pub const TURNS_SPELLS: u32 = 0x1A;
 
+/// The Dark Elf's spellproof, whose effect [`TURNS_SPELLS`] shares a spell it turns aside among
+/// the creatures hostile to its bearer ([`spellproof_share`]); any other key's only flashes.
+pub const SPELLPROOF: u32 = 1046;
+
+/// How near its bearer the creatures stand that a spellproof's spell turned aside strikes:
+/// within √30,000 (`0x561860`).
+pub const SHARED_WITHIN: f32 = 173.205_08;
+
+/// What each of `count` creatures takes of a spell of the damages `damages` that a spellproof of
+/// the value `value` turned aside (`0x561860` at `0x561BB5`–`0x5622DB`, #2945): the spell's
+/// damages times the value shared out among them, truncated, of the kind of the largest, the
+/// first of two alike (**hypothesis**: the kinds summed); none for none.
+pub fn spellproof_share(damages: [f32; 4], value: f32, count: usize) -> Option<[f32; 4]> {
+    let count = u16::try_from(count).ok().filter(|&n| n > 0)?;
+    let kind = (0..4).fold(0, |best, kind| {
+        if damages[kind] > damages[best] {
+            kind
+        } else {
+            best
+        }
+    });
+    let share = (damages.iter().sum::<f32>() * value / f32::from(count)).trunc();
+    let mut each = [0.0; 4];
+    each[kind] = share;
+    Some(each)
+}
+
 /// How long the shield wall's object runs before it gives its effects, in seconds (at the
 /// world's time).
 pub const WALL_TIME: f32 = 1.0;
@@ -1499,6 +1526,17 @@ mod tests {
         // The most the kills raise it to: where a kill adds nothing, 1.9 (#1741).
         assert!((doom_most(900) - 1.9).abs() < 1e-6);
         assert!((doom_kills(doom_most(900), 900) - doom_most(900)).abs() < 1e-6);
+        // The spellproof's share: 40 + 20 times 1.25 among three, all magic.
+        assert_eq!(
+            spellproof_share([0.0, 20.0, 40.0, 0.0], 1.25, 3),
+            Some([0.0, 0.0, 25.0, 0.0])
+        );
+        assert_eq!(spellproof_share([10.0, 0.0, 0.0, 0.0], 1.0, 0), None);
+        // Of two kinds alike the first.
+        assert_eq!(
+            spellproof_share([10.0, 10.0, 0.0, 0.0], 1.0, 1),
+            Some([20.0, 0.0, 0.0, 0.0])
+        );
         // The choir's slowing: 2M/(15·L) held to 0.5 to 1, a boss's level times 1.3.
         assert!((choir_slows(30, false, 4) - 1.0).abs() < 1e-6);
         assert!((choir_slows(15, false, 2) - 1.0).abs() < 1e-6);
