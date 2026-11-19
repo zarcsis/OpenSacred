@@ -630,7 +630,8 @@ pub(crate) fn resolve(
             remarks.write(comment);
         }
         // The attacker's rare effects on the whole damage (#1779): its wounds' (867, its items',
-        // its sets' and its berserk's per cent; `0x56E15D`), then its critical hit's (859 against
+        // its sets' and its berserk's per cent, the effect 47's list word,
+        // `opensacred_rules::arts::berserk`; `0x56E15D`), then its critical hit's (859 against
         // the struck one, the hero's sets' terms; `0x56E8CC`). Its red flash is not followed.
         let items = holding.map_or(&[][..], |holding| &holding.0.items[..]);
         let berserk = effects.get(hit.attacker).ok().map_or(0.0, |effects| {
@@ -638,9 +639,7 @@ pub(crate) fn resolve(
                 .list()
                 .into_iter()
                 .find(|effect| effect.id == opensacred_rules::arts::FRENZY)
-                .map_or(0.0, |effect| {
-                    f32::from(u16::try_from(effect.whole.max(0)).unwrap_or(u16::MAX))
-                })
+                .map_or(0.0, |effect| f32::from(effect.level))
         });
         let wounds =
             opensacred_rules::fight::item_effect(items, opensacred_rules::fight::WOUNDS, None);

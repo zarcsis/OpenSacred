@@ -1003,16 +1003,25 @@ fn the_dwarfs_frenzy_quickens_his_attack() {
         factor: [39.0, 1.0],
         value_58: [28.0, 2.0],
         value_60: [5, 27],
+        value_68: [3, 0],
         ..weapon_art(1082, [20.0, 12.0], 0)
     };
-    // Seen at level 4: the effect 47 of the whole value 36 and the value 5 for 43 s.
+    // Seen at level 4: the effect 47 of the whole value 36 and the value 5 for 43 s; its list
+    // word, the berserk's per cent, 27 + 3·4.
     let boon = boon(&record, 4).expect("1082 is a boon");
     assert_eq!(boon.point, 0.1);
     let (effect, seconds) = boon.effects[0];
     assert_eq!(
-        (effect.id, effect.whole, effect.value, effect.art),
-        (FRENZY, 36, 5.0, 1082)
+        (
+            effect.id,
+            effect.whole,
+            effect.value,
+            effect.art,
+            effect.level
+        ),
+        (FRENZY, 36, 5.0, 1082, 39)
     );
+    assert_eq!(berserk(&record, 1), 30);
     assert_eq!(seconds, 43.0);
     // Seen: 12 after his first strike; 10.18 rose to about 18.05 at the next.
     assert!((frenzy_rises(0.0, 36) - 12.0).abs() < 1e-5);
