@@ -328,7 +328,7 @@ Since #1706 the protection's line takes the hero's resistances' factors (the sta
 The damage's line takes the hero's damage multipliers, which are the sum of the stats' `+0x96` and `+0xA6` that the original's line takes (`0x5C5A4E`), but the items' bonuses of the condition's bit 14.
 Since #1708 a bonus names the class of its opponents as above; **seen** beside the original's on the set piece 4040, line for line.
 Since #1712 the damage's line takes the items' bonuses of the bit 14 too, in the hero's multipliers.
-Not followed: the quest's line (an item of `+0x14` bit `0x800`, the quest items' page's, whose items never enter the grid), and `EWX_TWOHANDED` of the fist weapons 4067 to 4072, the line going by the weapon's kind alone.
+Not followed: the quest's line (an item of `+0x14` bit `0x800`, the quest items' page's, whose items never enter the grid).
 The refusal weighs the class's variants since #1516 (`opensacred_rules::equipment::class_allows`), a weapon set's slot of the bar shows its item's tooltip since #1689 (docs/re/interface.md), and an item in the world shows its name beside the cursor (docs/re/cursor.md).
 **Seen** in the game beside the original's at the Seraphim's start: the small healing potion, the scroll 4097 and the rune 5375 line for line, and the item maker's gauntlets 1221 of the Daemon in white and orange with their protection, their slowing and their resistances.
 #1088 follows this page in its sub-issues: the windows and their layout (#1267), the grid (#1268), the cursor's item (#1269), the equipment's slots (#1270), the weapon sets (#1271), the potions and the belt (#1272), the tooltip (#1273) and the extras (#1274).

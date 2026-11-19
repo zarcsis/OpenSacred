@@ -54,11 +54,9 @@ const NO_DAMAGE: u8 = 26;
 const RUNE: u8 = 28;
 const BRIDLE: u8 = 29;
 const ARMOUR: [u8; 10] = [6, 17, 18, 19, 21, 22, 23, 24, 25, 33];
-/// The skills of the lores' names (`9399 +` the skill) and of the armour's pace, and the
-/// weapons' kinds held in both hands (`0x5CECD0`).
+/// The skills of the lores' names (`9399 +` the skill) and of the armour's pace.
 pub(super) const SKILL_NAMES: u32 = 9399;
 const ARMOUR_LORE: u8 = 11;
-const TWO_HANDED: [u8; 5] = [2, 3, 4, 7, 12];
 /// The classes' bits of a record's word `+0x04` and their indices (`0x43C250`), the index the
 /// name's text, and each index's colour.
 const CLASS_BITS: [(u32, u32); 8] = [
@@ -421,7 +419,8 @@ fn name_lines(item: &Item, words: &Words) -> Vec<Line> {
         if !lore.is_empty() {
             lines.push(Line::of(lore, WHITE));
         }
-        if TWO_HANDED.contains(&item.record.kind) {
+        // The kinds held in both hands and the fist weapons (`0x5CECD0`).
+        if opensacred_rules::sets::two_handed(item.record.kind, item.item) {
             lines.push(Line::of(words.of("EWX_TWOHANDED"), WHITE));
         }
     }
@@ -869,6 +868,42 @@ mod tests {
                 Piece::Image(index, _) => format!("[{index}]"),
             })
             .collect()
+    }
+
+    #[test]
+    fn a_two_handed_weapon_and_a_fist_weapon_say_so() {
+        let weapon = |item, kind| Item {
+            item,
+            name: "Weapon",
+            category: WEAPON,
+            record: Record {
+                word: CLASSES,
+                kind,
+                ..Record::default()
+            },
+            price: 0,
+            buying: false,
+            quality: 0,
+            values: ItemValues::default(),
+            level: 0,
+            asked: 0,
+            drink: None,
+            sockets: (0, 0),
+            takers: None,
+            set: None,
+        };
+        let two_handed = |item, kind| {
+            name_lines(&weapon(item, kind), &words())
+                .iter()
+                .any(|line| texts(line) == "<EWX_TWOHANDED>")
+        };
+        // A sword's kind is held in one hand, a staff's in both, and the fist weapons 4067 to
+        // 4072 in both whatever their kind.
+        assert!(!two_handed(4000, 0));
+        assert!(two_handed(4000, 2));
+        assert!(two_handed(4067, 0));
+        assert!(two_handed(4072, 0));
+        assert!(!two_handed(4073, 0));
     }
 
     #[test]
