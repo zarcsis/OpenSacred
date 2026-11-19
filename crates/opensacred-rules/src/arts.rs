@@ -1372,15 +1372,16 @@ pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
             ends: true,
         });
     }
-    // The Dwarf's 1082 below 0.9 its effect 47 of the whole value `b` and the value `[+0x60]`
-    // for `a` seconds, keyed by it (`0x514790` at `0x516040`).
+    // The Dwarf's 1082 below 0.9 its effect 47 of the whole value `b`, the value `[+0x60]` and
+    // the list word of its berserk's per cent for `a` seconds, keyed by it (`0x514790` at
+    // `0x516040`).
     if record.id == 1082 {
         let frenzy = Effect {
             id: FRENZY,
             whole: i32::try_from(whole_units(f64::from(b))).unwrap_or(0),
             value: narrow(f64::from(record.value_60[0])),
             art: u32::from(record.id),
-            level: 1,
+            level: berserk(record, level),
         };
         return Some(Boon {
             point: 0.1,
@@ -1414,6 +1415,14 @@ pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
 /// raise toward its whole value ([`frenzy_rises`]) and which falls by its value a second
 /// ([`frenzy_falls`]).
 pub const FRENZY: u32 = 47;
+
+/// The Dwarf's berserk's per cent of the art `record` at the level `level`, his effect
+/// [`FRENZY`]'s list word: `[+0x68]·L + [+0x64]` (27 + 3·L on file; `0x51604A`), which the
+/// strike's resolution adds to his wounds' per cent (`0x56E165`) and the art's tooltip tells.
+pub fn berserk(record: &WeaponArt, level: u32) -> u16 {
+    let word = i64::from(record.value_68[0]) * i64::from(level) + i64::from(record.value_60[1]);
+    u16::try_from(word.max(0)).unwrap_or(u16::MAX)
+}
 
 /// The Dwarf's frenzy `frenzy` after a strike of his lands, his effect [`FRENZY`] of the whole
 /// value `whole` holding (`0x56B130` at `0x56DC31`): a third of the way to the whole value, held

@@ -1055,7 +1055,7 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
         1051 | 1053 => vec![duration()],
         1082 if weapon => {
             let berserk = v.weapon.map_or(0, |w| {
-                i64::from(w.value_68[0]) * i64::from(v.level) + i64::from(w.value_60[1])
+                i64::from(opensacred_rules::arts::berserk(w, v.level))
             });
             vec![
                 signed(n(1100), ftol(v.w58())),
