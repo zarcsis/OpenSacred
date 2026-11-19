@@ -214,10 +214,10 @@ pub const BANISHED_RUNS: f32 = 700.0;
 pub const RUNES_FROM: f32 = 200.0;
 
 /// Whether the banishing circle at the level `level` takes at its cast a creature of the level
-/// `creature`, a boss or not (`0x522DE3`, `0x59F960`): no boss, its level at most `5·L + 3`; one
-/// that steps into it later it takes whatever its level (`0x5941A0`).
-pub fn banishes(level: u32, creature: u32, boss: bool) -> bool {
-    !boss && creature <= 5 * level + 3
+/// `creature`, a boss or a champion (`proof`) or not (`0x522DE3`, `0x59F960`): neither, its level
+/// at most `5·L + 3`; one that steps into it later it takes whatever its level (`0x5941A0`).
+pub fn banishes(level: u32, creature: u32, proof: bool) -> bool {
+    !proof && creature <= 5 * level + 3
 }
 
 /// Where a creature at `here` that the banishing circle about `centre` takes runs (`0x539F60`):
@@ -1608,6 +1608,7 @@ mod tests {
     fn the_banishing_circle_sends_the_weaker_creatures_700_away() {
         assert!(banishes(1, 8, false));
         assert!(!banishes(1, 9, false));
+        assert!(banishes(2, 13, false) && !banishes(2, 14, false));
         assert!(!banishes(10, 1, true));
         assert_eq!(banished_to([300.0, 400.0], [0.0, 0.0]), [720.0, 960.0]);
         assert_eq!(banished_to([5.0, 5.0], [5.0, 5.0]), [705.0, 5.0]);

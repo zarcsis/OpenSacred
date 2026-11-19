@@ -624,7 +624,8 @@ fn confusions(
         for (target, there, way, mind, health, rank, effects, size) in &creatures {
             let reach = opensacred_rules::arts::CONFUSION_REACH
                 + size.map_or(arrows::size(0), |size| size.0);
-            let boss = rank.is_some_and(|rank| rank.0 == fight::Rank::Boss);
+            // No boss nor champion (`+0x2B8` bit `0x40`, #2826).
+            let boss = proof(rank);
             let confused = effects.is_some_and(|effects| {
                 effects.holds(opensacred_rules::arts::DOMINATED)
                     || effects.holds(opensacred_rules::spells::CONVERTED)
@@ -702,7 +703,7 @@ fn fogs(
                     timed.effect.id == opensacred_rules::arts::DOMINATED && timed.left > 0.5
                 })
             });
-            let boss = rank.is_some_and(|rank| rank.0 == fight::Rank::Boss);
+            let boss = proof(rank);
             if !inside
                 || held
                 || way.level != zone.level
@@ -1775,13 +1776,10 @@ fn act(
                     level: body.level(),
                     left: seconds,
                 };
-                // At its cast, the creatures in it of no boss and of a level up to 5·L + 3.
+                // At its cast, the creatures in it of no boss nor champion and of a level up to
+                // 5·L + 3.
                 for (entity, at, mind, ..) in &hearers {
-                    let boss = targets
-                        .get(entity)
-                        .ok()
-                        .and_then(|(.., rank)| rank)
-                        .is_some_and(|rank| rank.0 == fight::Rank::Boss);
+                    let boss = proof(targets.get(entity).ok().and_then(|(.., rank)| rank));
                     if inside(&zone, at.translation())
                         && mind.hostile()
                         && spells::banishes(act.level, mind.level, boss)
@@ -3535,6 +3533,13 @@ fn changelings(
             }
         });
     }
+}
+
+/// Whether a creature of the rank `rank` is a boss (`+0x1F4` bit `0x80000`) or a champion
+/// (`+0x2B8` bit `0x40`), whom the confusion, the fog and the banishing circle pass over
+/// (docs/re/arts.md; #2826).
+fn proof(rank: Option<&fight::Ranked>) -> bool {
+    rank.is_some_and(|rank| matches!(rank.0, fight::Rank::Boss | fight::Rank::Champion))
 }
 
 /// Counts each ring of frost's zone down, and gives each hostile creature on its level that stands
