@@ -1755,6 +1755,11 @@ pub struct ItemValues {
     /// gave it (`crate::drops::quality`, #2267), 15 a unique's.
     #[serde(default)]
     pub quality: u8,
+    /// The difficulty that its maker made it on, plus one (`+0x04` bits 24–27, the top byte
+    /// `0x11` to `0x15` that `0x5D5080` writes, #2807), by which its worth and its tooltip's icon
+    /// go; 0 for an item of its type's record, which keeps the record's.
+    #[serde(default)]
+    pub difficulty: u8,
 }
 
 /// How many bonus slots an item's record has.
@@ -2126,8 +2131,9 @@ impl ItemValues {
     /// The values of an item's record, given as its `u16` words from its `+4`, as `Weapon.pak
     /// +0x84` holds a fixed item's and a hero template its items' (docs/re/items.md): each kind's
     /// least damage at `+0x1C`, its most at `+0x24`, `A` at `+0x2C`, `D` at `+0x2E` and the
-    /// resistances at `+0x32`, its bonus slots ([`Bonus`]), its family (`+0x05`) and its sockets
-    /// (`+0x0C`); a word past the end is 0. Its class and its template's scale are its type's,
+    /// resistances at `+0x32`, its bonus slots ([`Bonus`]), its family (`+0x05`), its sockets
+    /// (`+0x0C`), its classes, its skill, its quality and its difficulty (`+0x04` bits 24–27); a
+    /// word past the end is 0. Its class and its template's scale are its type's,
     /// not its record's: none here.
     pub fn of_record(words: &[u16]) -> Self {
         let word = |offset: usize| words.get((offset - 4) / 2).copied().unwrap_or(0);
@@ -2159,6 +2165,7 @@ impl ItemValues {
                 & (crate::equipment::CLASSES | crate::equipment::NO_CLASS),
             skill: word(0x1A).to_le_bytes(),
             quality: u8::try_from(word(0x06) & 0xF).unwrap_or(0),
+            difficulty: u8::try_from((word(0x06) >> 8) & 0xF).unwrap_or(0),
         }
     }
 }
@@ -2480,7 +2487,8 @@ impl Templates {
     /// chances times `f`; then its three triples ([`triples`], #2266) and its magic bonus in its
     /// first slot (`magic::bonus`, #2265), its class byte for an item of every class: its
     /// record's class bits that the maker keeps, `kept` (0 for a weapon, a shield or a ring,
-    /// [`crate::drops::Catalogue::kept_classes`]), with the triples'.
+    /// [`crate::drops::Catalogue::kept_classes`]), with the triples'; and the difficulty plus one
+    /// ([`ItemValues::difficulty`]).
     pub fn make<D: Dice>(
         &self,
         item: u32,
@@ -2506,6 +2514,7 @@ impl Templates {
         let mut values = ItemValues {
             scale: words[6],
             family: self.families.get(&item).copied().unwrap_or(0),
+            difficulty: u8::try_from(difficulty.index() + 1).unwrap_or(0),
             ..ItemValues::default()
         };
         // The damage: fire, then magic and poison (unless both others) moved by the difficulty's
@@ -7673,6 +7682,12 @@ mod tests {
             .make(1712, 20, (Difficulty::Bronze, 0), &mut rng)
             .unwrap();
         assert_eq!((values.classes, values.skill), (0x4, [11, 4]));
+        // The difficulty it was made on, plus one, as the maker's flags' top byte (#2807).
+        assert_eq!(values.difficulty, 1);
+        let gold = templates
+            .make(1712, 20, (Difficulty::Gold, 0), &mut rng)
+            .unwrap();
+        assert_eq!(gold.difficulty, 3);
     }
 
     /// The words from `+4` of the Seraphim's weapon of her template, the record 7901 (docs/02 §9):
@@ -7776,9 +7791,15 @@ mod tests {
                 classes: 0,
                 skill: [0; 2],
                 quality: 0,
+                difficulty: 0,
             }
         );
         assert_eq!(ItemValues::of_record(&[]), ItemValues::default());
+        // A record's quality and difficulty, the flags' bits 16 to 19 and 24 to 27.
+        let mut made = blade();
+        made[1] = 0x1302;
+        let values = ItemValues::of_record(&made);
+        assert_eq!((values.quality, values.difficulty), (2, 3));
     }
 
     #[test]
