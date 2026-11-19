@@ -1286,6 +1286,27 @@ pub(crate) fn throw_disarmed(
     );
 }
 
+/// Throws `dropped`, an item a creature wore, down from the point `at` on `floor`, as a disarmed
+/// weapon flies (`0x4E9900`): a horse let go throwing its bridle down (`riding::own`, #2910).
+pub(crate) fn throw_down(
+    In((dropped, (at, floor))): In<(Dropped, (Vec3, Level))>,
+    mut commands: Commands,
+    tables: Option<Res<Tables>>,
+    mut dice: ResMut<Dice>,
+    assets: Res<AssetServer>,
+) {
+    let Some(tables) = tables else {
+        return;
+    };
+    let flight = Flight::disarmed([at.x, at.z, at.y / up(1.0)], &mut dice.0);
+    lay(
+        &mut commands,
+        (&assets, &tables),
+        (flight, floor, false),
+        dropped,
+    );
+}
+
 /// Puts `dropped` into the world on its `flight` on `level`, marked as the hero's or not, its
 /// model, if it was converted, with its texture.
 fn lay(
