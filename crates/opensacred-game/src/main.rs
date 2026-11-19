@@ -115,6 +115,7 @@ mod glance;
 mod glitter;
 mod goblin_impacts;
 mod grenade_impacts;
+mod group_looks;
 mod gun_fires;
 mod guns;
 mod hard_rays;
@@ -616,6 +617,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         grenade_impacts::GrenadeImpactsPlugin,
     ))
     .add_plugins((
+        group_looks::GroupLooksPlugin,
         gun_fires::GunFiresPlugin,
         guns::GunsPlugin,
         hard_rays::HardRaysPlugin,

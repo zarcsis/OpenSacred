@@ -1539,6 +1539,12 @@ pub fn body_end(end: BodyEnd, points: &[[f32; 3]], dice: &mut impl Dice) -> Burs
 pub const GENERIC_PARTICLES: usize = 500;
 /// The colour of an undead goblin's sparks at its last death (`0x541B95`, the event's `+0x38`).
 pub const BURN_SPARKS: u32 = 0xFFFF_4040;
+/// The colours of the generic sparks of the variant 0 that a `SetGroupState`'s hostility makes at
+/// a member whose side it changes (`0x49E760`, the 856 by the FX event `0x50` at `0x49F172` and
+/// `0x49F276`; #2893): red as it turns hostile, the undead goblins' burning's, and near white as
+/// it turns peaceful.
+pub const TURNED_HOSTILE: u32 = 0xFFFF_4040;
+pub const TURNED_PEACEFUL: u32 = 0xFFF0_F0F0;
 
 /// The variant of the 856 that a creature of the type `creature` makes at its last death
 /// (`0x53ECA0`'s cases 3 to 5): 0, the red sparks, for the undead goblins 142 and 143; 7, the

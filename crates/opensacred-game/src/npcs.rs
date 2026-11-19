@@ -11396,6 +11396,15 @@ pub(crate) fn script_records(
             }
             match (&change, mind) {
                 (Regrouped::Group(state), Some(mut mind)) if !state.removes => {
+                    // A side changed flashes, its figure taken as it was (#2893).
+                    if let Some(colour) = state
+                        .hostile
+                        .and_then(|hostile| minds::grouped_flash(mind.side, mind.creature, hostile))
+                    {
+                        commands.queue(move |world: &mut bevy::prelude::World| {
+                            crate::group_looks::flash(world, entity, colour);
+                        });
+                    }
                     let mut functions = on_death.as_ref().map(|d| d.0.clone()).unwrap_or_default();
                     state.apply_to(&mut mind, way.map(|way| way.into_inner()), &mut functions);
                     talk_to(&mut commands, entity, state.talk.clone());
@@ -11415,10 +11424,17 @@ pub(crate) fn script_records(
                     }
                 }
                 // Removed without a death, its function not run, nothing dropped: kept from
-                // coming back as it goes (`sdk_DESTROY(id, 1, 0, 1)`, `0x463A70`).
+                // coming back as it goes (`sdk_DESTROY(id, 1, 0, 1)`, `0x463A70`); a group's
+                // member in the soul's sparks, its figure taken before it goes (#2893), a
+                // `DelNPC`'s with none.
                 _ => {
                     if let Some(mut health) = health {
                         health.current = 0;
+                    }
+                    if matches!(&change, Regrouped::Group(state) if state.removes) {
+                        commands.queue(move |world: &mut bevy::prelude::World| {
+                            crate::group_looks::vanish(world, entity);
+                        });
                     }
                     commands.entity(entity).despawn();
                 }

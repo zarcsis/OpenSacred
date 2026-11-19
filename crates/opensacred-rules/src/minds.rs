@@ -327,6 +327,19 @@ pub fn grouped_side(side: u8, creature: u32, word: u32, hostile: bool) -> u8 {
     }
 }
 
+/// The colour of the flash that a `SetGroupState`'s hostility `hostile` gives a member of side
+/// `side` and type `creature` ([`grouped_side`]): only where it changes the member's side, the
+/// generic sparks at its figure (`0x49F172`, `0x49F276`), red as it turns hostile
+/// ([`crate::particles::TURNED_HOSTILE`]) and near white as it turns peaceful
+/// ([`crate::particles::TURNED_PEACEFUL`]).
+pub fn grouped_flash(side: u8, creature: u32, hostile: bool) -> Option<u32> {
+    (hostile_to_heroes(side, creature) != hostile).then_some(if hostile {
+        crate::particles::TURNED_HOSTILE
+    } else {
+        crate::particles::TURNED_PEACEFUL
+    })
+}
+
 /// The behaviours' flags: the wild animals, the farm animals, the guards, the townsfolk
 /// (`0x4EF150`); those that the game follows.
 const WILD: u32 = 0x40;
@@ -7038,6 +7051,22 @@ mod tests {
         assert_eq!(stated_side(2, 279, 0, false), 3);
         assert_eq!(stated_side(14, 279, 0x4000, false), 7);
         assert_eq!(stated_side(3, 640, 0x4000, false), 3);
+        // `SetGroupState`: a member turned flashes red or near white, one left on its side not
+        // (#2893).
+        assert_eq!(
+            grouped_flash(3, 640, true),
+            Some(crate::particles::TURNED_HOSTILE)
+        );
+        assert_eq!(grouped_flash(2, 76, true), None);
+        assert_eq!(
+            grouped_flash(2, 279, false),
+            Some(crate::particles::TURNED_PEACEFUL)
+        );
+        assert_eq!(grouped_flash(3, 640, false), None);
+        assert_ne!(
+            crate::particles::TURNED_HOSTILE,
+            crate::particles::TURNED_PEACEFUL
+        );
         // A mind takes the maker's side by its flags' bit 0 until it is given one.
         let mind = |flags, class| {
             Mind::new(

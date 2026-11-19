@@ -226,6 +226,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/goblin_impacts.rs`: The goblin mages' ball's impacts
 - `crates/opensacred-game/src/grenade_impacts.rs`: The mortar shells' impacts
 - `crates/opensacred-game/src/ground.wesl`: The ground's fragment shader
+- `crates/opensacred-game/src/group_looks.rs`: The sights of a script's `SetGroupState`
 - `crates/opensacred-game/src/gun_fires.rs`: The guns' sights
 - `crates/opensacred-game/src/guns.rs`: The Dwarf's mortar shells
 - `crates/opensacred-game/src/hard_rays.rs`: The `Hardhit`'s ray's sight with a bow
