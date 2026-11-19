@@ -4956,6 +4956,16 @@ mod tests {
             Some(Pursues::KeepsBand(at(100.0 - casts::BAND_POINT, 0.0)))
         );
         assert!(ordered.banding);
+        // Its band by the distance between the two, wherever they stand.
+        let aside = Pursuit {
+            here: at(1000.0, 0.0),
+            hero: at(1300.0, 0.0),
+            ..sight(300.0)
+        };
+        assert!(matches!(
+            decide(&mut fighting(141), &aside, vec![2, 0]),
+            Some(Pursues::Strolls(_, true))
+        ));
         // Beyond 600 too, facing its target while it walks.
         let walking = Pursuit {
             walk: Some(Walking {
