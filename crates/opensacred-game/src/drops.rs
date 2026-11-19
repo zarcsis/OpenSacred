@@ -97,6 +97,10 @@ pub struct Tables {
 /// docs/re/items.md).
 const CLASS_BITS: u32 = 0x00C0_003F;
 
+/// The bits of a record's word `+0x04` of the difficulty plus one that a made item was made on
+/// (`0x5D5080`).
+const DIFFICULTY_BITS: u32 = 0x0F00_0000;
+
 /// The bits of a record's word `+0x04` that a made item holds of its own: the classes' and the bit
 /// `0x40`, no class (`opensacred_rules::fight::ItemValues::classes`).
 const OWN_CLASSES: u32 = CLASS_BITS | opensacred_rules::equipment::NO_CLASS;
@@ -580,8 +584,8 @@ impl Tables {
     /// The worth of `dropped` that its record keeps (`+0x08`), which the smith's price takes
     /// (`0x6A2B20`, #1662): the worth of its values with its sockets' (`0x5D3AB0` as the item
     /// maker or the socket's filling `0x5C0810` calls it), a made item's quality its maker's
-    /// quality pass's (#2267) and its difficulty 0; its type's price otherwise, its record's
-    /// worth.
+    /// quality pass's (#2267) and its difficulty its maker's (#2807); its type's price otherwise,
+    /// its record's worth.
     pub fn worth(&self, dropped: &Dropped) -> i64 {
         let record = self.record(dropped.item);
         if dropped.values.is_none() && dropped.socketed.is_empty() {
@@ -594,8 +598,11 @@ impl Tables {
                 item: dropped.item,
                 category: self.category(dropped.item),
                 values: &values,
-                // A made item's quality as its maker's quality pass gave it (#2267).
-                flags: (record.word & CLASS_BITS) | (u32::from(values.quality) << 16),
+                // A made item's quality as its maker's quality pass gave it (#2267), and the
+                // difficulty it was made on (#2807).
+                flags: (record.word & CLASS_BITS)
+                    | (u32::from(values.quality) << 16)
+                    | (u32::from(values.difficulty) << 24),
                 price: record.price,
             },
         )
@@ -626,8 +633,9 @@ impl Tables {
 
     /// What a tooltip tells of `dropped`'s record, and what the use's test weighs (#2410): its
     /// type's ([`Self::record`]) with a made item's own classes (the item's `+0x04` that its
-    /// maker worked out, #2266) and the skill it asks of its own values (`+0x1A`, `+0x1B`: its
-    /// record's, or what its maker's triples wrote), as the original's tooltip (`0x5C12F0`,
+    /// maker worked out, #2266), the difficulty it was made on (its bits 24 to 27, #2807) and the
+    /// skill it asks of its own values (`+0x1A`, `+0x1B`: its record's, or what its maker's
+    /// triples wrote), as the original's tooltip (`0x5C12F0`,
     /// `0x5C14C0`) and its test (`0x54ABE0`) read the item's own record at `+0x118`; the skill
     /// with its level raised to the highest of its sockets' items' (`0x5BFF60`, #1661), and each
     /// attribute it asks to the highest of theirs, as the tooltip merges their records into its
@@ -643,6 +651,11 @@ impl Tables {
             }
             if values.skill != [0, 0] {
                 [record.requirements[4], record.requirements[5]] = values.skill;
+            }
+            // The difficulty it was made on, whose icon its tooltip shows (#2807).
+            if values.difficulty != 0 {
+                record.word = (record.word & !DIFFICULTY_BITS)
+                    | (u32::from(values.difficulty) << 24 & DIFFICULTY_BITS);
             }
         }
         for socket in &dropped.socketed {

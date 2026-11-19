@@ -187,7 +187,7 @@ The trade's price of an item is its record's `+0x08` plus its sockets' items' (`
 So the sword 7901 (21 to 23 physical, `A` 5, `D` 2, the effects 811 of 14 and 812 of 2, whose records' fourth and fifth floats are 25 and 2.5) is worth `d` 22, `⌊713.6⌋` 713, with `A` 738, with `D` 747, its 811 raising the factor by `⌊14/2.5⌋/10` to 1.5: 1120, the file's price, by which the original sells it (#1273).
 The 8 records whose prices are not their worths (1799, 2006, 2302, 3122, 3851, 4065, 7579 and 7741, each with an effect 856 or 866) are worth 5 to 7 % less; the client works their prices out anew as it loads the types, so it trades them by the worths (**hypothesis**: the files' prices of an earlier balance).
 
-Since #1621 the game prices every type by its record's worth as it loads the tables, and a made item by its values' (`drops::Tables::trade_price`), its quality the quality pass's since #2267 and its difficulty, whose bits the game does not keep, 0; the tooltip shows a made item's price.
+Since #1621 the game prices every type by its record's worth as it loads the tables, and a made item by its values' (`drops::Tables::trade_price`), its quality the quality pass's since #2267 and its difficulty the one it was made on since #2807 (`fight::ItemValues::difficulty`, the maker's bits 24 to 27, which the tooltip's icon shows too); the tooltip shows a made item's price.
 Since #1661 an item with its sockets filled is priced by the worth of its values with theirs, and its sockets' items' prices added (`0x5BEC70`).
 
 ## The made item's name (`0x5C3130`)
