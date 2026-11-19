@@ -2347,6 +2347,15 @@ mod tests {
         assert_eq!(say(1, 55, &still, vec![2, 1, 0]), Some("NPCUWR_541".into()));
         assert_eq!(say(1, 64, &still, vec![1, 1, 0]), Some("NPCUWR_581".into()));
         assert_eq!(say(1, 50, &still, vec![1, 1]), None);
+        let lines: Vec<_> = [52, 53, 54, 56]
+            .map(|region| say(1, region, &still, vec![1, 1, 0]))
+            .into_iter()
+            .flatten()
+            .collect();
+        assert_eq!(
+            lines,
+            ["NPCUWR_531", "NPCUWR_551", "NPCUWR_561", "NPCUWR_571"]
+        );
         // The kind's line (`R(0, 1)` 0) of the region's atmosphere: 1 at 0, 2 at 1, 3 above.
         assert_eq!(
             say(220, 50, &still, vec![1, 0, 0]),
