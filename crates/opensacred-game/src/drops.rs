@@ -1046,14 +1046,16 @@ fn treasure(
     }
 }
 
-/// The hero's luck without the effect 840, which is not followed: 100, raised by its sets in turn
-/// (`0x564A60`, `set_bonuses::Stats::luck`, #1727).
+/// The luck of a killer without items or sets (`0x564A60`).
 const LUCK: f32 = 100.0;
 
-/// The luck of the hero of `holding` ([`LUCK`]), and whether its kills drop set 22's potions.
+/// The luck of the hero of `holding`, 100 plus its items' effect 840 raised by its sets in turn
+/// (`0x564A60`, `opensacred_rules::fight::items_luck`, `set_bonuses::Stats::luck`, #1727), and
+/// whether its kills drop set 22's potions.
 fn luck_of(holding: Option<&fight::Holding>) -> (f32, bool) {
     holding.map_or((LUCK, false), |holding| {
-        (holding.0.sets.luck(LUCK), holding.0.sets.potions())
+        let luck = opensacred_rules::fight::items_luck(&holding.0.items);
+        (holding.0.sets.luck(luck), holding.0.sets.potions())
     })
 }
 

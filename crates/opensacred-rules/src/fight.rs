@@ -462,11 +462,12 @@ pub fn experience_of(worth: [u16; 2], level: u32, hero: u32, rules: &Rules) -> u
 }
 
 /// [`experience_of`] with the killer's `bonus`, the shares of the kill's base experience that it
-/// earns more, added to the base after `LevelKap`'s cut (`0x57D860` at `0x57DD83`): the values of
-/// its blue potions' effects (the effect 33 of the whole value 5, at `0x57DC62`;
-/// `potions::mentored`); and its sets' share `sets`, by which the experience grows after the
-/// levels' weighing (`0x57DDE3`, `set_bonuses::Stats::experience`, #1727). The items' bonus (the
-/// effect 843) and the others are not followed.
+/// earns more, added to the base after `LevelKap`'s cut (`0x57D860` at `0x57DD83`): its items'
+/// effect 843 ([`items_experience`]) and the values of its blue potions' effects (the effect 33
+/// of the whole value 5, at `0x57DC62`; `potions::mentored`); and its sets' share `sets`, by
+/// which the experience grows after the levels' weighing (`0x57DDE3`,
+/// `set_bonuses::Stats::experience`, #1727). The others (the stats' `+0x4F0` bit `0x800000`'s, a
+/// network game's team's) are not followed.
 pub fn experience_with(
     [a, b]: [u16; 2],
     level: u32,
@@ -1790,6 +1791,25 @@ pub fn marks(effect: u32) -> bool {
         effect,
         840..=843 | 846 | 852..=859 | 861..=863 | 865..=867 | 869
     )
+}
+
+/// The items' effect of the luck (`0x348`), added to a killer's 100 ([`items_luck`]).
+pub const LUCK: u32 = 840;
+/// The items' effect of the experience (`0x34B`), its value per cent of a kill's base that the
+/// killer earns more ([`items_experience`]).
+pub const EXPERIENCE: u32 = 843;
+
+/// The luck of the wearer of the items `items` before its sets raise it (`0x564A60`): 100 (the
+/// float at `0x890998`) plus their effect 840 of no opponent, truncated toward zero.
+pub fn items_luck(items: &[ItemValues]) -> f32 {
+    (100.0 + item_effect(items, LUCK, None)).trunc()
+}
+
+/// The share of a kill's base experience that the wearer of the items `items` earns more: their
+/// effect 843 of no opponent times 0.01 (`0x57DBCE`–`0x57DBF3`, the float at `0x890CB0`), which
+/// [`experience_with`] takes among its `bonus`.
+pub fn items_experience(items: &[ItemValues]) -> f32 {
+    item_effect(items, EXPERIENCE, None) * 0.01
 }
 
 /// The rare effects of the strike: the critical hit and the wounds' damage (#1779).
@@ -8173,6 +8193,36 @@ mod tests {
         assert!((item_effect(&items, CRITICAL, Some(3)) - 12.0).abs() < f32::EPSILON);
         assert!((item_effect(&items, CRITICAL, Some(7)) - 42.0).abs() < f32::EPSILON);
         assert!((item_effect(&items, CRITICAL, None) - 42.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn the_items_luck_and_experience_are_their_effects_840_and_843() {
+        // An item of the effect in two slots, the second against an opponent's side.
+        let item = |effect, values: [i16; 2]| {
+            let mut bonuses = [Bonus::default(); BONUSES];
+            for (slot, value) in values.into_iter().enumerate() {
+                bonuses[slot] = Bonus {
+                    condition: if slot == 1 { 7 } else { 0 },
+                    effect,
+                    value,
+                };
+            }
+            ItemValues {
+                bonuses,
+                ..ItemValues::default()
+            }
+        };
+        // 100 plus every slot's 840, an opponent's too.
+        assert_eq!(items_luck(&[]), 100.0);
+        assert_eq!(items_luck(&[item(LUCK, [12, 5])]), 117.0);
+        assert_eq!(
+            items_luck(&[item(LUCK, [-3, 0]), item(EXPERIENCE, [9, 0])]),
+            97.0
+        );
+        // A hundredth of the 843s.
+        assert_eq!(items_experience(&[]), 0.0);
+        let share = items_experience(&[item(EXPERIENCE, [12, 5]), item(LUCK, [40, 0])]);
+        assert!((share - 0.17).abs() < 1e-6, "{share}");
     }
 
     #[test]
