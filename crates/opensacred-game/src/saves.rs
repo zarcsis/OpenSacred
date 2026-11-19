@@ -86,8 +86,9 @@ use crate::{arts, drops, making};
 /// (#2799); the version 19 whether a follower rises again and how long one has lain dead to
 /// rise (#2947); the version 20 the creatures' queues and the scripts' modes (#2890); the version
 /// 21 the scripts' functions done by their files and keys (#2810); the version 22 the difficulty
-/// a made item was made on (#2807); the version 23 the stalls that purchases emptied (#2907).
-pub const VERSION: u32 = 23;
+/// a made item was made on (#2807); the version 23 the stalls that purchases emptied (#2907); the
+/// version 24 the hero's counts of its quests (#2886).
+pub const VERSION: u32 = 24;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -136,6 +137,9 @@ pub struct Hero {
     pub wins: Wins,
     /// The runes of its class that the quests gave it (`rewards::RunesGiven`, #2799).
     pub runes_given: u32,
+    /// Its counts of its quests' rewards and of those since its last set's piece
+    /// (`rewards::QuestCounts`, #2886).
+    pub quests: opensacred_rules::rewards::QuestCounts,
     /// The seconds played, which the creatures' levels and the fills follow (`drops::Played`).
     pub played: f32,
     pub clock: Clock,
@@ -414,6 +418,10 @@ pub(crate) fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(He
         runes_given: world
             .get_resource::<crate::rewards::RunesGiven>()
             .map_or(0, |given| given.0),
+        quests: world
+            .get_resource::<crate::rewards::QuestCounts>()
+            .map(|counts| counts.0)
+            .unwrap_or_default(),
         played: world
             .get_resource::<drops::Played>()
             .map_or(0.0, drops::Played::seconds),
@@ -646,6 +654,7 @@ fn put_character(world: &mut bevy::prelude::World, entity: Entity, hero: &Hero) 
     world.insert_resource(hero.history.clone());
     world.insert_resource(hero.wins);
     world.insert_resource(crate::rewards::RunesGiven(hero.runes_given));
+    world.insert_resource(crate::rewards::QuestCounts(hero.quests));
     world.insert_resource(drops::Played::of(hero.played));
     if let Err(e) = world.run_system_cached(refit) {
         warn!("saves: making the hero's values anew: {e}");
@@ -1080,6 +1089,10 @@ pub(crate) mod tests {
             history: History::default(),
             wins: Wins([0, 1, 0, 0, 0]),
             runes_given: 3,
+            quests: opensacred_rules::rewards::QuestCounts {
+                quests: 12,
+                since_piece: 5,
+            },
             played: 125.0,
             clock: Clock::at(21, 30),
             queue: crate::npcs::SavedQueue::default(),
@@ -1167,6 +1180,8 @@ pub(crate) mod tests {
         assert_eq!((read_hero.floor, read_hero.health), (1, 99));
         assert_eq!(read_hero.selected, Some(1078));
         assert_eq!(read_hero.runes_given, 3);
+        assert_eq!(read_hero.quests.quests, 12);
+        assert_eq!(read_hero.quests.since_piece, 5);
         assert_eq!(read_hero.home.map(|home| home.cell), Some((3236, 2511)));
         assert!((read_hero.clock.minutes() - (21.0 * 60.0 + 30.0)).abs() < 1e-6);
         // The scripts whole: their state, the functions done, the `rand()` and the placements'.
@@ -1240,7 +1255,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (23, 0xC35D_8964_F0C4_8CC3),
+            (24, 0xAC4B_26DD_B4BB_F85D),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

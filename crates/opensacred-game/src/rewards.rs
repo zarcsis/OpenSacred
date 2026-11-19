@@ -9,8 +9,11 @@
 //! (`0x45FC60`, #1386), and every experience that the hero gains shows a line of the points and
 //! the game's word for experience over it, under the lines it shows (`0x57E160`).
 //!
-//! Not followed yet: `Gewinn`'s sets' pieces by the quests' count (`0x559BF0`), the level of its
-//! item's values (taken as the hero's), and a reward to another creature than the hero.
+//! Each `Gewinn` counts the hero's quests and, by a second count, now and then has the hero drop
+//! a piece of an item set before the rest (`0x4AC940`, `0x559BF0`, [`QuestCounts`], #2886).
+//!
+//! Not followed yet: the level of its item's values (taken as the hero's), and a reward to
+//! another creature than the hero.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -61,9 +64,10 @@ pub struct QuestWon(pub u32);
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct RunesGiven(pub(crate) u32);
 
-/// A new game's count of the runes given, from nothing (#2799).
-fn start(mut given: ResMut<RunesGiven>) {
+/// A new game's counts of the runes given (#2799) and of the quests (#2886), from nothing.
+fn start(mut given: ResMut<RunesGiven>, mut counts: ResMut<QuestCounts>) {
     *given = RunesGiven::default();
+    *counts = QuestCounts::default();
 }
 
 impl RunesGiven {
@@ -71,6 +75,13 @@ impl RunesGiven {
         self.0 = (self.0 + 1).min(MOST_GIVEN);
     }
 }
+
+/// The hero's counts of its quests' rewards and of those since the last that had it drop a set's
+/// piece (`opensacred_rules::rewards::QuestCounts`, its object's `+0x2CF` and `+0x2CD`), which a
+/// save keeps with the hero as the original's file keeps its object (`saves::Hero`, #2886), and a
+/// new game starts at 0 ([`start`]).
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct QuestCounts(pub(crate) opensacred_rules::rewards::QuestCounts);
 
 /// What laying a reward's item takes: the drops' tables and rolls, the assets, the hero's arts,
 /// the runes of its class given and the difficulty.
@@ -111,6 +122,35 @@ impl Laying<'_> {
         if let Some(laid) = laid {
             info!("rewards: laid {laid}");
         }
+    }
+
+    /// Has the hero of `base` at `level`, carrying `pack`, standing at `at` on `floor`, drop a
+    /// set's piece of a quest's reward (`0x4AC940`): one of a least level up to its own
+    /// (`opensacred_rules::drops::Catalogue::reward_set_piece`), thrown from it as a creature's
+    /// drop is (`drops::hero_forced`); none where none is.
+    fn drop_piece(
+        &mut self,
+        commands: &mut Commands,
+        (at, floor): (Vec3, Level),
+        (base, level, pack): (&crate::fight::Base, u32, &Pack),
+    ) {
+        let Some(tables) = self.tables.as_deref() else {
+            return;
+        };
+        let Some(piece) = tables.catalogue().reward_set_piece(level, &mut self.dice.0) else {
+            debug!("rewards: no set's piece of a least level up to {level}");
+            return;
+        };
+        let mut hero = crate::drops::hero(base, level);
+        crate::drops::carrying(&mut hero, pack, self.arts.as_deref(), tables);
+        let difficulty = self.difficulty.as_deref().map(|d| d.0).unwrap_or_default();
+        let made = crate::drops::hero_forced(
+            commands,
+            (&self.assets, tables, &mut self.dice, difficulty),
+            (&hero, at, floor),
+            piece,
+        );
+        info!("rewards: the hero drops the set's piece {piece} ({made:?})");
     }
 }
 
@@ -155,16 +195,21 @@ fn for_hero(record: &Record) -> bool {
         })
 }
 
+/// What the rewards change of the hero: its pack, its experience by the fight's rules, on the
+/// game's difficulty, and its counts of its quests.
+type Gains<'w> = (
+    ResMut<'w, Pack>,
+    ResMut<'w, Experience>,
+    Res<'w, Rules>,
+    Option<Res<'w, Difficulty>>,
+    ResMut<'w, QuestCounts>,
+);
+
 /// Gives the hero the rewards that the scripts ran this frame, before `npcs` takes the records.
 fn reward(
     mut commands: Commands,
     records: Option<Res<WorldRecords>>,
-    (mut pack, mut experience, rules, difficulty): (
-        ResMut<Pack>,
-        ResMut<Experience>,
-        Res<Rules>,
-        Option<Res<Difficulty>>,
-    ),
+    (mut pack, mut experience, rules, difficulty, mut counts): Gains,
     npcs: Option<Res<Npcs>>,
     texts: Option<Res<Texts>>,
     mut laying: Laying,
@@ -217,6 +262,15 @@ fn reward(
                 }
             }
             _ => {
+                // The hero's quests counted, and now and then a set's piece that it drops, before
+                // the rest (`0x4AC940`, #2886).
+                if counts.0.count(&mut laying.dice.0) {
+                    laying.drop_piece(
+                        &mut commands,
+                        (at.translation, body.level()),
+                        (base, level, &pack),
+                    );
+                }
                 let prize = Prize::of(&numbers);
                 if let Some(amount) = prize.gold(level) {
                     info!("rewards: a quest's reward of {amount} gold ({prize:?})");
@@ -349,6 +403,7 @@ pub struct RewardsPlugin;
 impl Plugin for RewardsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RunesGiven>()
+            .init_resource::<QuestCounts>()
             .init_resource::<Unearned>()
             .add_message::<QuestWon>()
             .add_systems(OnEnter(AppState::InGame), start)

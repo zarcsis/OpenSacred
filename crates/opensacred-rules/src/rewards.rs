@@ -4,7 +4,9 @@
 //! of the hero's sector's levels `m` making `⌊(m + 2)·(E[s]·v + 100)/2⌋` times the difficulty's
 //! factor, 1, 2, 10, 20 or 30, times the decay of a high hero; the flags 4 to `0x40` an item, one
 //! at most ([`Prize::item`], #1386). The end of a side quest gives a rune of the hero's class by
-//! a chance of its own (`0x45FC60`, `drops::Rules::quest_rune_range`, [`class_rune`]).
+//! a chance of its own (`0x45FC60`, `drops::Rules::quest_rune_range`, [`class_rune`]). Every
+//! reward counts the hero's quests, and by a second count now and then has the hero drop a piece
+//! of an item set before it gives the rest ([`QuestCounts`], #2886).
 
 use crate::drops::{self, Catalogue, Difficulty, Hero, Kind, Wanted};
 use crate::fight;
@@ -23,6 +25,35 @@ const GOLD_STEPS: [i64; 6] = [5, 8, 12, 20, 4, 25];
 const EXPERIENCE_STEPS: [i64; 6] = [10, 8, 12, 8, 4, 15];
 /// The experience's factor by the difficulty, bronze to niobium (`0x4ACDFB`).
 const EXPERIENCE_FACTORS: [f64; 5] = [1.0, 2.0, 10.0, 20.0, 30.0];
+
+/// The hero's counts of its quests' rewards (`+0x2CF`) and of those since the last that had it
+/// drop a set's piece (`+0x2CD`), which its object keeps and its file with it (`0x54B8BD`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct QuestCounts {
+    pub quests: u16,
+    pub since_piece: u16,
+}
+
+/// The bound of the roll that the count since the last piece must pass (`0x4ACBC6`: `R(1, 56)`).
+const PIECE_ROLL: u32 = 56;
+
+impl QuestCounts {
+    /// A quest's reward counted (`0x4AC940`, before its gold, its experience and its item):
+    /// both counts up by one; then, where `R(1, 56)` falls below the count since the last piece,
+    /// that count starts again from 0 and the hero drops a set's piece
+    /// ([`Catalogue::reward_set_piece`]): whether it does. So a piece comes every 10 rewards or
+    /// so on the average, the chance rising with each reward without one.
+    pub fn count(&mut self, dice: &mut impl Dice) -> bool {
+        self.quests = self.quests.wrapping_add(1);
+        self.since_piece = self.since_piece.wrapping_add(1);
+        if dice.below(PIECE_ROLL) + 1 < u32::from(self.since_piece) {
+            self.since_piece = 0;
+            true
+        } else {
+            false
+        }
+    }
+}
 
 /// A reward's numbers, as its record gives them (the tags `0x0B` and `0x9F`, the first three).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -260,6 +291,34 @@ mod tests {
                 self.0.remove(0).min(n.saturating_sub(1))
             }
         }
+    }
+
+    #[test]
+    fn a_reward_counts_the_quests_and_drops_a_piece_once_a_roll_falls_below_its_count() {
+        let mut counts = QuestCounts::default();
+        // The first reward: the count since the last piece 1, below no roll of 1 to 56.
+        assert!(!counts.count(&mut Rolls(vec![0])));
+        assert_eq!(
+            counts,
+            QuestCounts {
+                quests: 1,
+                since_piece: 1
+            }
+        );
+        // The second: the roll 1 (`0` + 1) falls below 2: a piece, the count again from 0.
+        assert!(counts.count(&mut Rolls(vec![0])));
+        assert_eq!(
+            counts,
+            QuestCounts {
+                quests: 2,
+                since_piece: 0
+            }
+        );
+        // A roll as high as the count gives none.
+        counts.since_piece = 9;
+        assert!(!counts.count(&mut Rolls(vec![9])));
+        assert!(counts.count(&mut Rolls(vec![9])));
+        assert_eq!(counts.quests, 4);
     }
 
     #[test]
