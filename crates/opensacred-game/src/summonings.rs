@@ -125,9 +125,9 @@ fn burn(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&look.mesh) {
-            // Just behind the creature it summons, as the original draws the system before the
-            // creature (#2188).
-            glows.in_order(orders.behind(entity), at.translation());
+            // Just behind a creature standing at its place, the one it summons, as the original
+            // draws the system before the creature (#2188): its object bears no model (#2825).
+            glows.in_order(orders.at(at.translation()), at.translation());
             glows.into_mesh(&mut mesh);
         }
         if look.summon.done() {
