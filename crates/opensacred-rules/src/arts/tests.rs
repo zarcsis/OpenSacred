@@ -1188,6 +1188,9 @@ fn the_master_bite_turns_a_weak_creature_over_for_its_seconds() {
     assert!(!master_bites(false, 6, false, 1, 1));
     assert!(!master_bites(false, 5, true, 1, 1));
     assert!(!master_bites(true, 1, false, 1, 1));
+    // Below the bound alone: 0.4·5 + 5·1 = 7 refuses 7; at the level 2 it is 12.
+    assert!(!master_bites(false, 7, false, 5, 1));
+    assert!(master_bites(false, 11, false, 5, 2));
 }
 
 #[test]
