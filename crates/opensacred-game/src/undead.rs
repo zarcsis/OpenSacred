@@ -401,23 +401,18 @@ fn last(
 }
 
 /// The points that a corpse's sparks leave as it burns, in the frame of a burst at `origin`
-/// (`puffs::local`): its skeleton's bones (`Bip01 …`), where the original takes its model's
-/// skinned vertices (`0x44FC30`, docs/decisions/drawing.md, "Undead's sparks from the bones"),
-/// else its root.
-pub(crate) fn bones(
+/// (`puffs::local`): its model's skinned vertices as last posed, every `⌊V/500⌋`th, as the 856's
+/// burst takes them (`0x796E86`, `0x44FC30`; `vertices::ModelPoints::picked`, #2859), else its
+/// root.
+fn sparks_from(
     corpse: Entity,
     origin: Vec3,
-    (children, names, places): (&Query<&Children>, &Query<&Name>, &Query<&GlobalTransform>),
+    (shapes, meshes): (&crate::vertices::ModelPoints, &Assets<Mesh>),
 ) -> Vec<[f32; 3]> {
-    let points: Vec<[f32; 3]> = children
-        .iter_descendants(corpse)
-        .filter(|&bone| {
-            names
-                .get(bone)
-                .is_ok_and(|name| name.as_str().starts_with("Bip01"))
-        })
-        .filter_map(|bone| places.get(bone).ok())
-        .map(|at| crate::puffs::local(at.translation(), origin))
+    let points: Vec<[f32; 3]> = shapes
+        .picked(corpse, meshes)
+        .into_iter()
+        .map(|point| crate::puffs::local(point, origin))
         .collect();
     if points.is_empty() {
         vec![[0.0; 3]]
@@ -470,18 +465,18 @@ pub(crate) fn gone(commands: &mut Commands, entity: Entity) {
 }
 
 /// The burning of a creature at its last death (`0x53ECA0`'s cases 3 to 5, #1262): its 856 by
-/// its type's variant, the goblins' red sparks from its bones (`puffs`, a light of 100) or the
+/// its type's variant, the goblins' red sparks from its vertices (`puffs`, a light of 100) or the
 /// ghoul's and the skeletons' flames over a scorch at its place (`fx::last_burning`); then `DIEFLAMES` at
 /// it.
 fn burn_out(
     commands: &mut Commands,
     (entity, creature, at, layered): (Entity, u32, Vec3, Option<Layered>),
-    (children, names, places): (&Query<&Children>, &Query<&Name>, &Query<&GlobalTransform>),
+    shapes: (&crate::vertices::ModelPoints, &Assets<Mesh>),
     (sounds, dice): (&mut MessageWriter<Play>, &mut Dice),
 ) {
     match particles::burn_variant(creature) {
         Some(0) => {
-            let points = bones(entity, at, (children, names, places));
+            let points = sparks_from(entity, at, shapes);
             crate::puffs::spawn(
                 commands,
                 particles::generic_sparks(&points, particles::BURN_SPARKS, &mut dice.0),
@@ -511,7 +506,7 @@ fn burn(
         &GlobalTransform,
         Option<&Layered>,
     )>,
-    (children, names, places): (Query<&Children>, Query<&Name>, Query<&GlobalTransform>),
+    (shapes, meshes): (crate::vertices::ModelPoints, Res<Assets<Mesh>>),
     (mut sounds, mut dice): (MessageWriter<Play>, ResMut<Dice>),
 ) {
     for (entity, mut burns, corpse, at, layered) in &mut burning {
@@ -523,7 +518,7 @@ fn burn(
         burn_out(
             &mut commands,
             (entity, corpse.creature, at.translation(), layered.copied()),
-            (&children, &names, &places),
+            (&shapes, &meshes),
             (&mut sounds, &mut dice),
         );
         gone(&mut commands, entity);
@@ -540,7 +535,7 @@ fn burn_after_clip(
     mut commands: Commands,
     burning: Query<(Entity, &Npc, &Dies, &GlobalTransform, Option<&Layered>), With<BurnsAfterClip>>,
     players: Query<&AnimationPlayer>,
-    (children, names, places): (Query<&Children>, Query<&Name>, Query<&GlobalTransform>),
+    (shapes, meshes): (crate::vertices::ModelPoints, Res<Assets<Mesh>>),
     (mut sounds, mut dice): (MessageWriter<Play>, ResMut<Dice>),
 ) {
     for (entity, npc, dies, at, layered) in &burning {
@@ -554,7 +549,7 @@ fn burn_after_clip(
                     at.translation(),
                     layered.copied(),
                 ),
-                (&children, &names, &places),
+                (&shapes, &meshes),
                 (&mut sounds, &mut dice),
             );
             gone(&mut commands, entity);
