@@ -8,14 +8,14 @@
 //! ([`Weather::set`]), dropped while the settings' `[graphics] screen_quake` is off (#1096),
 //! counts the storm's lightnings and the quakes for `skies`, sends `fliers` the crow or the bat
 //! due over the camera by the sector's nature, and tells `butterflies` the sector's entries of
-//! them.
+//! them. The item set 39 worn whole snows too ([`set_snow`], #2911).
 
 use std::collections::HashMap;
 use std::path::Path;
 
 use bevy::prelude::{
-    App, IntoScheduleConfigs, MessageWriter, OnEnter, OnExit, Plugin, Query, Real, Res, ResMut,
-    Resource, Time, Transform, Update, With, World,
+    App, IntoScheduleConfigs, Local, MessageWriter, OnEnter, OnExit, Plugin, Query, Real, Res,
+    ResMut, Resource, Time, Transform, Update, With, World,
 };
 use opensacred_data::tables::WEATHER_ROLLS;
 use opensacred_data::world::{SIDE, SectorWeather, WeatherKind};
@@ -159,6 +159,35 @@ fn choose(
     }
 }
 
+/// The snow of the item set 39 worn whole (its flag `0x2`, `set_bonuses::SNOWS`, #2911): the
+/// weather's snow at 100 as the flag comes, at 0 as it goes (`0x57D362`), and at 100 again at each
+/// change of the hero's sector while it holds (`0x5FCB70`), after the sector's own choice; the
+/// snow over the whole view, the weather's (seen).
+fn set_snow(
+    weather: Option<ResMut<Weather>>,
+    heroes: Query<(&Transform, Option<&crate::fight::Holding>), With<hero::Body>>,
+    mut was: Local<(bool, Option<(i32, i32)>)>,
+) {
+    let (Some(mut weather), Some((at, holding))) = (weather, heroes.iter().next()) else {
+        return;
+    };
+    let snows = holding.is_some_and(|holding| holding.0.sets.snows());
+    let (x, y) = paths::cell_of(at.translation.x, at.translation.z);
+    let side = i32::try_from(SIDE).unwrap_or(64);
+    let sector = Some((x.div_euclid(side), y.div_euclid(side)));
+    let (snowed, last) = *was;
+    if snows != snowed {
+        bevy::log::info!(
+            "weather: the set's snow {}",
+            if snows { "comes" } else { "goes" }
+        );
+        weather.set(Event::Snow(if snows { 100 } else { 0 }));
+    } else if snows && sector != last {
+        weather.set(Event::Snow(100));
+    }
+    *was = (snows, sector);
+}
+
 /// A new game's weather, of none yet.
 fn begin(world: &mut World) {
     let Some(data) = world.get_resource::<Data>() else {
@@ -191,7 +220,10 @@ impl Plugin for WeatherPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
-            .add_systems(Update, (follow_settings, choose).chain().in_set(Playing));
+            .add_systems(
+                Update,
+                (follow_settings, choose, set_snow).chain().in_set(Playing),
+            );
     }
 }
 
@@ -218,5 +250,59 @@ mod tests {
         still.set(Event::Jolt(18));
         assert_eq!(still.quakes, 0);
         assert!(still.state.quake == 0.0 && still.state.jolt == 0.0);
+    }
+
+    #[test]
+    fn the_set_39_worn_whole_snows_and_snows_again_in_each_new_sector() {
+        use bevy::prelude::Vec3;
+        let world = opensacred_data::world::World {
+            sectors: Vec::new(),
+            sheets: Vec::new(),
+            atlases: Vec::new(),
+            assembled_from: Vec::new(),
+        };
+        let mut app = App::new();
+        app.insert_resource(Weather::new(&world))
+            .add_systems(Update, set_snow);
+        let holding = |flags| {
+            crate::fight::Holding(opensacred_rules::fight::Holds {
+                sets: opensacred_rules::set_bonuses::Stats {
+                    flags,
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+        };
+        let hero = app
+            .world_mut()
+            .spawn((
+                Transform::default(),
+                hero::Body::standing(),
+                holding(opensacred_rules::set_bonuses::SNOWS),
+            ))
+            .id();
+        // The flakes wanted, 30 for each of the snow's value.
+        let wanted = |app: &App| app.world().resource::<Weather>().state.snow.wanted;
+        // The flag comes: the snow at 100.
+        app.update();
+        assert_eq!(wanted(&app), 3_000);
+        // The sector's own choice stops it; in the same sector it stays so.
+        app.world_mut()
+            .resource_mut::<Weather>()
+            .set(Event::Snow(0));
+        app.update();
+        assert_eq!(wanted(&app), 0);
+        // A new sector: the snow at 100 again.
+        let far = crate::iso::CELL * f32::from(u16::try_from(SIDE).unwrap_or(64)) * 1.5;
+        app.world_mut()
+            .get_mut::<Transform>(hero)
+            .unwrap()
+            .translation = Vec3::new(far, 0.0, 0.0);
+        app.update();
+        assert_eq!(wanted(&app), 3_000);
+        // The flag goes: the snow at 0.
+        app.world_mut().entity_mut(hero).insert(holding(0));
+        app.update();
+        assert_eq!(wanted(&app), 0);
     }
 }
