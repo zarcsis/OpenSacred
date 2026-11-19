@@ -176,6 +176,8 @@ struct Other {
     at: Vec3,
     side: u8,
     creature: u32,
+    /// Its `Creature.pak` class.
+    class: u8,
     level: u32,
     /// Its size, of which and another's the reach is the mean (`minds::size`).
     size: u32,
@@ -190,6 +192,7 @@ impl Other {
             at,
             side: mind.side,
             creature: mind.creature,
+            class: mind.class,
             level: mind.level,
             size: mind.size(),
             turned: mind.turned,
@@ -200,6 +203,12 @@ impl Other {
     /// are turned over (`0x423580` at `0x4238C6`).
     fn hated_by(&self, mind: &Mind) -> bool {
         minds::hostile(mind.side, mind.creature, self.side, self.creature)
+            != (self.turned || mind.turned)
+    }
+
+    /// Whether it is hostile to `mind`, so turned over too.
+    fn hates(&self, mind: &Mind) -> bool {
+        minds::hostile(self.side, self.creature, mind.side, mind.creature)
             != (self.turned || mind.turned)
     }
 }
@@ -597,6 +606,14 @@ fn think(
         .filter(|(.., mind, _, _, _, _)| mind.fighting())
         .map(|(entity, transform, _, mind, ..)| Other::of(entity, transform.translation, mind))
         .collect();
+    // The hero's list of hostiles, nearest first, among which the Underworld's pairs look for
+    // each other (`0xAD3CE0`, #2905).
+    let listed_others: Vec<Other> = nearest
+        .hostiles
+        .iter()
+        .filter_map(|&other| creatures.get(other).ok())
+        .map(|(entity, transform, _, mind, ..)| Other::of(entity, transform.translation, mind))
+        .collect();
     let hero = hero.translation;
     let hero_size = size.map_or(opensacred_rules::minds::SIZE, |size| size.0);
     let dt = tick.seconds.unwrap_or_default();
@@ -656,6 +673,43 @@ fn think(
                 size: other.size,
             })
             .collect();
+        // The hero's hostiles but itself, as foes and as the Underworld's pairs see them, and its
+        // own distance from the hero, where it is in the list, else the first's.
+        let hostiles: Vec<&Other> = if (mind.hostile() || mind.turned) && !mind.fighting() {
+            listed_others
+                .iter()
+                .filter(|other| other.entity != entity)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let listed: Vec<(Foe, minds::Listed)> = hostiles
+            .iter()
+            .map(|other| {
+                (
+                    Foe {
+                        at: spot(other.at),
+                        takes_on: crate::fight::takes_on(
+                            on_bronze(mind.level),
+                            other.level,
+                            balance.experience,
+                        ),
+                        size: other.size,
+                    },
+                    minds::Listed {
+                        creature: other.creature,
+                        class: other.class,
+                        hostile: other.hated_by(&mind) || other.hates(&mind),
+                        distance: (other.at - here).xz().length(),
+                    },
+                )
+            })
+            .collect();
+        let own = listed_others
+            .iter()
+            .find(|other| other.entity == entity)
+            .or(listed_others.first())
+            .map_or(0.0, |other| (other.at - hero).xz().length());
         // A creature that the Vampiress dominates does not see her for a foe (the effect 13), nor
         // any the hero in its water form (`0x54A6D0`).
         let dominated = unseen
@@ -675,6 +729,8 @@ fn think(
             sliding,
             hero_size,
             foes: &foes,
+            listed: &listed,
+            own,
         };
         // A straight line of walkable cells to its target (`0x4FCC80`).
         let clear = |to: Spot| {
@@ -702,14 +758,15 @@ fn think(
             steps.push((entity, point(home, here.y)));
         }
         if thought.attacks {
-            mind.foe = thought
-                .foe
-                .and_then(|index| candidates.get(index))
-                .map(|other| other.entity);
-            match candidates
-                .iter()
-                .find(|other| Some(other.entity) == mind.foe)
-            {
+            // A fighter, else one of the hero's hostiles, its index after the fighters'.
+            let picked = thought.foe.and_then(|index| {
+                candidates
+                    .get(index)
+                    .or_else(|| hostiles.get(index.checked_sub(candidates.len())?))
+                    .copied()
+            });
+            mind.foe = picked.map(|other| other.entity);
+            match picked {
                 Some(foe) => {
                     let distance = (here - foe.at).xz().length();
                     debug!(
@@ -2056,6 +2113,7 @@ fn behave(
             at: hero,
             side: minds::HEROES,
             creature: 0,
+            class: 0,
             level: 0,
             size: minds::SIZE,
             turned: false,
@@ -3117,6 +3175,7 @@ mod tests {
             at: Vec3::new(x, 0.0, 10.0),
             side,
             creature,
+            class: 0,
             level: 11,
             size: 130,
             turned: false,
