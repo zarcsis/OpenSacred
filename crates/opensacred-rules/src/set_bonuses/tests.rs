@@ -114,6 +114,10 @@ fn the_flags_and_the_filled_sets_bonuses() {
     // Set 58's flag at 6: a creature that would flee its wearer is struck down (#2547).
     assert!(stats(&wearing(58, 6), Difficulty::Bronze, false).strikes_fleeing());
     assert!(!stats(&wearing(58, 5), Difficulty::Bronze, false).strikes_fleeing());
+    // Set 39's flag at 6: the weather snows (#2911).
+    assert!(stats(&wearing(39, 6), Difficulty::Bronze, false).snows());
+    assert!(!stats(&wearing(39, 5), Difficulty::Bronze, false).snows());
+    assert!(!stats(&wearing(58, 6), Difficulty::Bronze, false).snows());
     // Its line at 6 (#2559).
     assert!(told(58, &wearing(58, 6), Difficulty::Bronze, false).contains(&Told::StrikesFleeing));
     assert!(!told(58, &wearing(58, 5), Difficulty::Bronze, false).contains(&Told::StrikesFleeing));

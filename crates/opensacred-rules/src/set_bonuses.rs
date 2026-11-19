@@ -519,6 +519,11 @@ pub const WARDS: u32 = 0x10_0000;
 /// would flee its wearer wounded is struck down instead where its level allows (`0x4E1052`;
 /// [`Stats::strikes_fleeing`], `crate::minds::struck_down`).
 pub const STRIKES_FLEEING: u32 = 0x4000;
+
+/// The stats' flag `+0x148` bit `0x2` (set 39 at 6), by which the weather snows at 100 as it
+/// comes, again at each change of sector while it holds, and stops as it goes (`0x57D362`,
+/// `0x5FCB70`; [`Stats::snows`], #2911).
+pub const SNOWS: u32 = 0x2;
 /// The stats' flag `+0x148` bit `0x1000000` (set 60 at 4 with its sockets filled,
 /// `UI_SET_ROOTEN`), by which its wearer's attack may cage a ranged fighter or a mage
 /// (`0x4E0713`; [`Stats::binds`], `crate::minds::binds`).
@@ -829,6 +834,11 @@ impl Stats {
     /// it may be struck down instead.
     pub fn strikes_fleeing(&self) -> bool {
         self.flags & STRIKES_FLEEING != 0
+    }
+
+    /// Whether the wearer's flag [`SNOWS`] holds, by which the weather snows.
+    pub fn snows(&self) -> bool {
+        self.flags & SNOWS != 0
     }
 
     /// Whether the wearer's flag [`BINDS`] holds, by which its attack may cage its target.

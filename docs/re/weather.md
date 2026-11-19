@@ -101,7 +101,8 @@ It is made in place or by `0x51CB60`, which Ghidra names as an effect's construc
 | 11 | the butterflies of a sector taken out | a sector's going |
 | 12 | a vertical jolt of the screen | a creature's steps; `0x522480` |
 
-- The set 39 (docs/re/items.md) sends the snow at 100 or 0 as the stats are made anew (`0x57D362`), and again at 100 as the hero changes sector while its query `0x4E` answers (`0x5FCB70`; **hypothesis**: the set's bonus, a snow about its wearer).
+- The set 39 (docs/re/items.md) sends the snow at 100 or 0 as the stats are made anew (`0x57D362`), and again at 100 as the hero changes sector while its query `0x4E` answers (`0x5FCB70`).
+  **Seen** 2026-11-19 (#2911) in the running original (a Wood Elf of a new game at her start, the six pieces 7626 to 7631 put on by the driver's `wear`): the weather's own snow came over the whole view, its flakes growing in for some 15 s, not a snow about her alone (the old **hypothesis**).
 - The kinds 4 and 6 have no case; the fields `+0x210` and `+0x214` and 50 floats of speeds 0.003 to 0.025 at `+0x218` are set up and kept but never drawn (**hypothesis**: an effect taken out).
 - **The quake (kind 7)**, while `SCREEN_QUAKE` is on (`0x81DDE0`; 1 in `Settings.cfg`): an amplitude of value/3 pixels (`+0x9DB8`), falling by 10 a second, moves the screen by a random offset within it on both axes at each frame, which the view's matrix adds to the camera (`0x6284E0`), and plays the sample 209 `SOUND_FX_EARTHQUAKE_LOOP` (`0x697220`), at most once every 0.1 to 0.35 s; so 30 shakes it by 10 pixels for a second, 45 by 15 for a second and a half.
   Each event sets the amplitude anew rather than raising it, and plays the sample as it comes; the kind 1 sets the amplitude to 0, its flag left for the next frame to take off.
@@ -148,7 +149,7 @@ The crows and the bats fly over the camera as above (`fliers`, #1073): `opensacr
 Seen 2026-10-27 in 51,51 at noon: a crow 134 s after the hero came, flying right and down over the screen, about 70 pixels across at zoom 1, and its call 13 s after it started; not yet set beside the original's.
 The butterflies fly (`butterflies`, #1073): as a sector of their entries comes in, ten swarms an entry at walkable places at random, as docs/re/effects.md ("The butterflies") reads them; they go with the sector.
 The Big Demon's steps jolt the screen (`steps`, #1171), and so does the big demons' fire (`creature_casts`): the weather's jolt moves the view down by a third of its value in pixels, falling by 40 a second, after the quake's offset (`skies`).
-Not followed yet (#2911): the snow that the item set 39 sends about its wearer (the kind 5 above); only the sectors' entries and the console's `setsnow` make snow.
+Since #2911 the set 39 worn whole sends the snow as the original's does (`weather::set_snow`, `opensacred_rules::set_bonuses::SNOWS`): at 100 as its flag comes, at 0 as it goes, and at 100 again at each change of the hero's sector while it holds, after the sector's own choice.
 
 Set beside the original on 2026-10-27, by the driver's `weather` (docs/03 §3.8) and the console's `setrain` and `setfog`, the start of a Seraphim's game at noon (frames in the scratchpad):
 
