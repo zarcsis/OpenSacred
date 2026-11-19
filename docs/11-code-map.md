@@ -303,6 +303,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/pause.rs`: The pause
 - `crates/opensacred-game/src/pick.rs`: The cell under a point of the screen
 - `crates/opensacred-game/src/pickup.rs`: The hero picks up the items on the ground
+- `crates/opensacred-game/src/pictures.rs`: The scripts' pictures
 - `crates/opensacred-game/src/place_names.rs`: The world map's places' names
 - `crates/opensacred-game/src/plant_cages.rs`: The plant cages' looks
 - `crates/opensacred-game/src/plant_healings.rs`: The Wood Elf's plants' healing's sight

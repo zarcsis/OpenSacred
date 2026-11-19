@@ -185,6 +185,7 @@ mod paths;
 mod pause;
 mod pick;
 mod pickup;
+mod pictures;
 mod place_names;
 mod plant_cages;
 mod plant_healings;
@@ -686,6 +687,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         overview::OverviewPlugin,
         pause::PausePlugin,
         pickup::PickupPlugin,
+        pictures::PicturesPlugin,
         plant_cages::PlantCagesPlugin,
         plant_healings::PlantHealingsPlugin,
     ))

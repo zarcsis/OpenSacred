@@ -3068,6 +3068,30 @@ fn take_for_quest(
     }
 }
 
+/// Runs the taking's function of each item, no quest's, that the scripts laid and the hero
+/// took (`Take:`, `0x558080`, `0x46BF40`; #2891), the hero put where they teleport it: quest
+/// 10254's note makes its giver so.
+fn take_items(
+    mut live: Option<NonSendMut<Live>>,
+    mut taken: MessageReader<crate::pickup::TakenToRun>,
+    mut heroes: Query<(&mut Transform, &mut Body)>,
+    mut queues: Queues,
+    (npcs, minds): (Option<Res<npcs::Npcs>>, Query<&Mind, Without<Dies>>),
+) {
+    for crate::pickup::TakenToRun(take) in taken.read() {
+        let Some(live) = live.as_mut() else {
+            continue;
+        };
+        bevy::log::info!("scripts: the hero takes an item and runs {take}");
+        live.living = living_groups(npcs.as_deref(), minds.iter());
+        let effects = live.run_named(take);
+        if let Ok((mut transform, mut body)) = heroes.single_mut() {
+            put(live, &effects.teleports, &mut transform, &mut body);
+        }
+        queues.hand(effects);
+    }
+}
+
 /// Runs the `Use:` function of each item that the hero used from the backpack (`0x46BF40`,
 /// #1272), the hero put where they teleport it.
 fn use_items(
@@ -3185,7 +3209,7 @@ impl Plugin for ScriptsPlugin {
             )
             .add_systems(
                 Update,
-                (collect, take_for_quest, use_items)
+                (collect, take_for_quest, take_items, use_items)
                     .after(crate::pickup::picking)
                     .in_set(Playing)
                     .in_set(Unpaused),

@@ -29,7 +29,7 @@ const EXTRA_SOURCES: &[(&str, &[&str])] = &[
         &["PAK/models.pak", "PAK/models03.pak", "Sacred.exe"],
     ),
     ("sound", &["Sacred.exe"]),
-    ("ui", &["PAK/texture.pak"]),
+    ("ui", &["PAK/texture.pak", "Sacred.exe"]),
 ];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

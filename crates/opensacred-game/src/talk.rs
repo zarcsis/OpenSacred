@@ -105,9 +105,11 @@ const EDGE_ACROSS: u32 = 21;
 const EDGE_DOWN: u32 = 34;
 const CORNER: u32 = 55;
 /// The modes of an `InfoPlayer` that show its text (`0x4AE350`): 0 and 1, 2 with the music
-/// `0x1B61` once, which has no file, and 3 with the sound 7000, which no tree's `InfoPlayer` asks
-/// for (#1243).
+/// `0x1B61` once, which has no file, and [`CLICKS`].
 const SHOWS: [i32; 4] = [0, 1, 2, 3];
+/// The mode of an `InfoPlayer` that plays `UI_CLICK01` (7000) in the middle with its text or
+/// without, as the add-on's side quest 7618 asks for (#2891).
+const CLICKS: i32 = 3;
 
 /// What a talk opens (`0x52AB70`): the creature's dialogue by its function's name, or, for a
 /// trader without one (its number below 1 or above 200,000), a smith's, a merchant's or a combat
@@ -1345,18 +1347,22 @@ fn veil(
 }
 
 /// Shows the scripts' `InfoPlayer`s' texts (#1033): of a mode that shows one, each, as lines
-/// under those that show (`info_lines`, #2499); of the other modes `fades`, `movies` and
-/// `statistics` take theirs before it, and the rest (an image, an event, the interface's states)
-/// are not followed.
+/// under those that show (`info_lines`, #2499), the mode 3 with its click (#2891); of the other
+/// modes `fades`, `movies`, `pictures` and `statistics` take theirs before it, and the rest (an
+/// event, the interface's states) are not followed.
 pub(crate) fn notices(
     mut infos: ResMut<scripts::Infos>,
     texts: Option<Res<Texts>>,
     mut shown: ResMut<crate::info_lines::Shown>,
+    mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
     for (mode, key) in infos.0.drain(..) {
         if !SHOWS.contains(&mode) {
             debug!("talk: an InfoPlayer of the mode {mode} ({key}) is not followed");
             continue;
+        }
+        if mode == CLICKS {
+            crate::inventory::play(&mut sounds, crate::inventory::CLICK);
         }
         match texts
             .as_deref()
@@ -1620,6 +1626,33 @@ impl Plugin for TalkPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_infoplayer_of_the_mode_3_clicks_and_the_others_do_not() {
+        let mut app = App::new();
+        app.init_resource::<scripts::Infos>()
+            .init_resource::<crate::info_lines::Shown>()
+            .add_message::<crate::sfx::Play>()
+            .add_systems(Update, notices);
+        app.world_mut().resource_mut::<scripts::Infos>().0 = vec![
+            (0, "res:17643".into()),
+            (CLICKS, "res:NQ_7618_INFOPLAYER".into()),
+            (2, "res:17643".into()),
+            (9, "res:17643".into()),
+        ];
+        app.update();
+        let played: Vec<u32> = app
+            .world_mut()
+            .resource_mut::<Messages<crate::sfx::Play>>()
+            .drain()
+            .filter_map(|play| match play.sound {
+                crate::sfx::Of::Id(id) => Some(id),
+                crate::sfx::Of::Profile(..) => None,
+            })
+            .collect();
+        assert_eq!(played, [crate::inventory::CLICK]);
+        assert!(app.world().resource::<scripts::Infos>().0.is_empty());
+    }
 
     #[test]
     fn a_dead_creature_whose_dialogue_holds_its_body_is_spoken_to() {
