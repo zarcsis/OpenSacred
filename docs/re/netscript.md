@@ -720,7 +720,7 @@ Read 2026-10-25 (#356, a second pass of a subagent of the session, on the Luau o
 ### Moorbrook
 
 - **9009 (Whisky Supplier)**: `QIS_OnEnter9009` creates the barrel 17542 (item 6081), whose function `rg22_goodie1_start` (`0x41`) sets bit 25 of `goodies`, and the win is the target's branch on that bit.
-  The target's dialogue, `Dialog:rg22_goodie1_ziel`, tests `0x3A` of the barrel 17713 first, which quest 2203 gives as its reward (`exit2203`), and offers to buy it; while the hero carries it the branch of bit 25 is never reached, and selling or drinking it frees it (#935).
+  The target's dialogue, `Dialog:rg22_goodie1_ziel`, tests `0x3A` of the barrel 17713 first, which quest 2203 gives as its reward (`exit2203`), and offers to buy it; while the hero carries it the branch of bit 25 is never reached, and selling it frees it, or drinking the supplier's own barrel 17562, whose `Fass_gesoffen` deletes 17713 too (#935).
   Repaired: the dialogue tests the win first (docs/decisions/netscript.md, "Crossing quests left able to end").
 - **2203 (Pure Water)**: `Region22Init` creates its six objects (item 6081, `0x41` `obj2203`) and its hostile target 17260 (`0x05` `tot2203`).
   `obj2203` counts the variable `2303a` whatever the quest's state, setting bit 3 of `2203a` at a count of 6, or bit 3 of `2203`, the win, where bit 3 of `2203b` is set; `tot2203` tests bit 3 of `2203a` first, which sets the win, ahead of the branch that triggers the quest where the target is beaten before it is taken.
@@ -880,9 +880,14 @@ Since #1257 the scripts keep the hero's list of the main quest's items (`opensac
 **Seen** in the game (#1257): quest 204's book picked up by its `take204` enters the list as `res:17640`, and `exit204` takes the Seraphim's branch.
 A `CreateObj` of an item's type without `0x8E` (and without `0x61` or `0x62`) lays an item that the hero picks up as any lying item, not placed again once taken (**seen** in the original, `beweise209`'s two items at the hero's feet, one clicked into the backpack; #1296): quest 204's reward 5570 lies at the hero as `exit204` runs.
 Its type is one a creature may pick up (`0x427920`; docs/re/items.md, "The walk"): the signposts that the start scripts make with `CreateObj`, of the types 4993 to 4999 with the first word's bit 22, are objects that nobody picks up (#1476).
-Not followed: an object in the world whose type is in the list (`0x498860`), and the creature's 256 slots (the hero's inventory, where quest 2203's barrel 17713 stays).
+Not followed: an object in the world whose type is in the list (`0x498860`), and the creature's 256 slots (the hero's inventory).
 `CreateObj`'s tag `0x83` names the item's use's function, kept behind the prefix `Use:` as `0x41`'s behind `Take:` (`0x486263`; read 2026-10-30, #1272), which the right button runs on the item in the backpack (docs/re/inventory.md, §3): six records of the Seraphim's tree carry it, in quests 2203 and 9512 and in the whisky supplier's function, one of them, quest 2203's barrel of `0x8E`, a quest's item.
-Since #1272 the game keeps it with the item as the hero takes it (`npcs::ScriptItem`, `pickup::Pack::uses`) and runs it as the right button uses the item (`runes`, `scripts`); a quest's item's is not followed yet (#2889), as such an item goes among the main quest's items (`pickup::Pack::quest`) and not into the grid.
+Since #1272 the game keeps it with the item as the hero takes it (`npcs::ScriptItem`, `pickup::Pack::uses`) and runs it as the right button uses the item (`runes`, `scripts`).
+A quest's item never reaches the grid, so its use's function never runs (read 2026-11-19 for #2889, **confirmed** by code and in the running original).
+The pick-up (`cCreature::pickupItem`, `0x558080`) gives an object that the collecting lists do not take (`0x4AAAE0`) the list of the main quest's items, and destroys it, where its type passes `0x428680` or the object has `+0x14` bit `0x800`, the mark of `CreateObj`'s `0x8E`; only an object of neither goes on to the gold, the hands, the backpack or the cursor.
+So quest 2203's barrel 17713 goes into the list as it is taken: the hero can sell it (`verkaufe_whiskey`, which tests `0x3A`), never drink it, and `Fass_gesoffen2203` never runs.
+**Seen** 2026-11-19 (#2889): one of `Region22Init`'s six barrels (6081, `0x8E`) taken in the cave by (5446, 1438) left the backpack's grid empty.
+The game does the same: a quest's item goes among the main quest's items (`pickup::Pack::quest`), its use's function unbound.
 
 An item laid by a `CreateObj` of a `res:` name goes by that name's text under the cursor rather than by its type's (docs/re/cursor.md, "The chooser's tests"; #1360).
 
@@ -962,6 +967,8 @@ In the order of `0x461540`:
 - `0x73` writes `+0x25F` (the mark, docs/re/fight.md), `0x67` `+0x2B6` and `+0x261`, and `0x6B` clears `+0x2B7` bit `0x08` for 0 and sets it above 0 (the strikes' resolution and the deaths read it with `+0x251`, not read further).
 - `0x05` keeps a function's name for the creature in the script manager's list at `+0x358`, its old death's and sight functions taken out first: the function its death runs; `0x60` adds a sight function, `See:` and its name, and sets `+0x1F4` bit `0x400000` ("The deaths' functions", **confirmed** by code 2026-10-26).
 - `0x1F` is its level, 1000 a boss (docs/re/spawning.md, "`SetNPCState`'s level"); `0x36` writes `+0x255`, which serves nothing (docs/re/ai.md).
+- `0x8C` with a number `n` above 0 gives the creature the effect 31 of the whole value 0 and the value 0 for 10 s, its art `n` (`0x582D50(31, 0, 0.0, 10.0, n)` at `0x46217B`; docs/re/arts.md, "The effects"), whose object 874 shows butterflies by its head (**seen** 2026-11-19, #2889: `Fass_gesoffen2203` run in the original, a trace of `0x582D50`: 31, 0, 0, 10, 500).
+  The scripts give it with 500 in `Fass_gesoffen` and `Fass_gesoffen2203`, the uses of the whisky barrels.
 - `0x23`, `0x24` and `0x25` make it a trader (`+0x200` bits `0x1000`, `0x2000` and `0x4000`), each in the script manager's list of traders, and `0x64` too (`0x4000000`) with a dialogue stamped (`0x2BF20`).
 - `0x63` (`SetOwner:`) names a trader whose stock of horses the creature joins (the list at `+0x79E8`, up to six horses each, at their levels), its dialogue taken away, or the hero, who then owns it (docs/re/horses.md, "The stables and the horse traders").
 - `0x11` puts it in a group (`+0x249`, `0x4A9EF0`), and `0xA1` sets `+0x14` bit `0x200000`.
@@ -969,7 +976,7 @@ In the order of `0x461540`:
 - `0x37`, `0x4B` and `0x71` hire it (`sdk_HIRE`, docs/re/movement.md), the hero's follower for the number 0; `0x37` and `0x71` also clear its `+0x1F4` bit `0x100` and set `0x4`, and `0x71` marks it in its quest's list (`+0x31C`); `0x39` and `0x65` call the quests' hook `0x471790` instead and tell the hero's client (an event `0x10B`).
 - Last its stats are computed again (`0x5796A0`).
 
-Not read further: `0x7F`, `0x80`, `0x84`, `0x8C` and `0x85`'s blood lines; `0x90` was read since as a horse's class (`SetHorseClass:`, docs/re/horses.md, "The stables and the horse traders").
+Not read further: `0x7F`, `0x80`, `0x84` and `0x85`'s blood lines; `0x90` was read since as a horse's class (`SetHorseClass:`, docs/re/horses.md, "The stables and the horse traders").
 In the Seraphim's tree, of the records that `opensacred-game` ran at that reading (the start script, the quests' `OnSetUp` and entered `OnEnter` functions), 66 of the start script and one of an `OnSetUp` are `SetNPCState`s, and those that name a creature made before carry `0x1F` 62 times (the stables' horses), `0x63` 59, `0x09` once (the captain of 52,39, `auftrag22`) and `0x6B` once.
 **Confirmed** in the original (2026-10-23, the Seraphim's start under the driver of #448): the captain's dialogue is 958, the place from 1 of `auftrag22` among the start script's dialogues, which the table's doubled first entry gives.
 
@@ -979,7 +986,7 @@ Since #657 its `0x37`, `0x4B` and `0x71` hire the creature as the hero's followe
 The play's `SetNPCState`s give these to a creature made before them too, its placement and the creature in the world (`npcs::Npcs::restate`).
 Since #2426 they give it their flags word too, and their side with it, as a creature made with them takes them (`State::flags_of`, a trader's `0x800` taking its trades): the Gladiator's arena gives its dark gladiator 17087, made hostile as quest 10 is entered, `0x08` and `0x12` as the hero steps on `gladattack10`, the flags' bit 1 by which the hero's look wakes a hostile creature within 800 to fight (docs/re/ai.md, "Dormant and awake"), and without it the creature only fidgeted at each look.
 Its quest (`0x75`) serves only the dynamic quests' table, which the release never fills ("The dynamic quests"), and is left out; `0x6B`, by which a dead follower rises, is followed since #2459 (`npcs::RisesAgain`, `followers::rise_again`), and the horses' stock itself since #2300 (`stables`; docs/re/horses.md, "The stables and the horse traders"); `0x67`'s healer is not followed yet (#2895).
-Not followed, and why: `0x36`, which serves nothing; `0x73`'s mark of 64, the game taking a creature's mark by its type (`opensacred_rules::minds::marked`), and no `SetNPCState` of the Seraphim's tree carrying it; `0x90`'s byte `+0x400`, a horse's class, which the game takes from its `CreateNPC` alone (docs/re/horses.md, "The stables and the horse traders"), and `0xA1`'s `+0x14` bit `0x200000`, the visions' mark, which the game gives by the type (docs/re/drawing.md, "The visions"); `0x7F`, `0x80`, `0x84`, `0x8C` and `0x85`'s effect, not read.
+Not followed, and why: `0x36`, which serves nothing; `0x73`'s mark of 64, the game taking a creature's mark by its type (`opensacred_rules::minds::marked`), and no `SetNPCState` of the Seraphim's tree carrying it; `0x90`'s byte `+0x400`, a horse's class, which the game takes from its `CreateNPC` alone (docs/re/horses.md, "The stables and the horse traders"), and `0xA1`'s `+0x14` bit `0x200000`, the visions' mark, which the game gives by the type (docs/re/drawing.md, "The visions"); `0x8C`'s effect 31, which the game does not have (#3023); `0x7F`, `0x80`, `0x84` and `0x85`'s effect, not read.
 In the Seraphim's tree the `SetNPCState`s carry `0x03` 4 times, `0x11` 3 times and `0x63` 59 times (the stables' horses, of no dialogue already).
 
 ## The anim mode and the creatures' queues
