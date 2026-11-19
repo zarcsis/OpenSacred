@@ -1774,11 +1774,11 @@ pub fn confusion_seconds(level: u32, creature: u32) -> f32 {
     3.0 * ratio.min(1.0)
 }
 
-/// Whether the fog at the level `level` takes a creature of the level `creature`, a boss or not
-/// (the zone's kind 4, `0x59F960` at `0x59FDDD`): no boss, its level at most `5·L + 3`, as the
-/// banishing circle's.
-pub fn fog_takes(level: u32, creature: u32, boss: bool) -> bool {
-    crate::spells::banishes(level, creature, boss)
+/// Whether the fog at the level `level` takes a creature of the level `creature`, a boss or a
+/// champion (`proof`) or not (the zone's kind 4, `0x59F960` at `0x59FDDD`): neither, its level at
+/// most `5·L + 3`, as the banishing circle's.
+pub fn fog_takes(level: u32, creature: u32, proof: bool) -> bool {
+    crate::spells::banishes(level, creature, proof)
 }
 
 /// What is left of its clip, as a part of it, below which the bats come (`0x50E6C0`), the most
