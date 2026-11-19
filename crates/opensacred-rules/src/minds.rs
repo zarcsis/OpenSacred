@@ -8462,5 +8462,32 @@ mod tests {
         hunter.side = 2;
         let thought = hunter.think(&senses, |to| to == at(0.0, 200.0), || true, &mut rng);
         assert!(thought.attacks && thought.foe == Some(0), "{thought:?}");
+        // Its index comes after the fighters': a fighter far beyond its look, and the nearer of
+        // two hunted, the second of the list.
+        let fighter = [Foe {
+            at: at(-900.0, 0.0),
+            takes_on: true,
+            size: SIZE,
+        }];
+        let far = (
+            Foe {
+                at: at(0.0, 450.0),
+                ..hunted
+            },
+            Listed {
+                distance: 450.0,
+                ..listed[0].1
+            },
+        );
+        let two = [far, listed[0]];
+        let senses = Senses {
+            foes: &fighter,
+            listed: &two,
+            ..senses
+        };
+        let mut hunter = Mind::new(Spot::default(), 0x1, (false, false), None, SPEEDS, (189, 6));
+        hunter.side = 2;
+        let thought = hunter.think(&senses, |to| to == at(0.0, 200.0), || true, &mut rng);
+        assert!(thought.attacks && thought.foe == Some(2), "{thought:?}");
     }
 }
