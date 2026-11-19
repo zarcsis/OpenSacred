@@ -2256,6 +2256,7 @@ fn a_rundums_regeneration_starts_by_its_class() {
     assert_eq!(RUNDUM_HOP, 0.2);
     // The first frame: none for 1000, the Dark Elf's own group, the others none.
     assert_eq!(rundum_starts(1000), None);
+    assert_eq!(rundum_starts(DWARF_RUNDUM), None);
     assert_eq!(rundum_starts(1065), Some(Some(1065)));
     assert_eq!(rundum_starts(1073), Some(None));
 }
