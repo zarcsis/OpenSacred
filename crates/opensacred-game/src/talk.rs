@@ -10,9 +10,11 @@
 //! original's hero in its talk acts on none (seen, #2877; docs/re/netscript.md, "The talk's own
 //! end, and the world meanwhile"), and Esc's menu and P's pause go on over the window.
 //!
-//! In a dialogue's place a talk opens the smith's, the merchant's or the combat master's window
-//! for such a creature without a dialogue, and the horse window for a horse trader or a stable's
-//! horse ([`Speech`], [`speech_of`]). The scripts begin talks too ([`popups`]: the hero's own of
+//! In a dialogue's place a townsperson of the Underworld's regions without one says a generic
+//! line in the window of `Dialog:NPC_UW_DLG` ([`Lines`], `opensacred_rules::quests::
+//! underworld_line`, #2887), and a talk opens the smith's, the merchant's or the combat master's
+//! window for such a creature without a dialogue, and the horse window for a horse trader or a
+//! stable's horse ([`Speech`], [`speech_of`]). The scripts begin talks too ([`popups`]: the hero's own of
 //! a `Popup`, and one with the creature of an `NPC_TalkTo`), show their `InfoPlayer`s' texts as
 //! lines ([`notices`], #1033) and play their `PlaySound`s outside a window ([`lines()`], #1826).
 //! The module also reads the creatures' portraits ([`Portraits`], #1032) and carries out the
@@ -54,6 +56,12 @@ const STOPS: u8 = 3;
 const REGION_SIDES: [u8; 6] = [3, 7, 8, 12, 14, 15];
 const REGION_FLAGS: u32 = 0x1006_DCF8;
 const NOT_REGION: u32 = 0x4_0000;
+/// The dialogue whose function shows a townsperson's generic line, its first text replaced by the
+/// line (`0x549920`: the talk 54,321 of the add-on's trees).
+const GENERIC: &str = "NPC_UW_DLG";
+/// The record of the dice of a creature's generic line, by which its own seed makes them, as the
+/// original seeds its `rand()` with the creature's id at each query.
+const GENERIC_ROLL: usize = 0x5499;
 
 /// The name's colour (`0xFFFFFF80`), the texts', a button's and one under the cursor, and the
 /// window's ground, black at 160/255 (read off the original's frames, #1458), each in the frame's
@@ -107,6 +115,8 @@ const SHOWS: [i32; 4] = [0, 1, 2, 3];
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Speech {
     Dialogue(String),
+    /// A townsperson's generic line of the Underworld, in the window of [`GENERIC`] (#2887).
+    Line(String),
     Smith,
     Merchant,
     Master,
@@ -118,6 +128,7 @@ impl std::fmt::Display for Speech {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Dialogue(dialogue) => f.write_str(dialogue),
+            Self::Line(line) => write!(f, "the generic line {line}"),
             Self::Smith => f.write_str("the smith's window"),
             Self::Merchant => f.write_str("the merchant's window"),
             Self::Horses => f.write_str("the horse window"),
@@ -127,22 +138,23 @@ impl std::fmt::Display for Speech {
 }
 
 /// What the creature of `talk`, `mind` and `trades` opens as the hero speaks to it, of `npcs`:
-/// its dialogue ([`dialogue_of`]), else the smith's window where it is a smith (`+0x200` bit
+/// its dialogue ([`dialogue_of`]), else a townsperson's generic `line` where the Underworld gives
+/// it one ([`Lines::line`]), else the smith's window where it is a smith (`+0x200` bit
 /// `0x1000`, `quests::SMITH`, #1662), else the merchant's window where it is a merchant (bit
 /// `0x2000`, `quests::MERCHANT`, #1618), else the master's window where it is a combat master
 /// (bit `0x4000`, `quests::WIZARD`); a horse trader's talk stamp (`quests::TRADER`, 180,000)
 /// opens the horse window before any dialogue (`0x52BA16`, #2300).
 pub(crate) fn speech_of(
-    talk: Option<&Talk>,
-    mind: &Mind,
-    trades: Option<&Trades>,
+    (talk, mind, trades): (Option<&Talk>, &Mind, Option<&Trades>),
     npcs: Option<&Npcs>,
+    line: impl FnOnce() -> Option<String>,
 ) -> Option<Speech> {
     if trades.is_some_and(|trades| trades.0 & opensacred_rules::quests::TRADER != 0) {
         return Some(Speech::Horses);
     }
     dialogue_of(talk, mind, npcs)
         .map(Speech::Dialogue)
+        .or_else(|| generic(talk, mind).then(line).flatten().map(Speech::Line))
         .or_else(|| {
             let trades = trades.map_or(0, |trades| trades.0);
             if trades & opensacred_rules::quests::SMITH != 0 {
@@ -273,11 +285,100 @@ fn dialogue_by(
     if let Some(talk) = talk {
         return Some(talk.0.clone());
     }
-    let townsfolk = REGION_SIDES.contains(&mind.side)
+    townsfolk(mind).then(|| region(mind.creature)).flatten()
+}
+
+/// Whether the creature of `mind` is of the townsfolk's sides and flags and hostile neither way,
+/// for whom a type's dialogue and a generic line speak (`0x549920`).
+fn townsfolk(mind: &Mind) -> bool {
+    REGION_SIDES.contains(&mind.side)
         && mind.flags & REGION_FLAGS != 0
         && mind.flags & NOT_REGION == 0
-        && !mind.hostile();
-    townsfolk.then(|| region(mind.creature)).flatten()
+        && !mind.hostile()
+}
+
+/// Whether the creature of `talk` and `mind` may say a generic line: a townsperson of no dialogue
+/// of its own (`0x549920`).
+pub(crate) fn generic(talk: Option<&Talk>, mind: &Mind) -> bool {
+    talk.is_none() && townsfolk(mind)
+}
+
+/// The regions' atmospheres, of the scripts' variables `atmo_rg<n>` (the interpreter's
+/// `+0x7750`, which `IncVar`, `DecVar`, `SetVar` and `RndVar` of such a variable keep,
+/// `0x49CAB8`), by which the generic lines go (#2887); copied from the scripts at each frame. No
+/// tree names such a variable (the add-on's keep theirs in `atmos_rg<n>`), so they stand at 0, as
+/// the original's.
+#[derive(Resource, Default, Debug, PartialEq, Eq)]
+pub(crate) struct Atmospheres(Vec<i32>);
+
+impl Atmospheres {
+    /// The atmosphere of the region `region`.
+    fn of(&self, region: u16) -> i32 {
+        self.0.get(usize::from(region)).copied().unwrap_or(0)
+    }
+}
+
+/// Copies the regions' atmospheres from the scripts' variables.
+fn atmospheres(live: Option<NonSend<scripts::Live>>, mut atmospheres: ResMut<Atmospheres>) {
+    let Some(live) = live else {
+        return;
+    };
+    let values = (0..=*opensacred_rules::quests::UNDERWORLD.end())
+        .map(|region| live.variable(&format!("atmo_rg{region}")))
+        .collect();
+    atmospheres.set_if_neq(Atmospheres(values));
+}
+
+/// The generic line that a townsperson of the kind `kind` standing at `at` says, its dice seeded
+/// by `seed` (`opensacred_rules::quests::underworld_line`): the region of its sector's area
+/// (`0x602290`), the regions' atmospheres.
+pub(crate) fn generic_line(
+    (kind, at, seed): (u32, Vec3, u32),
+    streamer: &crate::sectors::Streamer,
+    atmospheres: &Atmospheres,
+) -> Option<String> {
+    let sector = crate::music::sector_of(at.x, at.z);
+    let region = opensacred_rules::quests::region(streamer.area(sector)?);
+    let mut dice = opensacred_rules::spawning::Rng::of(seed, 0, GENERIC_ROLL);
+    opensacred_rules::quests::underworld_line(
+        kind,
+        region,
+        |region| atmospheres.of(region),
+        &mut dice,
+    )
+}
+
+/// What the generic lines of the creatures take: the sectors' areas, the regions' atmospheres,
+/// and the creatures' places and placements, by which their dice are seeded.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct Lines<'w, 's> {
+    streamer: Option<Res<'w, crate::sectors::Streamer>>,
+    atmospheres: Res<'w, Atmospheres>,
+    places: Query<
+        'w,
+        's,
+        (
+            &'static GlobalTransform,
+            Option<&'static crate::npcs::PlacementIndex>,
+        ),
+    >,
+}
+
+impl Lines<'_, '_> {
+    /// The generic line that the creature `entity` of `mind` says ([`generic_line`]), its dice
+    /// seeded by its placement, else its entity, so that it says the same while the atmospheres
+    /// stand, as the original's seeded by its id.
+    pub(crate) fn line(&self, entity: Entity, mind: &Mind) -> Option<String> {
+        let (at, placement) = self.places.get(entity).ok()?;
+        let seed = placement.map_or(entity.index_u32(), |placement| {
+            u32::try_from(placement.0).unwrap_or(u32::MAX)
+        });
+        generic_line(
+            (mind.creature, at.translation(), seed),
+            self.streamer.as_deref()?,
+            &self.atmospheres,
+        )
+    }
 }
 
 /// On a press of the left button, the creature of a dialogue that the cursor picks
@@ -298,7 +399,7 @@ pub(crate) fn pick(
         Res<crate::under_cursor::UnderCursor>,
     ),
     mut aim: ResMut<Aim>,
-    npcs: Option<Res<Npcs>>,
+    (npcs, lines): (Option<Res<Npcs>>, Lines),
     creatures: Query<
         (
             Entity,
@@ -335,7 +436,9 @@ pub(crate) fn pick(
         let dialogue = if stabled {
             Speech::Horses
         } else {
-            speech_of(talk, mind, trades, npcs.as_deref())?
+            speech_of((talk, mind, trades), npcs.as_deref(), || {
+                lines.line(entity, mind)
+            })?
         };
         Some((entity, (at.translation(), way.level), dialogue))
     });
@@ -485,7 +588,14 @@ fn approach(
         }
         match talking.dialogue.clone() {
             Speech::Dialogue(dialogue) => {
-                commands.queue(move |world: &mut World| open(world, hero, creature, &dialogue));
+                commands.queue(move |world: &mut World| {
+                    open(world, (hero, creature), &dialogue, None);
+                });
+            }
+            Speech::Line(line) => {
+                commands.queue(move |world: &mut World| {
+                    open(world, (hero, creature), GENERIC, Some(&line));
+                });
             }
             // A smith, a merchant or a master shows its window beside the inventory, and the
             // talk ends at once (`0x52AB70`).
@@ -518,9 +628,10 @@ fn approach(
 }
 
 /// Runs the creature's dialogue (`scripts::speak`) and shows its window: its name, its texts and
-/// its first four buttons, its sounds played; a dialogue that takes the creature's away
-/// (`DelDlg`) takes it; one without a text ends the talk at once.
-fn open(world: &mut World, hero: Entity, creature: Entity, dialogue: &str) {
+/// its first four buttons, its sounds played, its first text a generic `line` where one is given
+/// (`0x549920`'s line in place of `Dialog:NPC_UW_DLG`'s, #2887); a dialogue that takes the
+/// creature's away (`DelDlg`) takes it; one without a text ends the talk at once.
+fn open(world: &mut World, (hero, creature): (Entity, Entity), dialogue: &str, line: Option<&str>) {
     // The hero's own talk's picture, of its dialogue's entry as it stands before the talk's
     // function runs, whose own `SetIcon`s change it for the next talk (`0x499E90`, #2418).
     let picture = (creature == hero)
@@ -530,7 +641,13 @@ fn open(world: &mut World, hero: Entity, creature: Entity, dialogue: &str) {
             tip_image(icon, class)
         })
         .flatten();
-    let window = scripts::speak(world, dialogue).unwrap_or_default();
+    let mut window = scripts::speak(world, dialogue).unwrap_or_default();
+    if let Some(line) = line {
+        match window.texts.first_mut() {
+            Some(first) => *first = line.to_owned(),
+            None => window.texts.push(line.to_owned()),
+        }
+    }
     if window.untalks
         && let Ok(mut entity) = world.get_entity_mut(creature)
     {
@@ -1277,7 +1394,7 @@ pub(crate) fn popups(
     match popups.0.remove(0) {
         scripts::Begins::Own(dialogue) => {
             info!("talk: the hero's own talk of {dialogue}");
-            commands.queue(move |world: &mut World| open(world, hero, hero, &dialogue));
+            commands.queue(move |world: &mut World| open(world, (hero, hero), &dialogue, None));
         }
         // The creature takes the dialogue, and the hero speaks to it as a click on it does
         // (`0x49DCF0`: the hero's talk's action toward it).
@@ -1331,7 +1448,17 @@ pub fn talk_to(world: &mut World, creature: Option<Entity>) -> Result<String, St
                 let speech = if stabled {
                     Speech::Horses
                 } else {
-                    speech_of(talk, mind, trades, npcs)?
+                    speech_of((talk, mind, trades), npcs, || {
+                        let placement = world.get::<crate::npcs::PlacementIndex>(entity);
+                        let seed = placement.map_or(entity.index_u32(), |placement| {
+                            u32::try_from(placement.0).unwrap_or(u32::MAX)
+                        });
+                        generic_line(
+                            (mind.creature, at.translation, seed),
+                            world.get_resource::<crate::sectors::Streamer>()?,
+                            world.get_resource::<Atmospheres>()?,
+                        )
+                    })?
                 };
                 Some((entity, at.translation, way.level, speech))
             })
@@ -1458,7 +1585,9 @@ pub struct TalkPlugin;
 impl Plugin for TalkPlugin {
     fn build(&self, app: &mut App) {
         app.hold_clicks(no_window)
+            .init_resource::<Atmospheres>()
             .add_systems(OnExit(AppState::InGame), forget)
+            .add_systems(Update, atmospheres.in_set(Playing))
             .add_systems(
                 Update,
                 (
@@ -1670,7 +1799,7 @@ mod tests {
     #[test]
     fn a_trader_without_a_dialogue_opens_its_window() {
         let trader = Mind::new(Vec3::ZERO, 0, (false, true), None, [70.0, 180.0], (692, 3));
-        let speech = |trades| speech_of(None, &trader, Some(&Trades(trades)), None);
+        let speech = |trades| speech_of((None, &trader, Some(&Trades(trades))), None, || None);
         // The smith's bit before the merchant's, the merchant's before the master's (`0x52AB70`).
         assert_eq!(
             speech(opensacred_rules::quests::MERCHANT),
@@ -1693,10 +1822,13 @@ mod tests {
         let own = Talk("auftrag10".into());
         assert_eq!(
             speech_of(
-                Some(&own),
-                &trader,
-                Some(&Trades(opensacred_rules::quests::MERCHANT)),
-                None
+                (
+                    Some(&own),
+                    &trader,
+                    Some(&Trades(opensacred_rules::quests::MERCHANT))
+                ),
+                None,
+                || None
             ),
             Some(Speech::Dialogue("auftrag10".into()))
         );

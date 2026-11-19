@@ -276,7 +276,7 @@ fn choose(
         Query<Entity, With<Body>>,
     ),
     cameras: Query<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
-    (npcs, forms): (Option<Res<Npcs>>, Option<Res<Forms>>),
+    (npcs, forms, lines): (Option<Res<Npcs>>, Option<Res<Forms>>, crate::talk::Lines),
     creatures: Query<
         (
             Entity,
@@ -353,8 +353,9 @@ fn choose(
                 dead: picked.is_some_and(|entity| corpses.contains(entity)),
             };
             let creature_look =
-                |(_, mind, talk, trades): (Entity, &Mind, Option<&Talk>, Option<&Trades>)| {
-                    let dialogue = crate::talk::dialogue_of(talk, mind, npcs.as_deref()).is_some();
+                |(entity, mind, talk, trades): (Entity, &Mind, Option<&Talk>, Option<&Trades>)| {
+                    let dialogue = crate::talk::dialogue_of(talk, mind, npcs.as_deref()).is_some()
+                        || (crate::talk::generic(talk, mind) && lines.line(entity, mind).is_some());
                     creature_look(trades.map_or(0, |trades| trades.0), dialogue)
                 };
             let foe = foe_under.map(|_| foe_look(holding.map(|holding| &holding.0), by_night));
