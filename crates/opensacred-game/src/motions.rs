@@ -175,21 +175,27 @@ impl Slots {
     }
 
     /// The attack's clips for `class`, the slots 79 + 5 · class to 4 more where the model has them
-    /// (`0x5467A0`, the action 4; class 14 taking 12's; docs/re/motions.md); where it has none of
-    /// them, the bare hands' of class 0 (docs/decisions/fight.md, "A creature's strike of a class
+    /// (`0x5467A0`, the action 4; class 13's its own 241 alone, #2820, class 14 taking 12's;
+    /// docs/re/motions.md); where it has none of them, the bare hands' of class 0
+    /// (docs/decisions/fight.md, "A creature's strike of a class
     /// its model has no clip of"): the original names an NPC's slot of its class whether its
     /// model has it or not, and a grave's skeleton warrior holding a dagger, whose model has the
     /// bare hands' alone, never struck here (#2708).
     pub fn attacks(&self, class: u8) -> Vec<String> {
-        let of = |class: u8| {
-            let first = 79 + 5 * u16::from(class);
-            (first..first + 5)
+        let of = |first: u16, count: u16| {
+            (first..first + count)
                 .filter_map(|slot| self.slot(slot).map(str::to_owned))
                 .collect::<Vec<_>>()
         };
-        let class = if class == 14 { 12 } else { class.min(12) };
-        let own = of(class);
-        if own.is_empty() { of(0) } else { own }
+        let own = match class {
+            13 => of(Self::attack_slot(13), 1),
+            _ => of(Self::attack_slot(class), 5),
+        };
+        if own.is_empty() {
+            of(Self::attack_slot(0), 5)
+        } else {
+            own
+        }
     }
 
     /// The attack's first slot for `class` (`0x5467A0`'s action 4, the table `0x956E40`): 79 + 5 ·
@@ -368,6 +374,12 @@ mod tests {
         assert_eq!(skeleton.attacks(5), ["SWORD_A"]);
         assert_eq!(skeleton.attacks(1), ["BH_A", "BH_B"]);
         assert!(Slots::default().attacks(5).is_empty());
+        // Class 13's attack is its own 241 alone, not class 12's; 14 takes 12's.
+        let gunner = Slots::of([(79, "BH_A"), (139, "XBOW_A"), (140, "XBOW_B"), (241, "GUN")]);
+        assert_eq!(gunner.attacks(13), ["GUN"]);
+        assert_eq!(gunner.attacks(12), ["XBOW_A", "XBOW_B"]);
+        assert_eq!(gunner.attacks(14), ["XBOW_A", "XBOW_B"]);
+        assert_eq!(Slots::of([(79, "BH_A")]).attacks(13), ["BH_A"]);
     }
 
     #[test]
