@@ -1140,6 +1140,29 @@ pub struct Catalogue {
 }
 
 impl Catalogue {
+    /// A catalogue of the types `types`, each of its category, listed, and of a record that every
+    /// class wears from level 1, for the tests of the other modules.
+    #[cfg(test)]
+    pub(crate) fn any_class(types: &[(u32, u8)]) -> Self {
+        let record = Record {
+            flags: CLASS_BITS,
+            levels: [1, 1],
+            limits: Some([1, 0, 0]),
+            ..Record::default()
+        };
+        let mut lists: HashMap<u8, Vec<u32>> = HashMap::new();
+        for &(item, category) in types {
+            lists.entry(category).or_default().push(item);
+        }
+        Self {
+            categories: types.iter().copied().collect(),
+            records: types.iter().map(|&(item, _)| (item, record)).collect(),
+            lists,
+            slots: types.iter().map(|&(item, _)| (item, item)).collect(),
+            ..Self::default()
+        }
+    }
+
     /// The types of `items`, their records in `weapons` (the record whose id is the type,
     /// **hypothesis**, docs/02 §6.2), the pieces of `sets` and the limits of `templates`.
     ///

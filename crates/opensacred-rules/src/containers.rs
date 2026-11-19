@@ -552,6 +552,33 @@ mod tests {
     }
 
     #[test]
+    fn the_random_items_are_chosen_and_made_by_the_item_maker() {
+        let (rules, levels) = (drops::Rules::default(), levels());
+        let hero = hero(1);
+        let mut given = 0;
+        let mut opening = opening(&hero, (&rules, &levels), false, &mut given);
+        // A value of 0 fills nothing; the rolls 0 then: the weapons, the level 1, the dagger, made
+        // at the hero's level of the key 0.
+        let made = fill(
+            &Fill {
+                value: Some(0),
+                randoms: 2,
+                ..Fill::default()
+            },
+            &mut opening,
+            &Catalogue::any_class(&[(1712, WEAPONS)]),
+            |_| 600,
+            &mut Rolls(vec![]),
+        );
+        let dagger = Content::Item {
+            item: 1712,
+            level: 1,
+            key: 0,
+        };
+        assert_eq!(made, [dagger, dagger]);
+    }
+
+    #[test]
     fn a_random_items_level_is_one_to_the_heros() {
         assert_eq!(random_level(21, 0), 1);
         assert_eq!(random_level(21, 16_384), 11);

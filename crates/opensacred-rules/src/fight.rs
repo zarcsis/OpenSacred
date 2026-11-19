@@ -1026,10 +1026,10 @@ impl Rules {
             return hero;
         };
         let (lowest, highest) = self.item_bounds(values);
-        let level = if hero == 0 || hero > highest {
+        let level = if hero == 0 {
             highest
         } else {
-            hero
+            hero.min(highest)
         };
         level.max(lowest)
     }
