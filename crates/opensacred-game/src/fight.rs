@@ -251,6 +251,7 @@ pub(crate) fn resolve(
             Option<&crate::followers::Follower>,
             Option<&Holding>,
             Option<&crate::npcs::Arms>,
+            Option<&crate::riding::Seat>,
         ),
     )>,
     mut targets: Query<
@@ -303,7 +304,7 @@ pub(crate) fn resolve(
             .ok()
             .map(|(health, ..)| (health.current, health.most));
         let (
-            Ok((attacker, hero, mind, from, (ranked, follower, holding, caster_arms))),
+            Ok((attacker, hero, mind, from, (ranked, follower, holding, caster_arms, saddle))),
             Ok((
                 mut health,
                 defender,
@@ -405,7 +406,26 @@ pub(crate) fn resolve(
         }
         if hit.ranged {
             let distance = (from.translation() - at.translation()).xz().length();
-            let factor = range_factor(distance, &rules);
+            let mut factor = range_factor(distance, &rules);
+            // From a horse, divided by the skills 7 and 22 that the original reads off the struck
+            // one, not the shooter (`0x56B48E`, a quirk; #2815): the hero's with their items'
+            // bonuses, a creature's of its type at its level.
+            if saddle.and_then(crate::riding::Seat::ridden).is_some() {
+                let skill = |skill: u8| {
+                    let level = if hero_hit {
+                        hero_arts.as_deref().map_or(0, |arts| {
+                            arts.skills
+                                .iter()
+                                .find(|&&(had, _)| had == skill)
+                                .map_or(0, |&(_, level)| level)
+                        })
+                    } else {
+                        arms.map_or(0, |arms| arms.skill_level(health.level, skill))
+                    };
+                    u8::try_from(level).unwrap_or(u8::MAX)
+                };
+                factor /= opensacred_rules::fight::mounted_range_divisor(skill(7), skill(22));
+            }
             attacker.attack *= factor;
             debug!(
                 "fight: {} at range {distance:.0} of {}, its attack times {factor:.2}",
