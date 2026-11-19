@@ -7846,7 +7846,7 @@ mod tests {
                 .chain((0..4).map(|i| (7200 + i, 51))),
         );
         let held = Holds {
-            sets: crate::set_bonuses::stats(&worn, Difficulty::Bronze),
+            sets: crate::set_bonuses::stats(&worn, Difficulty::Bronze, false),
             ..Holds::default()
         };
         let wearing = combat(&seraphim, 1, held, &[], &rules);

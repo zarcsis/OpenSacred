@@ -545,6 +545,11 @@ fn refit(
     let Some(tables) = tables else {
         return;
     };
+    // The Vampiress by night, her type 7, whose set 42 raises every art she holds; her change of
+    // form makes her values anew, as the original's (#2930).
+    let night = hero
+        .as_deref()
+        .is_some_and(|hero| hero.creature == opensacred_rules::arts::VAMPIRESS_BY_NIGHT);
     // The ridden horse (`0x552660`), its slot 0, its bridle, the first of the rider's items.
     let ridden = heroes.iter().next().and_then(|(.., seat)| match seat {
         Some(&crate::riding::Seat::Riding { horse, .. }) => Some(horse),
@@ -584,6 +589,7 @@ fn refit(
         .chain(carried.iter().map(|&item| (item, usize::MAX - 1)))
         .chain(bridle.iter().map(|d| (d.item, usize::MAX - 2)))
         .chain(ridden.map(|_| (0, usize::MAX - 3)))
+        .chain(night.then_some((0, usize::MAX - 4)))
         .collect();
     if *seen == worn {
         return;
@@ -610,7 +616,7 @@ fn refit(
                 .map(|&item| ((item, set_of(item)), Vec::new())),
         );
     let difficulty = difficulty.map(|d| d.0).unwrap_or_default();
-    let set_stats = set_bonuses::stats(&set_bonuses::Worn::of_items(items), difficulty);
+    let set_stats = set_bonuses::stats(&set_bonuses::Worn::of_items(items), difficulty, night);
     for (entity, base, mut holding, mut combat, mut regenerates, effects, old, _) in &mut heroes {
         // Each item's values with its sockets', then the bonus slots of the items in its
         // sockets, as the stats take each item's record and then theirs (`0x5796A0`, #1661);

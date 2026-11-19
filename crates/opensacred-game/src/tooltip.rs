@@ -187,6 +187,10 @@ impl Weighing<'_, '_> {
             level: self.experience.0.level,
             attributes: combat.attributes,
             rules: &self.rules.0,
+            night: self
+                .arts
+                .as_deref()
+                .is_some_and(|arts| arts.kind == opensacred_rules::arts::VAMPIRESS_BY_NIGHT),
         };
         let difficulty = self.difficulty.as_deref().map(|d| d.0).unwrap_or_default();
         set::lines(

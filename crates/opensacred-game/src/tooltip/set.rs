@@ -30,6 +30,8 @@ pub(crate) struct Wearer<'a> {
     pub level: u32,
     pub attributes: [f32; 6],
     pub rules: &'a Rules,
+    /// Whether it wears its night's form, the Vampiress's type 7 (set 42 at 4, #2930).
+    pub night: bool,
 }
 
 /// `x` as a share in per cent, signed, to a tenth where it is not whole.
@@ -80,7 +82,7 @@ pub(crate) fn lines(
             let colour = if worn.wears(item) { SET_PIECE } else { RED };
             lines.extend(wrapped(&words.of(&item.to_string()), CODE, colour));
         }
-        for line in told(set, worn, difficulty) {
+        for line in told(set, worn, difficulty, wearer.night) {
             lines.extend(told_lines(line, wearer, words));
         }
     }
@@ -337,6 +339,7 @@ mod tests {
             level: 1,
             attributes: [40.0, 30.0, 0.0, 0.0, 0.0, 0.0],
             rules: &rules,
+            night: false,
         };
         // Three of set 2's pieces of five and one of set 3's, on gold.
         let worn = Worn::of([(4059, 2), (4055, 2), (4057, 2), (4066, 3)]);
@@ -375,6 +378,7 @@ mod tests {
             level: 1,
             attributes: [41.0, 30.0, 0.0, 0.0, 0.0, 0.0],
             rules: &rules,
+            night: false,
         };
         let told = |line| texts(&told_lines(line, &wearer, &words()));
         assert_eq!(told(Told::WholeDamage(0.34)), ["<1076>: +34%"]);
