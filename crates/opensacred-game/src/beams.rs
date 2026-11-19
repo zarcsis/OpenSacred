@@ -12,7 +12,8 @@
 //! one from each eye, the Vampiress's bite one of the variant 0 from her spine to its target's, a
 //! strike's life leech one of the variant 2 from the attacker's spine to a bone of the struck
 //! one's at random (`fight`), and a brain-footer's stare one of its type's variant (10 to 12) from
-//! its spine to a bone of its target's at random (`creature_arts`, #2567).
+//! its spine to a bone of its target's at random (`creature_arts`, #2567), which goes on past a
+//! cell that does not pass ([`THROUGH`], #2819).
 //!
 //! Not followed: the segments' lights of 80.
 
@@ -114,18 +115,24 @@ impl End {
     }
 }
 
-/// A beam to lay ([`lay`]): its ends and its variant.
+/// A beam to lay ([`lay`]): its ends and its flags, its variant in their low seven bits and
+/// [`THROUGH`].
 #[derive(Component)]
 struct Unlaid {
     from: End,
     to: End,
-    variant: u8,
+    flags: u8,
 }
 
-/// Lays a beam of `variant` from `from` to `to` (`0x604030`), at the next run of its system.
-pub(crate) fn lay(commands: &mut Commands, (from, to): (End, End), variant: u8) {
+/// The flag of a beam that goes on past a cell that does not pass (`0x604030`'s `0x80`): the
+/// brain-footers' stares' (`0x4D4E50`).
+pub(crate) const THROUGH: u8 = 0x80;
+
+/// Lays a beam of `flags` from `from` to `to` (`0x604030`), at the next run of its system: its
+/// variant in their low seven bits, and [`THROUGH`].
+pub(crate) fn lay(commands: &mut Commands, (from, to): (End, End), flags: u8) {
     commands.spawn((
-        Unlaid { from, to, variant },
+        Unlaid { from, to, flags },
         Transform::default(),
         DespawnOnExit(AppState::InGame),
     ));
@@ -148,7 +155,7 @@ struct Materials(Vec<(&'static str, Option<Handle<Effect>>)>);
 /// Lays each beam asked (`0x604030`): its ends found, the level its first creature stands on (the
 /// hero's or a creature's that still stands in the way),
 /// its segments laid from the start, each a system of its own at its start, until a cell it may
-/// not pass, each playing its variant's sound.
+/// not pass unless it goes [`THROUGH`], each playing its variant's sound.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
@@ -202,7 +209,8 @@ fn place(
                 End::At(_) => None,
             })
             .flatten();
-        let texture = LaserSegment::texture(beam.variant);
+        let (variant, through) = (beam.flags & !THROUGH, beam.flags & THROUGH != 0);
+        let texture = LaserSegment::texture(variant);
         let material = match made.0.iter().find(|(name, _)| *name == texture) {
             Some((_, material)) => material.clone(),
             None => {
@@ -220,7 +228,7 @@ fn place(
         let starts = ways::laser_places((from.x, from.z), (to.x, to.z));
         debug!(
             "beams: a beam of {} from {from} to {to} on {level:?} in {} segments",
-            beam.variant,
+            variant,
             starts.len()
         );
         let n = u16::try_from(starts.len()).unwrap_or(u16::MAX);
@@ -229,14 +237,14 @@ fn place(
         let axes = laser_axes(along);
         let length = along.iter().map(|v| v * v).sum::<f32>().sqrt();
         for (k, &(x, z)) in (0_u16..).zip(&starts) {
-            if !heights.passes(crate::paths::cell_of(x, z), level) {
+            if !through && !heights.passes(crate::paths::cell_of(x, z), level) {
                 break;
             }
             let start = from + step * f32::from(k);
             let mesh = meshes.add(empty());
             let mut segment = commands.spawn((
                 Segment {
-                    look: LaserSegment::new(beam.variant, (k, n)),
+                    look: LaserSegment::new(variant, (k, n)),
                     length,
                     axes,
                     mesh: mesh.clone(),
@@ -254,7 +262,7 @@ fn place(
                     RenderLayers::layer(iso::UNTINTED),
                 ));
             }
-            if let Some(sound) = LaserSegment::sound(beam.variant) {
+            if let Some(sound) = LaserSegment::sound(variant) {
                 sounds.write(crate::sfx::PlayAt {
                     sound: crate::sfx::Of::Id(sound),
                     point: start,
