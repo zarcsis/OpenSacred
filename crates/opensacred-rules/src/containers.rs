@@ -2,11 +2,15 @@
 //! scripts' `FillChest` (78, `0x4A02A0`), which its `Take:` function runs as it opens. With a
 //! value, 16 cases in 101 give nothing (a grave or a shrine raises a ghost or a noble instead);
 //! else a run of random items of about the hero's level, each in 19 of 101 rolls and each taking
-//! its price off the value, and then a pile of gold by the hero's level; or the books, or the type
-//! it names, or its count of random items (#1412).
+//! its price off the value, and then a pile of gold by the hero's level held to its sector's; or
+//! the books, or the type it names, or its count of random items (#1412). Each item is made at the
+//! level and of the quality key that the item maker of the contents gives it (`0x5D57C0`, #2858):
+//! the hero's level or a little above, held at most at the container's sector's lowest, and a key
+//! that the time played and the opener's luck raise.
 
 use crate::drops::{self, Catalogue, Hero, Kind, Wanted, between};
-use crate::spawning::Dice;
+use crate::fight;
+use crate::spawning::{Dice, SpawnValues};
 
 /// `BalanceSpawnItem` (107), as the start script of every tree gives it (`0x475EBE`; the
 /// interpreter's `+0x7684` to `+0x76A0`): the share in 101 that gives nothing, the share below
@@ -43,7 +47,9 @@ const GAMEBOXES: i64 = 5150;
 const GAMEBOX_SPAN: i64 = 10;
 
 /// A `FillChest`'s operands: the value (`0x53`), a type (`0x02`), a count of books (`0x86`), a
-/// count of random items (`0x57`) and whether it names its container (`0x01`).
+/// count of random items (`0x57`), whether it names its container (`0x01`), and whether it gives
+/// its run's items the item maker's key 15 (`0x9E`, [`drops::UNIQUE_KEY`]), which no record of the
+/// trees does.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Fill {
     pub value: Option<i32>,
@@ -51,25 +57,31 @@ pub struct Fill {
     pub books: u32,
     pub randoms: u32,
     pub named: bool,
+    pub forced: bool,
 }
 
-/// What a container gives: an item of a type made at a level, gold of a pile and an amount, or a
-/// creature raised.
+/// What a container gives: an item of a type made at a level by the item maker's key
+/// ([`drops::contained`]), gold of a pile and an amount, or a creature raised.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Content {
-    Item { item: u32, level: u32 },
+    Item { item: u32, level: u32, key: u8 },
     Gold { pile: u32, amount: u32 },
     Creature(u32),
 }
 
-/// Who opens the container and what it is: the hero, the level for the gold (the original holds
-/// the hero's to its sector's highest plus the difficulty's `LevelKap`; the game passes it
-/// unheld, docs/decisions/items.md, "Containers' items at the hero's level"), the drops' rules,
-/// whether the container raises a creature, whether an icon lies in the world, and the count of
-/// the class's runes given (`drops::Rules::rune_range`).
+/// Who opens the container and what it is: the hero; the level for the gold, the hero's held to
+/// its sector's highest ([`fight::Rules::gold_level`]); the levels of the container's sector, none
+/// for a sector without them, and the rules that raise them by the difficulty
+/// ([`fight::Rules::contained_level`]); the opener's bonus of the time played and the luck
+/// ([`drops::Rules::opener_bonus`]); the drops' rules; whether the container raises a creature,
+/// whether an icon lies in the world, and the count of the class's runes given
+/// (`drops::Rules::rune_range`).
 pub struct Opening<'a> {
     pub hero: &'a Hero,
     pub gold_level: u32,
+    pub sector: Option<&'a SpawnValues>,
+    pub levels: &'a fight::Rules,
+    pub bonus: Option<u32>,
     pub rules: &'a drops::Rules,
     pub raises: bool,
     pub icon_in_world: bool,
@@ -80,6 +92,30 @@ impl Opening<'_> {
     /// Whether the container of the type `kind` raises a creature where its value gives nothing.
     pub fn raising(kind: u32) -> bool {
         RAISING.contains(&kind)
+    }
+
+    /// The item of type `item` as the item maker of the contents makes it (`0x5D57C0`): at the
+    /// level that it rolls about the hero's ([`fight::Rules::contained_level`]), by the key `key`
+    /// or, where none is given, the key that it rolls ([`drops::Rules::contained_key`]); a pile
+    /// of gold as its record holds it, its price its amount.
+    fn made(
+        &self,
+        item: u32,
+        key: Option<u8>,
+        price: &impl Fn(u32) -> i64,
+        dice: &mut impl Dice,
+    ) -> Content {
+        if drops::GOLD.contains(&item) {
+            return Content::Gold {
+                pile: item,
+                amount: u32::try_from(price(item)).unwrap_or(0),
+            };
+        }
+        let level = self
+            .levels
+            .contained_level(self.hero.level, self.sector, dice);
+        let key = key.unwrap_or_else(|| self.rules.contained_key(self.bonus, dice));
+        Content::Item { item, level, key }
     }
 }
 
@@ -103,7 +139,8 @@ pub fn seed(hero: (u32, u32, u64), container: (i32, i32, u32)) -> u64 {
 /// hero's level times 800; for a value above 0, nothing in [`SPAWN_ITEM`]`[0] + 1` cases of 101 (a
 /// creature raised by a raising container), else the run of items and its gold; then the books;
 /// then the type named, where there is no value and it names no container; then the random items
-/// ([`random_items`]).
+/// ([`random_items`]). Each item is the item maker's ([`Opening::made`]): the run's of the key 15
+/// where the fill gives it, the others' of a key rolled.
 pub fn fill(
     fill: &Fill,
     opening: &mut Opening<'_>,
@@ -124,25 +161,26 @@ pub fn fill(
                 made.push(Content::Creature(raised(dice)));
             }
         } else {
-            run(&mut value, &mut made, opening, catalogue, &price, dice);
+            run(
+                (&mut value, fill.forced),
+                &mut made,
+                opening,
+                catalogue,
+                &price,
+                dice,
+            );
         }
     }
     for _ in 0..fill.books {
         if let Some(book) = book(catalogue, dice) {
-            made.push(Content::Item {
-                item: book,
-                level: hero.level,
-            });
+            made.push(opening.made(book, None, &price, dice));
         }
     }
     if let Some(item) = fill.item.filter(|_| !fill.named && fill.value.is_none()) {
         let item = replaced_rune(item, opening, catalogue, dice);
-        made.push(Content::Item {
-            item,
-            level: hero.level,
-        });
+        made.push(opening.made(item, None, &price, dice));
     }
-    random_items(fill.randoms, hero, catalogue, &mut made, dice);
+    random_items(fill.randoms, opening, catalogue, (&price, &mut made), dice);
     made
 }
 
@@ -155,17 +193,18 @@ fn random_level(level: u32, roll: u32) -> u32 {
 }
 
 /// The random items of a `FillChest`'s `0x57`, `count` of them (#1412; docs/re/containers.md,
-/// "The contents", 7): each of a random category ([`drops::random_category`], `0x43B090(0)`) at
-/// the level `⌊rand()/32768·(L − 1) + 1⌋` of the hero's level `L`, its type of the item maker for
-/// the hero's class (`0x5C7FA0` with the hero's luck and type; **hypothesis**: of the run's quality
-/// and not loose), none of no category or of no type.
+/// "The contents", 7): each of a random category ([`drops::random_category`], `0x43B090(0)`), its
+/// type chosen at the level `⌊rand()/32768·(L − 1) + 1⌋` of the hero's level `L` for the hero's
+/// class (`0x5C7FA0` with the hero's luck and type; **hypothesis**: of the run's quality and not
+/// loose), and made by the item maker ([`Opening::made`]); none of no category or of no type.
 fn random_items(
     count: u32,
-    hero: &Hero,
+    opening: &Opening<'_>,
     catalogue: &Catalogue,
-    made: &mut Vec<Content>,
+    (price, made): (&impl Fn(u32) -> i64, &mut Vec<Content>),
     dice: &mut impl Dice,
 ) {
+    let hero = opening.hero;
     for _ in 0..count {
         let category = drops::random_category(dice);
         let level = random_level(hero.level, dice.below(32_768));
@@ -181,7 +220,7 @@ fn random_items(
             kind: None,
         };
         if let Some(item) = catalogue.choose(wanted, hero, dice) {
-            made.push(Content::Item { item, level });
+            made.push(opening.made(item, None, price, dice));
         }
     }
 }
@@ -199,10 +238,13 @@ fn raised(dice: &mut impl Dice) -> u32 {
 }
 
 /// The run of items and its gold (`0x4A08BE`): while `R(0, 100)` is at least
-/// [`SPAWN_ITEM`]`[1]`, an item of a category rolled anew until a type of it is found, its price
-/// off the value, the run ending without gold at a value of 0 or less; at the run's end the gold.
+/// [`SPAWN_ITEM`]`[1]`, an item of a category rolled anew until a type of it is found at the hero's
+/// level, 1 or 2 above in a case of 101, made by the item maker ([`Opening::made`]), of the key 15
+/// where `forced`, its price off the value, the run ending without gold at a value of 0 or less; at
+/// the run's end the gold. The type stays as it is chosen: the switch to the hero's class's
+/// variant (`0x43CA20`) gives a hero's type, below 32, none.
 fn run(
-    value: &mut i64,
+    (value, forced): (&mut i64, bool),
     made: &mut Vec<Content>,
     opening: &Opening<'_>,
     catalogue: &Catalogue,
@@ -210,9 +252,10 @@ fn run(
     dice: &mut impl Dice,
 ) {
     let hero = opening.hero;
+    let key = forced.then_some(drops::UNIQUE_KEY);
     let mut loose = false;
     while between(0, 100, dice) >= SPAWN_ITEM[1] {
-        let (item, level) = loop {
+        let item = loop {
             let category = loop {
                 if between(0, 100, dice) < SPAWN_ITEM[4] {
                     loose = dice.below(3) != 0;
@@ -244,7 +287,7 @@ fn run(
                 kind: None,
             };
             if let Some(item) = catalogue.choose(wanted, hero, dice) {
-                break (item, level);
+                break item;
             }
         };
         // In 2 cases of 1,001 an icon, where none lies in the world (`0x4A0B1D`).
@@ -253,7 +296,7 @@ fn run(
         } else {
             item
         };
-        made.push(Content::Item { item, level });
+        made.push(opening.made(item, key, price, dice));
         *value -= price(item);
         if *value <= 0 {
             return;
@@ -349,19 +392,38 @@ mod tests {
         }
     }
 
+    /// The fight's rules of bronze, whose sectors' levels the difficulty raises by nothing.
+    fn levels() -> fight::Rules {
+        fight::Rules::default()
+    }
+
+    /// An opening by `hero` of a container that raises a creature where `raises`, in a sector
+    /// without levels, by an opener of no bonus.
+    fn opening<'a>(
+        hero: &'a Hero,
+        (rules, levels): (&'a drops::Rules, &'a fight::Rules),
+        raises: bool,
+        given: &'a mut u32,
+    ) -> Opening<'a> {
+        Opening {
+            hero,
+            gold_level: hero.level,
+            sector: None,
+            levels,
+            bonus: Some(0),
+            rules,
+            raises,
+            icon_in_world: false,
+            given,
+        }
+    }
+
     #[test]
     fn a_value_gives_gold_where_the_run_makes_no_item() {
-        let rules = drops::Rules::default();
+        let (rules, levels) = (drops::Rules::default(), levels());
         let hero = hero(1);
         let mut given = 0;
-        let mut opening = Opening {
-            hero: &hero,
-            gold_level: 1,
-            rules: &rules,
-            raises: false,
-            icon_in_world: false,
-            given: &mut given,
-        };
+        let mut opening = opening(&hero, (&rules, &levels), false, &mut given);
         // 200 plus 0; the roll 50 above 15 gives; the run's roll 10 below 82 makes no item;
         // the gold of level 1, `20 + 19.8` whole 39... at its least.
         let made = fill(
@@ -384,18 +446,11 @@ mod tests {
 
     #[test]
     fn a_value_gives_nothing_or_a_ghost_in_16_cases_of_101() {
-        let rules = drops::Rules::default();
+        let (rules, levels) = (drops::Rules::default(), levels());
         let hero = hero(1);
         let mut given = 0;
         let fill_of = |raises: bool, given: &mut u32| {
-            let mut opening = Opening {
-                hero: &hero,
-                gold_level: 1,
-                rules: &rules,
-                raises,
-                icon_in_world: false,
-                given,
-            };
+            let mut opening = opening(&hero, (&rules, &levels), raises, given);
             fill(
                 &Fill {
                     value: Some(200),
@@ -413,23 +468,34 @@ mod tests {
 
     #[test]
     fn without_a_value_the_hero_s_level_times_800_fills_it_and_a_type_named_comes_as_it_is() {
-        let rules = drops::Rules::default();
+        let (rules, levels) = (drops::Rules::default(), levels());
         let hero = hero(1);
         let mut given = 0;
-        let mut opening = Opening {
-            hero: &hero,
-            gold_level: 1,
-            rules: &rules,
-            raises: false,
-            icon_in_world: false,
-            given: &mut given,
+        let mut opening = opening(&hero, (&rules, &levels), false, &mut given);
+        // A type named and no value: the type alone, made by the item maker at the hero's level
+        // and of the key 0 that its draw of no bonus passes no key for.
+        let named = |item| Fill {
+            item: Some(item),
+            ..Fill::default()
         };
-        // A type named and no value: the type alone.
         let made = fill(
-            &Fill {
-                item: Some(2149),
-                ..Fill::default()
-            },
+            &named(2149),
+            &mut opening,
+            &Catalogue::default(),
+            |_| 600,
+            &mut Rolls(vec![9_999]),
+        );
+        assert_eq!(
+            made,
+            [Content::Item {
+                item: 2149,
+                level: 1,
+                key: 0
+            }]
+        );
+        // A pile of gold named as its record holds it: its price its amount, no roll.
+        let made = fill(
+            &named(5135),
             &mut opening,
             &Catalogue::default(),
             |_| 600,
@@ -437,11 +503,52 @@ mod tests {
         );
         assert_eq!(
             made,
-            [Content::Item {
-                item: 2149,
-                level: 1
+            [Content::Gold {
+                pile: 5135,
+                amount: 600
             }]
         );
+    }
+
+    #[test]
+    fn the_item_maker_holds_an_items_level_at_the_sectors_lowest_and_rolls_its_key() {
+        let (rules, levels) = (drops::Rules::default(), levels());
+        let hero = hero(30);
+        let mut given = 0;
+        let sector = SpawnValues {
+            density: 50,
+            lowest: 18,
+            highest: 31,
+        };
+        let mut opening = Opening {
+            sector: Some(&sector),
+            ..opening(&hero, (&rules, &levels), false, &mut given)
+        };
+        // As the original's chest of `fillchest_chestR13_120` for a hero of level 30: the roll of
+        // 30 to 31, held at 18; the key's draw 0, the first sum, the key 0 and so the maker's 0.
+        let content = opening.made(2149, None, &|_| 600, &mut Rolls(vec![1, 0]));
+        assert_eq!(
+            content,
+            Content::Item {
+                item: 2149,
+                level: 18,
+                key: 0
+            }
+        );
+        // A key given is kept, with no draw for it.
+        let content = opening.made(2149, Some(15), &|_| 600, &mut Rolls(vec![0]));
+        assert_eq!(
+            content,
+            Content::Item {
+                item: 2149,
+                level: 18,
+                key: 15
+            }
+        );
+        // An opener of a luck below 100 makes the key 0, with no draw.
+        opening.bonus = None;
+        let content = opening.made(2149, None, &|_| 600, &mut Rolls(vec![0]));
+        assert!(matches!(content, Content::Item { key: 0, .. }));
     }
 
     #[test]

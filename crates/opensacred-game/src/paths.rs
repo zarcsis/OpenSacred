@@ -27,6 +27,49 @@ pub fn cell_of(x: f32, z: f32) -> Cell {
     ways::cell_at((x / iso::CELL, z / iso::CELL))
 }
 
+/// The cell and the floor that a creature or an object made at the hero takes
+/// (`opensacred_rules::ways::about_hero`, `0x45FF80`, #2858), the hero `hero` standing at world
+/// `at` on `level`: on the ground, the hero's own point where `asked` and its cell is free, else
+/// the first of twelve points 60 from it whose cell is free and to which a straight way of
+/// walkable cells leads, else the hero's own; on a floor, the hero's own. A cell is free where
+/// `crowd` has no creature but the hero standing in it (**estimate**: the original's test takes
+/// the first object of the cell, of any kind, `0x634AF0`'s `+8`).
+pub fn about_hero(
+    (hero, at, level): (bevy::prelude::Entity, Vec3, crate::terrain::Level),
+    (heights, crowd): (&crate::terrain::Heights, Option<&crate::crowd::Crowd>),
+    asked: bool,
+) -> (Cell, i32) {
+    let floor = heights.floor(level).map(|(_, floor)| i32::from(floor));
+    let point = |[x, y]: [i32; 2]| Vec2::new(to_world(x), to_world(y));
+    let free = |whole: [i32; 2]| {
+        let to = point(whole);
+        crowd.is_none_or(|crowd| !crowd.crowded(cell_of(to.x, to.y), level, hero))
+            && straight(at.xz(), to, |cell| heights.walkable_on(cell, level))
+    };
+    let own = [whole(at.x), whole(at.z)];
+    let place = ways::about_hero(own, floor.is_none(), asked.then_some(own), free);
+    let to = point(place);
+    (cell_of(to.x, to.y), floor.unwrap_or(0))
+}
+
+/// A world coordinate as a whole number, truncated, as the objects' `+0x1C` and `+0x20` hold it.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "a world coordinate, far within the integers' range"
+)]
+fn whole(value: f32) -> i32 {
+    value as i32
+}
+
+/// A whole world coordinate as the world's float.
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "a world coordinate, far within the floats' exact integers"
+)]
+fn to_world(value: i32) -> f32 {
+    value as f32
+}
+
 /// Whether a laser beam's line from world `from` to `to` reaches its end: each of the places it
 /// tests (`ways::laser_places`, `createLaserbeam` `0x604030`) in a cell that `passes` takes
 /// (#2123).
@@ -453,6 +496,27 @@ const ON_CENTRE: f32 = 0.1;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_place_at_the_hero_takes_its_cell_or_the_first_free_point_about_it() {
+        use crate::crowd::{Crowd, InTheWay};
+
+        let heights = crate::terrain::Heights::house();
+        let mut world = bevy::prelude::World::new();
+        let (hero, other) = (world.spawn_empty().id(), world.spawn_empty().id());
+        // The hero in the middle of the cell (1, 1) on the ground, alone in it.
+        let at = Vec3::new(1.5 * iso::CELL, 0.0, 1.5 * iso::CELL);
+        let mut crowd = Crowd::default();
+        crowd.add((1, 1), hero, InTheWay::of(0, 0, None));
+        let place =
+            |crowd: &Crowd, asked| about_hero((hero, at, None), (&heights, Some(crowd)), asked);
+        assert_eq!(place(&crowd, true), ((1, 1), 0));
+        // Another creature in its cell: the point 60 along x, in the cell beside it.
+        crowd.add((1, 1), other, InTheWay::of(0, 0, None));
+        assert_eq!(place(&crowd, true), ((2, 1), 0));
+        // A grave's creature asks for no point: the first about the hero, whoever stands there.
+        assert_eq!(place(&Crowd::default(), false), ((2, 1), 0));
+    }
 
     /// A wall along x = 5 from y = 0 to y = 8, the rest walkable.
     fn wall(cell: Cell) -> bool {

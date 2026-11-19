@@ -1423,6 +1423,75 @@ fn a_keyed_item_takes_the_makers_key_and_level_as_they_are() {
 }
 
 #[test]
+fn a_containers_item_is_made_by_its_key_a_unique_of_the_key_15_only_raised() {
+    const UNIQUE_SWORD: u32 = 1749;
+    let templates = Templates::new(&[dagger_template()], &[]);
+    let bare = Record {
+        limits: None,
+        ..record(0, [1, 1], [0, 0, 0])
+    };
+    let catalogue = catalogue(&[
+        (DAGGER, 5, record(ANY, [1, 1], [1, 0, 0])),
+        (
+            UNIQUE_SWORD,
+            5,
+            record(ANY | 0x000F_0000, [30, 22], [1, 0, 0]),
+        ),
+        (GOLD[2], 15, bare),
+        (5171, 9, bare),
+    ]);
+    let make = |item, key| {
+        contained(
+            (&catalogue, &templates),
+            (&Sockets::default(), Difficulty::Bronze),
+            (item, 18, key),
+            &mut script(&[0; 64]),
+        )
+    };
+    // The dagger by the maker's key 11 at the level 18, its pass's key 5.
+    let dagger = make(DAGGER, CONTAINED_KEY).unwrap();
+    assert_eq!(
+        (dagger.kind, dagger.level, dagger.key, dagger.quality),
+        (Kind::Weapon, 18, 5, 11)
+    );
+    assert!(dagger.values.is_some());
+    // A unique of the key 15 only raised, of no quality; of a key rolled, the maker's as any.
+    let raised = make(UNIQUE_SWORD, UNIQUE_KEY).unwrap();
+    assert_eq!((raised.quality, raised.named), (0, None));
+    assert_eq!(make(UNIQUE_SWORD, 3).unwrap().quality, 3);
+    // Gold and a potion as they are; a type the table does not hold, none.
+    for item in [GOLD[2], 5171] {
+        let made = make(item, CONTAINED_KEY).unwrap();
+        assert_eq!(
+            (made.level, made.quality, made.values),
+            (0, 0, None),
+            "{item}"
+        );
+    }
+    assert_eq!(make(9999, CONTAINED_KEY), None);
+}
+
+#[test]
+fn a_containers_key_rises_with_the_time_played_and_the_openers_luck() {
+    let rules = Rules::default();
+    // `⌊0.5·v(t) + ⌊√(100·(ℓ − 100))⌋⌋`: an hour `v` 32.96, the luck 125 the root 50.
+    assert_eq!(rules.opener_bonus(0, 100.0), Some(0));
+    assert_eq!(rules.opener_bonus(60, 100.0), Some(16));
+    assert_eq!(rules.opener_bonus(0, 125.0), Some(50));
+    assert_eq!(rules.opener_bonus(60, 125.0), Some(66));
+    assert_eq!(rules.opener_bonus(600, 100.0), Some(41));
+    // A luck below 100 gives no bonus, and its key is 0 with no draw.
+    assert_eq!(rules.opener_bonus(60, 99.0), None);
+    assert_eq!(rules.contained_key(None, &mut script(&[])), 0);
+    // No bonus: the factor 1.5, the sums 11, 25, 25, 30, 38, 47, 59, …: u = 1 the key 0, the
+    // maker's 0; 26 the key 3, its 13 held at 11; 48 the key 6, its 10; 10,000 none, 0.
+    let key = |bonus, roll| rules.contained_key(Some(bonus), &mut script(&[roll]));
+    assert_eq!([0, 25, 47, 9_999].map(|roll| key(0, roll)), [0, 11, 10, 0]);
+    // Ten hours, the bonus 41: the factor 350, the key 0 in 24.5 %, 1 in 31.5 %, 3 from 5,601.
+    assert_eq!([2449, 2450, 5600].map(|roll| key(41, roll)), [0, 0, 11]);
+}
+
+#[test]
 fn a_rune_comes_by_the_heros_level_its_runes_and_its_arts() {
     let rules = Rules::default();
     let seraphim = |level, runes, arts| Hero {

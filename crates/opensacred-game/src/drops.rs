@@ -953,30 +953,35 @@ pub(crate) fn throw_to(
     lay(commands, (assets, tables), (flight, level, true), dropped);
 }
 
-/// Makes the item of a container's contents, `item` at `level` (`0x5D57C0` as `FillChest` calls
-/// it, #1381) on `difficulty`, or gold of `amount` in the pile `item`; none of a type the table
-/// does not hold. Its quality key is a death's pass's of no bonus, held at 5 or above, the item
-/// maker's at most 11 (**hypothesis**: the original rolls it by the hero's luck and the time
-/// played, not read).
+/// Makes the item of a container's contents, `item` at `level` by the item maker's key `key`
+/// (`0x5D57C0` as `FillChest` calls it, `opensacred_rules::drops::contained`; #1381, #2858) on
+/// `difficulty`; none of a type the table does not hold. Gold, potions and runes come as their
+/// records hold them, and so does an item that the maker has no template for: by the key 0, the
+/// fall-back of a hidden stash's item that `CreateObj`'s maker leaves as it is.
 pub(crate) fn contained(
     tables: &Tables,
     (dice, difficulty): (&mut Dice, drops::Difficulty),
-    (item, level, amount): (u32, u32, u32),
+    (item, level, key): (u32, u32, u8),
 ) -> Option<Dropped> {
-    let key = tables
-        .rules
-        .key(0, tables.rules.spread(1.0), &mut dice.0)
-        .max(CONTAINED_LEAST_KEY);
-    drops::thrown(
+    drops::contained(
         (&tables.catalogue, &tables.templates),
         (tables.rules.sockets(), difficulty),
-        (item, level, u8::try_from(key).unwrap_or(17), amount),
+        (item, level, key),
         &mut dice.0,
     )
 }
 
-/// The least quality key of a container's items, the item maker's quality 11 (`0x5D57C0`).
-const CONTAINED_LEAST_KEY: u32 = 5;
+/// The bonus that the hero holding `holding` gives the quality keys of a container's items after
+/// the time `played` (`opensacred_rules::drops::Rules::opener_bonus`, `0x5D57C0`, #2858): of its
+/// whole minutes played and its luck.
+pub(crate) fn opener_bonus(
+    tables: &Tables,
+    played: &Played,
+    holding: Option<&fight::Holding>,
+) -> Option<u32> {
+    let (luck, _) = luck_of(holding);
+    tables.rules.opener_bonus(played.minutes(), luck)
+}
 
 /// What a script's `CreateObj` makes of the item of type `item` that it lays at `level` on
 /// `difficulty`, only raised where `raised` (`opensacred_rules::drops::scripted`, #1125); none
