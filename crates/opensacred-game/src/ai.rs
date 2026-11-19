@@ -1025,6 +1025,21 @@ fn pursue(
             })
         })
         .collect();
+    // The hero's hostiles of the marks 8 and `0x200` themselves that fight hand to hand (the AI's
+    // state 4: fighting with no ranged weapon), which a caster's deadline and its holds' roll
+    // count (`0x4D4670`, #2944).
+    let hand_to_hand = u32::try_from(
+        nearest
+            .hostiles
+            .iter()
+            .filter(|&&other| {
+                creatures.get(other).is_ok_and(|(_, _, _, mind, ..)| {
+                    matches!(mind.mark(), 8 | 0x200) && mind.fighting() && !mind.ranged
+                })
+            })
+            .count(),
+    )
+    .unwrap_or(u32::MAX);
     // The hero of set 58's six pieces, who strikes down a creature that would flee it (#2547).
     let strikes_fleeing = holding.is_some_and(|holding| holding.0.sets.strikes_fleeing());
     let difficulty = difficulty.map_or_else(Default::default, |difficulty| difficulty.0);
@@ -1169,7 +1184,7 @@ fn pursue(
                     hero_level,
                     held: hero_held,
                     elite: rank.is_some_and(|rank| rank.0 != crate::fight::Rank::Common),
-                    hostiles: 0,
+                    hostiles: hand_to_hand,
                     crowded: nearest.hostiles.len() > 1,
                     nearest: nearest.hostiles.first() == Some(&entity),
                     scripted: u16::from(mind.spell),
