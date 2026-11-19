@@ -1193,6 +1193,10 @@ pub struct Npcs {
     /// The cells that the creatures made at a `DefPos` of a radius took in this frame's placing,
     /// which the next made there leaves to them ([`spread_cell`], #2442).
     drawn: HashSet<(i32, i32)>,
+    /// The level of the hero's riding (the skill 22 with its items' bonus, `0x582450`), an
+    /// eighth of which a horse that `CreateNPC` makes takes ([`Self::scripted_level`]),
+    /// [`hero_riding`] keeping it.
+    riding: u32,
 }
 
 /// Where a creature came from, which decides what becomes of it when its sector goes, as the
@@ -4626,6 +4630,7 @@ impl Npcs {
             queues: HashMap::new(),
             waters: Vec::new(),
             drawn: HashSet::new(),
+            riding: 0,
         })
     }
 
@@ -5179,8 +5184,9 @@ impl Npcs {
             return level;
         }
         let raise = if horse {
-            // The hero's riding is not read here: 0, an eighth of which is none.
-            fight::Raise::Horse { riding: 0 }
+            // A start's horse by a first-level hero's riding, which no class's template holds.
+            let riding = if placement.started { 0 } else { self.riding };
+            fight::Raise::Horse { riding }
         } else {
             fight::Raise::Played(played)
         };
@@ -5188,6 +5194,23 @@ impl Npcs {
         fight::scripted_level(values, hero, raise, creature, &self.fight, &mut dice)
     }
 }
+
+/// Keeps [`Npcs`]' level of the hero's riding, the skill 22 of its arts' skills, by which a
+/// script's horse is made ([`Npcs::scripted_level`], #2814).
+fn hero_riding(arts: Option<Res<crate::arts::HeroArts>>, mut npcs: ResMut<Npcs>) {
+    let riding = arts.as_deref().map_or(0, |arts| {
+        arts.skills
+            .iter()
+            .find(|&&(skill, _)| skill == RIDING)
+            .map_or(0, |&(_, level)| level)
+    });
+    if npcs.riding != riding {
+        npcs.riding = riding;
+    }
+}
+
+/// The riding's skill, whose level raises a script's horse (`0x4266F0`).
+const RIDING: u8 = 22;
 
 /// Spawns the creatures of `request`, as `CreateNPC` makes its own (awake when hostile), with
 /// their hands empty, kept by their sectors as a fill's are; the creatures.
@@ -13332,7 +13355,7 @@ impl Plugin for NpcsPlugin {
                     (region_changes, morph).chain(),
                     script_states,
                     script_healths,
-                    place,
+                    (hero_riding, place).chain(),
                     rearm,
                     animate,
                     door_clips,
