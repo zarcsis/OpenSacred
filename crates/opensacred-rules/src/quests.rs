@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::spawning::Fill;
+use crate::spawning::{Dice, Fill};
 
 /// A quest's flags (`+0x120` of its record of 0x124 bytes, `0xAABF18`): set up, finished,
 /// entered, and while it is being set up.
@@ -575,6 +575,108 @@ const REGIONS: [u8; 69] = [
 /// on without a bound (no area of the world is past it).
 pub fn region(area: u8) -> u16 {
     REGIONS.get(usize::from(area)).copied().map_or(0, u16::from)
+}
+
+/// The regions of the Underworld whose townsfolk say a generic line (`0x549920`).
+pub const UNDERWORLD: std::ops::RangeInclusive<u16> = 50..=69;
+/// The kinds of the townsfolk by which the generic lines go (`0x549920`'s switches and
+/// `0x549610`, `0x549630`, `0x549660`).
+const FARMERS: [u32; 8] = [220, 221, 242, 243, 244, 361, 362, 368];
+const SEVENS: [u32; 6] = [232, 233, 239, 240, 241, 364];
+const NINES: [u32; 16] = [
+    170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 214, 215, 356, 357,
+];
+const EIGHTS: [u32; 5] = [192, 329, 342, 343, 363];
+const AS: [u32; 5] = [216, 217, 218, 219, 238];
+const BS: [u32; 9] = [34, 131, 355, 709, 710, 711, 712, 713, 714];
+/// The regions whose atmospheres mark the chapters of the generic lines (`0x549AA1`…).
+const CHAPTERS: [u16; 4] = [52, 53, 54, 57];
+
+/// A line of `R(1, 5)` of a group's name: `NPCUWR_<group><n>`, as the formats at `0x95641C` on
+/// write it.
+fn line(group: &str, dice: &mut impl Dice) -> String {
+    format!("NPCUWR_{group}{}", dice.below(5) + 1)
+}
+
+/// The generic line that a townsperson of the kind `kind` in the region `region` of the
+/// Underworld says, of the regions' atmospheres `atmosphere` (the interpreter's `+0x7750`, which
+/// `IncVar`, `DecVar`, `SetVar` and `RndVar` of a variable `atmo_rg<n>` keep, `0x49CAB8`), drawn
+/// by `dice`, which the original seeds with the creature's id at each query so that it says the
+/// same line while the atmospheres stand (`0x549920`, docs/re/netscript.md, "Dialogues"): none
+/// outside the regions 50 to 69. In a case of 3 a line of the chapter, the first of the regions
+/// 52, 53, 54 and 57 whose atmosphere is 0: of the farmers `11` else `12`; of the region 55 `21`
+/// else `22`; of the kinds of the nines `31` else `12` or `22`; of the kinds of the `a`s `41`
+/// else `12` or `22`; after them all `51`. Else in a case of 2 a line of the region, `52` to `58`
+/// of the regions 51, 52, 55, 53, 54, 56 and 57 on, none of the region 50; else a line of the
+/// kind and of the region's atmosphere `k`, 1 below 1, 2 at 1, 3 above: `6k` of the farmers,
+/// `7k`, `9k`, `8k`, `ak` and `bk` of their kinds, none of another kind. Each line's number is
+/// `R(1, 5)`.
+pub fn underworld_line(
+    kind: u32,
+    region: u16,
+    atmosphere: impl Fn(u16) -> i32,
+    dice: &mut impl Dice,
+) -> Option<String> {
+    if !UNDERWORLD.contains(&region) {
+        return None;
+    }
+    if dice.below(3) == 0 {
+        let chapter = CHAPTERS.iter().position(|&region| atmosphere(region) == 0);
+        let either = |dice: &mut _| {
+            let number = dice_below(dice, 5) + 1;
+            let first = dice_below(dice, 2) + 1;
+            format!("NPCUWR_{first}2{number}")
+        };
+        return Some(match chapter {
+            Some(0) if FARMERS.contains(&kind) => line("11", dice),
+            Some(0) => line("12", dice),
+            Some(1) if region == 55 => line("21", dice),
+            Some(1) => line("22", dice),
+            Some(2) if NINES.contains(&kind) => line("31", dice),
+            Some(3) if AS.contains(&kind) => line("41", dice),
+            Some(2 | 3) => either(dice),
+            _ => line("51", dice),
+        });
+    }
+    if dice.below(2) != 0 {
+        let group = match region {
+            51 => "52",
+            52 => "53",
+            55 => "54",
+            53 => "55",
+            54 => "56",
+            56 => "57",
+            57.. => "58",
+            _ => return None,
+        };
+        return Some(line(group, dice));
+    }
+    let k = match atmosphere(region) {
+        ..1 => 1,
+        1 => 2,
+        _ => 3,
+    };
+    let group = if FARMERS.contains(&kind) {
+        '6'
+    } else if SEVENS.contains(&kind) {
+        '7'
+    } else if NINES.contains(&kind) {
+        '9'
+    } else if EIGHTS.contains(&kind) {
+        '8'
+    } else if AS.contains(&kind) {
+        'a'
+    } else if BS.contains(&kind) {
+        'b'
+    } else {
+        return None;
+    };
+    Some(line(&format!("{group}{k}"), dice))
+}
+
+/// A roll of `dice` below `n`, as a closure's argument takes it.
+fn dice_below(dice: &mut impl Dice, n: u32) -> u32 {
+    dice.below(n)
 }
 
 /// The regions whose `Region<n>Init` has run (the interpreter's tree at `+0x350`).
@@ -2200,6 +2302,78 @@ mod tests {
         assert_eq!(icon(0, MERCHANT | WIZARD, None), 0x21);
         assert_eq!(icon(TRADER_TALK, TRADER, Some(0)), 4);
         assert_eq!(icon(0, TRADER, None), 0x23);
+    }
+
+    #[test]
+    fn an_underworld_townsperson_says_a_line_of_its_chapter_its_region_or_its_kind() {
+        struct Rolls(Vec<u32>);
+        impl Dice for Rolls {
+            fn below(&mut self, n: u32) -> u32 {
+                let roll = self.0.remove(0);
+                assert!(roll < n, "{roll} below {n}");
+                roll
+            }
+        }
+        let still = |_| 0;
+        let say = |kind, region, atmosphere: &dyn Fn(u16) -> i32, rolls: Vec<u32>| {
+            let mut dice = Rolls(rolls);
+            let line = underworld_line(kind, region, atmosphere, &mut dice);
+            assert!(dice.0.is_empty(), "{:?} left", dice.0);
+            line
+        };
+        // Outside the regions 50 to 69, none and no roll.
+        assert_eq!(say(220, 49, &still, vec![]), None);
+        // The chapter's line (`R(0, 2)` 0): the first, the farmers' 11, others' 12.
+        assert_eq!(say(220, 51, &still, vec![0, 2]), Some("NPCUWR_113".into()));
+        assert_eq!(say(1, 51, &still, vec![0, 4]), Some("NPCUWR_125".into()));
+        // The region 52's atmosphere risen: the second chapter, the region 55's 21.
+        let second = |region| i32::from(region == 52);
+        assert_eq!(say(1, 55, &second, vec![0, 0]), Some("NPCUWR_211".into()));
+        assert_eq!(say(1, 51, &second, vec![0, 0]), Some("NPCUWR_221".into()));
+        // The third and the fourth: the nines' 31 and the `a`s' 41, else 12 or 22.
+        let third = |region| i32::from(region == 52 || region == 53);
+        assert_eq!(say(170, 51, &third, vec![0, 1]), Some("NPCUWR_312".into()));
+        assert_eq!(say(1, 51, &third, vec![0, 3, 1]), Some("NPCUWR_224".into()));
+        let fourth = |region| i32::from([52, 53, 54].contains(&region));
+        assert_eq!(say(216, 51, &fourth, vec![0, 0]), Some("NPCUWR_411".into()));
+        assert_eq!(
+            say(1, 51, &fourth, vec![0, 1, 0]),
+            Some("NPCUWR_122".into())
+        );
+        let after = |region| i32::from(CHAPTERS.contains(&region));
+        assert_eq!(say(1, 51, &after, vec![0, 0]), Some("NPCUWR_511".into()));
+        // The region's line (`R(0, 1)` 1): 52 to 58 by the region, none of the region 50.
+        assert_eq!(say(1, 51, &still, vec![1, 1, 0]), Some("NPCUWR_521".into()));
+        assert_eq!(say(1, 55, &still, vec![2, 1, 0]), Some("NPCUWR_541".into()));
+        assert_eq!(say(1, 64, &still, vec![1, 1, 0]), Some("NPCUWR_581".into()));
+        assert_eq!(say(1, 50, &still, vec![1, 1]), None);
+        // The kind's line (`R(0, 1)` 0) of the region's atmosphere: 1 at 0, 2 at 1, 3 above.
+        assert_eq!(
+            say(220, 50, &still, vec![1, 0, 0]),
+            Some("NPCUWR_611".into())
+        );
+        assert_eq!(
+            say(232, 53, &|_| 1, vec![1, 0, 0]),
+            Some("NPCUWR_721".into())
+        );
+        assert_eq!(
+            say(170, 53, &|_| 5, vec![1, 0, 0]),
+            Some("NPCUWR_931".into())
+        );
+        assert_eq!(
+            say(192, 53, &still, vec![1, 0, 1]),
+            Some("NPCUWR_812".into())
+        );
+        assert_eq!(
+            say(238, 53, &still, vec![1, 0, 1]),
+            Some("NPCUWR_a12".into())
+        );
+        assert_eq!(
+            say(709, 53, &still, vec![1, 0, 1]),
+            Some("NPCUWR_b12".into())
+        );
+        // Another kind says nothing there.
+        assert_eq!(say(1, 53, &still, vec![1, 0]), None);
     }
 
     #[test]
