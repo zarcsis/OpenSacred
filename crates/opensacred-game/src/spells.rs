@@ -2026,7 +2026,8 @@ fn act(
             spells::CHOIR => {
                 // The first 20 creatures hostile to the hero, alive, within its reach, of no
                 // big type and without its effect: each with a choir following it, striking it
-                // once a second, and the effect 35 keyed by the spell.
+                // once a second, the effect 35 keyed by the spell, and the effect 15 of its
+                // time's factor by its level for the spell's seconds (`spells::choir_slows`).
                 let seconds = fight_seconds(spells::value(record, 0, act.level));
                 let damages = bolt_damages(record, level, multipliers);
                 let taken: Vec<(Entity, f32)> = hearers
@@ -2051,7 +2052,20 @@ fn act(
                         art: u32::from(act.spell),
                         level: 0,
                     };
-                    give(&mut commands, hearer, vec![(effect, seconds)]);
+                    let slows = targets.get(hearer).map_or(1.0, |(health, _, rank)| {
+                        let boss = rank.is_some_and(|rank| rank.0 == fight::Rank::Boss);
+                        spells::choir_slows(health.level, boss, act.level)
+                    });
+                    let slowing = Effect {
+                        art: u32::from(act.spell),
+                        ..Effect::new(opensacred_rules::fight::TIME, slows)
+                    };
+                    debug!("spells: the choir slows {hearer} to {slows:.2}");
+                    give(
+                        &mut commands,
+                        hearer,
+                        vec![(effect, seconds), (slowing, seconds)],
+                    );
                     commands.spawn((
                         Aura {
                             caster: act.caster,

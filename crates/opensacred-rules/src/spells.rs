@@ -233,7 +233,8 @@ pub fn banished_to([x, y]: [f32; 2], [cx, cy]: [f32; 2]) -> [f32; 2] {
     [x + ux * BANISHED_RUNS, y + uy * BANISHED_RUNS]
 }
 
-/// A boss's level's factor in the whirlwind's test of a creature it knocks back (`0x5AD135`).
+/// A boss's level's factor in the whirlwind's test of a creature it knocks back (`0x5AD135`)
+/// and in the choir's slowing ([`choir_slows`]).
 const BOSS_LEVEL: f32 = 1.3;
 
 /// How far the whirlwind of `spell` at the level `level` knocks a creature back, and the level
@@ -1156,11 +1157,16 @@ pub fn doom_most(word: u16) -> f32 {
 }
 
 /// The time's factor (the effect 15) that the choir's objects give a creature of the level
-/// `target`, the spell at the level `level` (`0x527DA9`, its object's action 9):
-/// `clamp(2M/(15·L), 0.5, 1)`, a boss's level times 1.3 left to the caller; the spell's tooltip
-/// tells it against the hero's own level.
-pub fn choir_slows(target: u32, level: u32) -> f32 {
-    let (m, l) = (f64::from(target), f64::from(level.max(1)));
+/// `target`, a boss or not, the spell at the level `level` (`0x527DA9`, its object's action 9),
+/// for the spell's seconds: `clamp(2M/(15·L), 0.5, 1)`, `M` a boss's level times 1.3; the
+/// spell's tooltip tells it against the hero's own level.
+pub fn choir_slows(target: u32, boss: bool, level: u32) -> f32 {
+    let m = if boss {
+        f64::from(target) * f64::from(BOSS_LEVEL)
+    } else {
+        f64::from(target)
+    };
+    let l = f64::from(level.max(1));
     narrow((2.0 * m / (15.0 * l)).clamp(0.5, 1.0))
 }
 
@@ -1493,11 +1499,12 @@ mod tests {
         // The most the kills raise it to: where a kill adds nothing, 1.9 (#1741).
         assert!((doom_most(900) - 1.9).abs() < 1e-6);
         assert!((doom_kills(doom_most(900), 900) - doom_most(900)).abs() < 1e-6);
-        // The choir's slowing: 2M/(15·L) held to 0.5 to 1.
-        assert!((choir_slows(30, 4) - 1.0).abs() < 1e-6);
-        assert!((choir_slows(15, 2) - 1.0).abs() < 1e-6);
-        assert!((choir_slows(12, 2) - 0.8).abs() < 1e-6);
-        assert!((choir_slows(1, 5) - 0.5).abs() < 1e-6);
+        // The choir's slowing: 2M/(15·L) held to 0.5 to 1, a boss's level times 1.3.
+        assert!((choir_slows(30, false, 4) - 1.0).abs() < 1e-6);
+        assert!((choir_slows(15, false, 2) - 1.0).abs() < 1e-6);
+        assert!((choir_slows(12, false, 2) - 0.8).abs() < 1e-6);
+        assert!((choir_slows(1, false, 5) - 0.5).abs() < 1e-6);
+        assert!((choir_slows(10, true, 2) - 13.0 / 15.0).abs() < 1e-6);
         // 63: the fire (4, 1), the attack (20, 20), the value 1 25 + 5·L, twice.
         let mut force = record(FORCE, &[(1, [4, 1]), (4, [20, 20])], [29, 1], 90);
         force.values[1] = [25, 5];
