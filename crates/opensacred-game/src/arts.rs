@@ -132,8 +132,10 @@ impl HeroArts {
     }
 
     /// A use of `art`, as its executor starts the regeneration at its first strike or its cast
-    /// (`0x562470`): its time added to what is still to run of every art of its kind, without a
-    /// group. The hero needs not hold it, as the original's use of an art it lacks. While a
+    /// (`0x562470`): its time added to what is still to run of every art of its kind that shares
+    /// its start, the art its own group (`0x562390`: the Dark Elf's traps 1047 to 1053 and the
+    /// Vampiress's 1030 to 1037 kept apart from the others, as their executors pass their own ids;
+    /// #2803). The hero needs not hold it, as the original's use of an art it lacks. While a
     /// combo runs or its mark holds, the time goes to the combos instead ([`Self::combo_uses`]).
     pub fn start(&mut self, art: u16) {
         let kind = self.arts.get(art).map_or_else(
@@ -151,7 +153,7 @@ impl HeroArts {
             uses.push(time);
             return;
         }
-        self.arts.start(time, kind, None, 0);
+        self.arts.start(time, kind, Some(art), 0);
     }
 
     /// A line for each art, as the original's driver prints them: its table, id, level and
@@ -294,6 +296,26 @@ mod tests {
             ["art 1071 level 1 time 15.0 s, factor 1, to run 15.0 s"]
         );
         arts.ready();
+        // A trap's use starts the traps alone, another weapon art's the others alone.
+        let entry = |id, time| HeroArt {
+            table: 2,
+            id,
+            level: 1,
+            bonus: 0,
+            flags: 0,
+            time,
+            factor: 1.0,
+            remaining: 0.0,
+        };
+        let template = [entry(1047, 10.0), entry(1049, 20.0), entry(1067, 30.0)];
+        let mut elf = HeroArts::new_game(Path::new("no assets"), 4, &template, Vec::new(), None);
+        elf.start(1047);
+        let left: Vec<f32> = elf.arts.entries.iter().map(|e| e.remaining).collect();
+        assert_eq!(left, [10.0, 10.0, 0.0]);
+        elf.ready();
+        elf.start(1067);
+        let left: Vec<f32> = elf.arts.entries.iter().map(|e| e.remaining).collect();
+        assert_eq!(left, [0.0, 0.0, 30.0]);
         // Without the tables an art taught keeps no time; with them it takes its record's.
         arts.learn(18, 2).unwrap();
         assert_eq!(
