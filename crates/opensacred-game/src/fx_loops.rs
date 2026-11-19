@@ -4,7 +4,8 @@
 //! (802) and `FX_STARGATE_UW` (1180) `SPELL_TELEPORTER` (2087), each while it stands within 1,150
 //! of the listener in the original's screen pixels (`0x69F9EF` to `0x69FAB0`), started only off
 //! the distance 0 and stopped beyond; at the sample's own rate, at the volume 1, panned and
-//! fading by the object's place (`0x6934E0`). They have no model; `npcs` places them.
+//! fading by the object's place (`0x6934E0`). `npcs` places them; their looks are `stargates`'
+//! and `element_stones`'.
 //!
 //! Not followed: the sound manager's list of the objects near the listener that they are taken
 //! from (`+0x1EB8`, its count `+0xAF38`), whose places and how an object comes into it are not

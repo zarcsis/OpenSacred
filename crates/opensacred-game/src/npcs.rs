@@ -367,8 +367,8 @@ struct Placement {
     /// height in the models' units, the record's `0x7E` (`fx`, #1092).
     fx: Option<(u8, f32)>,
     /// An FX object that loops a sound of its own near the hero, an element stone or a stargate
-    /// (`fx_loops`, #1170), which has no model: its sound and its type, a stargate's look its
-    /// own (`stargates`).
+    /// (`fx_loops`, #1170), which has no model of its item's: its sound and its type, a
+    /// stargate's look its own (`stargates`), an element stone's its own (`element_stones`).
     fx_loop: Option<(u32, u32)>,
     /// An object of a big demon's summoning (`FX_BIG_DEMON_SUMMON`, 918; `summonings`, #2006):
     /// its variant, the record's `0x03`, and its height in the models' units, its `0x7E`; it has
@@ -3640,7 +3640,7 @@ impl Makers {
                 (variant, height.unwrap_or(0.0))
             });
         // An element stone or a stargate of the FX objects, which loops its sound and has no
-        // model.
+        // model of its item's.
         let fx_loop = (record.kind == CREATE_OBJ && category(item) == FX)
             .then(|| crate::fx_loops::sound_of(creature).map(|sound| (sound, creature)))
             .flatten();
@@ -7234,6 +7234,9 @@ fn spawn(
         ));
         if let Some(gate) = crate::stargates::Gate::of(kind) {
             made.insert(gate);
+        }
+        if let Some(stone) = crate::element_stones::Stone::of(kind) {
+            made.insert(stone);
         }
         return made.id();
     }

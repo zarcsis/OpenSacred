@@ -84,6 +84,7 @@ mod dwarf_fires;
 mod dwarf_greeds;
 mod dwarf_magics;
 mod effects;
+mod element_stones;
 mod elf_sights;
 mod equipment;
 mod esc_menu;
@@ -583,12 +584,13 @@ fn run(cli: Cli) -> Result<AppExit> {
         dwarf_greeds::DwarfGreedsPlugin,
         dwarf_magics::DwarfMagicsPlugin,
         effects::EffectsPlugin,
+        element_stones::ElementStonesPlugin,
         elf_sights::ElfSightsPlugin,
         equipment::EquipmentPlugin,
         esc_menu::EscMenuPlugin,
         explored::ExploredPlugin,
-        explosions::ExplosionsPlugin,
     ))
+    .add_plugins(explosions::ExplosionsPlugin)
     .add_plugins((
         fades::FadesPlugin,
         fight::FightPlugin,
