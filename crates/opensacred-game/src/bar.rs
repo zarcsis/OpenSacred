@@ -1162,7 +1162,7 @@ fn art_icon(
         let grey_rows = slot_icon(
             art,
             (arts.as_deref(), combos.as_deref(), horse),
-            empty,
+            (empty, slot.0 == slots.selected),
             (&mut top, &mut bottom),
             &mut set,
         );
@@ -1173,7 +1173,8 @@ fn art_icon(
 }
 
 /// Sets an art slot's two pieces by its art, of `arts`, or its combo, of `combos`, or by its
-/// empty orb `empty`: the grey rows of the top, by `set` of an image, its index and its rows.
+/// empty orb `empty`: the grey rows of the top, by `set` of an image, its index and its rows; a
+/// ready art's whole vivid where the slot is `selected`, else pale (`0x6E3430`, #2818).
 /// Riding (`horse`, with a bow or a crossbow in hand or not, and the share of the trample's
 /// timer), a combo and an art that may not be made on horseback show the horse's pictures
 /// ([`HORSE_SPRITES`]) by that share (`0x6E3584`, `0x6E369B`).
@@ -1184,7 +1185,7 @@ fn slot_icon(
         Option<&crate::combos::HeroCombos>,
         Option<(bool, f32)>,
     ),
-    empty: u32,
+    (empty, selected): (u32, bool),
     (top, bottom): (&mut ImageNode, &mut ImageNode),
     set: &mut impl FnMut(&mut ImageNode, u32, Option<(f32, f32)>),
 ) -> f32 {
@@ -1233,7 +1234,11 @@ fn slot_icon(
             set(top, grey, Some((0.0, rows)));
             set(
                 bottom,
-                if share >= 1.0 { vivid } else { pale },
+                if share >= 1.0 && selected {
+                    vivid
+                } else {
+                    pale
+                },
                 Some((rows, SLOT_SIDE)),
             );
             rows
