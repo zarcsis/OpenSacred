@@ -570,6 +570,10 @@ pub const DAEMON_FORM: u32 = 0x4321;
 /// to 1002), whose executor fires a gun he holds (`0x515E27`, `0x515298`, `0x514E8F`; #1963).
 pub const DWARF_RUNDUM: u16 = 1078;
 
+/// What is left of its clip, as a part of it, below which the Dwarf's `Rundum` starts its
+/// regeneration, once, with the group 0 (`0x514790` at `0x51556D`, #3011).
+pub const DWARF_RUNDUM_STARTS: f32 = 0.6;
+
 /// The share of its time that a `Rundum` adds to its regeneration again for each new creature
 /// its bones strike (the float 0.2 at `0x890DA0`, #2995).
 pub const RUNDUM_HOP: f32 = 0.2;
@@ -584,12 +588,13 @@ pub fn rundum_hops(art: u16) -> bool {
 }
 
 /// How a `Rundum`'s first frame starts its regeneration (#2995): the generic executor's 1000
-/// none, the Dark Elf's 1065 its own id the group (`0x5070E8`), every other with the group 0
-/// (`None`: the Vampiress's 1038 and 1073 so its time to her bites and bats 1030 to 1037 too,
-/// `0x50EF94`); `Some(None)` a start of no group, `None` no start.
+/// none, the Dwarf's none ([`DWARF_RUNDUM_STARTS`]), the Dark Elf's 1065 its own id the group
+/// (`0x5070E8`), every other with the group 0 (`None`: the Vampiress's 1038 and 1073 so its time
+/// to her bites and bats 1030 to 1037 too, `0x50EF94`); `Some(None)` a start of no group, `None`
+/// no start.
 pub fn rundum_starts(art: u16) -> Option<Option<u16>> {
     match art {
-        1000 => None,
+        1000 | DWARF_RUNDUM => None,
         1065 => Some(Some(art)),
         _ => Some(None),
     }

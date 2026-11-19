@@ -95,6 +95,8 @@ pub struct Playing {
     struck: usize,
     /// How many of its hit points a `Rundum` of a gun has fired at (#1963).
     fired: usize,
+    /// Whether the Dwarf's `Rundum` has started its regeneration (#3011).
+    regenerated: bool,
     target: Entity,
     last: Option<Entity>,
     level: u32,
@@ -719,6 +721,7 @@ fn make(
                     points: vec![1.0 - share],
                     struck: 0,
                     fired: 0,
+                    regenerated: false,
                     target: making.target,
                     last: None,
                     level,
@@ -1116,6 +1119,7 @@ fn make(
                 points,
                 struck: 0,
                 fired: 0,
+                regenerated: false,
                 target: making.target,
                 last: None,
                 level,
@@ -2652,6 +2656,15 @@ fn make(
             }
             Style::Rundum | Style::Whirl => {
                 // The Dwarf's fires a gun held at each of its clip's hit points (`0x515E27`).
+                // Its regeneration below 0.6 of its clip left, once, of the group 0
+                // (`0x51556D`, #3011).
+                if making.art == arts::DWARF_RUNDUM
+                    && !playing.regenerated
+                    && due(1.0 - arts::DWARF_RUNDUM_STARTS, done)
+                {
+                    arts.start_with(making.art, 1.0, None);
+                    playing.regenerated = true;
+                }
                 if making.art == arts::DWARF_RUNDUM {
                     while playing
                         .points
