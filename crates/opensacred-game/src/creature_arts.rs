@@ -214,7 +214,8 @@ pub(crate) fn stare(
                 crate::beams::End::Bone(starer, from, 0.0),
                 crate::beams::End::Bone(target, to, 0.0),
             ),
-            kind.variant,
+            // On past a cell that does not pass (`0x4D4E50`).
+            kind.variant | crate::beams::THROUGH,
         );
         crate::holding_sights::burn(&mut commands, target, STARE_BURNS);
         let effect = opensacred_rules::fight::Effect {
