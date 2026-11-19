@@ -255,7 +255,8 @@ fn draw(
         OnCursor(art),
         image,
         node,
-        GlobalZIndex(i32::MAX - 1),
+        // Over the windows as the cursor's item, under the movies (#2831).
+        GlobalZIndex(crate::held::OVER_ALL),
         Pickable::IGNORE,
         DespawnOnExit(AppState::InGame),
     ));
