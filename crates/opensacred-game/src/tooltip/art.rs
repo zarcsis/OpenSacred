@@ -826,7 +826,11 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
         // The time's factor that the choir's objects give a creature of the hero's level
         // (`spells::choir_slows`), where the original's line weighs `0.75·a/(5·L)` (#1741).
         66 if spell => {
-            let q = f64::from(opensacred_rules::spells::choir_slows(v.hero.level, v.level));
+            let q = f64::from(opensacred_rules::spells::choir_slows(
+                v.hero.level,
+                false,
+                v.level,
+            ));
             vec![
                 dmg(v.damages(false)),
                 plain(format!(
