@@ -265,12 +265,18 @@ mod tests {
             bitmap.rgba,
             [[7, 7, 7, 255], red, red, red, green, blue].concat()
         );
-        // An index past the palette is an error at its pixel.
+        // An index past the palette is an error at its pixel: the top row, stored second, its
+        // first pixel, after the header of 40 bytes and the palette of 12.
         let error = decode_dib(&dib_8(3, [[0, 1, 2], [3, 0, 0]]))
             .unwrap_err()
             .to_string();
         assert!(error.contains("`BMP palette index` is 3"), "{error}");
         assert!(error.contains("below 3"), "{error}");
+        assert!(error.contains("offset 0x38"), "{error}");
+        let error = decode_dib(&dib_8(3, [[0, 1, 2], [0, 0, 3]]))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("offset 0x3a"), "{error}");
     }
 
     #[test]

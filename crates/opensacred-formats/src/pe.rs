@@ -303,12 +303,12 @@ pub(crate) mod tests {
         }
         section.extend_from_slice(&[1, 2, 3, 4, 9]);
         section.resize(0x100, 0);
+        // The entry written whatever the header's length, past its end into the section table
+        // where the header is too short to hold it.
         let mut file = sized_image(optional, 0x40_2000, &section);
         let entry = 0x58 + RESOURCES_ENTRY;
-        if usize::from(optional) >= RESOURCES_ENTRY + 8 {
-            file[entry..entry + 4].copy_from_slice(&0x2000_u32.to_le_bytes());
-            file[entry + 4..entry + 8].copy_from_slice(&0x100_u32.to_le_bytes());
-        }
+        file[entry..entry + 4].copy_from_slice(&0x2000_u32.to_le_bytes());
+        file[entry + 4..entry + 8].copy_from_slice(&0x100_u32.to_le_bytes());
         file
     }
 
@@ -335,11 +335,16 @@ pub(crate) mod tests {
                 .resource(BITMAP, 125)
                 .is_err()
         );
-        // An entry of no size, and an image of no resources.
+        // An entry of no size is none, and an image of no resources.
         let mut file = resources(0xE0);
         let size = 0x58 + RESOURCES_ENTRY + 4;
         file[size..size + 4].copy_from_slice(&[0; 4]);
-        assert!(Image::parse(&file).unwrap().resource(BITMAP, 125).is_err());
+        let error = Image::parse(&file)
+            .unwrap()
+            .resource(BITMAP, 125)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("a resource of the type"), "{error}");
         let file = image(0x40_2000, &[0; 0x100]);
         assert!(Image::parse(&file).unwrap().resource(BITMAP, 125).is_err());
     }
