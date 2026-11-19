@@ -6537,6 +6537,9 @@ impl Sparks {
 
 /// The hit sparks' light, at the striker's place (`+0x9C`).
 pub const SPARKS_LIGHT: f32 = 200.0;
+/// The light of a trampling horse's floops (the object 842 of the sight 1077, its `+0x9C`), at
+/// the horse while they are drawn.
+pub const FLOOPS_LIGHT: f32 = 200.0;
 /// How long the sparks live: their life's rate of −200 a second.
 pub const SPARKS_LIFE: f32 = 255.0 / 200.0;
 
