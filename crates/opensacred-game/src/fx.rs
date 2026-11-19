@@ -97,8 +97,9 @@ struct StepFires {
     ground: Material,
 }
 
-/// A small fire that a step of the hero leaves (#1808): its particles and dice, its layers' meshes
-/// and its ground's, the level of its place, and how long until it may strike again.
+/// A small fire that a step of the hero leaves (#1808), or a creature's cast (#2898): its
+/// particles and dice, its layers' meshes and its ground's, the level of its place, whether it
+/// strikes, and how long until it may strike again.
 #[derive(Component)]
 pub struct StepFire {
     system: System,
@@ -106,7 +107,18 @@ pub struct StepFire {
     meshes: Vec<Handle<Mesh>>,
     ground: Option<Handle<Mesh>>,
     level: crate::terrain::Level,
+    strikes: bool,
     cooldown: f32,
+}
+
+/// A small fire of the variant 2 that a big demon's fire, the spell 50, leaves at its feet
+/// (`0x527669`: 878 by the FX event `0x65`, the steps' fire's variant): its place and level. Its
+/// caster is its own id, for which its strikes gather no target, so that it never strikes
+/// (docs/re/arts.md, "The creatures' own spells"; #2898).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct SmallFire {
+    pub at: Vec3,
+    pub level: crate::terrain::Level,
 }
 
 /// How far above the ground the burnt ground lies, in world units, so that the ground's mesh does
@@ -1178,10 +1190,12 @@ fn begin(
 }
 
 /// Leaves a small fire at each step of the hero that wears six pieces of set 23 (`0x63918C`,
-/// #1808), at its place on its level, untinted by the night as the fires.
+/// #1808), at its place on its level, untinted by the night as the fires; and one that strikes
+/// nothing where a creature's cast asks for one ([`SmallFire`], #2898).
 fn kindle(
     mut commands: Commands,
     mut steps: MessageReader<crate::sound::HeroStep>,
+    mut cast: MessageReader<SmallFire>,
     step_fires: Option<Res<StepFires>>,
     heroes: Query<(
         &crate::hero::Body,
@@ -1192,8 +1206,17 @@ fn kindle(
 ) {
     let Some(step_fires) = step_fires else {
         steps.clear();
+        cast.clear();
         return;
     };
+    for &SmallFire { at, level } in cast.read() {
+        light_small_fire(
+            &mut commands,
+            (&step_fires, &mut meshes),
+            (at, level, None),
+            false,
+        );
+    }
     let Some((body, holding, layered)) = heroes.iter().next() else {
         steps.clear();
         return;
@@ -1203,6 +1226,28 @@ fn kindle(
         if !fiery {
             continue;
         }
+        light_small_fire(
+            &mut commands,
+            (&step_fires, &mut meshes),
+            (at, body.level(), layered.copied()),
+            true,
+        );
+    }
+}
+
+/// A small fire at `at` on `level`, in the layer of a building's of `layered`, which strikes as
+/// the hero's steps' do where `strikes`.
+fn light_small_fire(
+    commands: &mut Commands,
+    (step_fires, meshes): (&StepFires, &mut Assets<Mesh>),
+    (at, level, layered): (
+        Vec3,
+        crate::terrain::Level,
+        Option<crate::buildings::Layered>,
+    ),
+    strikes: bool,
+) {
+    {
         let mut handles = Vec::new();
         let mut ground = None;
         let mut fire = commands.spawn((
@@ -1211,7 +1256,7 @@ fn kindle(
             daynight::Light(step_fires.fire.light),
             DespawnOnExit(AppState::InGame),
         ));
-        if let Some(&layered) = layered {
+        if let Some(layered) = layered {
             fire.insert(layered);
         }
         fire.with_children(|parts| {
@@ -1245,7 +1290,8 @@ fn kindle(
             dice: crate::seed::dice(SEED ^ index),
             meshes: handles,
             ground,
-            level: body.level(),
+            level,
+            strikes,
             cooldown: 0.0,
         });
     }
@@ -1467,7 +1513,7 @@ fn scorch(
     let dt = time.delta_secs();
     for (mut step, at) in &mut fires {
         step.cooldown = (step.cooldown - dt).max(0.0);
-        if step.cooldown > 0.0 {
+        if step.cooldown > 0.0 || !step.strikes {
             continue;
         }
         let here = at.translation.xz();
@@ -1755,6 +1801,7 @@ impl Plugin for FxPlugin {
         app.add_plugins(MaterialPlugin::<Effect>::default())
             .init_resource::<Crackles>()
             .init_resource::<GeyserLatch>()
+            .add_message::<SmallFire>()
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
             .add_systems(
@@ -1781,6 +1828,32 @@ impl Plugin for FxPlugin {
 mod tests {
     use super::*;
     use crate::statics::tests::{ORDER, shader_constant};
+
+    #[test]
+    fn a_demons_small_fire_burns_where_it_is_asked_and_strikes_nothing() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>()
+            .add_message::<crate::sound::HeroStep>()
+            .add_message::<SmallFire>()
+            .insert_resource(StepFires {
+                fire: Arc::new(small_fire()),
+                layers: Vec::new(),
+                ground: None,
+            })
+            .add_systems(Update, kindle);
+        let at = Vec3::new(100.0, 0.0, 200.0);
+        app.world_mut().write_message(SmallFire { at, level: None });
+        app.update();
+        let mut fires = app.world_mut().query::<(&StepFire, &Transform)>();
+        let (fire, place) = fires.single(app.world()).unwrap();
+        assert_eq!(place.translation, at);
+        assert!(!fire.strikes && fire.level.is_none());
+        // No hero, no steps' fire.
+        app.world_mut()
+            .write_message(crate::sound::HeroStep(Vec3::ZERO));
+        app.update();
+        assert_eq!(fires.iter(app.world()).count(), 1);
+    }
 
     #[test]
     fn the_fires_loop_by_their_types_the_magic_fire_too() {

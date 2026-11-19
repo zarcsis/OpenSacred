@@ -1691,6 +1691,14 @@ fn pursue(
                 });
                 if let Some(to) = found {
                     debug!("ai: {entity} blinks from {here} to {to}");
+                    // The pale green sparks of its figure where it stood (`0x4D72E8`, #2898).
+                    commands.queue(move |world: &mut World| {
+                        crate::group_looks::flash(
+                            world,
+                            entity,
+                            opensacred_rules::casts::BLINK_COLOUR,
+                        );
+                    });
                     transform.translation = to;
                     commands.entity(entity).remove::<Walk>();
                 }
