@@ -537,7 +537,7 @@ Read 2026-11-08 for #2298 (`0x4E9900`, **confirmed** by code).
 - Asked for no slot (−1), it takes the item of the slot 13, else 12, 1 or 0, the place of its socket's bone on the creature (else `Bip01 Neck`), takes it off (`0x556A30`) and lowers the creature's stats: `A` (`+0x5A`) and the physical resistance (`+0x66`) to a fifth, `D` (`+0x5E`) to a third, the attributes `a0` and `a3` (`+0x10`, `+0x16`) halved, which its next recomputation makes again; asked for a slot, it takes that slot's item and lowers nothing.
 - The item, an object of the world again, is put at that place on the creature's cell and layer and thrown (`0x44DED0`) with the velocity `(rand() % 201 − 100, rand() % 201 − 100, 150)` and the spin `rand() % 31 − 15` about each axis, drawn in that order; on a network the event `0x13C`.
 - `opensacred-game` follows it since #2298 (`opensacred_rules::fight::disarmed`, `terror_disarms`, `opensacred_rules::spells::gust_disarms`, `drops::Flight::disarmed`; `npcs::disarm`, `npcs::Rearms`, `drops::throw_disarmed`): the item of its right hand, else its left, thrown down with the values it held, its values made anew of what it holds then and lowered so; a dying creature's model alone goes.
-  The slots 1 and 0, the armour and the helmet that a creature wears since #2286, are not followed, nor `+0x2B7` bit 8.
+  Since #2816 a creature whose hands are empty is disarmed of what it wears of the slot 1, else the slot 0 (the armour and the helmet that a creature wears since #2286), thrown from its `Bip01 Neck` (`npcs::disarm_worn`); `+0x2B7` bit 8 is not followed.
 
 ## The undead that rise again
 
