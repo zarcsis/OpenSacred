@@ -970,11 +970,12 @@ pub(crate) fn resolve(
                     tally.killed();
                 }
             }
-            // The blue potions' share and the hero's sets' (#1727).
+            // The items' and the blue potions' shares, and the hero's sets' (#1727, #2805).
             let sets = holding.map_or(0.0, |holding| holding.0.sets.experience());
+            let bonus = items_experience(holding) + potions::mentored(&killer);
             let worth = worth
                 .filter(|_| hero && !raised)
-                .map(|worth| (*worth, rank.copied(), (potions::mentored(&killer), sets)));
+                .map(|worth| (*worth, rank.copied(), (bonus, sets)));
             fell(
                 &mut commands,
                 (&mut dice, &mut experience, &rules),
@@ -1267,9 +1268,17 @@ pub fn kill(
     Ok(lines)
 }
 
+/// The share of a kill's base experience that the items of the hero of `holding` earn it more,
+/// their effect 843 (`opensacred_rules::fight::items_experience`, #2805); none without them.
+fn items_experience(holding: Option<&Holding>) -> f32 {
+    holding.map_or(0.0, |holding| {
+        opensacred_rules::fight::items_experience(&holding.0.items)
+    })
+}
+
 /// The hero's state that a creature's fall to it reads ([`kill`], [`terrify`]): whether its
-/// effects banish the undead, its mentoring's and its sets' shares of the experience, its sets and
-/// its items' exorcism, and its fight values for the statistics.
+/// effects banish the undead, its items' and mentoring's and its sets' shares of the experience,
+/// its sets and its items' exorcism, and its fight values for the statistics.
 struct Slayer<'a> {
     banished: bool,
     bonus: (f32, f32),
@@ -1288,7 +1297,7 @@ impl<'a> Slayer<'a> {
         Self {
             banished: potions::banishes(effects),
             bonus: (
-                potions::mentored(effects),
+                items_experience(holding) + potions::mentored(effects),
                 sets.map_or(0.0, |sets| sets.experience()),
             ),
             sets,
