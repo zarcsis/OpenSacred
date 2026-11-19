@@ -117,7 +117,11 @@ pub fn rolls(
         return None;
     }
     let into = if warrior {
-        Some(undead::changes(kind, [dice.below(3), dice.below(3)])?)
+        let [first, second] = undead::change_faces(kind);
+        Some(undead::changes(
+            kind,
+            [dice.below(first), dice.below(second)],
+        )?)
     } else {
         None
     };
