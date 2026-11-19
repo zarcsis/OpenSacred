@@ -27,8 +27,9 @@
 //! dungeon (255, 218, 43) at 64 out of 255 (`0x62FF60`). A lit torch in the hero's hand makes its
 //! light 300 in a dungeon and half as much again by night, its items' effect of the light grows
 //! it, and each of its followers is lit as a hero of its own (#61); the effects of the world, the
-//! spells and the arts are sources of their own radii ([`Light`], #1092). Not followed: a ridden
-//! horse's light, its rider's.
+//! spells and the arts are sources of their own radii ([`Light`], #1092), each at its place in the
+//! world, that of an entity carried by another too (#2909). A ridden horse's light, its rider's,
+//! adds nothing that shows at its rider's place, which the hero's light holds (seen, #2909).
 
 use std::collections::{HashMap, HashSet};
 
@@ -642,7 +643,7 @@ pub fn light(
     (hero_light, sets): (Res<HeroLight>, Option<Res<crate::sets::WeaponSets>>),
     mut cameras: Query<(&Camera, &GlobalTransform, &Projection, &mut Night)>,
     hero: Query<(Entity, &Transform, Option<&crate::fight::Holding>), With<crate::hero::Body>>,
-    lights: Query<(&Transform, &Light), Without<crate::hero::Body>>,
+    lights: Query<(&GlobalTransform, &Light), Without<crate::hero::Body>>,
     (followers, held): (
         Query<(Entity, &Transform, &crate::followers::Follower)>,
         Query<(&crate::npcs::Piece, &crate::models::OrderedWith), With<crate::npcs::Wielded>>,
@@ -701,7 +702,7 @@ pub fn light(
             .chain(
                 lights
                     .iter()
-                    .filter_map(|(t, light)| uv(t.translation).map(|p| (p, light.0))),
+                    .filter_map(|(t, light)| uv(t.translation()).map(|p| (p, light.0))),
             )
             // The sources that can reach the view.
             .filter(|(p, r)| {

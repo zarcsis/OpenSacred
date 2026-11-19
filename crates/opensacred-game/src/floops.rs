@@ -2,11 +2,12 @@
 //! starts, the effect 24's adder makes an object 842 at the horse, of the sight 1077, standing at
 //! the horse at each frame (`opensacred_rules::particles::HorseFloops`): red tongues spread flat on
 //! the ground about its feet while the trample runs, added and untinted, as the Dwarf's mines'
-//! sign spreads its blue ones (`mines`). Its light of 200 is not made.
+//! sign spreads its blue ones (`mines`). Its light of 200 lights the night about the horse while
+//! the floops are drawn (`daynight::Light`, #2909).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
-use opensacred_rules::particles::{HorseFloops, MINE_SIGN_TEXTURE};
+use opensacred_rules::particles::{FLOOPS_LIGHT, HorseFloops, MINE_SIGN_TEXTURE};
 
 use crate::frame::{Playing, Unpaused};
 use crate::fx::{Effect, Quads, empty, particle_material, particle_texture};
@@ -70,6 +71,8 @@ fn start(
                 look: HorseFloops::new(),
                 mesh: mesh.clone(),
             },
+            // Its light, a source of the night's while it is drawn (`+0x9C`).
+            crate::daynight::Light(FLOOPS_LIGHT),
             ChildOf(horse),
         ));
         if let Some(material) = material {
