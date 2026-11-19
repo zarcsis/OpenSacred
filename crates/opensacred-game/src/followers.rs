@@ -21,6 +21,11 @@
 //! which never fights, runs from a creature that comes at its master and stands while the hero is
 //! in danger far from it (#1061), and `0x39` and `0x65` let it go. The hire's levels, `0x71`'s
 //! mark in its quest and the quests' hook of the letting go are not followed.
+//!
+//! A follower that its `CreateNPC`'s `0x67` marks as a healer (`ECS_HEALING`, the spell 7), as the
+//! Vampiress's novice of her first main quests, casts the heal at its master standing nearer than
+//! 350 out of its band, the master at two thirds of its health or less, and again as its cast ends
+//! while that holds; it never stands for the danger (`0x4EF486`, `0x4F3E73`, #2895).
 
 use bevy::prelude::*;
 use opensacred_rules::minds::{self, Keeps, OnTheWay, Spot};
@@ -665,6 +670,7 @@ fn keep(
             Option<&crate::attack::Attack>,
             Option<&crate::making::Making>,
             Option<&crate::making::Playing>,
+            Option<&Health>,
         ),
         Without<Follower>,
     >,
@@ -677,6 +683,7 @@ fn keep(
             &mut Mind,
             &mut Follower,
             Option<&Walk>,
+            Has<crate::creature_casts::Casting>,
         ),
         (Without<Body>, Without<Dies>),
     >,
@@ -697,12 +704,17 @@ fn keep(
     // The foes the followers are sent at in this tick, each at one follower.
     let mut sent: Vec<Entity> = followers
         .iter()
-        .filter_map(|(.., mind, _, _)| mind.foe())
+        .filter_map(|(.., mind, _, _, _)| mind.foe())
         .collect();
-    for (entity, transform, way, mut mind, mut follower, walk) in &mut followers {
-        let Ok((master_at, body, attack, making, playing)) = masters.get(follower.master) else {
+    for (entity, transform, way, mut mind, mut follower, walk, casting) in &mut followers {
+        let Ok((master_at, body, attack, making, playing, wounds)) = masters.get(follower.master)
+        else {
             continue;
         };
+        // Its cast runs its course (the AI's state 6).
+        if casting {
+            continue;
+        }
         let master = master_at.translation;
         let here = transform.translation;
         mind.home = spot(master);
@@ -831,12 +843,37 @@ fn keep(
             continue;
         }
         follower.stepping_off = false;
-        // One of the flag 4 stands while the hero is in danger far from it (`0x4F363D`).
+        // A healer standing by its wounded master heals it, before it follows (#2895).
+        if let Some(health) = wounds
+            && minds::heals_master(
+                mind.spell,
+                spot(here),
+                spot(master),
+                (health.current, health.most),
+            )
+        {
+            debug!(
+                "followers: {entity} heals {} at {}/{}",
+                follower.master, health.current, health.most
+            );
+            commands
+                .entity(entity)
+                .insert(crate::creature_casts::Casting::new(
+                    opensacred_rules::casts::HEAL,
+                    0,
+                    follower.master,
+                    master,
+                ));
+            continue;
+        }
+        // One of the flag 4 stands while the hero is in danger far from it (`0x4F363D`); a healer
+        // never does.
         let fighting = attack.and_then(crate::attack::Attack::target).is_some()
             || playing.is_some()
             || making.is_some();
         let nearest_hostile = (!nearest.hostiles.is_empty()).then_some(nearest.distance);
         if follower.escorted
+            && u16::from(mind.spell) != opensacred_rules::casts::HEAL
             && minds::escort_stands(spot(here), spot(master), nearest_hostile, fighting)
         {
             continue;
