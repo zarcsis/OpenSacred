@@ -12817,17 +12817,17 @@ impl Arms {
             .map(|&(held, values)| (held.item, values))
     }
 
-    /// Its level in the skill `skill` at the level `grade` (`0x582450`), 0 without it; the items'
-    /// bonuses to it are not followed.
+    /// Its level in the skill `skill` at the level `grade` (`0x582450`), with its items' bonus, 0
+    /// without it ([`Self::skills`]).
     pub(crate) fn skill_level(&self, grade: u32, skill: u8) -> u32 {
-        fight::skills(&self.base, grade, self.plain)
+        self.skills(grade)
             .iter()
             .find(|&&(had, _)| had == skill)
             .map_or(0, |&(_, level)| level)
     }
 
     /// Whether it has the skill of two weapons (6) at the level `grade`, its level in the skill
-    /// above 0 (`0x582450(6)`); the items' bonuses to it are not followed.
+    /// above 0 with its items' bonus (`0x582450(6)`).
     pub(crate) fn two_weapons(&self, grade: u32) -> bool {
         self.skills(grade)
             .iter()
@@ -12835,10 +12835,10 @@ impl Arms {
     }
 
     /// Its skills and their levels at the level `grade`, as its fight counts them
-    /// (`fight::skills`: its type's slots at the level's setter's levels, `0x564D60`); the items'
-    /// bonuses to them are not followed.
+    /// (`fight::skills`: its type's slots at the level's setter's levels, `0x564D60`), each with
+    /// its items' bonus, at most 255 (`opensacred_rules::fight::skills_held`, `0x582450`, #2948).
     pub(crate) fn skills(&self, grade: u32) -> Vec<(u8, u32)> {
-        fight::skills(&self.base, grade, self.plain)
+        opensacred_rules::fight::skills_held(&self.base, grade, self.plain, &self.holds())
     }
 
     /// [`Self::fight`] with its effects `effects` (#763).
@@ -12854,7 +12854,7 @@ impl Arms {
             class: held.class,
             share: held.share(),
         };
-        let skills = fight::skills(&self.base, grade, self.plain);
+        let skills = opensacred_rules::fight::skills_held(&self.base, grade, self.plain, &held);
         let mut values =
             opensacred_rules::fight::combat_with(&self.base, grade, held, &skills, effects, rules);
         let [attack, defence] = rank.fight(rules);
@@ -12870,8 +12870,9 @@ impl Arms {
         if self.plain {
             return PLAIN_HEALTH;
         }
-        let skills = fight::skills(&self.base, grade, self.plain);
-        fight::most_health_held(&self.base, grade, &self.holds(), &skills, rank, rules)
+        let held = self.holds();
+        let skills = opensacred_rules::fight::skills_held(&self.base, grade, self.plain, &held);
+        fight::most_health_held(&self.base, grade, &held, &skills, rank, rules)
     }
 
     /// What it holds as its values take it: unarmed when what it holds is of class 0 and its
