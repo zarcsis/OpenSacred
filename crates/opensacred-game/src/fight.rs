@@ -374,6 +374,40 @@ pub(crate) fn resolve(
                     continue;
                 }
             }
+            // Then its effect 0x1A by the arrows' rule, `k` 1 (`0x561860`'s second stage, #2945):
+            // the spellproof's shares the spell among the creatures hostile to its bearer, the
+            // shield wall's only flashes its object.
+            let turns = effects.get(hit.target).ok().and_then(|held| {
+                held.list()
+                    .into_iter()
+                    .find(|effect| effect.id == opensacred_rules::spells::TURNS_SPELLS)
+            });
+            if let Some(turns) = turns {
+                let chance =
+                    opensacred_rules::arrows::deflection_chance(turns.level, turns.art, level);
+                let roll = f32::from(u16::try_from(dice.0.below(32_768)).unwrap_or(0)) / 32_767.0;
+                if roll <= chance {
+                    debug!(
+                        "fight: {} turns aside the spell of {} by its effect of {} ({:.0} %)",
+                        hit.target,
+                        hit.attacker,
+                        turns.art,
+                        chance * 100.0
+                    );
+                    let bearer = hit.target;
+                    let (art, value, damages) = (turns.art, turns.value, hit.fixed);
+                    commands.queue(move |world: &mut World| {
+                        if art == opensacred_rules::spells::SPELLPROOF {
+                            if let Some(damages) = damages {
+                                crate::spells::share_turned(world, bearer, damages, value);
+                            }
+                        } else {
+                            world.write_message(crate::shields::Flash(bearer, art));
+                        }
+                    });
+                    continue;
+                }
+            }
         }
         // A defender in its defending clip, a parry's or a script's (the slots 53 to 65), doubles
         // its defence (`0x56B96A`–`0x56B9A5`, #2487); a hero's eight times, which the game's hero,

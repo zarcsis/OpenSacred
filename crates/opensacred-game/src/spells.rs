@@ -3542,6 +3542,48 @@ fn proof(rank: Option<&fight::Ranked>) -> bool {
     rank.is_some_and(|rank| matches!(rank.0, fight::Rank::Boss | fight::Rank::Champion))
 }
 
+/// Shares a spell of the damages `damages` that the spellproof of the value `value` on `bearer`
+/// turned aside (`0x561860`, #2945): each creature hostile to the hero within
+/// [`opensacred_rules::spells::SHARED_WITHIN`] of the bearer, alive and not the bearer, takes a
+/// sure strike from the bearer of its share (`opensacred_rules::spells::spellproof_share`); the
+/// objects 864 at them are not followed.
+pub(crate) fn share_turned(world: &mut World, bearer: Entity, damages: [f32; 4], value: f32) {
+    let Some(at) = world
+        .get::<GlobalTransform>(bearer)
+        .map(GlobalTransform::translation)
+    else {
+        return;
+    };
+    let mut creatures =
+        world.query_filtered::<(Entity, &GlobalTransform, &ai::Mind, &Health), Without<Dies>>();
+    let struck: Vec<Entity> = creatures
+        .iter(world)
+        .filter(|&(entity, there, mind, health)| {
+            entity != bearer
+                && mind.hostile()
+                && health.current > 0
+                && (there.translation() - at).xz().length() < spells::SHARED_WITHIN
+        })
+        .map(|(entity, ..)| entity)
+        .collect();
+    let Some(share) = spells::spellproof_share(damages, value, struck.len()) else {
+        return;
+    };
+    for target in struck {
+        world.write_message(fight::Hit {
+            attacker: bearer,
+            target,
+            share: 1.0,
+            ranged: false,
+            art: None,
+            fixed: Some(share),
+            sure: true,
+            poison: false,
+            ward: false,
+        });
+    }
+}
+
 /// Counts each ring of frost's zone down, and gives each hostile creature on its level that stands
 /// in it the effect 15 keyed by the ring for 1 s, again while it stays, whose value is its time's
 /// factor (`0x59F960`, `0x5941A0`, `opensacred_rules::spells::frost_slow`).
