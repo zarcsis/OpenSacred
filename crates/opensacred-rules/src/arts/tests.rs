@@ -2242,3 +2242,20 @@ fn a_hurled_weapons_damages_are_rolled_at_the_hundredth_and_raised() {
     let made = thrown_damage(&damage, 1.5, &mut Given(vec![250, 0, 0, 0]));
     assert_eq!(made, [18.75, 0.0, 1.5, 0.0]);
 }
+
+#[test]
+fn a_rundums_regeneration_starts_by_its_class() {
+    // A fifth again per creature for the Seraphim's, the Wood Elf's, the Dark Elf's, the
+    // Vampiress's and the generic 1000; not the Gladiator's nor the Dwarf's.
+    assert!(
+        [1000, 1020, 1038, 1061, 1065, 1069, 1073]
+            .into_iter()
+            .all(rundum_hops)
+    );
+    assert!(!rundum_hops(1057) && !rundum_hops(DWARF_RUNDUM));
+    assert_eq!(RUNDUM_HOP, 0.2);
+    // The first frame: none for 1000, the Dark Elf's own group, the others none.
+    assert_eq!(rundum_starts(1000), None);
+    assert_eq!(rundum_starts(1065), Some(Some(1065)));
+    assert_eq!(rundum_starts(1073), Some(None));
+}

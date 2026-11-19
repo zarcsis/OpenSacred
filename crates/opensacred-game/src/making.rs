@@ -881,7 +881,10 @@ fn make(
                 commands
                     .entity(hero)
                     .insert(crate::attack::Attack::shot(making.target, special));
-                arts.start(making.art);
+                // A shot's start of the group 0, its time to every art of its kind, the
+                // Vampiress's bites and the Dark Elf's traps too (`0x5133A1`, `0x50A29C`,
+                // `0x50A409`; #2995).
+                arts.start_with(making.art, 1.0, None);
                 end(&mut commands);
                 continue;
             }
@@ -1085,12 +1088,14 @@ fn make(
                         });
                 }
             }
-            // A `Rundum`, the whirling blow, the hurled blades, the backbreaker and the domination
-            // start their regeneration as they start.
-            if matches!(
-                style,
-                Style::Rundum | Style::Whirl | Style::Blades | Style::Backbreaker | Style::Dominate
-            ) {
+            // A `Rundum` and the whirling blow start their regeneration as they start, by their
+            // classes' groups (`arts::rundum_starts`, #2995); the hurled blades, the backbreaker
+            // and the domination likewise, each its own group.
+            if matches!(style, Style::Rundum | Style::Whirl) {
+                if let Some(group) = arts::rundum_starts(making.art) {
+                    arts.start_with(making.art, 1.0, group);
+                }
+            } else if matches!(style, Style::Blades | Style::Backbreaker | Style::Dominate) {
                 arts.start(making.art);
             }
             info!(
@@ -1527,8 +1532,8 @@ fn make(
             }
             Style::Changeling => {
                 // Below 0.5 left of its clip the Vampiress changes her form: 1022 into her
-                // night's for its time and its regeneration started, 1023 back to her day's and
-                // 1022's regeneration started anew (seen), its own by day (`0x50E6C0`).
+                // night's for its time and its regeneration started, 1023 back to her day's, the
+                // change setting 1022's regeneration whole again (seen; `0x50E6C0`, `0x557040`).
                 if !due(1.0 - arts::CHANGES, done) {
                     if finished {
                         end(&mut commands);
@@ -1545,8 +1550,10 @@ fn make(
                         arts::changeling_seconds(record, playing.level, by_day)
                     });
                 commands.trigger(crate::forms::Change { night, seconds });
-                arts.start(1022);
-                if !night && by_day {
+                // 1022 its own start; 1023 its own only out of her night's form, which it is
+                // made in, so none then (`0x5129D7`); her change of form then sets her day's
+                // arts' waits whole (`forms`, `0x557040`; #2995).
+                if night || arts.kind != opensacred_rules::arts::VAMPIRESS_BY_NIGHT {
                     arts.start(making.art);
                 }
                 end(&mut commands);
@@ -2664,8 +2671,9 @@ fn make(
                 if !arts::rundum_looks(arts.kind, done) || tick.seconds.is_none() {
                     continue;
                 }
-                let Some(record) = arts.tables.weapon_arts.iter().find(|a| a.id == making.art)
-                else {
+                // The tables apart from the arts, whose regeneration each strike starts.
+                let tables = std::sync::Arc::clone(&arts.tables);
+                let Some(record) = tables.weapon_arts.iter().find(|a| a.id == making.art) else {
                     continue;
                 };
                 let radius = |reach| rundum_radius(record, playing.level, reach);
@@ -2705,6 +2713,11 @@ fn make(
                         on: chosen,
                     });
                     playing.last = Some(chosen);
+                    // A fifth of its time again for each new creature struck, by its class
+                    // (`0x50F318`, `0x50758A`, `0x505434`, `0x50BAC7`, `0x50DA5D`; #2995).
+                    if arts::rundum_hops(making.art) {
+                        arts.start_with(making.art, arts::RUNDUM_HOP, Some(making.art));
+                    }
                     // The whirling blow knocks back each creature it strikes by a kick's roll
                     // (`0x5038F0` at `0x50522A`).
                     if playing.style == Style::Whirl
