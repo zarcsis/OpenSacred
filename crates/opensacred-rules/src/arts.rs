@@ -569,6 +569,31 @@ pub const DAEMON_FORM: u32 = 0x4321;
 /// The Dwarf's own `Rundum`, `Hardhit` and `Attacke` (1078, 1079 and 1080, of the families 1000
 /// to 1002), whose executor fires a gun he holds (`0x515E27`, `0x515298`, `0x514E8F`; #1963).
 pub const DWARF_RUNDUM: u16 = 1078;
+
+/// The share of its time that a `Rundum` adds to its regeneration again for each new creature
+/// its bones strike (the float 0.2 at `0x890DA0`, #2995).
+pub const RUNDUM_HOP: f32 = 0.2;
+
+/// Whether the `Rundum` `art` adds [`RUNDUM_HOP`] of its time for each new creature it strikes:
+/// the Seraphim's (1069, and the whirling blow 1020 of her case), the Wood Elf's (1061), the
+/// Dark Elf's (1065), the Vampiress's (1038, 1073) and the generic executor's 1000; not the
+/// Gladiator's, the Dwarf's nor the Daemon's (`0x5038F0`, `0x50AC00`, `0x506770`, `0x50E6C0`,
+/// `0x50CD10`; #2995).
+pub fn rundum_hops(art: u16) -> bool {
+    matches!(art, 1000 | 1020 | 1038 | 1061 | 1065 | 1069 | 1073)
+}
+
+/// How a `Rundum`'s first frame starts its regeneration (#2995): the generic executor's 1000
+/// none, the Dark Elf's 1065 its own id the group (`0x5070E8`), every other with the group 0
+/// (`None`: the Vampiress's 1038 and 1073 so its time to her bites and bats 1030 to 1037 too,
+/// `0x50EF94`); `Some(None)` a start of no group, `None` no start.
+pub fn rundum_starts(art: u16) -> Option<Option<u16>> {
+    match art {
+        1000 => None,
+        1065 => Some(Some(art)),
+        _ => Some(None),
+    }
+}
 pub const DWARF_HARDHIT: u16 = 1079;
 pub const DWARF_ATTACKE: u16 = 1080;
 

@@ -138,6 +138,12 @@ impl HeroArts {
     /// #2803). The hero needs not hold it, as the original's use of an art it lacks. While a
     /// combo runs or its mark holds, the time goes to the combos instead ([`Self::combo_uses`]).
     pub fn start(&mut self, art: u16) {
+        self.start_with(art, 1.0, Some(art));
+    }
+
+    /// A use of `art` as [`Self::start`], of `share` of its time and with the group `group` (none
+    /// a start of every art of its kind, as an executor's group 0; #2995).
+    pub fn start_with(&mut self, art: u16, share: f32, group: Option<u16>) {
         let kind = self.arts.get(art).map_or_else(
             || {
                 if art < 1000 || matches!(art, 1019 | 1085..=1087) {
@@ -148,12 +154,23 @@ impl HeroArts {
             },
             opensacred_rules::arts::Entry::kind,
         );
-        let time = self.arts.time_of(art, &self.tables);
+        let time = self.arts.time_of(art, &self.tables) * share;
         if let Some(uses) = &mut self.combo_uses {
             uses.push(time);
             return;
         }
-        self.arts.start(time, kind, Some(art), 0);
+        self.arts.start(time, kind, group, 0);
+    }
+
+    /// The waits of the held arts of `arts` set whole, each to its time, as the Vampiress's change
+    /// of form sets her day's arts' (`0x557040`: 1022, 1024, 1026, 1028 and 1073 to 1076; #2995).
+    pub fn wait_whole(&mut self, arts: &[u16]) {
+        for &art in arts {
+            let time = self.arts.time_of(art, &self.tables);
+            if let Some(entry) = self.arts.entries.iter_mut().find(|entry| entry.art == art) {
+                entry.remaining = time;
+            }
+        }
     }
 
     /// A line for each art, as the original's driver prints them: its table, id, level and

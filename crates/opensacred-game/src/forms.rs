@@ -194,6 +194,10 @@ fn change(
         return;
     }
     forms.by_night = change.night;
+    // Her day's arts' waits whole (`0x557040`, #2995).
+    if let Some(arts) = arts.as_mut() {
+        arts.wait_whole(&DAY_ARTS);
+    }
     let form = if change.night {
         forms.night.clone()
     } else {
@@ -312,6 +316,10 @@ fn wear_off(
         });
     }
 }
+
+/// The arts whose waits the Vampiress's change of form sets whole (`0x557040`): her changeling,
+/// her domination, her wolf, her dash and her four class arts.
+const DAY_ARTS: [u16; 8] = [1022, 1024, 1026, 1028, 1073, 1074, 1075, 1076];
 
 pub struct FormsPlugin;
 
