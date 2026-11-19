@@ -7,7 +7,8 @@
 //! two tubes along the wings, is drawn with the effect texture instead of the type's, unlit, its
 //! colour added to the frame without writing the depth, its texture running along the tubes twice
 //! in each cycle of 2,048 ms and then standing for 1,024 ms (`0x4068B9`). Every pair of wings
-//! glows in step, as the clock is the frame's. `npcs::retexture` gives the primitive its material.
+//! glows in step, as the clock is the frame's. `npcs::retexture` gives the primitive its
+//! material's copy of the effect (`models::Bands`).
 //!
 //! The kinds 1 to 4 lay the effect texture, drifting on that clock, under every texel of the
 //! model, the kind 1 with the glow `FX_MULTITEXGLOW01` added to it (#1834, #1848;
@@ -23,7 +24,9 @@
 //! object, an item on the ground among them, and the figures by `renderComplex`, every kind; its
 //! orthographic item draw (`0x40F270`), the interface's, has the kinds 1 to 4 alone. A model drawn
 //! apart from the world, by a camera of its own (the interface's items, the figures), lies over
-//! its effect through an [`ApartMaterial`].
+//! its effect through an [`ApartMaterial`]. The options' detail 0 leaves a game's effects out at
+//! every frame ([`shown`], #2943), the world's models and the interface's taking their plain
+//! materials again; the figures keep theirs.
 
 use bevy::asset::AssetId;
 use bevy::ecs::system::SystemParam;
@@ -102,6 +105,15 @@ impl Table {
     pub fn glow(&self) -> Option<&str> {
         self.glow.as_deref()
     }
+}
+
+/// Whether a game's models are drawn over their effects at the options' detail: while it is not 0,
+/// as `0x44A8C0` chooses `cGranny::renderComplex` for a flagged type of the world and `0x40EA06`
+/// lets the orthographic item draw (`0x40E9C0`) take its effects, each reading `DETAILLEVEL` as it
+/// draws (#2352, #2377, #2943); the choice of the hero's figures are drawn so whatever the detail
+/// (`0x6F1B30`).
+pub fn shown(settings: Option<&crate::settings::Settings>) -> bool {
+    crate::settings::detail(settings) != 0
 }
 
 /// Reads the [`Table`] off the assets' tables at the start; without them no model has an effect.
@@ -574,5 +586,17 @@ mod tests {
         assert_eq!(offsets(ALONG_U, 1_024), Vec4::new(0.5, 0.0, 0.0, 0.0));
         assert_eq!(offsets(ALONG_U_FAST, 1_024), Vec4::new(1.0, 0.0, 0.0, 0.0));
         assert!(under(1) && under(4) && !under(5) && !under(RUNNING_BANDS));
+    }
+
+    #[test]
+    fn the_effects_are_left_out_at_the_lowest_detail_alone() {
+        let at = |detail| {
+            let mut settings = crate::settings::Settings::default();
+            settings.graphics.detail = detail;
+            shown(Some(&settings))
+        };
+        assert!(!at(0) && at(1) && at(2));
+        // Without the settings, at the installation's detail 2.
+        assert!(shown(None));
     }
 }

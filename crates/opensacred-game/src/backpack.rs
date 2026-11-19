@@ -565,66 +565,81 @@ pub(crate) fn lay_models<B: Bundle>(
 /// The copies of the items' parts' materials that [`layer`] made, by the material copied.
 type Copies<M> = HashMap<AssetId<StandardMaterial>, Handle<M>>;
 
+/// A part of an item's model over its type's effect, and its two materials: its matte copy,
+/// drawn at the options' detail 0, and its copy over the effect, drawn above it
+/// (`model_effects::shown`, #2943).
+#[derive(Component)]
+pub(crate) struct Dressed {
+    matte: Handle<StandardMaterial>,
+    over: Handle<ApartMaterial>,
+}
+
+/// A part of an item's model as [`layer`] reads it: its material, matte or not, its effect, its
+/// two looks over the effect where it has them, and whether it is drawn over the effect now.
+type Part = (
+    Option<&'static mut MeshMaterial3d<StandardMaterial>>,
+    Option<&'static crate::models::Effect>,
+    Option<&'static Dressed>,
+    Has<MeshMaterial3d<ApartMaterial>>,
+);
+
 /// Puts each part of the items' models into their camera's layer as their scenes come in, and
 /// gives it a copy of its material that reflects no light (**estimate**): the original lights an
 /// item by its colour alone, where the ambient light's reflection of 4% would lift its darks to a
 /// grey. The copy tests its texels' alpha as the original's every model (`models::CUTOFF`,
 /// `cGranny::render`), which the converted glTF's opaque material does not (#1679): the
 /// smith's upgrade's round token lies on transparent corners. A part over its type's effect of the
-/// kinds 1 to 4 (`models::Effect`) takes the copy over it instead, as the original's orthographic
-/// item draw lays it (`0x40F270`, `model_effects::ApartMaterial`; #1875).
+/// kinds 1 to 4 (`models::Effect`) takes the copy over it instead once its textures are in, as the
+/// original's orthographic item draw lays it (`0x40F270`, `model_effects::ApartMaterial`; #1875),
+/// and its matte copy again while the options' detail is 0, as that draw reads it at every frame
+/// (`0x40EA06`, #2943).
 pub(crate) fn layer(
     mut commands: Commands,
     models: Query<(Entity, &RenderLayers), With<Matte>>,
     children: Query<&Children>,
     layered: Query<(), With<RenderLayers>>,
-    mut parts: Query<(
-        &mut MeshMaterial3d<StandardMaterial>,
-        Option<&crate::models::Effect>,
-    )>,
-    (mut materials, mut making): (
+    mut parts: Query<Part>,
+    (mut materials, mut making, settings): (
         ResMut<Assets<StandardMaterial>>,
         crate::model_effects::Making,
+        Option<Res<crate::settings::Settings>>,
     ),
     (mut matte, mut over): (
         Local<Copies<StandardMaterial>>,
         Local<Copies<ApartMaterial>>,
     ),
 ) {
+    let shown = crate::model_effects::shown(settings.as_deref());
     for (model, layers) in &models {
         for part in children.iter_descendants(model) {
             if !layered.contains(part) {
                 commands.entity(part).insert(layers.clone());
             }
-            let Ok((mut material, effect)) = parts.get_mut(part) else {
+            let Ok((material, effect, looks, apart)) = parts.get_mut(part) else {
+                continue;
+            };
+            // Its look of the detail, once it has both.
+            if let Some(looks) = looks {
+                if apart != shown {
+                    let mut part = commands.entity(part);
+                    if shown {
+                        part.remove::<MeshMaterial3d<StandardMaterial>>()
+                            .insert(MeshMaterial3d(looks.over.clone()));
+                    } else {
+                        part.remove::<MeshMaterial3d<ApartMaterial>>()
+                            .insert(MeshMaterial3d(looks.matte.clone()));
+                    }
+                }
+                continue;
+            }
+            let Some(mut material) = material else {
                 continue;
             };
             let id = material.0.id();
-            // Over its effect once the effect's textures are in, its matte copy meanwhile.
-            if let Some(effect) = effect {
-                let made = over.get(&id).cloned().or_else(|| {
-                    let source = materials.get(id)?.clone();
-                    let base = StandardMaterial {
-                        reflectance: 0.0,
-                        ..source
-                    };
-                    let made = making.over(base, effect)?;
-                    over.insert(id, made.clone());
-                    Some(made)
-                });
-                if let Some(made) = made {
-                    commands
-                        .entity(part)
-                        .remove::<MeshMaterial3d<StandardMaterial>>()
-                        .insert(MeshMaterial3d(made));
-                    continue;
-                }
-            }
-            if matte.values().any(|copy| copy.id() == id) {
-                continue;
-            }
-            if let Some(copy) = matte.get(&id) {
-                material.0 = copy.clone();
+            let copy = if matte.values().any(|copy| copy.id() == id) {
+                material.0.clone()
+            } else if let Some(copy) = matte.get(&id) {
+                copy.clone()
             } else if let Some(source) = materials.get(id).cloned() {
                 let copy = materials.add(StandardMaterial {
                     reflectance: 0.0,
@@ -632,7 +647,37 @@ pub(crate) fn layer(
                     ..source
                 });
                 matte.insert(id, copy.clone());
-                material.0 = copy;
+                copy
+            } else {
+                continue;
+            };
+            if material.0 != copy {
+                material.0 = copy.clone();
+            }
+            // Over its effect once the effect's textures are in, its matte copy meanwhile.
+            let Some(effect) = effect else {
+                continue;
+            };
+            let made = over.get(&id).cloned().or_else(|| {
+                let source = materials.get(id)?.clone();
+                let base = StandardMaterial {
+                    reflectance: 0.0,
+                    ..source
+                };
+                let made = making.over(base, effect)?;
+                over.insert(id, made.clone());
+                Some(made)
+            });
+            if let Some(made) = made {
+                let mut part = commands.entity(part);
+                if shown {
+                    part.remove::<MeshMaterial3d<StandardMaterial>>()
+                        .insert(MeshMaterial3d(made.clone()));
+                }
+                part.insert(Dressed {
+                    matte: copy,
+                    over: made,
+                });
             }
         }
     }
