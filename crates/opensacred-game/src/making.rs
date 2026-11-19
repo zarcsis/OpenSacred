@@ -795,7 +795,10 @@ fn make(
                     body.send_to(target, onto);
                     continue;
                 }
-                if !riding {
+                // From the saddle a `Hardhit` turns the rider to its target first, and the
+                // horse it sits on with it (`0x4DBAD0`; seen, #2908); any other art keeps the
+                // pair's facing.
+                if !riding || arts::style(making.art) == Some(Style::Hardhit) {
                     transform.rotation = hero::facing((target - here).with_y(0.0));
                 }
             }
@@ -932,7 +935,7 @@ fn make(
                 end(&mut commands);
                 continue;
             };
-            // From the saddle a `Hardhit` plays the rider's 194 at the rate 1.0 (the Gladiator's
+            // From the saddle a `Hardhit` plays the rider's 194 at its attack speed (the Gladiator's
             // `0x4FF0B0` at `0x502B01`, the Seraphim's `0x5038F0` at `0x505EC6`, the Wood Elf's
             // `0x50AC00` at `0x50C35D`, the others' alike), at its first hit.
             let saddle = (riding && style == Style::Hardhit)
@@ -1033,7 +1036,11 @@ fn make(
                     arts::jump_rate(whole_distance(here, point))
                 };
             }
-            let played = if action.fixed || saddle.is_some() {
+            // From the saddle at the attack speed (`0x593320`'s rate; seen 1.54 at the speed 154,
+            // #2908).
+            let played = if saddle.is_some() {
+                speed.0 * clip_speed
+            } else if action.fixed {
                 speed.0 * rate
             } else {
                 speed.0 * clip_speed * rate
