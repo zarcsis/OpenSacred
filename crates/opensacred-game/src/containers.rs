@@ -11,7 +11,7 @@
 //! `opensacred_rules::containers`) make what it holds, seeded by the hero and the container, which
 //! it throws along arcs to the hero's feet (#1381).
 //!
-//! As the doors, the game picks the container nearest the cursor's line of sight; the hero walks
+//! The container is the one that the cursor picks (`under_cursor`, #2873); the hero walks
 //! to the container's own point, its way ending beside the container's closed cell, rather than
 //! where the click's ground lies (#1877): the cursor on a tall container's model, the book stand
 //! under the start's gazebo, finds the ground in the pond behind it.

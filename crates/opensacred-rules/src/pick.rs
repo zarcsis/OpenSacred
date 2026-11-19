@@ -1,9 +1,10 @@
-//! What lies under the cursor (#2873; docs/re/cursor.md, "The pick"): the rectangle that each
-//! object drawn leaves on the screen, a living creature's of its type's size about its feet
-//! (`0x44CF20`, `0x428850`), the classes that the rectangles under the cursor fall into, and the
-//! one that the pick takes (`0x626C50`): of the first class that holds any, in the order of the
-//! hostile creatures, the items and the rest, or the items first while Alt is held, the one whose
-//! middle lies nearest the cursor, and none where that one's middle lies 100 pixels or more away.
+//! What lies under the cursor (#2873; docs/re/cursor.md, "The chooser's tests, in order"): the
+//! rectangle that each object drawn leaves on the screen, a living creature's of its type's size
+//! about its feet (`0x44CF20`, `0x428850`), the classes that the rectangles under the cursor fall
+//! into, and the one that the pick takes (`0x626C50`): of the first class that holds any, in the
+//! order of the hostile creatures, the items and the rest, or the items first while Alt is held,
+//! the one whose middle lies nearest the cursor, and none where that one's middle lies 100 pixels
+//! or more away.
 
 /// A rectangle on the original's screen of 1,024 × 768 pixels, its least corner and its size.
 #[derive(Clone, Copy, Debug, PartialEq)]

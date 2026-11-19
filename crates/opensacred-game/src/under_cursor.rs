@@ -1,17 +1,16 @@
-//! What lies under the cursor (#2873; docs/re/cursor.md, "The pick"): at each frame every object
-//! that the last frame drew, shown and in view, leaves its rectangle on the screen, in the
-//! original's pixels ([`View`]):
-//! a living creature its type's box about its feet (`opensacred_rules::pick::creature_rect`), a
-//! ridden horse's halved; the dead, the containers, the doors and the specials their models'
-//! bounds (`vertices::ModelPoints::bounds_points`), a container whose model is not drawn yet a
-//! chest's; an item the least square about its point; and a scripts' event of a box its box. Of
-//! them `opensacred_rules::pick::choose` takes one ([`UnderCursor`]): of the first class that holds the
-//! cursor, the hostile creatures, then the items and the events, then the rest, or the items
-//! first while Alt is held, the one whose middle lies nearest the cursor, none where it lies 100
-//! pixels away; with none taken and Alt held, the last label under the cursor
-//! (`labels::Shown`, `0x6270A0`). The modules that take a click or show a look on the world read
-//! it: the hero's attacks, its arts, its talks, its pick-ups, the doors, the containers, the
-//! horses, the events and the cursor's look.
+//! What lies under the cursor (#2873; docs/re/cursor.md, "The chooser's tests, in order"): at each
+//! frame every object that the last frame drew, shown and in view, leaves its rectangle on the
+//! screen, in the original's pixels ([`View`]): a living creature its type's box about its feet
+//! (`opensacred_rules::pick::creature_rect`), a ridden horse's halved; the dead, the containers,
+//! the doors and the specials their models' bounds (`vertices::ModelPoints::bounds_points`), a
+//! container whose model is not drawn yet a chest's; an item the least square about its point; and
+//! a scripts' event of a box its box. Of them `opensacred_rules::pick::choose` takes one
+//! ([`UnderCursor`]): of the first class that holds the cursor, the hostile creatures, then the
+//! items and the events, then the rest, or the items first while Alt is held, the one whose middle
+//! lies nearest the cursor, none where it lies 100 pixels away; with none taken and Alt held, the
+//! last label under the cursor (`labels::Shown`, `0x6270A0`). The modules that take a click or show
+//! a look on the world read it: the hero's attacks, its arts, its talks, its pick-ups, the doors,
+//! the containers, the horses, the events and the cursor's look.
 
 use bevy::prelude::*;
 use opensacred_rules::pick::{self, Class, Rect};
