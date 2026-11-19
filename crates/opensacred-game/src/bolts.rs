@@ -379,7 +379,14 @@ fn fire(
             warn!("bolts: no record {} of the first table", shot.bolt.spell());
             continue;
         };
-        let multipliers = combat.map_or([1.0; 4], |combat| combat.multipliers);
+        // The railgun's by the spells' multipliers, the BFG's by the weapons' (`0x4D2310`).
+        let multipliers = combat.map_or([1.0; 4], |combat| {
+            if shot.bolt.spells() {
+                combat.spells
+            } else {
+                combat.multipliers
+            }
+        });
         let damages = bolt_damages(spell, level, multipliers);
         let direction = (shot.toward - at.translation)
             .xz()
