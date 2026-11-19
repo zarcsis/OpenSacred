@@ -34,18 +34,18 @@ fn the_pieces_count_by_their_distinct_types() {
 #[test]
 fn a_set_gives_its_rows_from_their_counts_on() {
     // Set 2 at 3 pieces on gold: a1 and a3 +16; its skills wait for 4.
-    let three = stats(&wearing(2, 3), Difficulty::Gold);
+    let three = stats(&wearing(2, 3), Difficulty::Gold, false);
     assert_eq!(three.attributes, [0.0, 16.0, 0.0, 16.0, 0.0, 0.0]);
     assert!(three.skills.is_empty());
     // At 5 the skills 9 and 11 of ⌊3·D⌋ and the skill 10 of ⌊2·D⌋.
-    let five = stats(&wearing(2, 5), Difficulty::Gold);
+    let five = stats(&wearing(2, 5), Difficulty::Gold, false);
     assert_eq!(five.skills, [(9, 5), (11, 5), (10, 3)]);
 }
 
 #[test]
 fn the_values_take_the_difficulty_as_the_switch_does() {
     // Set 7 at 5 on niobium: the attack speed +46, the skill 25 +7, A's multiplier +0.351.
-    let seven = stats(&wearing(7, 5), Difficulty::Niobium);
+    let seven = stats(&wearing(7, 5), Difficulty::Niobium, false);
     assert_eq!(
         (seven.attack_speed, seven.skills.as_slice()),
         (46.0, &[(25, 7)][..])
@@ -53,20 +53,20 @@ fn the_values_take_the_difficulty_as_the_switch_does() {
     assert!(close(seven.attack_times, 0.351));
     // Set 22 at 5 on silver: the fire resistance +40, its weapons' multiplier and its factor
     // +1.34.
-    let starion = stats(&wearing(22, 5), Difficulty::Silver);
+    let starion = stats(&wearing(22, 5), Difficulty::Silver, false);
     assert_eq!(starion.resistances, [0.0, 40.0, 0.0, 0.0]);
     assert!(close(starion.weapon[1], 1.34) && close(starion.resistance_factors[1], 1.34));
     // Set 12 at 4 on bronze: the skill 19's ⌊2·D⌋ that its text calls ⌊3·D⌋.
-    let octanion = stats(&wearing(12, 4), Difficulty::Bronze);
+    let octanion = stats(&wearing(12, 4), Difficulty::Bronze, false);
     assert_eq!(octanion.skills, [(14, 3), (19, 2)]);
     assert_eq!(octanion.attributes[4], 10.0);
     // Set 6 at 5 on bronze: a3 of ⌊5·D⌋ at 4 and ⌊10·D⌋ more at 5.
     assert_eq!(
-        stats(&wearing(6, 5), Difficulty::Bronze).attributes[3],
+        stats(&wearing(6, 5), Difficulty::Bronze, false).attributes[3],
         15.0
     );
     // Set 51 at 4 on niobium: the pace times 1.15·D.
-    let haste = stats(&wearing(51, 4), Difficulty::Niobium);
+    let haste = stats(&wearing(51, 4), Difficulty::Niobium, false);
     assert!(haste.pace_times.is_some_and(|times| close(times, 2.691)));
 }
 
@@ -75,48 +75,51 @@ fn the_flags_and_the_filled_sets_bonuses() {
     // The six sets' last flags, of the group 0x7C2 that multiplies the whole damage by D.
     for (set, pieces, bit) in [(39, 6, 0x2), (41, 6, 0x400), (44, 5, 0x40), (45, 5, 0x200)] {
         assert_eq!(
-            stats(&wearing(set, pieces), Difficulty::Bronze).flags & 0x7C2,
+            stats(&wearing(set, pieces), Difficulty::Bronze, false).flags & 0x7C2,
             bit
         );
     }
     // Their strikes' whole damage times D: nothing on bronze, 2.34 on niobium (#1727).
     assert_eq!(
-        stats(&wearing(39, 6), Difficulty::Niobium).whole_damage,
+        stats(&wearing(39, 6), Difficulty::Niobium, false).whole_damage,
         Some(2.34)
     );
     assert_eq!(
-        stats(&wearing(39, 5), Difficulty::Niobium).whole_damage,
+        stats(&wearing(39, 5), Difficulty::Niobium, false).whole_damage,
         None
     );
     // The whole set 28 adds 10·D to the survival bonus's share (#1761).
     assert!(close(
-        stats(&wearing(28, 6), Difficulty::Gold).survival,
+        stats(&wearing(28, 6), Difficulty::Gold, false).survival,
         16.7
     ));
-    assert_eq!(stats(&wearing(28, 5), Difficulty::Gold).survival, 0.0);
+    assert_eq!(
+        stats(&wearing(28, 5), Difficulty::Gold, false).survival,
+        0.0
+    );
     assert!(
         (crate::fight::survival_raise(121, 0.0) - 1.25).abs() < 1e-9,
         "half of the curve's 50 after 121 minutes"
     );
     // Set 60's flag only while one of its pieces holds others in its three first sockets.
-    assert_eq!(stats(&wearing(60, 4), Difficulty::Bronze).flags, 0);
+    assert_eq!(stats(&wearing(60, 4), Difficulty::Bronze, false).flags, 0);
     let filled = wearing(60, 4).filled(60);
-    assert_eq!(stats(&filled, Difficulty::Bronze).flags, 0x100_0000);
+    assert_eq!(stats(&filled, Difficulty::Bronze, false).flags, 0x100_0000);
     // Its line, the cages' chance as the code rolls it: 30% on bronze, 70% on niobium (#2547).
-    assert!(stats(&filled, Difficulty::Bronze).binds());
-    assert!(told(60, &filled, Difficulty::Bronze).contains(&Told::Binds(30)));
-    assert!(told(60, &filled, Difficulty::Niobium).contains(&Told::Binds(70)));
-    assert!(!told(60, &wearing(60, 4), Difficulty::Bronze).contains(&Told::Binds(30)));
-    assert!(!stats(&wearing(60, 4), Difficulty::Bronze).binds());
+    assert!(stats(&filled, Difficulty::Bronze, false).binds());
+    assert!(told(60, &filled, Difficulty::Bronze, false).contains(&Told::Binds(30)));
+    assert!(told(60, &filled, Difficulty::Niobium, false).contains(&Told::Binds(70)));
+    assert!(!told(60, &wearing(60, 4), Difficulty::Bronze, false).contains(&Told::Binds(30)));
+    assert!(!stats(&wearing(60, 4), Difficulty::Bronze, false).binds());
     // Set 58's flag at 6: a creature that would flee its wearer is struck down (#2547).
-    assert!(stats(&wearing(58, 6), Difficulty::Bronze).strikes_fleeing());
-    assert!(!stats(&wearing(58, 5), Difficulty::Bronze).strikes_fleeing());
+    assert!(stats(&wearing(58, 6), Difficulty::Bronze, false).strikes_fleeing());
+    assert!(!stats(&wearing(58, 5), Difficulty::Bronze, false).strikes_fleeing());
     // Its line at 6 (#2559).
-    assert!(told(58, &wearing(58, 6), Difficulty::Bronze).contains(&Told::StrikesFleeing));
-    assert!(!told(58, &wearing(58, 5), Difficulty::Bronze).contains(&Told::StrikesFleeing));
+    assert!(told(58, &wearing(58, 6), Difficulty::Bronze, false).contains(&Told::StrikesFleeing));
+    assert!(!told(58, &wearing(58, 5), Difficulty::Bronze, false).contains(&Told::StrikesFleeing));
     // Set 23 has no case; the specials wait for the wearer's values.
     assert_eq!(
-        stats(&wearing(23, 6), Difficulty::Bronze),
+        stats(&wearing(23, 6), Difficulty::Bronze, false),
         Stats {
             worn: wearing(23, 6),
             factor: 1.0,
@@ -124,7 +127,7 @@ fn the_flags_and_the_filled_sets_bonuses() {
         }
     );
     assert_eq!(
-        stats(&wearing(24, 5), Difficulty::Silver).specials,
+        stats(&wearing(24, 5), Difficulty::Silver, false).specials,
         [Special::StrengthPart(53.0)]
     );
 }
@@ -134,7 +137,7 @@ fn the_list_tells_the_bonuses_reached_as_they_are_applied() {
     // Set 2 at 5 on gold, in its bonuses' order: the skill 10 that its text calls a life leech.
     let worn = wearing(2, 5);
     assert_eq!(
-        told(2, &worn, Difficulty::Gold),
+        told(2, &worn, Difficulty::Gold, false),
         [
             Told::Bonus(Bonus::Attribute(1, 16.0)),
             Told::Bonus(Bonus::Attribute(3, 16.0)),
@@ -146,21 +149,21 @@ fn the_list_tells_the_bonuses_reached_as_they_are_applied() {
     // A set's own lines alone.
     let both = Worn::of((0..5).map(|i| (7000 + i, 2)).chain([(7100, 3), (7101, 3)]));
     assert_eq!(
-        told(2, &both, Difficulty::Gold),
-        told(2, &worn, Difficulty::Gold)
+        told(2, &both, Difficulty::Gold, false),
+        told(2, &worn, Difficulty::Gold, false)
     );
-    assert!(told(3, &both, Difficulty::Gold).is_empty());
+    assert!(told(3, &both, Difficulty::Gold, false).is_empty());
     assert!(both.wears(7100) && !both.wears(7102));
     // Set 3 at 4: its arts, and the flag that the foes' labels read (#1425).
     assert_eq!(
-        told(3, &wearing(3, 4), Difficulty::Bronze),
+        told(3, &wearing(3, 4), Difficulty::Bronze, false),
         [
             Told::Bonus(Bonus::Arts(&[1014, 1015, 1016], 2)),
             Told::KnowEnemy
         ]
     );
-    assert!(stats(&wearing(3, 4), Difficulty::Bronze).knows_enemies());
-    assert!(!stats(&wearing(3, 3), Difficulty::Bronze).knows_enemies());
+    assert!(stats(&wearing(3, 4), Difficulty::Bronze, false).knows_enemies());
+    assert!(!stats(&wearing(3, 3), Difficulty::Bronze, false).knows_enemies());
 }
 
 #[test]
@@ -168,74 +171,77 @@ fn the_whole_damage_and_the_survival_tell_their_shares() {
     // Set 39 at 6: the whole damage's line none on bronze, +134 % on niobium.
     let worn = wearing(39, 6);
     assert!(
-        !told(39, &worn, Difficulty::Bronze)
+        !told(39, &worn, Difficulty::Bronze, false)
             .iter()
             .any(|line| matches!(line, Told::WholeDamage(_)))
     );
     assert!(matches!(
-        told(39, &worn, Difficulty::Niobium).last(),
+        told(39, &worn, Difficulty::Niobium, false).last(),
         Some(&Told::WholeDamage(share)) if close(share, 1.34)
     ));
     // Set 28's survival bonus last, from the six pieces the stats add it at.
     assert!(matches!(
-        told(28, &wearing(28, 6), Difficulty::Gold).last(),
+        told(28, &wearing(28, 6), Difficulty::Gold, false).last(),
         Some(&Told::Survival(share)) if close(share, 16.7)
     ));
     assert!(
-        !told(28, &wearing(28, 5), Difficulty::Gold)
+        !told(28, &wearing(28, 5), Difficulty::Gold, false)
             .iter()
             .any(|line| matches!(line, Told::Survival(_)))
     );
     // Set 53's seven pieces turn the items into gold, its line last.
     assert!(into_gold(&wearing(53, 7)) && !into_gold(&wearing(53, 6)));
     assert_eq!(
-        told(53, &wearing(53, 7), Difficulty::Bronze).last(),
+        told(53, &wearing(53, 7), Difficulty::Bronze, false).last(),
         Some(&Told::IntoGold)
     );
-    assert!(!told(53, &wearing(53, 6), Difficulty::Bronze).contains(&Told::IntoGold));
+    assert!(!told(53, &wearing(53, 6), Difficulty::Bronze, false).contains(&Told::IntoGold));
 }
 
 #[test]
 fn the_readers_of_the_counts_take_their_shares() {
     // Set 19 at 5 on gold: a kill's experience 16.7 % more, its line after its bonuses.
-    let nineteen = stats(&wearing(19, 5), Difficulty::Gold);
+    let nineteen = stats(&wearing(19, 5), Difficulty::Gold, false);
     assert!(close(nineteen.experience(), 0.167));
     assert!(matches!(
-        told(19, &wearing(19, 5), Difficulty::Gold).last(),
+        told(19, &wearing(19, 5), Difficulty::Gold, false).last(),
         Some(&Told::Experience(share)) if close(share, 0.167)
     ));
     // Set 1 at 6 on niobium: the rising chance 90 cut to ⌊90·(100 − 70.2)·0.01⌋ = 26.
-    let feac = stats(&wearing(1, 6), Difficulty::Niobium);
+    let feac = stats(&wearing(1, 6), Difficulty::Niobium, false);
     assert_eq!(feac.rising(90), 26);
-    assert_eq!(stats(&wearing(1, 5), Difficulty::Niobium).rising(90), 90);
+    assert_eq!(
+        stats(&wearing(1, 5), Difficulty::Niobium, false).rising(90),
+        90
+    );
     // Set 3 at 8 on silver: the luck 100 to ⌊100·1.268 + 0.5⌋ = 127; set 21 never reaches its
     // reader, asking six of its five pieces.
     assert!(close(
-        stats(&wearing(3, 8), Difficulty::Silver).luck(100.0),
+        stats(&wearing(3, 8), Difficulty::Silver, false).luck(100.0),
         127.0
     ));
     assert!(close(
-        stats(&wearing(21, 5), Difficulty::Silver).luck(100.0),
+        stats(&wearing(21, 5), Difficulty::Silver, false).luck(100.0),
         100.0
     ));
     // Set 1 at 5 on gold against the undead: fire times 2.002 and 1.501, the others 1.501; none
     // against a dragon. Its fire's line at 2, its four kinds' at 5.
-    let feac = stats(&wearing(1, 5), Difficulty::Gold);
+    let feac = stats(&wearing(1, 5), Difficulty::Gold, false);
     let undead = feac.against(UNDEAD);
     assert!(close(undead[FIRE], 2.002 * 1.501) && close(undead[PHYSICAL], 1.501));
     assert_eq!(feac.against(DRAGONS), [1.0; KINDS]);
     assert!(matches!(
-        told(1, &wearing(1, 5), Difficulty::Gold)[..],
+        told(1, &wearing(1, 5), Difficulty::Gold, false)[..],
         [Told::Against(UNDEAD, &[FIRE], fire), Told::Against(UNDEAD, ALL_KINDS, all)]
             if close(fire, 1.002) && close(all, 0.501)
     ));
     // Set 28 at 4 on niobium: the defence against a shot times 2.17.
     assert!(close(
-        stats(&wearing(28, 4), Difficulty::Niobium).ranged_defence(),
+        stats(&wearing(28, 4), Difficulty::Niobium, false).ranged_defence(),
         2.17
     ));
     assert!(close(
-        stats(&wearing(28, 3), Difficulty::Niobium).ranged_defence(),
+        stats(&wearing(28, 3), Difficulty::Niobium, false).ranged_defence(),
         1.0
     ));
     // The sight: set 29 at 3 and one of sets 52 and 57, once though both hold.
@@ -245,9 +251,12 @@ fn the_readers_of_the_counts_take_their_shares() {
             .chain((0..4).map(|i| (7300 + i, 52)))
             .chain((0..6).map(|i| (7400 + i, 57))),
     );
-    assert!(close(stats(&sight, Difficulty::Bronze).sight(), 150.0));
+    assert!(close(
+        stats(&sight, Difficulty::Bronze, false).sight(),
+        150.0
+    ));
     assert_eq!(
-        told(29, &sight, Difficulty::Gold).last(),
+        told(29, &sight, Difficulty::Gold, false).last(),
         Some(&Told::Sight(50.0 * 1.67))
     );
     // Two sets of luck in turn, each rounded: 127, then ⌊127·1.268 + 0.5⌋ = 161.
@@ -256,75 +265,96 @@ fn the_readers_of_the_counts_take_their_shares() {
             .map(|i| (7000 + i, 3))
             .chain((0..7).map(|i| (7100 + i, 9))),
     );
-    assert!(close(stats(&both, Difficulty::Silver).luck(100.0), 161.0));
+    assert!(close(
+        stats(&both, Difficulty::Silver, false).luck(100.0),
+        161.0
+    ));
     // The stun's flag: set 64 at 3 adds 0.9·D, set 42 at 5 0.05·D; one term alone.
     assert!(close(
-        stats(&wearing(64, 3), Difficulty::Gold).stun(10.0),
+        stats(&wearing(64, 3), Difficulty::Gold, false).stun(10.0),
         10.0 + 0.9 * 1.67
     ));
     assert!(close(
-        stats(&wearing(42, 5), Difficulty::Bronze).stun(10.0),
+        stats(&wearing(42, 5), Difficulty::Bronze, false).stun(10.0),
         10.05
     ));
     assert!(close(
-        stats(&wearing(42, 4), Difficulty::Bronze).stun(10.0),
+        stats(&wearing(42, 4), Difficulty::Bronze, false).stun(10.0),
         10.0
     ));
     assert!(matches!(
-        told(64, &wearing(64, 3), Difficulty::Bronze)[..],
+        told(64, &wearing(64, 3), Difficulty::Bronze, false)[..],
         [.., Told::Stun(term)] if close(term, 0.9)
     ));
     // The magic defence's flag: set 41 at 5 adds 15·D, set 44 at 3 10·D (M17, #2277).
     assert!(close(
-        stats(&wearing(41, 5), Difficulty::Bronze).magic_defence(4.0),
+        stats(&wearing(41, 5), Difficulty::Bronze, false).magic_defence(4.0),
         19.0
     ));
     assert!(matches!(
-        told(44, &wearing(44, 3), Difficulty::Gold)[..],
+        told(44, &wearing(44, 3), Difficulty::Gold, false)[..],
         [.., Told::MagicDefence(term)] if close(term, 10.0 * 1.67)
     ));
     // Set 63's flag at 4: its wearer's arrows pass through what they hit (#2276).
-    assert!(stats(&wearing(63, 4), Difficulty::Bronze).pierces());
-    assert!(!stats(&wearing(63, 3), Difficulty::Bronze).pierces());
-    assert!(told(63, &wearing(63, 4), Difficulty::Bronze).contains(&Told::Pierces));
+    assert!(stats(&wearing(63, 4), Difficulty::Bronze, false).pierces());
+    assert!(!stats(&wearing(63, 3), Difficulty::Bronze, false).pierces());
+    assert!(told(63, &wearing(63, 4), Difficulty::Bronze, false).contains(&Told::Pierces));
     // Six pieces of set 23 leave small fires at the steps, five do not.
-    assert!(stats(&wearing(23, 6), Difficulty::Bronze).fiery_steps());
-    assert!(!stats(&wearing(23, 5), Difficulty::Bronze).fiery_steps());
+    assert!(stats(&wearing(23, 6), Difficulty::Bronze, false).fiery_steps());
+    assert!(!stats(&wearing(23, 5), Difficulty::Bronze, false).fiery_steps());
     // Set 41's terror at 4: ⌊20·D⌋ per cent, none at 3.
-    assert_eq!(stats(&wearing(41, 4), Difficulty::Bronze).terror(), 20);
-    assert_eq!(stats(&wearing(41, 4), Difficulty::Niobium).terror(), 46);
-    assert_eq!(stats(&wearing(41, 3), Difficulty::Niobium).terror(), 0);
+    assert_eq!(
+        stats(&wearing(41, 4), Difficulty::Bronze, false).terror(),
+        20
+    );
+    assert_eq!(
+        stats(&wearing(41, 4), Difficulty::Niobium, false).terror(),
+        46
+    );
+    assert_eq!(
+        stats(&wearing(41, 3), Difficulty::Niobium, false).terror(),
+        0
+    );
     assert!(matches!(
-        told(41, &wearing(41, 4), Difficulty::Bronze)[..],
+        told(41, &wearing(41, 4), Difficulty::Bronze, false)[..],
         [.., Told::Terror(per_cent)] if close(per_cent, 2000.0 / 101.0)
     ));
     // The magic defence: set 41 at 5 adds 15·D, set 44 at 3 10·D, each that holds.
     assert!(close(
-        stats(&wearing(41, 5), Difficulty::Gold).magic_defence(2.0),
+        stats(&wearing(41, 5), Difficulty::Gold, false).magic_defence(2.0),
         2.0 + 15.0 * 1.67
     ));
     assert!(close(
-        stats(&wearing(44, 3), Difficulty::Bronze).magic_defence(0.0),
+        stats(&wearing(44, 3), Difficulty::Bronze, false).magic_defence(0.0),
         10.0
     ));
     assert!(close(
-        stats(&wearing(41, 4), Difficulty::Bronze).magic_defence(2.0),
+        stats(&wearing(41, 4), Difficulty::Bronze, false).magic_defence(2.0),
         2.0
     ));
     // Six pieces of set 28 raise the creatures' levels by the difficulty's factor truncated.
-    assert_eq!(stats(&wearing(28, 6), Difficulty::Gold).played_part(), 1);
-    assert_eq!(stats(&wearing(28, 6), Difficulty::Niobium).played_part(), 2);
-    assert_eq!(stats(&wearing(28, 5), Difficulty::Niobium).played_part(), 0);
+    assert_eq!(
+        stats(&wearing(28, 6), Difficulty::Gold, false).played_part(),
+        1
+    );
+    assert_eq!(
+        stats(&wearing(28, 6), Difficulty::Niobium, false).played_part(),
+        2
+    );
+    assert_eq!(
+        stats(&wearing(28, 5), Difficulty::Niobium, false).played_part(),
+        0
+    );
     // Five pieces of set 22 tell their potions' per cent.
     assert!(matches!(
-        told(22, &wearing(22, 5), Difficulty::Bronze)[..],
+        told(22, &wearing(22, 5), Difficulty::Bronze, false)[..],
         [.., Told::Potions(per_cent)] if close(per_cent, 10.0)
     ));
     // Seven pieces of set 26 let the Dark Elf go unseen, six do not.
-    assert!(stats(&wearing(26, 7), Difficulty::Bronze).unseen());
-    assert!(!stats(&wearing(26, 6), Difficulty::Bronze).unseen());
+    assert!(stats(&wearing(26, 7), Difficulty::Bronze, false).unseen());
+    assert!(!stats(&wearing(26, 6), Difficulty::Bronze, false).unseen());
     assert_eq!(
-        told(26, &wearing(26, 7), Difficulty::Bronze).last(),
+        told(26, &wearing(26, 7), Difficulty::Bronze, false).last(),
         Some(&Told::Unseen)
     );
     // Set 61 at 4 adds 0.15·D to the killer's exorcism, set 54 at 7 0.3·D after it.
@@ -334,51 +364,51 @@ fn the_readers_of_the_counts_take_their_shares() {
             .chain((0..7).map(|i| (7600 + i, 54))),
     );
     assert!(close(
-        stats(&both, Difficulty::Platinum).exorcist(10.0),
+        stats(&both, Difficulty::Platinum, false).exorcist(10.0),
         10.9
     ));
     assert!(close(
-        stats(&wearing(61, 3), Difficulty::Platinum).exorcist(10.0),
+        stats(&wearing(61, 3), Difficulty::Platinum, false).exorcist(10.0),
         10.0
     ));
     // Set 16 at 6 adds 30·D to the struck hero's 866, its line held at the difficulty's most;
     // set 30 at 5 adds 10·D to the 856 of a hit.
     let gold = wearing(16, 6);
     assert!(close(
-        stats(&gold, Difficulty::Gold).gold_for_health(5.0),
+        stats(&gold, Difficulty::Gold, false).gold_for_health(5.0),
         55.1
     ));
     assert!(close(
-        stats(&wearing(16, 5), Difficulty::Gold).gold_for_health(5.0),
+        stats(&wearing(16, 5), Difficulty::Gold, false).gold_for_health(5.0),
         5.0
     ));
     assert!(matches!(
-        told(16, &gold, Difficulty::Gold).last(),
+        told(16, &gold, Difficulty::Gold, false).last(),
         Some(&Told::GoldForHealth(chance)) if close(chance, 50.1)
     ));
     assert!(close(
-        stats(&wearing(30, 5), Difficulty::Silver).gold_pile(2.0),
+        stats(&wearing(30, 5), Difficulty::Silver, false).gold_pile(2.0),
         15.4
     ));
     assert!(matches!(
-        told(30, &wearing(30, 5), Difficulty::Silver).last(),
+        told(30, &wearing(30, 5), Difficulty::Silver, false).last(),
         Some(&Told::GoldPile(chance)) if close(chance, 13.4)
     ));
     // Two pieces of set 19 add 3·D to the effect 842: 3 on bronze, 7.02 on niobium; one none.
     assert!(close(
-        stats(&wearing(19, 2), Difficulty::Bronze).painkiller(10.0),
+        stats(&wearing(19, 2), Difficulty::Bronze, false).painkiller(10.0),
         13.0
     ));
     assert!(close(
-        stats(&wearing(19, 2), Difficulty::Niobium).painkiller(0.0),
+        stats(&wearing(19, 2), Difficulty::Niobium, false).painkiller(0.0),
         7.02
     ));
     assert!(close(
-        stats(&wearing(19, 1), Difficulty::Niobium).painkiller(0.0),
+        stats(&wearing(19, 1), Difficulty::Niobium, false).painkiller(0.0),
         0.0
     ));
     assert!(matches!(
-        told(19, &wearing(19, 2), Difficulty::Silver).last(),
+        told(19, &wearing(19, 2), Difficulty::Silver, false).last(),
         Some(&Told::Painkiller(value)) if close(value, 4.02)
     ));
 }
@@ -393,26 +423,45 @@ fn the_pieces_in_sockets_count_and_fill_their_sets_sockets() {
     ]);
     assert_eq!(worn.count(60), 5);
     assert!(worn.wears(7004));
-    assert!(stats(&worn, Difficulty::Bronze).binds());
+    assert!(stats(&worn, Difficulty::Bronze, false).binds());
     // Another set's piece in the socket 2, or set 60's pieces in another set's piece: unfilled.
     let short = Worn::of_items([
         ((7000, 60), vec![(7002, 60), (7003, 60), (7100, 61)]),
         ((7101, 61), vec![(7004, 60), (7005, 60), (7006, 60)]),
     ]);
     assert_eq!(short.count(60), 6);
-    assert!(!stats(&short, Difficulty::Bronze).binds());
+    assert!(!stats(&short, Difficulty::Bronze, false).binds());
     // An item of no set fills no set's sockets.
     let none = Worn::of_items([
         ((5000, 0), vec![(7002, 60), (7003, 60), (7004, 60)]),
         ((7001, 60), Vec::new()),
     ]);
     assert_eq!(none.count(60), 4);
-    assert!(!stats(&none, Difficulty::Bronze).binds());
+    assert!(!stats(&none, Difficulty::Bronze, false).binds());
     // A fourth socket's piece counts, and takes nothing from the three.
     let four = Worn::of_items([(
         (7000, 60),
         vec![(7002, 60), (7003, 60), (7004, 60), (7005, 60)],
     )]);
     assert_eq!(four.count(60), 5);
-    assert!(stats(&four, Difficulty::Bronze).binds());
+    assert!(stats(&four, Difficulty::Bronze, false).binds());
+}
+
+#[test]
+fn set_42_raises_the_bites_by_day_and_every_art_by_night() {
+    // Four pieces on gold: 5 (3 to 7 from bronze to niobium).
+    let day = stats(&wearing(42, 4), Difficulty::Gold, false);
+    assert_eq!(day.all_arts, 0);
+    assert!(
+        (1030..=1037).all(|art| day.arts.contains(&(art, 5))),
+        "{:?}",
+        day.arts
+    );
+    let night = stats(&wearing(42, 4), Difficulty::Gold, true);
+    assert_eq!(night.all_arts, 5);
+    assert!(night.arts.is_empty(), "{:?}", night.arts);
+    // The list tells what applies.
+    assert!(
+        told(42, &wearing(42, 4), Difficulty::Gold, true).contains(&Told::Bonus(Bonus::AllArts(5)))
+    );
 }

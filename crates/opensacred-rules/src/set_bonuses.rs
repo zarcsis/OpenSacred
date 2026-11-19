@@ -53,6 +53,10 @@ pub enum Give {
     Arts(&'static [u16], f32),
     /// Every art the wearer holds, `⌊c·D⌋`.
     AllArts(f32),
+    /// These arts' bonus byte as [`Give::Arts`] by day, and every art the wearer holds as
+    /// [`Give::AllArts`] while its creature's `+0x14` bit `0x2000` is set, the Vampiress's night
+    /// form (set 42 at 4, `0x571710`; docs/re/sets.md §3, #2930).
+    DayArts(&'static [u16], f32),
     /// A damage multiplier of these kinds in an array, `c·D`.
     Multiplier(Array, &'static [usize], f32),
     /// A kind's resistance factor (`+0xD6…`), `c·D`.
@@ -108,16 +112,16 @@ const fn at(set: u8, pieces: u8, gives: Give) -> Entry {
 use Array::{Damage, Spells, Weapon};
 use Give::{
     AllArts, ArtsSpeed, ArtsSpeedWhenFilled, AttackSpeed, AttackSpeedWhenFilled, AttackTimes,
-    Attribute, CreatureFlag, DefenceTimes, Festive, Flag, FlagWhenFilled, Multiplier, PaceTimes,
-    RangedCurves, Resistance, ResistanceCurves, ResistanceFactor, Skill, StrengthPart,
+    Attribute, CreatureFlag, DayArts, DefenceTimes, Festive, Flag, FlagWhenFilled, Multiplier,
+    PaceTimes, RangedCurves, Resistance, ResistanceCurves, ResistanceFactor, Skill, StrengthPart,
 };
 
 const ALL_KINDS: &[usize] = &[PHYSICAL, FIRE, MAGIC, POISON];
 
 /// The bonuses that `0x571710` writes into the stats, by set and pieces (docs/re/sets.md §3);
 /// the switch's text-only rows, and the bonuses that other code applies by the counts, are not
-/// here. Set 42's arts at 4 are 1030 to 1037, those of a wearer without the creature's `+0x14`
-/// bit `0x2000` (**hypothesis** of what the bit tells; with it every art).
+/// here. Set 42's arts at 4 are 1030 to 1037 by day, and every art of its wearer by night
+/// ([`Give::DayArts`]).
 pub const TABLE: &[Entry] = &[
     at(1, 6, ResistanceFactor(POISON, 0.6)),
     at(2, 3, Attribute(1, 10.0)),
@@ -235,7 +239,7 @@ pub const TABLE: &[Entry] = &[
     at(
         42,
         4,
-        Give::Arts(&[1030, 1031, 1032, 1033, 1034, 1035, 1036, 1037], 3.0),
+        Give::DayArts(&[1030, 1031, 1032, 1033, 1034, 1035, 1036, 1037], 3.0),
     ),
     at(42, 5, Flag(0x20_0000)),
     at(42, 6, Flag(0x40_0000)),
@@ -972,12 +976,15 @@ fn count(value: f32) -> u32 {
     value.max(0.0) as u32
 }
 
-/// The bonus that `gives` gives at the difficulty's factor `d`.
-pub fn valued(gives: Give, d: f32) -> Bonus {
+/// The bonus that `gives` gives at the difficulty's factor `d`, to a wearer in its night form
+/// or not (`night`, the Vampiress's).
+pub fn valued(gives: Give, d: f32, night: bool) -> Bonus {
     match gives {
         Attribute(i, c) => Bonus::Attribute(i, whole(c, d)),
         Skill(skill, c) => Bonus::Skill(skill, count(whole(c, d))),
         Give::Arts(arts, c) => Bonus::Arts(arts, count(whole(c, d))),
+        DayArts(_, c) if night => Bonus::AllArts(count(whole(c, d))),
+        DayArts(arts, c) => Bonus::Arts(arts, count(whole(c, d))),
         AllArts(c) => Bonus::AllArts(count(whole(c, d))),
         Multiplier(array, kinds, c) => Bonus::Multiplier(array, kinds, c * d),
         ResistanceFactor(kind, c) => Bonus::ResistanceFactor(kind, c * d),
@@ -1006,8 +1013,9 @@ fn survival(worn: &Worn, d: f32) -> f32 {
         .sum()
 }
 
-/// What the sets of `worn` give on the difficulty `difficulty` (`0x571710` over the sets worn).
-pub fn stats(worn: &Worn, difficulty: Difficulty) -> Stats {
+/// What the sets of `worn` give on the difficulty `difficulty` (`0x571710` over the sets worn),
+/// to a wearer in its night form or not (`night`, the Vampiress's, [`Give::DayArts`]).
+pub fn stats(worn: &Worn, difficulty: Difficulty, night: bool) -> Stats {
     let d = factor(difficulty);
     let mut stats = Stats {
         worn: worn.clone(),
@@ -1023,7 +1031,7 @@ pub fn stats(worn: &Worn, difficulty: Difficulty) -> Stats {
         None => stats.skills.push((skill, value)),
     };
     for entry in worn.reached() {
-        match valued(entry.gives, d) {
+        match valued(entry.gives, d, night) {
             Bonus::Attribute(i, value) => stats.attributes[i] += value,
             Bonus::Skill(skill, value) => add_skill(&mut stats, skill, value),
             Bonus::Arts(arts, value) => {
@@ -1136,14 +1144,14 @@ pub enum Told {
 /// they ask, a count's bonuses before its readers': each bonus of [`TABLE`] reached, valued as
 /// [`stats`] values it; the six sets' flag of the whole damage as its share more, none on bronze,
 /// where `D` changes nothing; no line of a flag whose readers the game does not follow; and each
-/// reader of [`READERS`] reached.
-pub fn told(set: u8, worn: &Worn, difficulty: Difficulty) -> Vec<Told> {
+/// reader of [`READERS`] reached; to a wearer in its night form or not (`night`).
+pub fn told(set: u8, worn: &Worn, difficulty: Difficulty, night: bool) -> Vec<Told> {
     let d = factor(difficulty);
     let bonuses = worn
         .reached()
         .filter(|entry| entry.set == set)
         .filter_map(|entry| {
-            let line = match valued(entry.gives, d) {
+            let line = match valued(entry.gives, d, night) {
                 Bonus::Flag(bit) if bit & WHOLE_DAMAGE != 0 => {
                     (d > 1.0).then_some(Told::WholeDamage(d - 1.0))?
                 }
