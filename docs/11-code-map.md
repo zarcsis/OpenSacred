@@ -393,6 +393,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/twisters.rs`: The look of the gust 28
 - `crates/opensacred-game/src/ui_layers.rs`: The interface's layers
 - `crates/opensacred-game/src/undead.rs`: The undead that rise again
+- `crates/opensacred-game/src/under_cursor.rs`: What lies under the cursor
 - `crates/opensacred-game/src/vamp_casts.rs`: The Vampiress's casts' sights
 - `crates/opensacred-game/src/vamp_sights.rs`: The Vampiress's domination's ring and her raising's pentagram
 - `crates/opensacred-game/src/vertices.rs`: A model's vertices as last posed
@@ -441,6 +442,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-rules/src/minds.rs`: The creatures' decisions
 - `crates/opensacred-rules/src/music.rs`: The peace stream's alternation
 - `crates/opensacred-rules/src/particles.rs`: The particle systems' machinery
+- `crates/opensacred-rules/src/pick.rs`: What lies under the cursor
 - `crates/opensacred-rules/src/pong.rs`: The scripts' Pong
 - `crates/opensacred-rules/src/potions.rs`: The potions and the belt
 - `crates/opensacred-rules/src/quests.rs`: The scripts' state

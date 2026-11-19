@@ -4,9 +4,9 @@
 //! door the event `0x21` (`0x44BCD0`): a closed door opens, an open one closes, its trigger's
 //! cells with it, and the door keeps the hero's mark, so that no townsperson closes it again.
 //!
-//! The game picks the door nearest the cursor's line of sight as it picks a creature
-//! (`attack::from_line`); the hero walks where the click sends it, beside the door's closed cells
-//! (`hero::steer`), rather than to the door's outer point, which the creatures alone walk to
+//! The door is the one that the cursor picks by its model's rectangle (`under_cursor`, #2873); the
+//! hero walks where the click sends it, beside the door's closed cells (`hero::steer`), rather
+//! than to the door's outer point, which the creatures alone walk to
 //! (`opensacred_rules::ways::DoorPoints`, #273), and turns the door once it stands within 300 of
 //! it.
 
@@ -25,16 +25,14 @@ const TURNS_WITHIN: f32 = 300.0;
 #[derive(Component)]
 pub struct Opens(Entity);
 
-/// On a press of the left button that went to no attack, the door whose model is nearest the
-/// cursor's line of sight, if one is near it, becomes the hero's to turn; any press ends the last
-/// such order.
+/// On a press of the left button that went to no attack, the door that the cursor picks
+/// (`under_cursor`) becomes the hero's to turn; any press ends the last such order.
 pub(crate) fn pick(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
-    pointer: Res<Pointer>,
+    (pointer, under): (Res<Pointer>, Res<crate::under_cursor::UnderCursor>),
     aim: Res<Aim>,
-    camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
-    doors: Query<(Entity, &GlobalTransform), With<Door>>,
+    doors: Query<(), With<Door>>,
     heroes: Query<Entity, With<Body>>,
 ) {
     if !buttons.just_pressed(MouseButton::Left) {
@@ -43,20 +41,10 @@ pub(crate) fn pick(
     for hero in &heroes {
         commands.entity(hero).remove::<Opens>();
     }
-    let Some(cursor) = pointer.0 else {
+    if pointer.0.is_none() || aim.0 {
         return;
-    };
-    let (camera, view) = *camera;
-    let (false, Ok(ray)) = (aim.0, camera.viewport_to_world(view, cursor)) else {
-        return;
-    };
-    let Some(door) = doors
-        .iter()
-        .map(|(door, at)| (door, attack::from_line(ray, at.translation())))
-        .filter(|&(_, distance)| distance <= attack::PICKED_WITHIN)
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(door, _)| door)
-    else {
+    }
+    let Some(door) = under.0.filter(|&entity| doors.contains(entity)) else {
         return;
     };
     for hero in &heroes {

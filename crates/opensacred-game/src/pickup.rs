@@ -559,24 +559,17 @@ impl Pack {
     }
 }
 
-/// On a press of the left button that went to no attack, the item nearest the cursor's line of
-/// sight, if one is near it, becomes the hero's to take, before a door (the pick's classes,
-/// `0x626C50`: the items 2, the doors 3), else with Alt held the item of the label under the
-/// cursor (`0x6270A0`, `labels`), and the hero walks to it; any press ends the last such order.
-/// An item still in flight is picked where it flies, as the original picks among the rectangles
-/// drawn in the frame (#1647).
-#[expect(
-    clippy::too_many_arguments,
-    reason = "a Bevy system takes its resources and queries as arguments"
-)]
+/// On a press of the left button that went to no attack, the item that the cursor picks
+/// (`under_cursor`, `0x626C50`), its own or its label's with Alt held (`0x6270A0`), becomes the
+/// hero's to take, and the hero walks to it; any press ends the last such order. An item still in
+/// flight is picked where it flies, as the original picks among the rectangles drawn in the frame
+/// (#1647).
 pub(crate) fn pick(
     mut commands: Commands,
-    (buttons, keys): (Res<ButtonInput<MouseButton>>, crate::controls::Keys),
-    pointer: Res<Pointer>,
+    buttons: Res<ButtonInput<MouseButton>>,
+    (pointer, under): (Res<Pointer>, Res<crate::under_cursor::UnderCursor>),
     aim: Res<Aim>,
-    labels: Res<crate::labels::Shown>,
-    camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
-    items: Query<(Entity, &GlobalTransform), With<Lying>>,
+    items: Query<&GlobalTransform, With<Lying>>,
     mut heroes: Query<(Entity, &mut Body)>,
 ) {
     if !buttons.just_pressed(MouseButton::Left) {
@@ -587,29 +580,12 @@ pub(crate) fn pick(
     for (hero, _) in &heroes {
         commands.entity(hero).remove::<(Picks, Picking, Collects)>();
     }
-    let Some(cursor) = pointer.0 else {
+    if pointer.0.is_none() || aim.0 {
         return;
-    };
-    let (camera, view) = *camera;
-    let (false, Ok(ray)) = (aim.0, camera.viewport_to_world(view, cursor)) else {
-        return;
-    };
-    let Some((item, at)) = items
-        .iter()
-        .map(|(item, at)| {
-            let at = at.translation();
-            (item, at, attack::from_line(ray, at))
-        })
-        .filter(|&(_, _, distance)| distance <= attack::PICKED_WITHIN)
-        .min_by(|a, b| a.2.total_cmp(&b.2))
-        .map(|(item, at, _)| (item, at))
-        .or_else(|| {
-            let item = labels
-                .under(cursor)
-                .filter(|_| crate::labels::held(&keys))?;
-            let (item, at) = items.get(item).ok()?;
-            Some((item, at.translation()))
-        })
+    }
+    let Some((item, at)) = under
+        .0
+        .and_then(|item| Some((item, items.get(item).ok()?.translation())))
     else {
         return;
     };

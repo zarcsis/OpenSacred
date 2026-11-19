@@ -542,9 +542,11 @@ const WHISTLE_COUNT: u32 = 3;
 fn pick(
     mut commands: Commands,
     (buttons, keys): (Res<ButtonInput<MouseButton>>, Keys),
-    pointer: Res<crate::hud::Pointer>,
+    (pointer, under): (
+        Res<crate::hud::Pointer>,
+        Res<crate::under_cursor::UnderCursor>,
+    ),
     mut aim: ResMut<Aim>,
-    camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     (hero, npcs, arts): (
         Res<Hero>,
         Option<Res<Npcs>>,
@@ -564,30 +566,20 @@ fn pick(
     if !buttons.just_pressed(MouseButton::Left) || aim.0 {
         return;
     }
-    let (Some(cursor), Some(npcs)) = (pointer.0, npcs) else {
+    let (Some(_), Some(npcs)) = (pointer.0, npcs) else {
         return;
     };
-    let (camera, view) = *camera;
-    let Ok(ray) = camera.viewport_to_world(view, cursor) else {
-        return;
-    };
-    let Some((horse, at, class, ridden)) = horses
-        .iter()
-        .filter(|(.., health, _)| health.current > 0)
-        .map(|(entity, at, horse, _, ridden)| {
-            let at = at.translation();
+    let Some((horse, at, class, ridden)) = under.0.and_then(|entity| {
+        let (_, at, horse, health, ridden) = horses.get(entity).ok()?;
+        (health.current > 0).then(|| {
             (
                 entity,
-                at,
+                at.translation(),
                 horse.class,
                 ridden.map(|r| r.rider),
-                attack::from_line(ray, at),
             )
         })
-        .filter(|&(.., distance)| distance <= attack::PICKED_WITHIN)
-        .min_by(|a, b| a.4.total_cmp(&b.4))
-        .map(|(entity, at, class, ridden, _)| (entity, at, class, ridden))
-    else {
+    }) else {
         return;
     };
     for (me, transform, mut body, seat) in &mut heroes {

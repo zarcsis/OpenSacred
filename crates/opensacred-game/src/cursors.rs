@@ -26,7 +26,6 @@ use opensacred_rules::fight::Holds;
 use opensacred_rules::quests;
 
 use crate::ai::Mind;
-use crate::attack;
 use crate::buildings::Buildings;
 use crate::drops::{Lying, Tables};
 use crate::fight::{Health, Holding};
@@ -242,13 +241,12 @@ fn creature_look(trades: u32, dialogue: bool) -> Option<Look> {
 }
 
 /// The cursor's look at each frame: the arrow outside a game, while a dialogue's window shows and
-/// over the interface; else by what lies nearest the cursor's line of sight, as a click picks it
-/// (`attack::from_line`): a living foe first, then a creature of a dialogue or a trader, then an
-/// item, lying or in flight, then a door, then a container that opens, then a hidden stash, then
+/// over the interface; else by what the cursor picks, as a click takes it (`under_cursor`,
+/// `0x626C50`): a living foe its weapons' look, a creature of a dialogue or a trader its own, an
+/// item, lying or in flight, a door, a container that opens and an event of a box the hand; with
+/// nothing picked, a hidden stash without a box near the cursor's line of sight the hand, then
 /// the teleport or the stairs of the cell a click sends the hero to (`pick`); the pin whatever
-/// lies there while the world map's pin's mode holds. With Alt held a label under the cursor picks
-/// what it names, as a click does (`0x6270A0`, `0x631CEB`, #1425), and an item or its label comes
-/// before a foe (`attack::aim`).
+/// lies there while the world map's pin's mode holds.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -273,10 +271,9 @@ fn choose(
         Query<(), With<Node>>,
         Option<Res<crate::frame::HeldBack>>,
     ),
-    (labels, keys, boxed): (
-        Res<crate::labels::Shown>,
-        crate::controls::Keys,
-        Res<crate::stashes::BoxedUnder>,
+    (under_cursor, hero_ids): (
+        Res<crate::under_cursor::UnderCursor>,
+        Query<Entity, With<Body>>,
     ),
     cameras: Query<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     (npcs, forms): (Option<Res<Npcs>>, Option<Res<Forms>>),
@@ -292,11 +289,11 @@ fn choose(
         Without<Dies>,
     >,
     (items, doors, containers, stashes, corpses): (
-        Query<(Entity, &GlobalTransform, &Lying, Option<&TextName>)>,
-        Query<&GlobalTransform, With<Door>>,
-        Query<(Entity, &GlobalTransform, &crate::containers::Container)>,
+        Query<(&Lying, Option<&TextName>)>,
+        Query<(), With<Door>>,
+        Query<&crate::containers::Container>,
         Query<(&GlobalTransform, &crate::stashes::Stash)>,
-        Query<&GlobalTransform, With<crate::npcs::Corpse>>,
+        Query<(), With<crate::npcs::Corpse>>,
     ),
     (heights, buildings, data): (
         Option<Res<Heights>>,
@@ -337,123 +334,75 @@ fn choose(
     let mut under = Under::default();
     let look = match ray {
         Some(ray) if in_game && window.is_none() && !over_interface => {
-            let near = |at: &GlobalTransform| {
-                let distance = attack::from_line(ray, at.translation());
-                (distance <= attack::PICKED_WITHIN).then_some(distance)
-            };
-            let nearest = |found: &mut dyn Iterator<Item = (f32, Look)>| {
-                found
-                    .min_by(|a, b| a.0.total_cmp(&b.0))
-                    .map(|(_, look)| look)
-            };
-            // A label under the cursor, which Alt shows, picks what it names at no distance.
-            let (label_item, labelled) = pointer
-                .0
-                .map_or((None, None), |at| (labels.under(at), labels.labelled(at)));
-            let picked = |entity: Entity, at: &GlobalTransform| {
-                if label_item == Some(entity) || labelled == Some(entity) {
-                    Some(0.0)
-                } else {
-                    near(at)
-                }
-            };
-            let lying = items
-                .iter()
-                .filter_map(|(entity, at, lying, text)| {
-                    Some((picked(entity, at)?, lying.dropped.clone(), text))
-                })
-                .min_by(|a, b| a.0.total_cmp(&b.0))
-                .map(|(_, kind, text)| (Some(kind), text.map(|text| text.0.clone())));
-            let items_first = crate::labels::held(&keys) && lying.is_some();
-            // A foe as `attack::aim` takes one: alive, hostile and of no dialogue.
-            let is_foe = |mind: &Mind, talk: Option<&Talk>| talk.is_none() && mind.hostile();
-            let alive = || {
-                creatures
-                    .iter()
-                    .filter(|(_, _, _, health, ..)| health.current > 0)
-            };
+            let picked = under_cursor.0;
             let by_night = forms.as_deref().is_some_and(Forms::by_night);
             let hero = heroes.iter().next();
             let holding = hero.and_then(|(holding, ..)| holding);
-            foe_under = alive()
-                .filter(|(_, _, mind, _, talk, _)| !items_first && is_foe(mind, *talk))
-                .filter_map(|(entity, at, ..)| Some((picked(entity, at)?, entity)))
-                .min_by(|a, b| a.0.total_cmp(&b.0))
-                .map(|(_, entity)| entity);
-            // The hero himself nearer the line than a foe, and a dead creature, for the arts on a
-            // friend and on the dead (`making::aim`, #2938).
-            let foe_distance = foe_under
-                .and_then(|foe| creatures.get(foe).ok())
-                .and_then(|(_, at, ..)| near(at));
+            // A living creature that the cursor picks: a foe as `attack::aim` takes one, alive,
+            // hostile and of no dialogue, else its own look.
+            let creature = picked.and_then(|entity| {
+                let (_, _, mind, health, talk, trades) = creatures.get(entity).ok()?;
+                (health.current > 0).then_some((entity, mind, talk, trades))
+            });
+            foe_under = creature
+                .filter(|(_, mind, talk, _)| talk.is_none() && mind.hostile())
+                .map(|(entity, ..)| entity);
             under = Under {
                 foe: foe_under.is_some(),
-                hero: hero
-                    .and_then(|(_, at, ..)| {
-                        let distance = attack::from_line(ray, at.translation);
-                        (distance <= attack::PICKED_WITHIN).then_some(distance)
-                    })
-                    .is_some_and(|on_hero| foe_distance.is_none_or(|foe| on_hero < foe)),
-                dead: corpses.iter().any(|at| near(at).is_some()),
+                hero: picked.is_some_and(|entity| hero_ids.contains(entity)),
+                dead: picked.is_some_and(|entity| corpses.contains(entity)),
             };
+            let creature_look =
+                |(_, mind, talk, trades): (Entity, &Mind, Option<&Talk>, Option<&Trades>)| {
+                    let dialogue = crate::talk::dialogue_of(talk, mind, npcs.as_deref()).is_some();
+                    creature_look(trades.map_or(0, |trades| trades.0), dialogue)
+                };
             let foe = foe_under.map(|_| foe_look(holding.map(|holding| &holding.0), by_night));
-            foe.or_else(|| {
-                nearest(
-                    &mut alive().filter_map(|(entity, at, mind, _, talk, trades)| {
-                        let distance = picked(entity, at)?;
-                        if is_foe(mind, talk) {
-                            return None;
-                        }
-                        let dialogue =
-                            crate::talk::dialogue_of(talk, mind, npcs.as_deref()).is_some();
-                        let look = creature_look(trades.map_or(0, |trades| trades.0), dialogue)?;
-                        Some((distance, look))
-                    }),
-                )
-            })
-            .or_else(|| {
-                item = Some(lying?);
-                Some(Look::Hand)
-            })
-            .or_else(|| nearest(&mut doors.iter().filter_map(|at| Some((near(at)?, Look::Hand)))))
-            // A container that opens, not one emptied (`0x612843`, #1380).
-            .or_else(|| {
-                let (_, entity) = containers
-                    .iter()
-                    .filter(|(_, _, container)| container.opens())
-                    .filter_map(|(entity, at, _)| Some((picked(entity, at)?, entity)))
-                    .min_by(|a, b| a.0.total_cmp(&b.0))?;
-                container_under = Some(entity);
-                Some(Look::Hand)
-            })
-            // A hidden stash: the hand and its text (`0x612909`, #1518); an event of a box by
-            // its box alone (#1586).
-            .or_else(|| {
-                let boxed = boxed.0.and_then(|entity| stashes.get(entity).ok());
-                let (_, stash) = boxed.map(|(_, stash)| (0.0, stash)).or_else(|| {
-                    stashes
-                        .iter()
-                        .filter(|(_, stash)| stash.boxed.is_none())
-                        .filter_map(|(at, stash)| {
-                            Some((crate::stashes::picked(ray, at.translation())?, stash))
-                        })
-                        .min_by(|a, b| a.0.total_cmp(&b.0))
-                })?;
-                item = Some((None, Some(stash.text.clone())));
-                Some(Look::Hand)
-            })
-            .or_else(|| {
-                let (heights, buildings) = (heights.as_deref()?, buildings.as_deref()?);
-                let (_, transform, body, ..) = hero?;
-                let height = transform.translation.y;
-                let picked = pick::pick(ray, heights, buildings, (height, body.level()))?;
-                let cell = paths::cell_of(picked.point.x, picked.point.z);
-                let floor = heights.floor_number(picked.level);
-                let sends = data
-                    .as_deref()
-                    .is_some_and(|data| data.0.tables.stair_to(cell, floor).is_some());
-                (sends || heights.beckons(cell, picked.level)).then_some(Look::Hand)
-            })
-            .unwrap_or_default()
+            foe.or_else(|| creature.and_then(creature_look))
+                .or_else(|| {
+                    let (lying, text) = items.get(picked?).ok()?;
+                    item = Some((Some(lying.dropped.clone()), text.map(|text| text.0.clone())));
+                    Some(Look::Hand)
+                })
+                .or_else(|| doors.contains(picked?).then_some(Look::Hand))
+                // A container that opens, not one emptied (`0x612843`, #1380).
+                .or_else(|| {
+                    let entity = picked?;
+                    containers.get(entity).ok()?.opens().then(|| {
+                        container_under = Some(entity);
+                        Look::Hand
+                    })
+                })
+                // An event of a box picked: the hand and its text (`0x612909`, #1586); with nothing
+                // picked, a hidden stash without one near the cursor's line of sight (#1518).
+                .or_else(|| {
+                    let stash = match picked {
+                        Some(entity) => stashes.get(entity).ok().map(|(_, stash)| stash),
+                        None => stashes
+                            .iter()
+                            .filter(|(_, stash)| stash.boxed.is_none())
+                            .filter_map(|(at, stash)| {
+                                Some((crate::stashes::picked(ray, at.translation())?, stash))
+                            })
+                            .min_by(|a, b| a.0.total_cmp(&b.0))
+                            .map(|(_, stash)| stash),
+                    }?;
+                    item = Some((None, Some(stash.text.clone())));
+                    Some(Look::Hand)
+                })
+                .or_else(|| {
+                    let (heights, buildings) = (heights.as_deref()?, buildings.as_deref()?);
+                    let (_, transform, body, ..) = hero?;
+                    let height = transform.translation.y;
+                    let picked = pick::pick(ray, heights, buildings, (height, body.level()))?;
+                    let cell = paths::cell_of(picked.point.x, picked.point.z);
+                    let floor = heights.floor_number(picked.level);
+                    let sends = data
+                        .as_deref()
+                        .is_some_and(|data| data.0.tables.stair_to(cell, floor).is_some());
+                    (sends || heights.beckons(cell, picked.level)).then_some(Look::Hand)
+                })
+                .unwrap_or_default()
         }
         _ => Look::Arrow,
     };
@@ -558,10 +507,7 @@ impl Plugin for CursorsPlugin {
             .init_resource::<Foe>()
             .init_resource::<Highlit>()
             .init_resource::<Glow>()
-            .add_systems(
-                Update,
-                (choose.after(crate::stashes::boxed_under), name_tag).chain(),
-            );
+            .add_systems(Update, (choose, name_tag).chain());
     }
 }
 

@@ -801,7 +801,7 @@ All are MP3 lines by name (`0x693FE0`), one at a time, `+0xB7E8` the seconds sin
   Two of the nine names are German, "Novizin" and "Prinz Valor", and match no text of the English `global.res`; the game compares the texts of the keys 677 to 679 and 322 instead (#2652, docs/decisions/sound.md, "Companions' click lines by their names' keys").
   The other seven it compares as the original does, by the name's beginning, and takes each name from a key's text, as many of its characters as the original's name has, holding no name in its code: the keys 699, 697, 17442, 17443, 77, 323 and 83 (#2860, `remarks::CLICKED_NAMES`).
   **Seen** in the original (#1674, a trace of the event): a click on quest 1's novice, who has a dialogue, posted the event; a click on a creature of the type 361 spawned without one did not: what `0x6172C0` tests before it posts (its call at `0x617414` among them) is not read.
-  `opensacred-game` follows the click lines since #1674 (`remarks`, `Remark::Click`): a press of the left button on the living creature nearest the cursor's line of sight posts the click, its sector's `res:` name its text (`npcs::TextName`); every creature of those types and names speaks, whatever the conditions of `0x6172C0`; the equipment's remarks follow since #1733 (above).
+  `opensacred-game` follows the click lines since #1674 (`remarks`, `Remark::Click`): a press of the left button on the living creature that the cursor picks (`under_cursor`, #2873) posts the click, its sector's `res:` name its text (`npcs::TextName`); every creature of those types and names speaks, whatever the conditions of `0x6172C0`; the equipment's remarks follow since #1733 (above).
 
 #### Scripts and notices
 

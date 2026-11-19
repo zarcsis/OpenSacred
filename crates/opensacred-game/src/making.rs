@@ -309,8 +309,8 @@ pub fn may_make(
     Ok(())
 }
 
-/// On a press of the right button on a hostile creature alive, the hero makes the selected art
-/// on it (a launch on an enemy, the type 1), its attack ending; with the art not ready it walks
+/// On a press of the right button on a hostile creature alive that the cursor picks
+/// (`under_cursor`), the hero makes the selected art on it (a launch on an enemy, the type 1), its attack ending; with the art not ready it walks
 /// to the creature's place instead, as the original's handler of the order takes it (about
 /// `0x52FE40`, docs/re/arts.md, "The right button", #654; with Ctrl held the original's posts
 /// another event, not followed). A press of the left button ends an order not yet under way.
@@ -321,7 +321,10 @@ pub fn may_make(
 pub(crate) fn aim(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
-    pointer: Res<crate::hud::Pointer>,
+    (pointer, under): (
+        Res<crate::hud::Pointer>,
+        Res<crate::under_cursor::UnderCursor>,
+    ),
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     (selected, arts, pack, mut tramples): (
         Res<Selected>,
@@ -367,24 +370,15 @@ pub(crate) fn aim(
     let Ok(ray) = camera.viewport_to_world(view, cursor) else {
         return;
     };
-    let picked = creatures
-        .iter()
-        .filter(|(_, _, mind, health)| mind.hostile() && health.current > 0)
-        .map(|(entity, at, ..)| {
-            let at = at.translation();
-            (entity, at, crate::attack::from_line(ray, at))
-        })
-        .filter(|&(.., distance)| distance <= crate::attack::PICKED_WITHIN)
-        .min_by(|a, b| a.2.total_cmp(&b.2));
+    let under = under.0;
+    let picked = under.and_then(|entity| {
+        let (_, at, mind, health) = creatures.get(entity).ok()?;
+        (mind.hostile() && health.current > 0).then(|| (entity, at.translation()))
+    });
     // The dead creature under the cursor, an art of the launch type 4's (`0x51D840`, case 4).
-    let dead = corpses
-        .iter()
-        .map(|(entity, at)| {
-            let at = at.translation();
-            (entity, at, crate::attack::from_line(ray, at))
-        })
-        .filter(|&(.., distance)| distance <= crate::attack::PICKED_WITHIN)
-        .min_by(|a, b| a.2.total_cmp(&b.2));
+    let dead = under
+        .and_then(|entity| corpses.get(entity).ok())
+        .map(|(entity, at)| (entity, at.translation()));
     let selected = art;
     for (hero, at, mut body, playing, effects, seat, holding) in &mut heroes {
         if playing {
@@ -396,12 +390,10 @@ pub(crate) fn aim(
         });
         let launch = launch(&arts, art);
         let spell = art < 1000;
-        // The right button on the hero himself makes him the target, nearer the cursor's line
-        // than a hostile creature (seen: the Gladiator's 1015, of the launch type 2, made on
-        // himself so, and refused on a hostile creature or on the ground).
-        let on_hero = crate::attack::from_line(ray, at.translation());
-        let on_hero = on_hero <= crate::attack::PICKED_WITHIN
-            && picked.is_none_or(|(.., distance)| on_hero < distance);
+        // The right button on the hero himself, picked, makes him the target (seen: the
+        // Gladiator's 1015, of the launch type 2, made on himself so, and refused on a hostile
+        // creature or on the ground).
+        let on_hero = under == Some(hero);
         // Where the cursor's line meets the hero's height: the point of an art of the launch
         // type 3 (`0x51D840`'s action's point).
         let along = (at.translation().y - ray.origin.y) / ray.direction.y;
@@ -409,7 +401,7 @@ pub(crate) fn aim(
         let (target, place) = match (launch, on_hero, picked) {
             (Some(3), ..) => (hero, ground),
             (Some(4), ..) => match dead {
-                Some((corpse, place, _)) => (corpse, place),
+                Some((corpse, place)) => (corpse, place),
                 None => {
                     info!("making: {art} wants a dead creature under the cursor");
                     continue;
@@ -435,7 +427,7 @@ pub(crate) fn aim(
             // dash at the ground under the cursor.
             _ if arts::style(art) == Some(Style::Changeling) => (hero, at.translation()),
             _ if arts::style(art) == Some(Style::Dash) => (hero, ground),
-            (_, _, Some((entity, place, _))) => (entity, place),
+            (_, _, Some((entity, place))) => (entity, place),
             // A spell of the launch type 0 admits the ground under the cursor (`0x51D840`).
             (Some(0), _, None) if spell => (hero, ground),
             _ => continue,

@@ -11,7 +11,7 @@
 //! `opensacred_rules::containers`) make what it holds, seeded by the hero and the container, which
 //! it throws along arcs to the hero's feet (#1381).
 //!
-//! As the doors, the game picks the container nearest the cursor's line of sight; the hero walks
+//! The container is the one that the cursor picks (`under_cursor`, #2873); the hero walks
 //! to the container's own point, its way ending beside the container's closed cell, rather than
 //! where the click's ground lies (#1877): the cursor on a tall container's model, the book stand
 //! under the start's gazebo, finds the ground in the pond behind it.
@@ -118,18 +118,16 @@ fn opening_sound(kind: u32, heads: bool) -> Option<sfx::Of> {
     }
 }
 
-/// On a press of the left button that went to no attack, the container that the hero may open
-/// whose model is nearest the cursor's line of sight, if one is near it, becomes the hero's to
-/// open, and the hero goes to its own point (`0x53A170`) on its level, as from a building's floor
+/// On a press of the left button that went to no attack, the container that the cursor picks
+/// (`under_cursor`), where the hero may open it, becomes the hero's to open, and the hero goes to its own point (`0x53A170`) on its level, as from a building's floor
 /// out to a chest behind its wall (#1978), or stands where it is within 100 of it (`0x53A856`), in
 /// place of the click's ground (`hero::steer`); any press ends the last such order.
 pub(crate) fn pick(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
-    (pointer, labels): (Res<Pointer>, Res<crate::labels::Shown>),
+    (pointer, under): (Res<Pointer>, Res<crate::under_cursor::UnderCursor>),
     aim: Res<Aim>,
-    camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
-    containers: Query<(Entity, &GlobalTransform, &Container, &Object)>,
+    containers: Query<(&Container, &Object)>,
     mut heroes: Query<(Entity, &Transform, &mut Body)>,
 ) {
     if !buttons.just_pressed(MouseButton::Left) {
@@ -138,29 +136,15 @@ pub(crate) fn pick(
     for (hero, ..) in &heroes {
         commands.entity(hero).remove::<Opens>();
     }
-    let Some(cursor) = pointer.0 else {
+    if pointer.0.is_none() || aim.0 {
         return;
-    };
-    let (camera, view) = *camera;
-    let (false, Ok(ray)) = (aim.0, camera.viewport_to_world(view, cursor)) else {
-        return;
-    };
-    let Some((container, (point, level))) = containers
-        .iter()
-        .filter(|(_, _, container, _)| container.opens())
-        .map(|(entity, at, _, object)| {
-            // A container's label under the cursor picks it (`0x631CEB`).
-            let distance = if labels.labelled(cursor) == Some(entity) {
-                0.0
-            } else {
-                attack::from_line(ray, at.translation())
-            };
-            (entity, (object.at, object.level), distance)
-        })
-        .filter(|&(.., distance)| distance <= attack::PICKED_WITHIN)
-        .min_by(|a, b| a.2.total_cmp(&b.2))
-        .map(|(entity, point, _)| (entity, point))
-    else {
+    }
+    let Some((container, (point, level))) = under.0.and_then(|entity| {
+        let (container, object) = containers.get(entity).ok()?;
+        container
+            .opens()
+            .then_some((entity, (object.at, object.level)))
+    }) else {
         return;
     };
     for (hero, transform, mut body) in &mut heroes {

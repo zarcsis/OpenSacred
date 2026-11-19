@@ -249,8 +249,8 @@ const NEXT_AT: f32 = 0.7;
 
 /// A press of the right button with a combo on it (the engine's `+0x58` 2, its id at `+0x5A`):
 /// where no combo runs and that one is ready (`0x581A60`), it runs from its first step, on the
-/// hostile creature under the cursor and the point of the ground there (`0x530186` to
-/// `0x530276`); a combo not ready does nothing (with Ctrl held the original's posts another event,
+/// hostile creature that the cursor picks (`under_cursor`) and the point of the ground there
+/// (`0x530186` to `0x530276`); a combo not ready does nothing (with Ctrl held the original's posts another event,
 /// not followed).
 #[expect(
     clippy::type_complexity,
@@ -259,14 +259,15 @@ const NEXT_AT: f32 = 0.7;
 fn order(
     buttons: Res<ButtonInput<MouseButton>>,
     selected: Res<crate::making::Selected>,
-    (pointer, camera): (
+    (pointer, camera, under): (
         Res<crate::hud::Pointer>,
         Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
+        Res<crate::under_cursor::UnderCursor>,
     ),
     combos: Option<Res<HeroCombos>>,
     mut run: ResMut<ComboRun>,
     heroes: Query<&GlobalTransform, (With<Body>, Without<Dies>)>,
-    creatures: Query<(Entity, &GlobalTransform, &Mind, &Health), (Without<Dies>, Without<Body>)>,
+    creatures: Query<(&Mind, &Health), (Without<Dies>, Without<Body>)>,
 ) {
     if !buttons.just_pressed(MouseButton::Right) || run.running.is_some() {
         return;
@@ -290,13 +291,11 @@ fn order(
     let Ok(ray) = camera.viewport_to_world(view, cursor) else {
         return;
     };
-    let target = creatures
-        .iter()
-        .filter(|(_, _, mind, health)| mind.hostile() && health.current > 0)
-        .map(|(entity, at, ..)| (entity, crate::attack::from_line(ray, at.translation())))
-        .filter(|&(_, distance)| distance <= crate::attack::PICKED_WITHIN)
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(entity, _)| entity);
+    let target = under.0.filter(|&entity| {
+        creatures
+            .get(entity)
+            .is_ok_and(|(mind, health)| mind.hostile() && health.current > 0)
+    });
     let along = (hero.translation().y - ray.origin.y) / ray.direction.y;
     let ground = ray.origin + ray.direction.as_vec3() * along;
     info!("combos: {id:#x} runs on {target:?}");
