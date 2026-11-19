@@ -1189,7 +1189,7 @@ pub fn build(
         } else if object.type_flags & UNDERLAY != 0 {
             // A liquid cell's miniatures go under the surface (`0x62AE90`); the exception of
             // liquid material 13 while the building at (3563, 1336) has the state 2 is not
-            // followed.
+            // followed (#3021).
             if object.flags & MINIATURE != 0 && liquids::liquid(cell) {
                 (UNDER_LIQUIDS_BACK, Layer::UnderLiquids)
             } else if object.flags & MINIATURE != 0 || object.mask == 1 {
