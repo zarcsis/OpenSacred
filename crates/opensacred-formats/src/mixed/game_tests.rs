@@ -27,7 +27,7 @@ fn items_and_sprites_match_mixed_dump_py() {
         ],
     );
 
-    let data = game_file("PAK/items.pak");
+    let data = game_file("PAK/Items.pak");
     let items = Items::parse(&data).unwrap();
     let text = fs::read_to_string(&items_table).unwrap();
     let mut lines = text.lines().skip(1);

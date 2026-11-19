@@ -1841,6 +1841,8 @@ impl Host for Recorder<'_> {
                         }
                         Handled::Done
                     }
+                    // Another creature's, which `npcs` carries out by its record.
+                    _ if !hero => Handled::Done,
                     _ => Handled::Unknown,
                 }
             }

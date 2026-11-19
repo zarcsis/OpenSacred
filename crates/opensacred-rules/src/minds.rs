@@ -7621,7 +7621,7 @@ mod tests {
     }
 
     #[test]
-    fn a_child_plays_outside_and_gathers_about_the_hero_in_a_building() {
+    fn a_child_plays_outside_and_gathers_about_the_hero_on_a_settlements_ground() {
         let mut rng = Rng::of(50, 39, 9);
         let home = Spot::default();
         let kid = Mind::new(home, TOWNSFOLK, (true, true), None, SPEEDS, (702, 3));

@@ -155,7 +155,7 @@ pub fn convert(game_dir: &Path, out: &Path, only: Option<(u32, u32)>) -> Result<
     let statics = Statics::parse(&sources.statics).context("World/Static.PAK")?;
     let floors = Floors::parse(&sources.floors).context("World/Floor.PAK")?;
     let texture_pak = TexPak::parse(&sources.textures).context(textures::PAKS[0].0)?;
-    let items = Items::parse(&sources.items).context("PAK/items.pak")?;
+    let items = Items::parse(&sources.items).context("PAK/Items.pak")?;
     let mixed = MixedPak::parse(&sources.mixed).context("PAK/mixed.pak")?;
 
     let dir = output_dir(out);
@@ -192,7 +192,7 @@ pub fn convert(game_dir: &Path, out: &Path, only: Option<(u32, u32)>) -> Result<
         {
             atlases
                 .add(item.texture, &texture_pak)
-                .with_context(|| format!("PAK/items.pak record {index}"))?;
+                .with_context(|| format!("PAK/Items.pak record {index}"))?;
         }
     }
     let file = sprites
