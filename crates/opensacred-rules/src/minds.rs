@@ -3838,6 +3838,22 @@ pub fn escort_stepping_off(
     })
 }
 
+/// How near its master a healer heals it (`0x4EF47E`, `0x4F3EEC`: 350).
+pub const HEALS_WITHIN: f32 = 350.0;
+
+/// Whether a follower at `here` whose script's spell is `spell` (`+0x2B6`, its `CreateNPC`'s
+/// `0x67`) casts the heal at its master at `master` of health `current` of `most`, as it stands
+/// (`0x4EF486`, `0x4F3E73`; #2895): the heal [`casts::HEAL`], its master nearer than 350 and at
+/// two thirds of its most health or less (`current ≤ ⌊2·most/3⌋`). Its behaviour runs only out of
+/// its band about its master (150 to 240), where it stands doing nothing (`0x5445E6`). A heal
+/// that leaves its master as wounded is cast again as its clip ends, with no wait of its own.
+pub fn heals_master(spell: u8, here: Spot, master: Spot, (current, most): (u32, u32)) -> bool {
+    u16::from(spell) == casts::HEAL
+        && (master - here).length() < HEALS_WITHIN
+        && keeps(here, master) != Keeps::Stands
+        && current <= most.saturating_mul(2) / 3
+}
+
 /// Whether a follower of the flag 4 at `here` stands rather than keeps by its master at
 /// `master` (`0x4EF150`, `0x4F363D`): while the hero is in danger, its nearest hostile at
 /// `nearest` nearer than 300 or its master fighting, and the master farther than 500 from it.
@@ -5814,6 +5830,28 @@ mod tests {
             Some(250.0),
             true
         ));
+    }
+
+    #[test]
+    fn a_healer_heals_its_master_near_and_wounded_out_of_its_band() {
+        let master = Spot::new(1_000.0, 2_000.0);
+        let at = |d: f32| Spot::new(1_000.0, 2_000.0 - d);
+        let heal = u8::try_from(casts::HEAL).unwrap();
+        // The novice beside the Vampiress at 40 of 129, and at 86, two thirds whole; not at 87.
+        assert!(heals_master(heal, at(100.0), master, (40, 129)));
+        assert!(heals_master(heal, at(100.0), master, (86, 129)));
+        assert!(!heals_master(heal, at(100.0), master, (87, 129)));
+        // Farther than 240 up to 350, not at 350; not in its band, where it does nothing.
+        assert!(heals_master(heal, at(300.0), master, (40, 129)));
+        assert!(heals_master(heal, at(349.0), master, (40, 129)));
+        assert!(!heals_master(heal, at(350.0), master, (40, 129)));
+        assert!(!heals_master(heal, at(200.0), master, (40, 129)));
+        assert!(heals_master(heal, at(149.0), master, (40, 129)));
+        assert!(heals_master(heal, at(241.0), master, (40, 129)));
+        // Only the heal's mark.
+        assert!(!heals_master(5, at(100.0), master, (40, 129)));
+        assert!(!heals_master(0, at(100.0), master, (40, 129)));
+        assert_eq!(HEALS_WITHIN, 350.0);
     }
 
     #[test]
