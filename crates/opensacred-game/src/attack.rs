@@ -260,7 +260,11 @@ fn engage(
             Has<crate::making::Playing>,
             Option<&crate::riding::Seat>,
         ),
-        (Without<Dies>, Without<crate::fight::Downed>),
+        (
+            Without<Dies>,
+            Without<crate::fight::Downed>,
+            Without<crate::fight::Pushed>,
+        ),
     >,
     targets: Query<
         (

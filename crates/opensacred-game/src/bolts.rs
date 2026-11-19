@@ -559,12 +559,13 @@ fn fly(
     mut commands: Commands,
     time: Res<Time>,
     heights: Res<Heights>,
-    (mut hits, ranks, mut sounds, mut ends, mut pops): (
+    (mut hits, ranks, mut sounds, mut ends, mut pops, experience): (
         MessageWriter<fight::Hit>,
         Query<&fight::Ranked>,
         MessageWriter<crate::sfx::Play>,
         MessageWriter<crate::bolt_looks::Ended>,
         MessageReader<Pops>,
+        Option<Res<fight::Experience>>,
     ),
     mut flying: Query<(Entity, &mut Flying, &mut Transform, &mut Visibility)>,
     (shooters, heroes, children, bones, worn): (
@@ -744,9 +745,23 @@ fn fly(
                 rate: (0.5, crate::sfx::Roll::None),
             });
         }
-        // The whirlwind's knockback first, on each of no big type below its level (`0x5AD135`).
+        // The whirlwind's knockback first, on each of no big type below its level (`0x5AD135`):
+        // a creature's whirlwind's on the hero too, below it by the hero's level (#2901).
         if let Some((left, below)) = course.knocks {
             for &target in &struck {
+                if heroes.contains(target) {
+                    let level = experience
+                        .as_deref()
+                        .map_or(1, |experience| experience.level);
+                    if opensacred_rules::spells::whirlwind_knocks_back(below, level, false, false) {
+                        debug!("bolts: {entity} knocks the hero back {left:.0}");
+                        commands.entity(target).insert(fight::Pushed {
+                            from: transform.translation,
+                            left,
+                        });
+                    }
+                    continue;
+                }
                 let boss = ranks
                     .get(target)
                     .is_ok_and(|rank| rank.0 == fight::Rank::Boss);

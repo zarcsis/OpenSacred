@@ -502,6 +502,11 @@ pub struct Clips {
 }
 
 impl Clips {
+    /// The idle clip's node.
+    pub fn idle(&self) -> AnimationNodeIndex {
+        self.idle
+    }
+
     pub fn of(&self, gait: Gait) -> &(Handle<AnimationClip>, AnimationNodeIndex) {
         match gait {
             Gait::Walk => &self.moving[0],
@@ -1084,7 +1089,7 @@ pub fn run(
             (
                 Has<crate::hero_held::HeroHeld>,
                 Option<&crate::riding::Seat>,
-                Has<crate::fight::Downed>,
+                (Has<crate::fight::Downed>, Has<crate::fight::Pushed>),
             ),
         ),
         Has<Dies>,
@@ -1103,7 +1108,7 @@ pub fn run(
         mut transform,
         mut body,
         striking,
-        (making, picking, collects, (held, seat, downed)),
+        (making, picking, collects, (held, seat, (downed, pushed))),
         dying,
         flies,
         (effects, holding),
@@ -1111,8 +1116,9 @@ pub fn run(
     {
         // Held, it stands still, its clip too (`hero_held`); mounting a horse or getting off,
         // its clip plays (`riding`, #2299).
-        // Knocked down, it lies where its fall throws it (`knock_down`, #2311).
-        if held || downed || seat.is_some_and(crate::riding::Seat::busy) {
+        // Knocked down, it lies where its fall throws it (`knock_down`, #2311); knocked back, it
+        // slides (#2901).
+        if held || downed || pushed || seat.is_some_and(crate::riding::Seat::busy) {
             continue;
         }
         // Riding, it goes at its horse's speeds, by no stair, teleport or entrance, and every
