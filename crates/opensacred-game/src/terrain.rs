@@ -482,6 +482,13 @@ impl Heights {
             .and_then(|(cell, _, _)| cell.building.map(|building| (building, cell.flags)))
     }
 
+    /// The building that global cell `(cx, cy)` of the ground belongs to, in a loaded sector
+    /// (`0x6354D0`).
+    pub fn building_at(&self, (cx, cy): (i32, i32)) -> Option<buildings::Anchor> {
+        let key = (u32::try_from(cx).ok()?, u32::try_from(cy).ok()?);
+        self.cells.get(&key)?.building
+    }
+
     /// Whether global cell `(cx, cy)` lies in a loaded sector.
     pub fn holds(&self, (cx, cy): (i32, i32)) -> bool {
         match (u32::try_from(cx), u32::try_from(cy)) {
@@ -785,11 +792,7 @@ impl Heights {
                 .and_then(|key| self.layers.get(key))
                 .is_some_and(|layer| layer.spot(cell).is_some())
         };
-        let ground = match (u32::try_from(cell.0), u32::try_from(cell.1)) {
-            (Ok(cx), Ok(cy)) => self.cells.get(&(cx, cy)).and_then(|c| c.building),
-            _ => None,
-        };
-        ground
+        self.building_at(cell)
             .filter(holds)
             .or_else(|| self.floors.keys().copied().filter(holds).min())
     }

@@ -20,7 +20,8 @@
 //! the world gone as their sectors keep them going, which a load's sectors put back as they come
 //! in ([`crate::npcs::Npcs::remember`]); the hero's followers, put back beside it; its own horse,
 //! put back where it stood, with its bridle (#2301, #2316); the drops; the town stash; the
-//! merchants' stock; the land explored and the map's pin; and the weather.
+//! merchants' stock; the land explored and the map's pin; the weather; and the buildings' states
+//! (#2888).
 //!
 //! The quick save (#1988): F9 and Control+Z save the game as `QUICKSAVE` in the slot 0's file
 //! `GAME00` where the interface allows a save ([`allowed`]), F8 and Control+X load it. The
@@ -87,8 +88,9 @@ use crate::{arts, drops, making};
 /// rise (#2947); the version 20 the creatures' queues and the scripts' modes (#2890); the version
 /// 21 the scripts' functions done by their files and keys (#2810); the version 22 the difficulty
 /// a made item was made on (#2807); the version 23 the stalls that purchases emptied (#2907); the
-/// version 24 the hero's counts of its quests (#2886).
-pub const VERSION: u32 = 24;
+/// version 24 the hero's counts of its quests (#2886); the version 25 the buildings' states
+/// (#2888).
+pub const VERSION: u32 = 25;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -164,7 +166,8 @@ pub struct Scripts {
 /// docs/re/saves.md): the creatures that the sectors keep, those of the sectors in the world gone
 /// as their sectors keep them going (`npcs::Creatures`), the hero's followers, the drops lying
 /// and flying, the town stash, the merchants' stock, the land explored and the sectors entered,
-/// the world map's pin, and the weather, its timers of real time from the save's.
+/// the world map's pin, the weather, its timers of real time from the save's, and the buildings'
+/// states.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct World {
     pub creatures: crate::npcs::Creatures,
@@ -182,6 +185,8 @@ pub struct World {
     pub weather: Option<opensacred_rules::weather::Weather>,
     /// The stables' stalls that purchases emptied, until their traders fill them (#2907).
     pub stalls: Vec<crate::stables::SavedStall>,
+    /// The buildings' states, which the hero's steps and the scripts gave (#2888).
+    pub buildings: crate::buildings::SavedBuildings,
 }
 
 /// The saves' directory: `saves/` beside the settings' file, else in the configuration
@@ -505,6 +510,10 @@ fn world_of(world: &mut bevy::prelude::World) -> Result<World> {
         pin: world.get_resource::<Map>().and_then(Map::pinned),
         weather,
         stalls: crate::stables::saved_stalls(world),
+        buildings: world
+            .get_resource::<crate::buildings::Buildings>()
+            .map(crate::buildings::Buildings::saved)
+            .unwrap_or_default(),
     })
 }
 
@@ -702,6 +711,7 @@ fn restore_world(world: &mut bevy::prelude::World, kept: World) {
         pin,
         weather,
         stalls,
+        buildings,
     } = kept;
     world.insert_resource(stash);
     world.insert_resource(Wares(wares));
@@ -726,6 +736,9 @@ fn restore_world(world: &mut bevy::prelude::World, kept: World) {
         crate::riding::bridle_again(world, bridle);
     }
     crate::stables::stalls_again(world, stalls);
+    if let Some(mut states) = world.get_resource_mut::<crate::buildings::Buildings>() {
+        states.again(buildings);
+    }
     info!("saves: the world is back");
 }
 
@@ -1255,7 +1268,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (24, 0xAC4B_26DD_B4BB_F85D),
+            (25, 0x1F66_40F6_F043_44FE),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

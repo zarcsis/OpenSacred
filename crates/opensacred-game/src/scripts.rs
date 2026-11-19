@@ -201,6 +201,12 @@ fn trigger_state<'a>(tags: impl Iterator<Item = (&'a str, &'a Operand)>) -> Opti
 #[derive(Resource, Default)]
 pub struct ObjStates(pub Vec<ObjState>);
 
+/// The buildings' states that the scripts' `SetTriggerState`s of a cell gave, in order: the
+/// global cell and the state's word, which `buildings` gives the building there (`0x4968A0`, the
+/// trigger of the building at the cell's `+0x27`, #2888).
+#[derive(Resource, Default)]
+pub struct BuildingStates(pub Vec<((i32, i32), u16)>);
+
 /// A `SetHP` (52, `0x48E280`): the creature named `name` (its ASCII lower-cased), the hero for
 /// none or `hero`, takes `share` per cent (0 to 100) of its most health, truncated.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -446,6 +452,7 @@ const SET_ICON: u16 = 86;
 pub struct Effects {
     pub teleports: Vec<Teleport>,
     pub states: Vec<ObjState>,
+    pub buildings: Vec<((i32, i32), u16)>,
     pub healths: Vec<SetHealth>,
     pub records: Vec<Record>,
     /// The hero's home, as the last record that sets it gives it.
@@ -480,6 +487,7 @@ impl Effects {
     fn extend(&mut self, other: Effects) {
         self.teleports.extend(other.teleports);
         self.states.extend(other.states);
+        self.buildings.extend(other.buildings);
         self.healths.extend(other.healths);
         self.records.extend(other.records);
         self.home = other.home.or(self.home);
@@ -998,6 +1006,7 @@ impl Live {
         let effects = Effects {
             teleports: recorder.teleports,
             states: recorder.states,
+            buildings: recorder.buildings,
             healths: recorder.healths,
             records,
             home: recorder.home,
@@ -1162,6 +1171,7 @@ struct Recorder<'a> {
     records: Vec<Record>,
     teleports: Vec<Teleport>,
     states: Vec<ObjState>,
+    buildings: Vec<((i32, i32), u16)>,
     healths: Vec<SetHealth>,
     home: Option<Teleport>,
     /// The scripts' groups that hold a living creature, in the play; at the start, none known.
@@ -1235,6 +1245,7 @@ impl<'a> Recorder<'a> {
             records: Vec::new(),
             teleports: Vec::new(),
             states: Vec::new(),
+            buildings: Vec::new(),
             healths: Vec::new(),
             home: None,
             living: None,
@@ -1894,8 +1905,7 @@ impl Host for Recorder<'_> {
                 }
                 Handled::Done
             }
-            // A trigger's whole state by its name (#2450); a building's by a cell (`0x04`) is not
-            // followed.
+            // A trigger's whole state by its name (#2450), a building's by a cell (`0x04`, #2888).
             "set_trigger_state" => {
                 let Some(tags_of) = tags.0 else {
                     return Handled::Unknown;
@@ -1914,6 +1924,11 @@ impl Host for Recorder<'_> {
                         signal: false,
                         trigger: true,
                     });
+                }
+                if let (Some(word), Some((x, y, _))) =
+                    (word, tags.spot("_04", &self.state.positions))
+                {
+                    self.buildings.push(((x, y), word));
                 }
                 Handled::Done
             }
@@ -2671,6 +2686,7 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
     let Effects {
         teleports,
         states,
+        buildings,
         healths,
         records,
         home,
@@ -2704,6 +2720,7 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
     world.resource_mut::<Infos>().0.extend(infos);
     world.resource_mut::<Popups>().0.extend(popups);
     world.resource_mut::<ObjStates>().0.extend(states);
+    world.resource_mut::<BuildingStates>().0.extend(buildings);
     world.resource_mut::<Healths>().0.extend(healths);
     world.resource_mut::<WorldRecords>().0.extend(records);
     if let Some(spot) = home {
@@ -2772,6 +2789,7 @@ pub fn answer(world: &mut World, function: &str) {
 #[derive(SystemParam)]
 struct Queues<'w> {
     states: ResMut<'w, ObjStates>,
+    buildings: ResMut<'w, BuildingStates>,
     healths: ResMut<'w, Healths>,
     world: ResMut<'w, WorldRecords>,
     home: ResMut<'w, HeroHome>,
@@ -2792,6 +2810,7 @@ impl Queues<'_> {
     /// Hands `effects` on, but the hero's teleports, which the caller carries out.
     fn hand(&mut self, effects: Effects) {
         self.states.0.extend(effects.states);
+        self.buildings.0.extend(effects.buildings);
         self.healths.0.extend(effects.healths);
         self.world.0.extend(effects.records);
         if let Some(spot) = effects.home {
@@ -3118,6 +3137,7 @@ pub struct ScriptsPlugin;
 impl Plugin for ScriptsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ObjStates>()
+            .init_resource::<BuildingStates>()
             .init_resource::<Healths>()
             .init_resource::<WorldRecords>()
             .init_resource::<HeroHome>()
@@ -3874,6 +3894,7 @@ mod tests {
         let mut app = bevy::app::App::new();
         app.world_mut().insert_non_send(live(runtime));
         app.init_resource::<ObjStates>()
+            .init_resource::<BuildingStates>()
             .init_resource::<Healths>()
             .init_resource::<WorldRecords>()
             .init_resource::<HeroHome>()
@@ -3934,6 +3955,7 @@ mod tests {
         let mut app = bevy::app::App::new();
         app.world_mut().insert_non_send(live(runtime));
         app.init_resource::<ObjStates>()
+            .init_resource::<BuildingStates>()
             .init_resource::<Healths>()
             .init_resource::<WorldRecords>()
             .init_resource::<HeroHome>()
@@ -4194,6 +4216,8 @@ mod tests {
              set_trigger_state { _01 = \"Lit\", _0F = true }\n\
              set_trigger_state { _01 = \"Word\", _0B = 32769 }\n\
              set_trigger_state { _04 = { 1, 2, 0 }, _0B = 2 }\n\
+             set_trigger_state { _04 = { 3, 4, 1 }, _0B = 1 }\n\
+             set_trigger_state { _04 = { 5, 6, 0 } }\n\
              set_trigger_state { _01 = \"none\" }\n\
              return true\n\
              end\n\
@@ -4209,8 +4233,8 @@ mod tests {
             trigger: true,
         };
         // Unbarred and opened (`Init57`'s sewer door), barred and closed, a lone open bit taking
-        // the bar away with the rest of the word, a whole word; a building's by its cell and a
-        // record of no state set nothing.
+        // the bar away with the rest of the word, a whole word; a record of no state sets
+        // nothing.
         assert_eq!(
             effects.states,
             [
@@ -4220,6 +4244,8 @@ mod tests {
                 state("word", true, true),
             ]
         );
+        // The buildings' by their cells, whatever the layer, with their words (#2888).
+        assert_eq!(effects.buildings, [((1, 2), 2), ((3, 4), 1)]);
         assert!(
             live.runtime.unknown().is_empty(),
             "{:?}",
@@ -4801,6 +4827,7 @@ mod tests {
         app.add_plugins(bevy::MinimalPlugins)
             .insert_resource(Heights::default())
             .init_resource::<ObjStates>()
+            .init_resource::<BuildingStates>()
             .init_resource::<Healths>()
             .init_resource::<WorldRecords>()
             .init_resource::<HeroHome>()
