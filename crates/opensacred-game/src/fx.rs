@@ -1634,11 +1634,12 @@ const LOOPS: usize = 4;
 const NEAR: i32 = 300;
 
 /// The loop's volume of a fire of the variant `variant`, by its type: 0.3 for `FX_FI_SMOKE_S`
-/// and the smallest `FX_FIRE_L`, 0.4 for the middle ones, 0.6 for the largest; none for a smoke.
+/// and the smallest `FX_FIRE_L`, 0.4 for the middle ones and the magic fire 904 (the variant 13,
+/// #2830), 0.6 for the largest; none for a smoke.
 fn crackle_volume(variant: u8) -> Option<f32> {
     match variant {
         4 | 10 => Some(0.3),
-        5 | 11 => Some(0.4),
+        5 | 11 | 13 => Some(0.4),
         6 | 12 => Some(0.6),
         _ => None,
     }
@@ -1658,8 +1659,10 @@ fn volume_of(burning: Option<&Burning>) -> Option<f32> {
 struct Crackles(Vec<(Entity, Handle<bevy_kira_audio::AudioInstance>)>);
 
 /// The fires' loop near the hero (`0x690420`): at each frame, while fewer than four play, one
-/// more starts at the nearest fire within 300 pixels, looping at the sample's rate; each plays at
-/// its fire's place by its volume, and stops when its fire goes or is further than 300.
+/// more starts at the nearest fire within 300 pixels, looping at the sample's rate, without
+/// asking whether that fire has one already, so that four play at one fire as the original's do;
+/// each plays at its fire's place by its volume, and stops when its fire goes or is further than
+/// 300.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -1778,6 +1781,15 @@ impl Plugin for FxPlugin {
 mod tests {
     use super::*;
     use crate::statics::tests::{ORDER, shader_constant};
+
+    #[test]
+    fn the_fires_loop_by_their_types_the_magic_fire_too() {
+        assert_eq!(crackle_volume(4), Some(0.3));
+        assert_eq!(crackle_volume(11), Some(0.4));
+        assert_eq!(crackle_volume(13), Some(0.4));
+        assert_eq!(crackle_volume(12), Some(0.6));
+        assert_eq!(crackle_volume(0), None);
+    }
 
     #[test]
     fn the_order_of_drawing_is_the_shaders() {
