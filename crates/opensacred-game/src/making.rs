@@ -1089,12 +1089,7 @@ fn make(
             // start their regeneration as they start.
             if matches!(
                 style,
-                Style::Rundum
-                    | Style::Whirl
-                    | Style::Blades
-                    | Style::Backbreaker
-                    | Style::Dominate
-                    | Style::Kiss
+                Style::Rundum | Style::Whirl | Style::Blades | Style::Backbreaker | Style::Dominate
             ) {
                 arts.start(making.art);
             }
@@ -1172,6 +1167,9 @@ fn make(
                     }
                     continue;
                 }
+                // Its regeneration as the skull leaves her, whatever its target (`0x50E6C0`,
+                // #2827).
+                arts.start(making.art);
                 if let Some(record) = arts.tables.weapon_arts.iter().find(|a| a.id == making.art) {
                     let neck = bone(hero, &[crate::arrows::NECK], &children, (&bones, &worn))
                         .unwrap_or(here + Vec3::Y * 100.0);
@@ -1304,6 +1302,19 @@ fn make(
                     }
                     continue;
                 }
+                // Its regeneration once it has a target of no big type (`0x426CB0`), whether its
+                // level lets it take it or not; without one it waits at each frame, and a clip
+                // that ends so starts none (`0x50E6C0` at `0x50FF4D`, #2827).
+                if !creatures
+                    .get(playing.target)
+                    .is_ok_and(|(_, _, mind, _)| !mind.big)
+                {
+                    if finished {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                arts.start(making.art);
                 let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
                 let boss = ranks
                     .get(playing.target)
@@ -1418,6 +1429,9 @@ fn make(
                     }
                     continue;
                 }
+                // Its regeneration, with a target or none, whatever her bones and her beam reach
+                // (`0x50E6C0` at `0x510418`, #2827).
+                arts.start(making.art);
                 let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
                 // Her beam from her spine to its (`beams`, #2119), whose line, which a cell it may
                 // not pass cuts short, the bite's hold and drain go with (`0x510140`, `0x604030`,
@@ -1566,6 +1580,8 @@ fn make(
                     }
                     continue;
                 }
+                // Its regeneration, with a target or none (`0x506770` at `0x507D84`, #2827).
+                arts.start(making.art);
                 let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
                 if let (Some(record), Ok((_, centre, ..))) = (record, creatures.get(playing.target))
                 {
