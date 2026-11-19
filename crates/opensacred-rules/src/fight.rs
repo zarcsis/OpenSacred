@@ -1025,20 +1025,71 @@ impl Rules {
         let Some(values) = values.filter(|values| values.highest > 0) else {
             return hero;
         };
+        let (lowest, highest) = self.item_bounds(values);
+        let level = if hero == 0 {
+            highest
+        } else {
+            hero.min(highest)
+        };
+        level.max(lowest)
+    }
+
+    /// A sector's levels `values` as the items that the scripts and the containers make take them
+    /// (`0x487B8A`, `0x5D58A7`): the lowest raised by `OffLevel` and the highest by `LevelKap` of
+    /// the difficulty's column (0 on bronze), each then by its per cent `OffLevelProz`, truncated.
+    fn item_bounds(&self, values: &SpawnValues) -> (u32, u32) {
         let per_cent = whole(self.scale[1]);
         let scaled = |bound: u32| {
             bound.saturating_add(
                 u32::try_from(u64::from(bound) * u64::from(per_cent) / 100).unwrap_or(u32::MAX),
             )
         };
-        let lowest = scaled(values.lowest.saturating_add(self.ranks.off));
-        let highest = scaled(values.highest.saturating_add(self.ranks.cap));
-        let level = if hero == 0 || hero > highest {
-            highest
-        } else {
-            hero
+        (
+            scaled(values.lowest.saturating_add(self.ranks.off)),
+            scaled(values.highest.saturating_add(self.ranks.cap)),
+        )
+    }
+
+    /// The level that the item maker of a container's contents makes an item at for the hero of
+    /// level `hero`, the container standing in a sector of the levels `values` (`0x5D57C0`,
+    /// docs/re/containers.md, "The contents"): a roll `R(H, ⌊1.05·H⌋)`, the factor the float a
+    /// little below 1.05, held at most at a bound. In a sector of levels the bound is the greater
+    /// of its lowest and of the least of 1 and its highest, both raised as [`Self::item_bounds`]
+    /// raises them, so that the lowest bounds the level (**confirmed** in the running original,
+    /// #2858: a hero of level 30 made a chest's items at 1 in the sector 50,39 of the levels 1 to
+    /// 4 and at 18 in the sector 97,10 of 18 to 31); in a sector without levels, or of a highest of
+    /// 0, the bound is a roll of its own as the first, drawn before it.
+    pub fn contained_level(
+        &self,
+        hero: u32,
+        values: Option<&SpawnValues>,
+        dice: &mut impl Dice,
+    ) -> u32 {
+        let roll = |dice: &mut _| {
+            let most = truncated(f64::from(NEAR_HERO) * f64::from(hero));
+            let level = crate::drops::between(i64::from(hero), most, dice);
+            u32::try_from(level).unwrap_or(hero)
         };
-        level.max(lowest)
+        let bound = match values.filter(|values| values.highest > 0) {
+            Some(values) => {
+                let (lowest, highest) = self.item_bounds(values);
+                highest.min(1).max(lowest)
+            }
+            None => roll(dice),
+        };
+        roll(dice).min(bound)
+    }
+
+    /// The level that a container's gold is made for, of the hero of level `hero` standing in a
+    /// sector of the levels `values` (`0x4A0CE5`): the hero's level held at most at the sector's
+    /// highest raised by `LevelKap` (not by `OffLevelProz`), the hero's own in a sector without
+    /// levels or of a highest of 0.
+    pub fn gold_level(&self, hero: u32, values: Option<&SpawnValues>) -> u32 {
+        values
+            .filter(|values| values.highest > 0)
+            .map_or(hero, |values| {
+                hero.min(values.highest.saturating_add(self.ranks.cap))
+            })
     }
 
     /// The level of a horse that a trader's stock makes again (`0x537270`), for a hero of level
@@ -1768,6 +1819,10 @@ pub const BONUSES: usize = 8;
 /// The balance's `LongivityCombatFactor`: the share of the survival bonus that the fight takes
 /// (`0xAD56B0`; docs/re/character.md).
 pub const LONGEVITY: f64 = 0.5;
+
+/// The factor of the hero's level up to which a container's item maker rolls an item's level
+/// (`0x890CA4`, [`Rules::contained_level`]), the float a little below 1.05.
+const NEAR_HERO: f32 = 1.05;
 
 /// The survival bonus of `minutes` played (`0x6AA062`, `0x565D70(0, m, 120, 50)`):
 /// `100·(1 − 1/(1 + (m − 1)/120))`, 0 below a minute.
@@ -6812,6 +6867,51 @@ mod tests {
         // No levels, or a highest of 0, hold nothing.
         assert_eq!(gold.script_level(10, None), 10);
         assert_eq!(gold.script_level(10, Some(&none)), 10);
+        // A container's item: a roll of `H` to `⌊1.05·H⌋` held at most at the raised lowest, the
+        // greater of it and the least of 1 and the raised highest.
+        struct Rolls(Vec<u32>);
+        impl Dice for Rolls {
+            fn below(&mut self, n: u32) -> u32 {
+                let roll = self.0.remove(0);
+                assert!(roll < n, "{roll} below {n}");
+                roll
+            }
+        }
+        let contained = |rules: &Rules, hero, values, rolls: Vec<u32>| -> u32 {
+            let mut dice = Rolls(rolls);
+            let level = rules.contained_level(hero, values, &mut dice);
+            assert!(dice.0.is_empty(), "{:?} left", dice.0);
+            level
+        };
+        // A hero of level 30 in the sector of 2 to 6: `R(30, 31)`, held at 2 on bronze; 1 to 4,
+        // as the start's chest, at 1; on gold the lowest 55.
+        assert_eq!(contained(&bronze, 30, Some(&values), vec![1]), 2);
+        let start = SpawnValues {
+            density: 50,
+            lowest: 1,
+            highest: 4,
+        };
+        assert_eq!(contained(&bronze, 30, Some(&start), vec![0]), 1);
+        assert_eq!(contained(&gold, 30, Some(&values), vec![1]), 31);
+        assert_eq!(contained(&gold, 60, Some(&values), vec![2]), 55);
+        // A lowest of 0 the bound 1; a hero below the bound keeps its roll, the float a little
+        // below 1.05 giving 20 at 20 (no roll), 41 at 40.
+        let low = SpawnValues {
+            lowest: 0,
+            ..values
+        };
+        assert_eq!(contained(&bronze, 30, Some(&low), vec![0]), 1);
+        assert_eq!(contained(&bronze, 20, Some(&none), vec![]), 20);
+        assert_eq!(contained(&bronze, 1, Some(&values), vec![]), 1);
+        // No levels: the bound a roll of its own, drawn first.
+        assert_eq!(contained(&bronze, 40, None, vec![0, 1]), 40);
+        assert_eq!(contained(&bronze, 40, None, vec![1, 1]), 41);
+        // A container's gold: the hero's level held at the highest plus `LevelKap`, unscaled.
+        assert_eq!(bronze.gold_level(30, Some(&values)), 6);
+        assert_eq!(bronze.gold_level(3, Some(&values)), 3);
+        assert_eq!(gold.gold_level(200, Some(&values)), 126);
+        assert_eq!(gold.gold_level(200, Some(&none)), 200);
+        assert_eq!(gold.gold_level(200, None), 200);
     }
 
     #[test]

@@ -337,7 +337,7 @@ fn give(
         let level = npcs.script_level(level, at.translation);
         let Some(dropped) =
             crate::drops::scripted(tables, difficulty, (item, level, false), &mut dice.0).or_else(
-                || crate::drops::contained(tables, (&mut dice, difficulty), (item, level, 1)),
+                || crate::drops::contained(tables, (&mut dice, difficulty), (item, level, 0)),
             )
         else {
             continue;

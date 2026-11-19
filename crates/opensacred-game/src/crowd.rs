@@ -89,7 +89,7 @@ impl Crowd {
     }
 
     #[cfg(test)]
-    fn add(&mut self, cell: Cell, entity: Entity, way: InTheWay) {
+    pub(crate) fn add(&mut self, cell: Cell, entity: Entity, way: InTheWay) {
         self.spare(cell, entity, way, None);
     }
 

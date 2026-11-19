@@ -346,6 +346,49 @@ pub fn straight(from: Cell, to: Cell, walkable: impl Fn(Cell) -> bool) -> bool {
     true
 }
 
+/// How far from the hero the points lie that a place made at the hero may move to (`0x890DC8`),
+/// in world units, and the degrees between them (`0x45FF80`).
+const ABOUT_HERO: f32 = 60.0;
+const ABOUT_HERO_STEP: usize = 30;
+/// A degree in radians, as the float `0x890DC4` holds it.
+const DEGREE: f32 = 0.017_453_292;
+
+/// The place that `0x45FF80` gives a creature or an object made at the hero, who stands at the
+/// whole world point `hero` (#2858; docs/re/netscript.md, "A creature's place"): for a hero on the
+/// ground, the point `asked` where `free` takes it, else the first of twelve points 60 from the
+/// hero, every 30 degrees from 0 (`x + 60·cos a` and `y + 60·sin a`, each truncated), that `free`
+/// takes, else the hero's own point; the hero's own point for a hero on a floor. `free` tells
+/// whether no other object stands first in a point's cell and a straight way leads there from the
+/// hero (`0x634AF0`'s `+8`, `0x4FCC80`, [`straight`]). `CPOS:hero` asks for the hero's own point;
+/// a grave's creature asks for none (the two values of `FillChest` that it passes, which no test
+/// passes, `0x4A07D0`).
+pub fn about_hero(
+    hero: [i32; 2],
+    on_ground: bool,
+    asked: Option<[i32; 2]>,
+    free: impl Fn([i32; 2]) -> bool,
+) -> [i32; 2] {
+    if !on_ground {
+        return hero;
+    }
+    if let Some(asked) = asked.filter(|&asked| free(asked)) {
+        return asked;
+    }
+    (0..360)
+        .step_by(ABOUT_HERO_STEP)
+        .map(|degrees| {
+            let angle = f64::from(degrees) * f64::from(DEGREE);
+            let along = |offset: f64, from: i32| {
+                let at = f64::from(ABOUT_HERO) * offset + f64::from(from);
+                // Truncated as `__ftol` truncates, far within the integers' range.
+                i32::try_from(crate::fight::truncated(at)).unwrap_or(from)
+            };
+            [along(angle.cos(), hero[0]), along(angle.sin(), hero[1])]
+        })
+        .find(|&point| free(point))
+        .unwrap_or(hero)
+}
+
 /// A laser beam's segment's length over the ground, a cell's (the argument of `0x604030`).
 pub const LASER_SEGMENT: f32 = 53.665_63;
 
@@ -786,6 +829,31 @@ pub fn stated_word(old: u32, word: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_place_at_the_hero_moves_to_the_first_free_point_about_it() {
+        let hero = [1000, 2000];
+        // Its own point where the hero's cell is free, as `CPOS:hero` asks.
+        assert_eq!(about_hero(hero, true, Some(hero), |_| true), hero);
+        // Its own point taken, the first of the twelve: 0 degrees, then 30 and 60 degrees.
+        let taken = |point: [i32; 2]| point != hero;
+        assert_eq!(about_hero(hero, true, Some(hero), taken), [1060, 2000]);
+        let east = |point: [i32; 2]| point != hero && point[0] < 1059;
+        assert_eq!(about_hero(hero, true, Some(hero), east), [1051, 2029]);
+        let further = |point: [i32; 2]| point != hero && point[0] < 1051;
+        assert_eq!(about_hero(hero, true, Some(hero), further), [1030, 2051]);
+        // At 90 and 180 degrees, each truncated.
+        let north = |point: [i32; 2]| point[1] > 2059;
+        assert_eq!(about_hero(hero, true, None, north), [1000, 2060]);
+        let west = |point: [i32; 2]| point[0] < 941;
+        assert_eq!(about_hero(hero, true, None, west), [940, 2000]);
+        // A grave's creature, of no point asked, takes the first free one; none free, the
+        // hero's own; on a floor the hero's own whatever is free.
+        assert_eq!(about_hero(hero, true, None, |_| true), [1060, 2000]);
+        assert_eq!(about_hero(hero, true, None, |_| false), hero);
+        assert_eq!(about_hero(hero, false, Some(hero), |_| false), hero);
+        assert_eq!(about_hero(hero, false, None, |_| true), hero);
+    }
 
     #[test]
     fn with_no_way_the_walker_heads_for_the_last_cell_of_its_line_that_passes() {

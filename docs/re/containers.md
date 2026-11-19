@@ -80,17 +80,31 @@ Its operands (the jump table `0x4A14C4`, the byte table `0x4A14E4`):
 In this order (`0x4A0711` on), with `B` the eight numbers of `BalanceSpawnItem` (107, the walker's case `0x475EBE`; 15, 82, 20, 1, 40, 40, 1, 1 in all 20 trees, 25, 45, 30, 10, 50, 50, 50, 50 by default, `0x4614CB`):
 
 1. without a value, a count of books or `T`, the value is the hero's level times 800;
-2. with a value above 0, `R(0, 100) ≤ B[0]` gives nothing (16 cases in 101); the shrines and the graves (5214 to 5217, 5219, 5223 to 5226; the table `0x4A158C`) raise a creature instead, at the hero's level (`0x564D60`), at the hero's own point, or at a free point about it where another object stands first in the hero's cell or no straight way leads there (`0x45FF80`; docs/re/netscript.md, "A creature's place"), with `+0x1F4` bit 1 and the stance `0x52E420(1, 0xB)`: the ghost 46 in 2 cases of 3, else the noble 597 in 2 of 3 or 598;
+2. with a value above 0, `R(0, 100) ≤ B[0]` gives nothing (16 cases in 101); the shrines and the graves (5214 to 5217, 5219, 5223 to 5226; the table `0x4A158C`) raise a creature instead, at the hero's level (`0x564D60`), with `+0x1F4` bit 1 and the stance `0x52E420(1, 0xB)`: the ghost 46 in 2 cases of 3, else the noble 597 in 2 of 3 or 598;
+   its place is the one that `0x45FF80` gives about the hero (docs/re/netscript.md, "A creature's place"), the point it asks for being two of `FillChest`'s own values (`0x4A07D0`: the key's −1, or 15, and the −1 that `0x4A02E7` sets), the world's corner, to which no straight way leads: so the creature takes the first of the twelve points 60 from the hero whose cell no other object holds first and to which a straight way leads, else the hero's own point, and the hero's own on a floor (read 2026-11-19 for #2858, **confirmed** by code);
 3. else, for the local hero, a run of items (`0x4A08BE`) while `R(0, 100) ≥ B[1]` (19 cases in 101), each:
    - of a category by `R(0, 100)`: the weapons below `B[4]`, else one of 6, 13, 17, 18, 19, 21 to 25 below `B[5]`, else a rune below `B[6]`, else one of 7, 8, 9, 15, 16, 20, 29, 30, 31 below `B[7]`, else rolled again;
-   - at the hero's level, 1 or 2 above where `R(0, 100) < B[3]`;
-   - its type `0x5C7FA0(category, level, 100, 15, 0, 2 or 0, 1, 14)` turned to the hero's class's (`0x43CA20`), in 2 cases of 1,001 an icon 5101 to 5106 where none lies in the world;
-   - made by `0x5D57C0(type, the container, −1 or 15)` at a level near the hero's held within the container's sector's levels raised by the difficulty, its quality key rolled with the luck and the time played, at most 11;
+   - its type chosen at the hero's level, 1 or 2 above where `R(0, 100) < B[3]`;
+   - its type `0x5C7FA0(category, level, 100, 15, 0, 2 or 0, 1, 14)`, then `0x43CA20` of the hero's type, which gives a type below 32 no variant (docs/re/items.md, "A pass: what it makes"), so that it stays; in 2 cases of 1,001 an icon 5101 to 5106 where none lies in the world;
+   - made by the item maker of the contents, `0x5D57C0(type, the container's sector, −1)`, of the key 15 where the fill has `0x9E` (below, "The item maker of the contents");
    - its price (`0x5BEB30(−1) + 8`) taken off the value, and appended (the sub-kind 3); a value of 0 or less ends the run without gold;
 4. at the run's end a pile of gold (`0x4A0CE5`): 5132 for a value below 10,000, 5133 below 100,000, 5134 below 1,000,000, else 5135; its amount first `v·B[2]/100`, then, where the hero's sector is found (`0x634840`), `g = a + (b − a)·L/100` of `GoldProLevel` (20 and 2,000) with `L` the hero's level held to the sector's highest (`+0xD5`) plus `LevelKap`, and the amount `R(⌊g/2⌋, g + ⌊g/2⌋)`: the value decides whether items come first, not the gold;
 5. `0x86` makes that many books, each `4100 + R(0, 202)` (a missing type passed over), in 1 case of 3 `4613 + R(0, 26)`, in 1 of 91 `5150 + R(0, 10)`;
 6. `T` without a name or a value makes `T` (the sub-kind 4, `0x4A124E`);
-7. `0x57` makes that many items, each of a random category (`0x43B090(0)`, the table `0x890B60`) at the level `⌊rand()/32768·(L − 1) + 1⌋` (`0x5C7FA0` with the hero's luck `0x564A60` and its type, `0x5D57C0`).
+   the container makes the books and `T` as it takes them, by the item maker of the contents with the key −1 (`0x5C998C`), so that a pile of gold named comes as its record holds it, its price (`Weapon.pak +0x88`, 600 for the piles) its amount: quest 203's chest gives six piles of 600 and a random item;
+7. `0x57` makes that many items, each of a random category (`0x43B090(0)`, the table `0x890B60`), its type chosen at the level `⌊rand()/32768·(L − 1) + 1⌋` (`0x5C7FA0` with the hero's luck `0x564A60` and its type) and made by the item maker of the contents with the key −1.
+
+**The item maker of the contents (`0x5D57C0`).**
+Read 2026-11-19 for #2858 (**confirmed** by code; the levels **seen** in the running original): it makes the object of the type and, for a game with a local hero, makes it again.
+
+- The level: a roll `R(H, ⌊1.05·H⌋)` of the hero's level `H`, the factor the float a little below 1.05 (`0x890CA4`), so that `⌊1.05·20⌋` is 20, held at most at a bound.
+  In a container's sector (its `+0x18`, `0x63CFC0`) of a highest above 0, the bound starts at 1, is held at most at the highest raised by `LevelKap` and at least at the lowest raised by `OffLevel`, each then by `OffLevelProz` as a script's item's are (docs/re/netscript.md, "The items' levels"): the bound is the raised lowest, and 1 for a lowest of 0 (**hypothesis**: a hold meant for the level, written on the bound's start).
+  In a sector of no levels the bound is a roll of its own as the level's, drawn first; for a sector not found it stays 1.
+  **Seen** on bronze with the Seraphim raised to level 30: the start's `chest_sera2` in the sector 50,39 of the levels 1 to 4 made its 2149 at the level 1, and the chest of `fillchest_chestR13_120` in the sector 97,10 of the levels 18 to 31 its random item 6534 at 18, both of the key 0 (2026-11-19, the item maker `0x5D5080` traced).
+- A type whose record has the quality bits `0xF0000` all set (`+0x84`), with the key 15, is only raised to the level as a drop's unique is (`0x5C29A0`, docs/re/items.md, "A pass: what it makes"); gold (`0x43AF50`) is left as its record holds it; any other is made by the item maker `0x5D5080` at the level by the key, its fourth argument `rand() % 3 + 1`.
+- The key −1 is rolled: a bonus `B = ⌊LongivityFactor·v(t) + ⌊√(100·(ℓ − 100))⌋⌋`, `t` the whole minutes played (`0x424650` over 60), `v = 0x565D70(0, t, 120, 50)` (docs/re/items.md, "Who drops") and `ℓ` the hero's luck (`0x564A60`); `u = rand() % 10000 + 1` against the running sums `⌊w_k·g + 0.5⌋` of the drops' weights, with no `m`, of `g = 10·((1 − ItemThrowFactor)·B + ItemThrowFactor)`; `k` the first key whose sum passes `u`, and the maker's key `16 − k` for `k` of 2 to 15, at most 11, else 0.
+  So with no time played and the luck of no effect `g` is 1.5, and 85 % of the draws pass no key: the key 0; after ten hours (`B` 41, `g` 350) the keys 3 to 5, the maker's 11, come in 44 % of the draws and the keys 0 and 1, the maker's 0, in the rest.
+  A luck below 100 takes the root of a negative number, and its sums pass no key.
 
 In the Seraphim's tree (counted): 1,676 records of `0x53` alone (200 in 1,352 of them, 30 to 6,500), 33 of `0x02` (21 of them the pile 5135), 7 of `0x57`, 2 of `0x54` and 2 of `0x86`; `FillSarkophag` raises a monster itself in a case of 4, and the dwarves' chests' `super_kiste` gives four `Gewinn`s and no contents.
 
@@ -202,7 +216,7 @@ On 2026-10-28 (#1379, the driver of #448, the save `start-seraphim`, traces of `
 
 ## Not read
 
-What the sound events `(9, 0x16)` and `(9, 0x17)` play; `0x5D57C0`'s level and the arguments of `0x5C7FA0` here; whether the flight stops at a blocked cell; whether the saves keep the emptied bit; `cChest3D`'s `+0x44` (`0x5C9800`) and `0x608080`.
+What the sound events `(9, 0x16)` and `(9, 0x17)` play; whether the flight stops at a blocked cell; whether the saves keep the emptied bit; `cChest3D`'s `+0x44` (`0x5C9800`) and `0x608080`.
 To see in the running original: the same chest's contents after a reload and after the hero gains experience; the share of containers that give nothing and the gold's range over many; the graves' and the shrines' ghosts; a dwarves' chest and the cells of the barrels after it; a chest against a wall; quest 1111's chest.
 
 ## In `opensacred-game`
@@ -222,8 +236,11 @@ Since #1411 a town stash opens its window with the inventory (`town_stash`): the
 Since #1663 Shift with a click on a backpack's item while it shows sends the item into the store, and since #1767 the window's show and hide each play `UI_CLICK01`, as the original's.
 Not followed for it: the hovered item's tooltip.
 
-Since #1412 `FillChest`'s random items of `0x57` follow (`containers::random_items`): each of `drops::random_category` at `⌊rand()/32768·(L − 1) + 1⌋` of the hero's level, its type chosen for the hero's class (**hypothesis**: of the run's quality 14, not loose).
-Not followed yet: the class's variant of a type (`0x43CA20`), and the item maker's own level and key for the contents (docs/decisions/items.md, "Containers' items at the hero's level"; #2858).
+Since #1412 `FillChest`'s random items of `0x57` follow (`containers::random_items`): each of `drops::random_category`, its type chosen at `⌊rand()/32768·(L − 1) + 1⌋` of the hero's level for the hero's class (**hypothesis**: of the run's quality 14, not loose).
+Since #2858 every item of a container is made as the item maker of the contents makes it (`opensacred_rules::containers::Opening`, `fight::Rules::contained_level`, `drops::Rules::contained_key`, `drops::contained`), its level and its key drawn by the container's own dice: at a level held at the container's sector's raised lowest, and of the key that the time played and the hero's luck raise, the run's of the key 15 for `0x9E`.
+A pile of gold named comes of its price, the run's gold of the hero's level held at its sector's highest (`fight::Rules::gold_level`), and a raised creature takes the first free point about the hero (`paths::about_hero`).
+Before, the items came at the hero's level, of a death's pass's key of no bonus held at 5 or above, a pile named of one piece, the gold of the hero's level, and the creature in the cell beside the hero's.
+**Seen** in the game on 2026-11-19 with the Seraphim raised to level 30: `chest_sera2` threw 5394 and 2149 at the level 1 and of the key 0, as the original's did, and the chest of `fillchest_chestR13_120`, opened at three experiences, its random items at 18 and its gold of 637 to 884.
 Since #1518 the hidden stashes (`stashes`): the scripts keep the pools that `AddPoolPos` fills and the stashes that `MachVersteck` lays from them, drawn by the scripts' dice (`opensacred_rules::quests::Pools`, `Stashes`), 819 in the Seraphim's tree as the original's log lists them; each stands at its cell's centre, 40 above its ground, and is picked within 45 of the cursor's line of sight, where the cursor shows the hand and the stash's text (`cursors`); a left click sends the hero there, and standing within 300 of it the hero searches it: the stash leaves the scripts' list and its function runs (`scripts::run_function`).
 A `CreateObj` of `0x54` and no type makes a random item for the hero (`opensacred_rules::drops::script_item`, with the categories' table `0x890B60` as `random_category`), made since #1125 at the hero's level within its sector's levels as a `CreateObj`'s item (`drops::scripted`; a potion as it is) and thrown 20 to 50 from the hero along each axis; the command `stashes` lists those about the hero.
 **Seen** in the game at the Seraphim's start: the stash in the bush at 3216, 2556 showed its text under the cursor, and a click gave the item 7089 at her feet, the stashes then 818.

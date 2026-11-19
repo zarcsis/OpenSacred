@@ -826,6 +826,37 @@ impl Rules {
             .map_or(17, |(key, _)| key)
     }
 
+    /// The bonus that the opener of a container gives the quality keys of its items (`0x5D57C0`,
+    /// docs/re/containers.md, "The contents"): `⌊LongivityFactor·v(t) + ⌊√(100·(ℓ − 100))⌋⌋` of
+    /// the whole minutes played `t`, `v` the survival bonus's curve ([`fight::survival`]), and of
+    /// the opener's luck `ℓ` (`0x564A60`), whole; none for a luck below 100, whose root is no
+    /// number.
+    pub fn opener_bonus(&self, minutes: u32, luck: f32) -> Option<u32> {
+        let above = i64::from(whole(luck)) - 100;
+        if above < 0 {
+            return None;
+        }
+        let root = truncated((to_f64(above) * 100.0).sqrt());
+        let bonus = f64::from(self.longevity) * fight::survival(minutes) + to_f64(root);
+        u32::try_from(truncated(bonus)).ok()
+    }
+
+    /// The item maker's key of a container's item (`0x5D57C0`): a key `k` drawn on the quality
+    /// keys' weights as a drop's pass draws it with no bonus ([`Rules::key`]), of the factor of
+    /// the share `B` ([`Rules::spread`]), `B` the opener's bonus ([`Rules::opener_bonus`]); the
+    /// maker's key `16 − k` for `k` of 2 to 15, at most [`CONTAINED_KEY`], else 0; 0 for an opener
+    /// of no bonus, whose factor no sum passes. So the time played and the luck raise it: with no
+    /// bonus the factor is 1.5 and most draws pass no key at all.
+    pub fn contained_key(&self, bonus: Option<u32>, dice: &mut impl Dice) -> u8 {
+        let Some(bonus) = bonus else {
+            return 0;
+        };
+        match self.key(0, self.spread(f64::from(bonus)), dice) {
+            k @ 2..=15 => u8::try_from(16 - k).unwrap_or(0).min(CONTAINED_KEY),
+            _ => 0,
+        }
+    }
+
     /// Gold's amount of a creature of level `level` (`0x559BF0`): `g = a + ⌊(L − 1)·(b − a)/100⌋`
     /// of `GoldProLevel`'s two values, then `g − ⌊g/6⌋ + R(0, ⌊g/3⌋)`, at least 1.
     pub fn gold(&self, level: u32, dice: &mut impl Dice) -> u32 {
@@ -1109,6 +1140,29 @@ pub struct Catalogue {
 }
 
 impl Catalogue {
+    /// A catalogue of the types `types`, each of its category, listed, and of a record that every
+    /// class wears from level 1, for the tests of the other modules.
+    #[cfg(test)]
+    pub(crate) fn any_class(types: &[(u32, u8)]) -> Self {
+        let record = Record {
+            flags: CLASS_BITS,
+            levels: [1, 1],
+            limits: Some([1, 0, 0]),
+            ..Record::default()
+        };
+        let mut lists: HashMap<u8, Vec<u32>> = HashMap::new();
+        for &(item, category) in types {
+            lists.entry(category).or_default().push(item);
+        }
+        Self {
+            categories: types.iter().copied().collect(),
+            records: types.iter().map(|&(item, _)| (item, record)).collect(),
+            lists,
+            slots: types.iter().map(|&(item, _)| (item, item)).collect(),
+            ..Self::default()
+        }
+    }
+
     /// The types of `items`, their records in `weapons` (the record whose id is the type,
     /// **hypothesis**, docs/02 §6.2), the pieces of `sets` and the limits of `templates`.
     ///
@@ -2365,6 +2419,50 @@ pub fn scripted(
 
 /// The highest key of the item maker that a script's `CreateObj` makes an item of (`0x487E6C`).
 const SCRIPTED_KEY: u8 = 10;
+/// The highest key of the item maker that it rolls for a container's item (`0x5D5C22`).
+pub const CONTAINED_KEY: u8 = 11;
+/// The key of the item maker that `FillChest`'s `0x9E` gives the items of its run, with which a
+/// unique is only raised (`0x5D59FD`).
+pub const UNIQUE_KEY: u8 = 15;
+
+/// What the item maker of a container's contents makes of the item of type `item` at `level` by
+/// its key `key` ([`Rules::contained_key`], or [`UNIQUE_KEY`]) on `difficulty` (`0x5D57C0`,
+/// docs/re/containers.md, "The contents"): a unique (its record's quality bits all set) of the
+/// key 15 only raised from its record to the level as a drop's unique is ([`raise_level`],
+/// `0x5C29A0`); gold, potions, runes and the categories 26, 30 and 31 as their records hold them;
+/// another made by the item maker at the level by the key, its sockets and its name rolled as a
+/// drop's, as its record holds it where the maker has no template for it (the books). `None` for
+/// a type that the items table does not hold.
+pub fn contained(
+    (catalogue, templates): (&Catalogue, &Templates),
+    (sockets, difficulty): (&Sockets, Difficulty),
+    (item, level, key): (u32, u32, u8),
+    dice: &mut impl Dice,
+) -> Option<Dropped> {
+    if key == UNIQUE_KEY && catalogue.unique(item) {
+        let mut drop = Dropped {
+            kind: catalogue.kind(item).unwrap_or(Kind::Other),
+            item,
+            level: 0,
+            key: 16,
+            quality: 0,
+            amount: 1,
+            values: None,
+            named: None,
+            socketed: Vec::new(),
+            name_key: 0,
+        };
+        catalogue.category(item)?;
+        raised(&mut drop, (catalogue, templates), (level, difficulty));
+        return Some(drop);
+    }
+    by_key(
+        (catalogue, templates),
+        (sockets, difficulty, false),
+        (item, level, key),
+        dice,
+    )
+}
 
 /// An item of type `item` that the item maker makes at `level` by its own key `key` (`0x5D5080`),
 /// as a merchant's page makes it (`0x6D9DE0`, docs/re/trade.md): gold, potions, runes and the
@@ -2375,6 +2473,25 @@ const SCRIPTED_KEY: u8 = 10;
 pub fn keyed(
     (catalogue, templates): (&Catalogue, &Templates),
     (sockets, difficulty): (&Sockets, Difficulty),
+    (item, level, key): (u32, u32, u8),
+    dice: &mut impl Dice,
+) -> Option<Dropped> {
+    by_key(
+        (catalogue, templates),
+        (sockets, difficulty, true),
+        (item, level, key),
+        dice,
+    )
+}
+
+/// An item of type `item` that the item maker makes at `level` by its own key `key` (`0x5D5080`):
+/// gold, potions, runes and the categories 26, 30 and 31 as they are; another by the maker at
+/// `level`, its sockets rolled by `sockets` on `difficulty`, with the merchant's bonus where
+/// `merchant`, and its name's roll; its pass's key `16 − key`. `None` for a type that the items
+/// table does not hold.
+fn by_key(
+    (catalogue, templates): (&Catalogue, &Templates),
+    (sockets, difficulty, merchant): (&Sockets, Difficulty, bool),
     (item, level, key): (u32, u32, u8),
     dice: &mut impl Dice,
 ) -> Option<Dropped> {
@@ -2401,7 +2518,7 @@ pub fn keyed(
     socket(
         &mut drop,
         (catalogue, templates),
-        (sockets, difficulty, true),
+        (sockets, difficulty, merchant),
         dice,
     );
     drop.named = names::roll(drop.values.as_ref(), dice);

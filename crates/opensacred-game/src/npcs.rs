@@ -2877,9 +2877,9 @@ impl GroupState {
 /// Puts the play's `CreateNPC`s and `CreateObj`s placed at a creature's place (`0x04` of
 /// `CPOS:HERO` or `CPOS:<name>`, the field reader at `0x474222`, `0x474295`; #1046) on that
 /// creature's cell and floor as the records run, as `at` finds them by the creature's name, the
-/// hero's for none; one whose creature is not found keeps its name, which places nothing. The
-/// original moves a place at the hero on the ground to a free point about it where another object
-/// stands on it or no way leads there (`0x45FF80`), which is not followed.
+/// hero's for none, which `at` moves on the ground to a free point about the hero where another
+/// creature stands in its cell (`0x45FF80`, `paths::about_hero`, #2858); one whose creature is
+/// not found keeps its name, which places nothing.
 fn locate(records: &mut [Record], at: impl Fn(Option<&str>) -> Option<(i32, i32, i32)>) {
     for record in records
         .iter_mut()
@@ -4327,6 +4327,19 @@ impl Npcs {
     pub(crate) fn script_level(&self, hero: u32, at: Vec3) -> u32 {
         self.fight
             .script_level(hero, self.values.get(&sector_of(at)))
+    }
+
+    /// The levels of the sector at the place `at`, none for a sector without them, and the fight's
+    /// rules that raise them by the difficulty, by which a container there holds its items' levels
+    /// (`opensacred_rules::fight::Rules::contained_level`, #2858).
+    pub(crate) fn levels_at(&self, at: Vec3) -> (Option<&spawning::SpawnValues>, &fight::Rules) {
+        (self.values.get(&sector_of(at)), &self.fight)
+    }
+
+    /// The level that a container's gold is made for, for the hero of level `hero` standing at
+    /// `at` (`opensacred_rules::fight::Rules::gold_level`, #2858).
+    pub(crate) fn gold_level(&self, hero: u32, at: Vec3) -> u32 {
+        self.fight.gold_level(hero, self.values.get(&sector_of(at)))
     }
 
     /// The level of a horse that a trader's stock makes again at the place `at` for the hero of
@@ -11082,12 +11095,13 @@ pub(crate) fn script_records(
     mut commands: Commands,
     records: Option<ResMut<crate::scripts::WorldRecords>>,
     mut npcs: ResMut<Npcs>,
-    (heights, heroes, mut bodies, streamer, mut changes): (
+    (heights, heroes, mut bodies, streamer, mut changes, crowd): (
         Res<Heights>,
         Query<&Transform, With<hero::Body>>,
         Query<(Entity, &mut hero::Body)>,
         Res<Streamer>,
         ResMut<AreaChanges>,
+        Option<Res<crowd::Crowd>>,
     ),
     mut creatures: Query<
         (
@@ -11173,8 +11187,9 @@ pub(crate) fn script_records(
             !deferred.contains(&(index - 1))
         });
     }
-    // The places of the creatures that the records name (`CPOS:`), the hero's for none, as they
-    // stand now: their cells and floors (#1046).
+    // The places of the creatures that the records name (`CPOS:`), as they stand now: their
+    // cells and floors (#1046); for none, the hero's, or the first free point about the hero
+    // where another creature stands in its cell (`0x45FF80`, #2858).
     let floor_of = |level| {
         heights
             .floor(level)
@@ -11186,11 +11201,18 @@ pub(crate) fn script_records(
     };
     locate(&mut records, |name| match name {
         None => heroes.iter().next().map(|at| {
-            let floor = bodies
+            let (hero, level) = bodies
                 .iter()
                 .next()
-                .map_or(0, |(_, body)| floor_of(body.level()));
-            cell_at(at.translation, floor)
+                .map_or((Entity::PLACEHOLDER, None), |(hero, body)| {
+                    (hero, body.level())
+                });
+            let ((x, y), floor) = crate::paths::about_hero(
+                (hero, at.translation, level),
+                (&heights, crowd.as_deref()),
+                true,
+            );
+            (x, y, floor)
         }),
         // A dying creature still stands where it fell, as its death's function runs while its
         // object lives on (#1295): quest 204's guard lays its book there.

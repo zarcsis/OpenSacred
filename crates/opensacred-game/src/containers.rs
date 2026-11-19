@@ -287,6 +287,7 @@ const ITEM: u8 = 0x02;
 const VALUE: u8 = 0x53;
 const BOOKS: u8 = 0x86;
 const RANDOMS: u8 = 0x57;
+const FORCED: u8 = 0x9E;
 /// How far about the hero a container's items land, along each axis (`0x5C9BA0`: `R(20, 50)`).
 const LANDS_FROM: u32 = 20;
 const LANDS_TO: u32 = 50;
@@ -331,35 +332,64 @@ fn fill_of(record: &Record) -> Fill {
             .and_then(|n| u32::try_from(n).ok())
             .unwrap_or(0),
         named: ops.iter().any(|op| op.tag == NAME),
+        forced: ops.iter().any(|op| op.tag == FORCED),
     }
 }
 
+/// What a container's fill makes its contents by: the drops' tables and dice, the assets and the
+/// NPCs, whose sectors' levels hold the items'.
+type Making<'w> = (
+    Option<Res<'w, crate::drops::Tables>>,
+    ResMut<'w, crate::drops::Dice>,
+    Res<'w, AssetServer>,
+    Option<Res<'w, Npcs>>,
+);
+
+/// What a container's fill takes of its opener: its experience, its pack, its arts, the class's
+/// runes given and the time played.
+type Opener<'w> = (
+    Res<'w, crate::fight::Experience>,
+    Res<'w, crate::pickup::Pack>,
+    Option<Res<'w, crate::arts::HeroArts>>,
+    ResMut<'w, crate::rewards::RunesGiven>,
+    Option<Res<'w, crate::drops::Played>>,
+);
+
+/// The containers, the difficulty, the ground and the creatures standing on it, about which a
+/// container's fill raises its creature.
+type Around<'w, 's> = (
+    Query<'w, 's, (&'static Object, &'static Container)>,
+    Option<Res<'w, crate::game::Difficulty>>,
+    Res<'w, Heights>,
+    Option<Res<'w, crate::crowd::Crowd>>,
+);
+
+/// The hero as a container's fill reads it: its entity, its place, its base values, its body and
+/// what it holds.
+type Hero = (
+    Entity,
+    &'static Transform,
+    &'static crate::fight::Base,
+    &'static Body,
+    Option<&'static crate::fight::Holding>,
+);
+
 /// Fills the container `opened` by its `FillChest`s `fills` (`0x4A02A0`) and throws what it holds
-/// to the hero (`0x5C9BA0`): its items and gold made, each flying from the container to a point
-/// `R(20, 50)` from the hero along each axis, and a creature raised beside the hero.
+/// to the hero (`0x5C9BA0`): its items made by the item maker of the contents at their levels and
+/// keys (`0x5D57C0`, #2858) and its gold, each flying from the container to a point `R(20, 50)`
+/// from the hero along each axis, and a creature raised about the hero ([`raise`]).
 fn fill(
     In((opened, fills)): In<(Entity, Vec<Record>)>,
     mut commands: Commands,
-    (tables, mut dice, assets): (
-        Option<Res<crate::drops::Tables>>,
-        ResMut<crate::drops::Dice>,
-        Res<AssetServer>,
-    ),
-    (experience, pack, arts, mut given): (
-        Res<crate::fight::Experience>,
-        Res<crate::pickup::Pack>,
-        Option<Res<crate::arts::HeroArts>>,
-        ResMut<crate::rewards::RunesGiven>,
-    ),
-    (containers, difficulty): (
-        Query<(&Object, &Container)>,
-        Option<Res<crate::game::Difficulty>>,
-    ),
-    heroes: Query<(&Transform, &crate::fight::Base, &Body)>,
+    (tables, mut dice, assets, npcs): Making,
+    (experience, pack, arts, mut given, played): Opener,
+    (containers, difficulty, heights, crowd): Around,
+    heroes: Query<Hero>,
     lying: Query<&crate::drops::Lying>,
 ) {
-    let (Some(tables), Ok((at, container)), Some((hero_at, base, body))) = (
+    let (Some(tables), Some(npcs), Ok((at, container)), Some((hero, hero_at, base, body, holding))) = (
         tables.as_deref(),
+        npcs.as_deref(),
         containers.get(opened),
         heroes.iter().next(),
     ) else {
@@ -370,8 +400,8 @@ fn fill(
     }
     let level = experience.0.level;
     let difficulty = difficulty.map(|d| d.0).unwrap_or_default();
-    let mut hero = crate::drops::hero(base, level);
-    crate::drops::carrying(&mut hero, &pack, arts.as_deref(), tables);
+    let mut opener = crate::drops::hero(base, level);
+    crate::drops::carrying(&mut opener, &pack, arts.as_deref(), tables);
     let icon_in_world = lying
         .iter()
         .any(|lying| (5101..=5106).contains(&lying.dropped.item))
@@ -393,9 +423,22 @@ fn fill(
         u32::try_from(seed >> 32).unwrap_or(0),
         FILL_ROLL,
     );
+    // The levels of the container's sector, which hold its items' (`0x5D57C0`), and of the
+    // hero's, which hold its gold's (`0x4A0CE5`).
+    let (sector, levels) = npcs.levels_at(at.at);
+    let bonus = crate::drops::opener_bonus(
+        tables,
+        played
+            .as_deref()
+            .unwrap_or(&crate::drops::Played::default()),
+        holding,
+    );
     let mut opening = Opening {
-        hero: &hero,
-        gold_level: level,
+        hero: &opener,
+        gold_level: npcs.gold_level(level, hero_at.translation),
+        sector,
+        levels,
+        bonus,
         rules: tables.rules(),
         raises: Opening::raising(container.kind),
         icon_in_world,
@@ -413,26 +456,39 @@ fn fill(
     }
     let hero_point = hero_at.translation;
     for content in made {
-        let (item, level, amount) = match content {
-            Content::Item { item, level } => (item, level, 1),
-            Content::Gold { pile, amount } => (pile, level, amount),
+        let (item, made_at, key, amount) = match content {
+            Content::Item { item, level, key } => (item, level, key, None),
+            Content::Gold { pile, amount } => (pile, 0, 0, Some(amount)),
             Content::Creature(creature) => {
-                raise(&mut commands, creature, hero_point, level);
+                // The point that `FillChest` asks for is two of its own values, which no test
+                // passes (`0x4A07D0`): the first free point about the hero.
+                let place = crate::paths::about_hero(
+                    (hero, hero_point, body.level()),
+                    (&heights, crowd.as_deref()),
+                    false,
+                );
+                raise(&mut commands, creature, place, level);
                 continue;
             }
         };
-        let Some(dropped) =
-            crate::drops::contained(tables, (&mut dice, difficulty), (item, level, amount))
+        let Some(mut dropped) =
+            crate::drops::contained(tables, (&mut dice, difficulty), (item, made_at, key))
         else {
             continue;
         };
+        if let Some(amount) = amount {
+            dropped.amount = amount.max(1);
+        }
         let mut aside = || {
             let along = rolls.below(LANDS_TO - LANDS_FROM + 1) + LANDS_FROM;
             let along = f32::from(u16::try_from(along).unwrap_or(0));
             if rolls.below(2) == 0 { along } else { -along }
         };
         let to = hero_point + Vec3::new(aside(), 0.0, aside());
-        debug!("containers: {opened} throws {item} ({amount})");
+        debug!(
+            "containers: {opened} throws {item} at {made_at} of the key {key} ({})",
+            dropped.amount
+        );
         crate::drops::throw_to(
             &mut commands,
             (&assets, tables),
@@ -442,18 +498,22 @@ fn fill(
     }
 }
 
-/// Raises the creature `creature` at the level `level` beside the hero at `hero`, as a grave or
-/// a shrine does where its value gives nothing (`0x4A0786`; **hypothesis** for its place,
-/// `0x45FF80`, which is not read: the cell beside the hero's).
-fn raise(commands: &mut Commands, creature: u32, hero: Vec3, level: u32) {
-    let (x, y) = crate::paths::cell_of(hero.x, hero.z);
-    let (Ok(x), Ok(y)) = (u32::try_from(x + 1), u32::try_from(y + 1)) else {
+/// Raises the creature `creature` at the level `level` in the cell `(x, y)` on the floor `floor`,
+/// as a grave or a shrine does where its value gives nothing (`0x4A0786`), the place about the
+/// hero that `0x45FF80` gives it (`paths::about_hero`, #2858).
+fn raise(
+    commands: &mut Commands,
+    creature: u32,
+    ((x, y), floor): (crate::paths::Cell, i32),
+    level: u32,
+) {
+    let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
         return;
     };
     let spawn = crate::npcs::Spawn {
         creature,
         cells: vec![(x, y)],
-        floor: 0,
+        floor,
         level: Some(level),
         rank: crate::fight::Rank::Common,
         hostile: None,
