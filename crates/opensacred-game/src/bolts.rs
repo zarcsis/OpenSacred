@@ -2,7 +2,9 @@
 //! 1019's effects, and "The Seraphim's bolts") and the Daemon's 1103's (#760, "The Daemon's").
 //! While her effect 17 holds each of her shots makes two railgun bolts, the second
 //! [`RAILGUN_SECOND`] after the first, and while her effect 16 holds a shot beyond 200 makes one
-//! BFG bolt (`attack`); his 1103 makes a fan of them (`making`). A bolt leaves its shooter at the
+//! BFG bolt (`attack`); a creature under the same effects, the ice druid that makes her arts,
+//! shoots them so, their damages through its spells' factor (`npcs`, #2899); his 1103 makes a
+//! fan of them (`making`). A bolt leaves its shooter at the
 //! bone that its look names and flies level at that bone's height, or without the bone at a
 //! hand's height over the ground ([`leaving`], #2018), straight at its speed, which may slow, for
 //! its time at most, and ends at a cell that it may not pass (`Heights::passes`), the fireball
@@ -341,9 +343,11 @@ fn warded(look: usize) -> bool {
     !matches!(look, 2 | FIRE_BOLT_LOOK)
 }
 
-/// Makes the launches of each of the Seraphim's shots: its bolts along the line on the ground to
-/// `toward` (with none, her facing), of the damages of the bolt's record by the whole value of
-/// its effect and her multipliers, the second railgun bolt [`RAILGUN_SECOND`] after the first.
+/// Makes the launches of each shot of bolts, the Seraphim's or a creature's under her effects
+/// (#2899): its bolts along the line on the ground to `toward` (with none, its shooter's facing),
+/// of the damages of the bolt's record by the whole value of its shooter's effect and its
+/// multipliers, a creature's through its spells' factor at that level (`0x5ABD80`'s `0x56A800`),
+/// the second railgun bolt [`RAILGUN_SECOND`] after the first.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their filters"
@@ -351,15 +355,18 @@ fn warded(look: usize) -> bool {
 fn fire(
     mut shots: MessageReader<Fire>,
     mut launches: MessageWriter<Launch>,
-    arts: Option<Res<crate::arts::HeroArts>>,
-    shooters: Query<(&Transform, Option<&Combat>, Option<&Effects>), With<Body>>,
+    (arts, rules): (
+        Option<Res<crate::arts::HeroArts>>,
+        Option<Res<crate::fight::Rules>>,
+    ),
+    shooters: Query<(&Transform, Option<&Combat>, Option<&Effects>, Has<Body>)>,
 ) {
     let Some(arts) = arts else {
         shots.clear();
         return;
     };
     for shot in shots.read() {
-        let Ok((at, combat, effects)) = shooters.get(shot.shooter) else {
+        let Ok((at, combat, effects, hero)) = shooters.get(shot.shooter) else {
             continue;
         };
         let level = effects
@@ -388,6 +395,16 @@ fn fire(
             }
         });
         let damages = bolt_damages(spell, level, multipliers);
+        // A creature's through its spells' factor at the effect's level (`0x56A800`).
+        let damages = match (hero, &rules) {
+            (false, Some(rules)) => {
+                let factor = rules
+                    .0
+                    .creature_spell_damage(u32::try_from(level).unwrap_or(1));
+                damages.map(|damage| crate::creature_casts::scaled(damage, factor))
+            }
+            _ => damages,
+        };
         let direction = (shot.toward - at.translation)
             .xz()
             .try_normalize()

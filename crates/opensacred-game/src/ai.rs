@@ -1501,10 +1501,19 @@ fn pursue(
                     speaker: entity,
                     group: crate::voices::ATTACK,
                 });
+                // Its bolts under the Seraphim's effect 16, else 17, in place of its arrow
+                // (`0x4DCB80`, #2899).
+                let bolt = effects.and_then(|effects| {
+                    opensacred_rules::arts::Bolt::of(
+                        effects.holds(opensacred_rules::arts::BFG),
+                        effects.holds(opensacred_rules::arts::RAILGUN),
+                        None,
+                    )
+                });
                 commands
                     .entity(entity)
                     .remove::<Walk>()
-                    .insert(Strikes::shot(aimed, choice, chain));
+                    .insert(Strikes::shot(aimed, choice, chain).bolts(bolt));
             }
             // It stops where it stands and changes its weapons (`npcs::rearm`).
             Pursues::ToMelee(weapon) => {

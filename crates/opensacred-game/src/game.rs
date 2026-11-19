@@ -906,10 +906,10 @@ pub fn clips_of(
         (name, fractions)
     };
     // The shots of the bolts on foot (`0x4DCB80`; mounted 169, not followed).
-    let bolts = BOLT_SLOTS.map(|slot| {
+    let bolts = BOLTS.map(|bolt| {
         slots
             .as_ref()
-            .and_then(|slots| slots.slot(slot))
+            .and_then(|slots| slots.slot(bolt.slot()))
             .map(|name| with_fractions(name.to_owned()))
     });
     // The rider's strike from the saddle (#2302).
@@ -942,8 +942,12 @@ pub fn clips_of(
     }
 }
 
-/// The slots of the shots of the railgun's and the BFG's bolts on foot (`0x4DCB80`).
-const BOLT_SLOTS: [u16; 2] = [164, 145];
+/// The bolts whose shots' clips on foot the hero's clips hold, the railgun's and the BFG's
+/// (`0x4DCB80`).
+const BOLTS: [opensacred_rules::arts::Bolt; 2] = [
+    opensacred_rules::arts::Bolt::Railgun,
+    opensacred_rules::arts::Bolt::Bfg,
+];
 
 /// The game loading.
 #[derive(Resource)]

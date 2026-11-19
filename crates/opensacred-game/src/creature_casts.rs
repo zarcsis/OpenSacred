@@ -1578,7 +1578,7 @@ fn end(
     clippy::cast_possible_truncation,
     reason = "a spell's damage, far within the floats' range"
 )]
-fn scaled(damage: f32, factor: f64) -> f32 {
+pub(crate) fn scaled(damage: f32, factor: f64) -> f32 {
     (f64::from(damage) * factor) as f32
 }
 

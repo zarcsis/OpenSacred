@@ -8604,28 +8604,10 @@ fn script_clips(
             }
             clip.hits = Some(points);
         }
-        let handle = name.and_then(|name| {
-            gltfs
-                .get(&npc.gltf)
-                .and_then(|gltf| gltf.named_animations.get(name).cloned())
-        });
-        let Some(graph) = npc.graph.as_mut() else {
+        if npc.graph.is_none() {
             continue;
-        };
-        let scripted = match graph.scripted.get(&clip.slot) {
-            Some(scripted) => Some(scripted.clone()),
-            None => {
-                let added = handle.and_then(|handle| {
-                    let mut graph_asset = graphs.get_mut(&graph.graph)?;
-                    let root = graph_asset.root;
-                    Some((graph_asset.add_clip(handle.clone(), 1.0, root), handle))
-                });
-                if let Some(added) = &added {
-                    graph.scripted.insert(clip.slot, added.clone());
-                }
-                added
-            }
-        };
+        }
+        let scripted = slot_clip(&mut npc, clip.slot, &data, (&gltfs, &mut graphs));
         let Some((node, handle)) = scripted else {
             bevy::log::debug!(
                 "npcs: {entity} has no clip of the slot {} to play",
@@ -8648,6 +8630,30 @@ fn script_clips(
             .set_speed(speed.0 * rate);
         clip.playing = Some((node, handle));
     }
+}
+
+/// The node and the clip of the slot `slot` of an NPC's model in its graph, added to it the first
+/// time it is asked (#1277); none where it has no graph or its model lacks the slot.
+fn slot_clip(
+    npc: &mut Npc,
+    slot: u16,
+    data: &Npcs,
+    (gltfs, graphs): (&Assets<Gltf>, &mut Assets<AnimationGraph>),
+) -> Option<(AnimationNodeIndex, Handle<AnimationClip>)> {
+    let Npc {
+        graph, model, gltf, ..
+    } = npc;
+    let graph = graph.as_mut()?;
+    if let Some(scripted) = graph.scripted.get(&slot) {
+        return Some(scripted.clone());
+    }
+    let name = data.slots.get(model.as_str())?.slot(slot)?;
+    let handle = gltfs.get(&*gltf)?.named_animations.get(name)?.clone();
+    let mut graph_asset = graphs.get_mut(&graph.graph)?;
+    let root = graph_asset.root;
+    let added = (graph_asset.add_clip(handle.clone(), 1.0, root), handle);
+    graph.scripted.insert(slot, added.clone());
+    Some(added)
 }
 
 /// A creature whose clip of [`EMERGING`] has just ended ([`turn_emerged`]).
@@ -10126,6 +10132,17 @@ impl ScriptClip {
         Self {
             hits: Some(Vec::new()),
             half,
+            ..Self::new(slot, 1)
+        }
+    }
+
+    /// A creature's boon art's clip of the slot `slot`, once at `rate` (none: its attack speed's),
+    /// marked as it passes the share `share`, where the art gives the creature its effects
+    /// (`creature_arts`, #2899).
+    pub(crate) fn boon(slot: u16, rate: Option<f32>, share: f32) -> Self {
+        Self {
+            acts_at: Some(share),
+            rate,
             ..Self::new(slot, 1)
         }
     }
@@ -12207,13 +12224,16 @@ pub(crate) fn die(
 /// An NPC that strikes at `target` (the attack action 3, `0x4E4CF0`): one of its attack's clips,
 /// chosen by `choice`, once, which hits at its fractions (`0x4EA1F0`); or that shoots at it (the
 /// action 5, `0x4DCB80`), the clip at its attack speed times its chain's factor (`+0x210`), whose
-/// arrow leaves at its first fraction (`0x4DD90E`).
+/// arrow leaves at its first fraction (`0x4DD90E`), or its bolts under the Seraphim's effects
+/// ([`Strikes::bolts`]).
 #[derive(Component)]
 pub struct Strikes {
     target: Entity,
     choice: u32,
     /// A shot's factor of its chain, none for a strike.
     shot: Option<f32>,
+    /// A shot's bolts in place of its arrow, by the effect 16 or 17 it holds (#2899).
+    bolt: Option<opensacred_rules::arts::Bolt>,
     /// The clip it plays, its length and the fractions at which it hits, once it plays.
     playing: Option<(AnimationNodeIndex, f32, [f32; 2])>,
     /// How many hits it has struck.
@@ -12227,6 +12247,7 @@ impl Strikes {
             target,
             choice,
             shot: None,
+            bolt: None,
             playing: None,
             struck: 0,
         }
@@ -12239,6 +12260,13 @@ impl Strikes {
             shot: Some(chain),
             ..Self::at(target, choice)
         }
+    }
+
+    /// A shot of the bolts `bolt`, where it holds the Seraphim's effect 16 or 17 (`0x4DCB80`,
+    /// #2899): its bolt's own clip at its own rate where the model has it, else the attack's of
+    /// the shot, and the bolts at its first fraction in place of an arrow.
+    pub fn bolts(self, bolt: Option<opensacred_rules::arts::Bolt>) -> Self {
+        Self { bolt, ..self }
     }
 }
 
@@ -12263,7 +12291,9 @@ fn hits_within(size: u32, other: u32) -> f32 {
 /// the clip, #2748), or at its end, sends a hit of its share when the target is then within
 /// reach, as the action steps at the ticks alone (#617); a walk ends the strike (`0x4E4CF0`,
 /// `0x4EA1F0`). A shot plays its clip at its attack speed times its chain, and at the first tick
-/// past the clip's first fraction, or at its end, looses its arrow (`arrows::Loose`, `0x4DD90E`).
+/// past the clip's first fraction, or at its end, looses its arrow (`arrows::Loose`, `0x4DD90E`);
+/// a shot of bolts plays its bolt's own clip at its own rate where the model has it, and sends
+/// its bolts in place of the arrow (`bolts::Fire`, `0x4DCB80`, #2899).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -12275,7 +12305,7 @@ fn strike(
     mut strikers: Query<
         (
             Entity,
-            &Npc,
+            &mut Npc,
             &mut Strikes,
             Has<Walk>,
             &GlobalTransform,
@@ -12290,16 +12320,40 @@ fn strike(
         Option<&crate::ai::Mind>,
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
-    clips: Res<Assets<AnimationClip>>,
+    (clips, gltfs, mut graphs, data): (
+        Res<Assets<AnimationClip>>,
+        Res<Assets<Gltf>>,
+        ResMut<Assets<AnimationGraph>>,
+        Res<Npcs>,
+    ),
     speed: Res<hero::GameSpeed>,
     mut hits: MessageWriter<fight::Hit>,
-    mut shots: MessageWriter<arrows::Loose>,
+    (mut shots, mut bolts): (
+        MessageWriter<arrows::Loose>,
+        MessageWriter<crate::bolts::Fire>,
+    ),
     (mut blows, mut fires): (
         MessageWriter<crate::sfx::Blow>,
         MessageWriter<crate::sfx::Gunfire>,
     ),
 ) {
-    for (entity, npc, mut strikes, walking, at, combat, mind) in &mut strikers {
+    for (entity, mut npc, mut strikes, walking, at, combat, mind) in &mut strikers {
+        // A shot of bolts takes its bolt's own clip, with the fractions of its name (`0x4DCB80`);
+        // where its model lacks the slot, one of its attack's as the hero's does (what the
+        // original plays then is not read, #3031).
+        let bolt_clip = match (strikes.playing, strikes.bolt) {
+            (None, Some(bolt)) => slot_clip(&mut npc, bolt.slot(), &data, (&gltfs, &mut graphs))
+                .map(|(node, clip)| {
+                    let fractions = data
+                        .slots
+                        .get(&npc.model)
+                        .and_then(|slots| slots.slot(bolt.slot()))
+                        .and_then(|name| data.hits.get(&name.to_ascii_uppercase()).copied())
+                        .unwrap_or_default();
+                    (node, clip, fractions)
+                }),
+            _ => None,
+        };
         let (Some(graph), Some(player)) = (&npc.graph, npc.player) else {
             continue;
         };
@@ -12312,20 +12366,30 @@ fn strike(
         }
         let Some((node, length, fractions)) = strikes.playing else {
             let index = usize::try_from(strikes.choice).unwrap_or(0) % graph.attacks.len();
-            let (node, clip, fractions) = &graph.attacks[index];
-            let length = clips.get(clip).map_or(1.0, AnimationClip::duration);
+            if strikes.bolt.is_some() && bolt_clip.is_none() {
+                bevy::log::debug!("npcs: {entity} shoots its bolts by its attack's clip");
+            }
+            let (node, clip, fractions) = bolt_clip.unwrap_or_else(|| graph.attacks[index].clone());
+            let length = clips.get(&clip).map_or(1.0, AnimationClip::duration);
             // At its attack speed (`0x4E4CF0`), a shot's times its chain (`0x4DCB80`).
             let attack = combat.map_or(1.0, |combat| combat.clip_speed());
             // A riding black rider's shot at twice the rate (`0x4DCDCC`, #2288).
             let doubled = strikes.shot.is_some()
                 && mind.is_some_and(|mind| mind.rides.is_some() && mind.creature == BLACK_RIDER);
             let chain = strikes.shot.unwrap_or(1.0) * if doubled { 2.0 } else { 1.0 };
+            // A shot of bolts at its bolt's own rate by its attack speed, its chain started anew
+            // as the creatures' decision sends it to each (`0x4DCB80`, `0x53A159`; seen: the ice
+            // druid's BFG's at 2.1, its attack speed 140, shot after shot).
+            let rate = strikes
+                .bolt
+                .map_or(attack * chain, |bolt| bolt.rate(attack));
             transitions
-                .play(&mut player, *node, BLEND)
-                .set_speed(speed.0 * attack * chain);
-            strikes.playing = Some((*node, length.max(0.01), *fractions));
-            // A shot's clip that starts fires a gun held (`0x4DD1FE`, `0x4DF442`; #1963).
-            if strikes.shot.is_some() {
+                .play(&mut player, node, BLEND)
+                .set_speed(speed.0 * rate);
+            strikes.playing = Some((node, length.max(0.01), fractions));
+            // A shot's clip that starts fires a gun held (`0x4DD1FE`, `0x4DF442`; #1963); one of
+            // bolts fires none.
+            if strikes.shot.is_some() && strikes.bolt.is_none() {
                 fires.write(crate::sfx::Gunfire { shooter: entity });
             }
             continue;
@@ -12347,12 +12411,24 @@ fn strike(
             };
         if due && strikes.shot.is_some() {
             strikes.struck += 1;
-            blows.write(crate::sfx::Blow::Shot { shooter: entity });
-            shots.write(arrows::Loose {
-                shooter: entity,
-                target: strikes.target,
-                special: None,
-            });
+            if let Some(bolt) = strikes.bolt {
+                // Its bolts toward its target's place (the FX events of `0x4DCB80`).
+                let toward = places
+                    .get(strikes.target)
+                    .map_or(at.translation(), |(target, ..)| target.translation());
+                bolts.write(crate::bolts::Fire {
+                    shooter: entity,
+                    toward,
+                    bolt,
+                });
+            } else {
+                blows.write(crate::sfx::Blow::Shot { shooter: entity });
+                shots.write(arrows::Loose {
+                    shooter: entity,
+                    target: strikes.target,
+                    special: None,
+                });
+            }
         } else if due {
             strikes.struck += 1;
             let size = mind.map_or(minds::SIZE, |mind| mind.size());
@@ -12863,6 +12939,12 @@ impl Arms {
     pub fn class(&self) -> u8 {
         let in_hands: Vec<InHand> = self.holding.iter().map(|&(held, _)| held).collect();
         class_of(&in_hands)
+    }
+
+    /// Whether it holds a ranged weapon in a hand ([`ranged_of`], `0x54A2A0`).
+    pub fn ranged(&self) -> bool {
+        let in_hands: Vec<InHand> = self.holding.iter().map(|&(held, _)| held).collect();
+        ranged_of(&in_hands)
     }
 
     /// What it holds, for its weapons' sounds ([`Npcs::armed`]); bare hands without the NPCs'

@@ -770,7 +770,8 @@ pub enum OwnMark {
     Blinker,
     /// The ice elf (140, `0x208`): the lightning, the holy light, the holy shield on itself.
     IceElf,
-    /// The ice druid (141, `0x209`): the plant cage, the blades of light about itself.
+    /// The ice druid (141, `0x209`): the plant cage, the blades of light about itself, the
+    /// Seraphim's arts 1018 and 1019.
     IceDruid,
     /// The god's child (145, `0x20B`): the chain lightning or the lightning.
     GodsChild,
@@ -1234,11 +1235,55 @@ pub fn ice_elf_casts(
     })
 }
 
-/// What the ice druid casts within five times its reach (mark `0x209`): the blades of light about
-/// itself in two cases of three (`choice`), else its weapon arts 1018 or 1019 (not spells, none
-/// here).
-pub fn ice_druid_casts(distance: f32, reach: f32, choice: u32) -> Option<u16> {
-    (distance <= 5.0 * reach && choice % 3 < 2).then_some(BLADES)
+/// The Seraphim's arts that the ice druid orders itself (mark `0x209`): her BFG and her energy
+/// bolts.
+pub const ICE_DRUIDS_BFG: u16 = 1018;
+pub const ICE_DRUIDS_BOLTS: u16 = 1019;
+
+/// How many decisions the ice druid stands after it sets out on its stroll about its target
+/// (`+0x129` 3, `0x4D7DC2`).
+pub const ICE_DRUID_STROLL_STANDS: u8 = 3;
+
+/// The ice druid's type, and the slot of the clip it plays for the Seraphim's 1018 and 1019 in
+/// place of her 149 and 152 (the executor's type test at `0x506017` and `0x506137`; seen in the
+/// original, both arts of a 141 playing 154).
+pub const ICE_DRUID: u32 = 141;
+pub const ICE_DRUIDS_ART_SLOT: u16 = 154;
+
+/// The slot that the creature of the type `creature` plays for `art` in place of the Seraphim's
+/// own ([`ICE_DRUIDS_ART_SLOT`]), where it has one.
+pub fn ice_druids_slot(creature: u32, art: u16) -> Option<u16> {
+    (creature == ICE_DRUID && matches!(art, ICE_DRUIDS_BFG | ICE_DRUIDS_BOLTS))
+        .then_some(ICE_DRUIDS_ART_SLOT)
+}
+
+/// Whether the ice druid, `distance` from its target and `reach` the two's reach, orders itself
+/// at a decision (mark `0x209`, `0x4D7D0C`–`0x4D7D23`): nearer than five times the reach, by a
+/// roll `rand() % 3` of 0 (`roll`, rolled only there); else it strolls about its target.
+pub fn ice_druid_orders(distance: f32, reach: f32, roll: impl FnOnce() -> u32) -> bool {
+    distance < 5.0 * reach && roll().is_multiple_of(3)
+}
+
+/// What the ice druid orders itself (`0x4D7D47`–`0x4D7D82`): the blades of light about itself
+/// by a roll `rand() % 3` not 0 (`blades`); else an art at the hero, [`ICE_DRUIDS_BFG`] by a roll
+/// `rand() % 6` not 0 (`art`, rolled only then), else [`ICE_DRUIDS_BOLTS`].
+pub fn ice_druid_order(blades: u32, art: impl FnOnce() -> u32) -> DruidOrder {
+    if !blades.is_multiple_of(3) {
+        DruidOrder::Blades
+    } else if !art().is_multiple_of(6) {
+        DruidOrder::Art(ICE_DRUIDS_BFG)
+    } else {
+        DruidOrder::Art(ICE_DRUIDS_BOLTS)
+    }
+}
+
+/// The ice druid's order of itself ([`ice_druid_order`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DruidOrder {
+    /// The blades of light ([`BLADES`]) about itself (the AI's state 6 at its own id).
+    Blades,
+    /// The weapon art at the hero (the AI's state 11).
+    Art(u16),
 }
 
 /// What the god's child casts within its reach and 30 (mark `0x20B`), by a roll of 1 in 3: the
@@ -1631,8 +1676,21 @@ mod tests {
         assert_eq!(ice_elf_casts(100.0, 90.0, (0, 8), true), Some(HOLY_SHIELD));
         assert_eq!(ice_elf_casts(100.0, 90.0, (0, 0), false), None);
         assert_eq!(ice_elf_casts(130.0, 90.0, (0, 0), true), None);
-        assert_eq!(ice_druid_casts(400.0, 90.0, 1), Some(BLADES));
-        assert_eq!(ice_druid_casts(400.0, 90.0, 2), None);
+        assert!(ice_druid_orders(449.0, 90.0, || 3));
+        let no_roll = || -> u32 { unreachable!("this roll is not rolled") };
+        assert!(!ice_druid_orders(450.0, 90.0, no_roll));
+        assert!(!ice_druid_orders(100.0, 90.0, || 1));
+        assert!(!ice_druid_orders(100.0, 90.0, || 2));
+        let no_art = no_roll;
+        assert_eq!(ice_druid_order(1, no_art), DruidOrder::Blades);
+        assert_eq!(ice_druid_order(2, no_art), DruidOrder::Blades);
+        assert_eq!(ice_druid_order(3, || 5), DruidOrder::Art(ICE_DRUIDS_BFG));
+        assert_eq!(ice_druid_order(0, || 1), DruidOrder::Art(ICE_DRUIDS_BFG));
+        assert_eq!(ice_druid_order(0, || 6), DruidOrder::Art(ICE_DRUIDS_BOLTS));
+        assert_eq!(ice_druids_slot(141, 1018), Some(154));
+        assert_eq!(ice_druids_slot(141, 1019), Some(154));
+        assert_eq!(ice_druids_slot(141, 1020), None);
+        assert_eq!(ice_druids_slot(140, 1019), None);
         assert_eq!(gods_child_casts(100.0, 90.0, (0, 2)), Some(CHAIN));
         assert_eq!(
             gods_child_casts(100.0, 90.0, (0, 3)),
