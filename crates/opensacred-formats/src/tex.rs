@@ -145,8 +145,12 @@ impl<'a> TexPak<'a> {
             // file with that size.
             Format::Argb4444Zlib => r.take_up_to(to_usize(data_size)),
             Format::Bgra8888 => {
-                let expected = image_bytes(width, height, 4)
-                    .ok_or_else(|| h.error(ErrorKind::ImageTooLarge { width, height }))?;
+                let expected = image_bytes(width, height, 4).ok_or_else(|| {
+                    h.error(ErrorKind::ImageTooLarge {
+                        width: width.into(),
+                        height: height.into(),
+                    })
+                })?;
                 if to_usize(data_size) != expected {
                     return Err(h.error_at(
                         data_size_at,
@@ -190,8 +194,10 @@ impl Record<'_> {
             ..
         } = self.header;
         let too_large = || {
-            self.payload
-                .error(ErrorKind::ImageTooLarge { width, height })
+            self.payload.error(ErrorKind::ImageTooLarge {
+                width: width.into(),
+                height: height.into(),
+            })
         };
         let rgba_len = image_bytes(width, height, 4).ok_or_else(too_large)?;
         let mut rgba = vec![0; rgba_len];
