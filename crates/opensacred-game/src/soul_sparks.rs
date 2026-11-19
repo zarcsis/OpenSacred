@@ -25,6 +25,11 @@ pub(crate) struct Sparks {
     pub(crate) rising: bool,
 }
 
+/// The points of a soul's figure taken as it was made, in the world, which its look takes in
+/// place of its creature's: a script's group member that goes at once (`group_looks`, #2893).
+#[derive(Component, Debug, Clone)]
+pub(crate) struct Figure(pub(crate) Vec<Vec3>);
+
 /// The sparks' material, made at the first soul; none where its texture is missing.
 #[derive(Resource, Default)]
 struct Looks(Option<Option<Handle<Effect>>>);
@@ -44,12 +49,12 @@ struct Shown {
 /// `0x44FC30`; `vertices`).
 fn show(
     mut commands: Commands,
-    souls: Query<(Entity, &Sparks, &Transform), Added<Sparks>>,
+    souls: Query<(Entity, &Sparks, &Transform, Option<&Figure>), Added<Sparks>>,
     shapes: crate::vertices::ModelPoints,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (soul, sparks, place) in &souls {
+    for (soul, sparks, place, figure) in &souls {
         let material = looks
             .0
             .get_or_insert_with(|| {
@@ -65,7 +70,10 @@ fn show(
                 image.map(|image| effects.add(whole_material(image)))
             })
             .clone();
-        let points = shapes.picked(sparks.from, &meshes);
+        let points = figure.map_or_else(
+            || shapes.picked(sparks.from, &meshes),
+            |figure| figure.0.clone(),
+        );
         debug!(
             "soul sparks: {soul} takes {} sparks of {}",
             points.len(),
