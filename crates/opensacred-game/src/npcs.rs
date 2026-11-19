@@ -542,7 +542,36 @@ struct ClipNames {
     defend: Option<u16>,
 }
 
+/// The small spider, whose every action plays its walk, the slot 27 (`0x5467A0`, #2913).
+const SMALL_SPIDER: u32 = 71;
+const SCUTTLE: u16 = 27;
+
 impl ClipNames {
+    /// These clips for the creature of the type `creature`: the small spider's every action on
+    /// its walk's clip, its slot 27, whatever it does, so that its legs always scuttle (`0x5467A0`,
+    /// before its table; docs/re/motions.md, "The other cases"); any other's as they are. Its
+    /// walk's speed by its gait and its strike's hits by the walk's clip (**hypothesis**: neither
+    /// is read).
+    fn of_creature(self, creature: u32) -> Self {
+        let Some(walk) = self.walk.clone().filter(|_| creature == SMALL_SPIDER) else {
+            return self;
+        };
+        Self {
+            stand: Some(walk.clone()),
+            run: Some(walk.clone()),
+            stance: Some(walk.clone()),
+            talk: Some(walk.clone()),
+            fun: [None, None, None, None],
+            fun_slots: 0,
+            attacks: vec![walk.clone()],
+            dying: vec![walk.clone()],
+            attack_slot: SCUTTLE,
+            defend: Some(SCUTTLE),
+            walk: Some(walk),
+            ..self
+        }
+    }
+
     /// The clips of a rider of a model of `slots` holding what is of `class`, on its horse
     /// (`0x5467A0` on horseback, #2288): standing its slot 169, else 166, moving 166, its strike
     /// the rider's of its weapon's class (`motions::Slots::riding_attack`), its death 168, else
@@ -7383,7 +7412,7 @@ fn spawn(
             Npc {
                 gltf: assets.load(placement.model.clone()),
                 model: placement.model.clone(),
-                names: placement.clips.clone(),
+                names: placement.clips.clone().of_creature(creature),
                 graph: None,
                 player: None,
                 hands_empty: placement.equipment.is_empty(),
@@ -13378,7 +13407,7 @@ fn rearm(
         mind.ranged = ranged_of(&in_hands);
         // Its clips by what it holds now: its graph is made anew (`animate`).
         if let Some(slots) = npcs.slots.get(&arms.model) {
-            npc.names = ClipNames::of(slots, class_of(&in_hands));
+            npc.names = ClipNames::of(slots, class_of(&in_hands)).of_creature(mind.creature);
             npc.graph = None;
             if let Some(player) = npc.player.take() {
                 commands
@@ -13516,6 +13545,32 @@ mod tests {
     use opensacred_data::netscript::{Function, Operand};
 
     use super::*;
+
+    #[test]
+    fn the_small_spider_plays_its_walk_for_every_action() {
+        let names = ClipNames {
+            stand: Some("STAND".to_owned()),
+            walk: Some("WALK".to_owned()),
+            run: Some("RUN".to_owned()),
+            attacks: vec!["ATTACK".to_owned()],
+            dying: vec!["DIE".to_owned()],
+            attack_slot: 79,
+            ..ClipNames::default()
+        };
+        let spider = names.clone().of_creature(SMALL_SPIDER);
+        let walk = Some("WALK".to_owned());
+        assert_eq!(
+            (&spider.stand, &spider.run, &spider.stance),
+            (&walk, &walk, &walk)
+        );
+        assert_eq!(
+            (spider.attacks, spider.dying),
+            (vec!["WALK".to_owned()], vec!["WALK".to_owned()])
+        );
+        assert_eq!((spider.attack_slot, spider.defend), (27, Some(27)));
+        // Any other creature's as they are.
+        assert_eq!(names.clone().of_creature(70).stand, names.stand);
+    }
 
     #[test]
     fn two_weapons_halve_the_hits_and_hit_twice() {
