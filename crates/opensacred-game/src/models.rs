@@ -27,9 +27,11 @@
 //! in their layer.
 //!
 //! The other passes of [`Pass`] draw what the original lays on a model or in its place: an
-//! effect of its type under or over its texels (`model_effects`: [`Effect`], [`Pulse`]), a skin
-//! in place of its own texture (`skins`), and an effect's own model added to the frame or laid
-//! behind the creature it stands at (`dark_wards`, `dwarf_burrows`, `war_cries`).
+//! effect of its type under or over its texels (`model_effects`: [`Effect`], [`Pulse`],
+//! [`Bands`]), a skin in place of its own texture (`skins`), and an effect's own model added to
+//! the frame or laid behind the creature it stands at (`dark_wards`, `dwarf_burrows`,
+//! `war_cries`). A mesh of an effect keeps its plain material beside the effect's, and the
+//! options' detail chooses between them at every frame ([`Dressed`], [`WithEffect`], #2943).
 
 use std::collections::HashMap;
 
@@ -448,6 +450,46 @@ pub struct Effect {
 #[derive(Component, Clone, Debug)]
 pub struct Pulse(pub Handle<Image>);
 
+/// The material of the kind 9's effect that a model's first primitive is drawn with instead of
+/// its own (`model_effects`, #1309): the glTF material's copy of the effect texture, added to the
+/// frame, which [`convert`] makes a model material of beside the primitive's own ([`Dressed`]).
+#[derive(Component, Clone, Debug)]
+pub struct Bands(pub Handle<StandardMaterial>);
+
+/// A mesh of a model of an effect ([`Effect`], [`Bands`]) and its two model materials: plain, as
+/// `cGranny::render` draws a flagged type at the options' detail 0, and over its effect, as
+/// `renderComplex` draws it above (`0x44A8C0`), between which [`follow_detail`] chooses as the
+/// detail changes (#2943).
+#[derive(Component, Clone, Debug)]
+pub struct Dressed {
+    plain: Handle<ModelMaterial>,
+    effect: Handle<ModelMaterial>,
+}
+
+impl Dressed {
+    /// The material that draws the mesh with its effect shown or not.
+    fn material(&self, shown: bool) -> &Handle<ModelMaterial> {
+        if shown { &self.effect } else { &self.plain }
+    }
+}
+
+/// A copy of a mesh of a model of an effect that the options' detail shows or hides (#2943): a
+/// pulse's ([`Pulse`]), shown with the effect (`true`), or the [`Fringe`] of a [`Dressed`] mesh,
+/// shown without it (`false`).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct WithEffect(bool);
+
+impl WithEffect {
+    /// Its visibility while the models' effects are shown or not.
+    fn visibility(self, shown: bool) -> Visibility {
+        if self.0 == shown {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        }
+    }
+}
+
 /// The model materials of [`Pass::Effect`] and [`Pass::Hologram`] and of the pulses ([`Pulse`])
 /// and their kinds, whose offsets and colours `model_effects` moves.
 #[derive(Resource, Default)]
@@ -576,7 +618,12 @@ impl Plugin for ModelsPlugin {
             .add_observer(hold)
             .add_observer(release)
             .add_observer(ready)
-            .add_systems(Update, (convert, place, soak).chain().in_set(Step::Models));
+            .add_systems(
+                Update,
+                (convert, follow_detail, place, soak)
+                    .chain()
+                    .in_set(Step::Models),
+            );
     }
 }
 
@@ -689,7 +736,76 @@ type ModelMesh = (
     Has<NoFrustumCulling>,
     Option<&'static Effect>,
     Option<&'static Pulse>,
+    Option<&'static Bands>,
 );
+
+/// The model materials of the glTF material `material` (`base`) drawn as it is, made once
+/// ([`Converted`]): added to the frame where it is, an effect's (`model_effects`); in two passes,
+/// its [`Fringe`]'s among them, where it has translucent texels; else in one. None while its
+/// image loads, whose alpha tells which.
+fn made(
+    (material, base): (AssetId<StandardMaterial>, &StandardMaterial),
+    (images, server, anchors): (&Assets<Image>, &AssetServer, &Anchors),
+    (converted, materials): (&mut Converted, &mut Assets<ModelMaterial>),
+) -> Option<Made> {
+    if let Some(both) = converted.0.get(&material) {
+        return Some(both.clone());
+    }
+    let added = base.alpha_mode == AlphaMode::Add;
+    let translucent = translucent(base, images, server)?;
+    let both = if added {
+        Made {
+            mesh: materials.add(in_order(base.clone(), anchors, Pass::Added(Layer::Objects))),
+            fringe: None,
+        }
+    } else if translucent {
+        let mut in_layer =
+            |layer| materials.add(in_order(base.clone(), anchors, Pass::Fringe(layer)));
+        let fringe = Fringe {
+            dry: in_layer(Layer::Objects),
+            wet: in_layer(Layer::UnderLiquids),
+        };
+        Made {
+            mesh: materials.add(in_order(base.clone(), anchors, Pass::Body)),
+            fringe: Some(fringe),
+        }
+    } else {
+        Made {
+            mesh: materials.add(in_order(base.clone(), anchors, Pass::Tested)),
+            fringe: None,
+        }
+    };
+    converted.0.insert(material, both.clone());
+    Some(both)
+}
+
+/// Spawns a copy of the mesh `entity` of a model as a child of it, the same mesh skinned to the
+/// same joints and bounded as it, of the material `material`, tagged with its model's slot
+/// `slot`, with `extra`.
+fn copy_of(
+    commands: &mut Commands,
+    entity: Entity,
+    (mesh, skinned, dynamic, unculled): (&Mesh3d, Option<&SkinnedMesh>, bool, bool),
+    (material, slot): (Handle<ModelMaterial>, u32),
+    extra: impl Bundle,
+) {
+    let mut copy = commands.spawn((
+        Mesh3d(mesh.0.clone()),
+        MeshMaterial3d(material),
+        MeshTag::new(slot),
+        ChildOf(entity),
+        extra,
+    ));
+    if let Some(skinned) = skinned {
+        copy.insert(skinned.clone());
+    }
+    if dynamic {
+        copy.insert(DynamicSkinnedMeshBounds);
+    }
+    if unculled {
+        copy.insert(NoFrustumCulling);
+    }
+}
 
 /// Gives the meshes of each model that has just spawned the model materials of their glTF
 /// materials (after `npcs::retexture` has given them their item's texture) and their root's
@@ -697,7 +813,9 @@ type ModelMesh = (
 /// [`Fringe`] copy, the same mesh skinned to the same joints, tagged with the same slot, in its
 /// root's layer; then shows its veiled meshes ([`Veiled`]). A model waits, veiled, for the images
 /// of its materials, whose alpha says which have them. A material added to the frame, an effect's
-/// (`model_effects`), is drawn so in the objects' layer ([`Pass::Added`]).
+/// (`model_effects`), is drawn so in the objects' layer ([`Pass::Added`]). A mesh of an effect
+/// takes its plain material and its effect's ([`Dressed`]), and its pulse's copy ([`WithEffect`]),
+/// the options' detail choosing which it is drawn with (#2943).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its queries and resources as arguments"
@@ -709,13 +827,16 @@ pub fn convert(
     children: Query<&Children>,
     meshes: Query<ModelMesh>,
     veiled: Query<(), With<Veiled>>,
-    standard: Res<Assets<StandardMaterial>>,
-    images: Res<Assets<Image>>,
-    server: Res<AssetServer>,
+    (standard, images, server): (
+        Res<Assets<StandardMaterial>>,
+        Res<Assets<Image>>,
+        Res<AssetServer>,
+    ),
     mut materials: ResMut<Assets<ModelMaterial>>,
     (mut converted, mut effects): (ResMut<Converted>, ResMut<EffectMaterials>),
-    anchors: Res<Anchors>,
+    (anchors, settings): (Res<Anchors>, Option<Res<crate::settings::Settings>>),
 ) {
+    let shown = crate::model_effects::shown(settings.as_deref());
     'models: for (model, with) in &models {
         let root = with.map_or(model, |with| with.0);
         let Ok((Ordered(Some(slot)), sunk)) = roots.get(root) else {
@@ -723,14 +844,21 @@ pub fn convert(
             unveil(&mut commands, &children, &veiled, model);
             continue;
         };
-        let mut made = Vec::new();
+        let mut made_of = Vec::new();
         let mut pulses = Vec::new();
         for entity in children.iter_descendants(model) {
-            let Ok((material, .., effect, pulse)) = meshes.get(entity) else {
+            let Ok((material, .., effect, pulse, bands)) = meshes.get(entity) else {
                 continue;
             };
             let Some(base) = standard.get(&material.0) else {
                 continue;
+            };
+            let Some(plain) = made(
+                (material.0.id(), base),
+                (&images, &server, &anchors),
+                (&mut converted, &mut materials),
+            ) else {
+                continue 'models;
             };
             // Its pulse's copy, the effect texture unlit and added over it (#1850).
             if let Some(Pulse(texture)) = pulse {
@@ -751,8 +879,9 @@ pub fn convert(
                     .clone();
                 pulses.push((entity, added));
             }
-            // Over its effect: one pass of every texel, opaque (#1834) or the hologram's (#1850).
-            if let Some(effect) = effect {
+            // Over its effect: one pass of every texel, opaque (#1834) or the hologram's (#1850);
+            // the kind 9's bands in place of the first primitive, added (#1309).
+            let over = if let Some(effect) = effect {
                 let over = converted
                     .1
                     .entry(material.0.id())
@@ -776,46 +905,24 @@ pub fn convert(
                             fringe: None,
                         }
                     })
+                    .mesh
                     .clone();
-                made.push((entity, over));
-                continue;
-            }
-            if let Some(both) = converted.0.get(&material.0.id()) {
-                made.push((entity, both.clone()));
-                continue;
-            }
-            let added = base.alpha_mode == AlphaMode::Add;
-            let Some(translucent) = translucent(base, &images, &server) else {
-                continue 'models;
-            };
-            let both = if added {
-                Made {
-                    mesh: materials.add(in_order(
-                        base.clone(),
-                        &anchors,
-                        Pass::Added(Layer::Objects),
-                    )),
-                    fringe: None,
-                }
-            } else if translucent {
-                let mut in_layer =
-                    |layer| materials.add(in_order(base.clone(), &anchors, Pass::Fringe(layer)));
-                let fringe = Fringe {
-                    dry: in_layer(Layer::Objects),
-                    wet: in_layer(Layer::UnderLiquids),
+                Some(over)
+            } else if let Some(Bands(bands)) = bands
+                && let Some(base) = standard.get(bands)
+            {
+                let Some(added) = made(
+                    (bands.id(), base),
+                    (&images, &server, &anchors),
+                    (&mut converted, &mut materials),
+                ) else {
+                    continue 'models;
                 };
-                Made {
-                    mesh: materials.add(in_order(base.clone(), &anchors, Pass::Body)),
-                    fringe: Some(fringe),
-                }
+                Some(added.mesh)
             } else {
-                Made {
-                    mesh: materials.add(in_order(base.clone(), &anchors, Pass::Tested)),
-                    fringe: None,
-                }
+                None
             };
-            converted.0.insert(material.0.id(), both.clone());
-            made.push((entity, both));
+            made_of.push((entity, plain, over));
         }
         commands.entity(model).remove::<Unplaced>();
         unveil(&mut commands, &children, &veiled, model);
@@ -826,50 +933,75 @@ pub fn convert(
             let Ok((_, mesh, skinned, dynamic, unculled, ..)) = meshes.get(entity) else {
                 continue;
             };
-            let mut copy = commands.spawn((
-                Mesh3d(mesh.0.clone()),
-                MeshMaterial3d(added),
-                MeshTag::new(*slot),
-                ChildOf(entity),
-                RenderLayers::layer(iso::UNTINTED),
-            ));
-            if let Some(skinned) = skinned {
-                copy.insert(skinned.clone());
-            }
-            if dynamic {
-                copy.insert(DynamicSkinnedMeshBounds);
-            }
-            if unculled {
-                copy.insert(NoFrustumCulling);
-            }
+            let with = WithEffect(true);
+            copy_of(
+                &mut commands,
+                entity,
+                (mesh, skinned, dynamic, unculled),
+                (added, *slot),
+                (
+                    RenderLayers::layer(iso::UNTINTED),
+                    with,
+                    with.visibility(shown),
+                ),
+            );
         }
-        for (entity, Made { mesh: own, fringe }) in made {
-            commands
-                .entity(entity)
-                .remove::<MeshMaterial3d<StandardMaterial>>()
-                .insert((MeshMaterial3d(own), MeshTag::new(*slot)));
+        for (entity, Made { mesh: own, fringe }, over) in made_of {
+            let dressed = over.is_some();
+            let mut mesh = commands.entity(entity);
+            mesh.remove::<MeshMaterial3d<StandardMaterial>>()
+                .insert(MeshTag::new(*slot));
+            match over {
+                Some(effect) => {
+                    let dressed = Dressed { plain: own, effect };
+                    mesh.insert((MeshMaterial3d(dressed.material(shown).clone()), dressed));
+                }
+                None => {
+                    mesh.insert(MeshMaterial3d(own));
+                }
+            }
             let (Some(fringe), Ok((_, mesh, skinned, dynamic, unculled, ..))) =
                 (fringe, meshes.get(entity))
             else {
                 continue;
             };
-            let mut copy = commands.spawn((
-                Mesh3d(mesh.0.clone()),
-                MeshMaterial3d(fringe.material(sunk).clone()),
-                MeshTag::new(*slot),
-                ChildOf(entity),
-                fringe,
-            ));
-            if let Some(skinned) = skinned {
-                copy.insert(skinned.clone());
-            }
-            if dynamic {
-                copy.insert(DynamicSkinnedMeshBounds);
-            }
-            if unculled {
-                copy.insert(NoFrustumCulling);
+            let material = (fringe.material(sunk).clone(), *slot);
+            let mesh = (mesh, skinned, dynamic, unculled);
+            if dressed {
+                // A dressed mesh's fringe, drawn with its plain material alone.
+                let with = WithEffect(false);
+                copy_of(
+                    &mut commands,
+                    entity,
+                    mesh,
+                    material,
+                    (fringe, with, with.visibility(shown)),
+                );
+            } else {
+                copy_of(&mut commands, entity, mesh, material, fringe);
             }
         }
+    }
+}
+
+/// Draws each model of an effect over it or plainly as the options' detail has it, at every
+/// frame as the original's draw reads it (`0x44A8C0`, #2943): a [`Dressed`] mesh in its material
+/// of the detail, unless a skin's lies on it (`skins`), which gives the mesh back the one it took
+/// and which this then changes; and the copies of [`WithEffect`] shown or hidden.
+fn follow_detail(
+    settings: Option<Res<crate::settings::Settings>>,
+    mut meshes: Query<(&Dressed, &mut MeshMaterial3d<ModelMaterial>)>,
+    mut copies: Query<(&WithEffect, &mut Visibility)>,
+) {
+    let shown = crate::model_effects::shown(settings.as_deref());
+    for (dressed, mut material) in &mut meshes {
+        // Borrowed mutably only to change it.
+        if material.0 == *dressed.material(!shown) {
+            material.0 = dressed.material(shown).clone();
+        }
+    }
+    for (&with, mut visibility) in &mut copies {
+        visibility.set_if_neq(with.visibility(shown));
     }
 }
 
@@ -1118,6 +1250,130 @@ mod tests {
                 .is_some()
         );
         assert!(app.world().get::<Veiled>(mesh).is_none());
+    }
+
+    #[test]
+    fn a_model_of_an_effect_follows_the_options_detail() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            AssetPlugin::default(),
+            bevy::world_serialization::WorldSerializationPlugin,
+        ))
+        .register_type::<ChildOf>()
+        .register_type::<Children>()
+        .init_asset::<Image>()
+        .init_asset::<StandardMaterial>()
+        .init_asset::<ModelMaterial>()
+        .init_asset::<ShaderBuffer>()
+        .init_resource::<Anchors>()
+        .init_resource::<Converted>()
+        .init_resource::<EffectMaterials>()
+        .init_resource::<crate::settings::Settings>()
+        .add_observer(hold)
+        .add_observer(ready)
+        .add_systems(Update, (convert, follow_detail).chain());
+        let mut empty = World::new();
+        empty.spawn_empty();
+        let world = app.world_mut();
+        let scene = world
+            .resource_mut::<Assets<bevy::world_serialization::WorldAsset>>()
+            .add(bevy::world_serialization::WorldAsset::new(empty));
+        // A mesh of translucent texels, over the kind 1's effect and pulsing as the kind 5.
+        let material = world
+            .resource_mut::<Assets<StandardMaterial>>()
+            .add(StandardMaterial {
+                base_color: Color::srgba(1.0, 1.0, 1.0, 0.5),
+                ..default()
+            });
+        let model = world
+            .spawn((WorldAssetRoot(scene), Ordered::default()))
+            .id();
+        let mesh = world
+            .spawn((
+                Mesh3d(Handle::default()),
+                MeshMaterial3d(material),
+                Visibility::default(),
+                ChildOf(model),
+                Effect {
+                    kind: crate::model_effects::MULTITEX,
+                    effect: Handle::default(),
+                    glow: None,
+                },
+                Pulse(Handle::default()),
+            ))
+            .id();
+        let detail = |app: &mut App, detail| {
+            app.world_mut()
+                .resource_mut::<crate::settings::Settings>()
+                .graphics
+                .detail = detail;
+            app.update();
+        };
+        // Spawned at the detail 0, then converted.
+        detail(&mut app, 0);
+        app.update();
+        let drawn = |app: &App| {
+            app.world()
+                .get::<MeshMaterial3d<ModelMaterial>>(mesh)
+                .unwrap()
+                .0
+                .clone()
+        };
+        // Its copies: the fringe, drawn plain alone, and the pulse's, with the effect alone.
+        let copies = |app: &App| {
+            let mut copies: Vec<(bool, Visibility)> = app
+                .world()
+                .get::<Children>(mesh)
+                .unwrap()
+                .iter()
+                .filter_map(|copy| {
+                    let with = app.world().get::<WithEffect>(copy)?;
+                    Some((with.0, *app.world().get::<Visibility>(copy)?))
+                })
+                .collect();
+            copies.sort_by_key(|&(with, _)| with);
+            copies
+        };
+        let dressed = app.world().get::<Dressed>(mesh).unwrap().clone();
+        assert_ne!(dressed.plain, dressed.effect);
+        assert_eq!(drawn(&app), dressed.plain);
+        assert_eq!(
+            copies(&app),
+            [(false, Visibility::Inherited), (true, Visibility::Hidden)]
+        );
+        // The detail raised in play: over the effect at once, its pulse shown, its fringe hidden.
+        detail(&mut app, 2);
+        assert_eq!(drawn(&app), dressed.effect);
+        assert_eq!(
+            copies(&app),
+            [(false, Visibility::Hidden), (true, Visibility::Inherited)]
+        );
+        detail(&mut app, 1);
+        assert_eq!(drawn(&app), dressed.effect);
+        // A skin's material stays while it lies on the mesh, and the one it gives back changes.
+        let skin = app
+            .world_mut()
+            .resource_mut::<Assets<ModelMaterial>>()
+            .add(in_order(
+                StandardMaterial::default(),
+                &anchors(),
+                Pass::Water,
+            ));
+        app.world_mut()
+            .entity_mut(mesh)
+            .insert(MeshMaterial3d(skin.clone()));
+        detail(&mut app, 0);
+        assert_eq!(drawn(&app), skin);
+        assert_eq!(
+            copies(&app),
+            [(false, Visibility::Inherited), (true, Visibility::Hidden)]
+        );
+        app.world_mut()
+            .entity_mut(mesh)
+            .insert(MeshMaterial3d(dressed.effect.clone()));
+        app.update();
+        assert_eq!(drawn(&app), dressed.plain);
     }
 
     #[test]

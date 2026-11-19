@@ -2688,9 +2688,18 @@ fn dress(
 #[derive(Component)]
 struct Idle(Handle<AnimationClip>);
 
+/// A mesh of a figure as [`settle`] reads it: its material, its item's effect under it, and the
+/// kind 9's material of a first primitive.
+type FigureMesh = (
+    &'static MeshMaterial3d<StandardMaterial>,
+    Option<&'static crate::models::Effect>,
+    Option<&'static crate::models::Bands>,
+);
+
 /// Puts the figures' scene's entities into the figures' scene, plays a figure's idle clip as its
 /// player comes, and gives its meshes copies of their materials of its own, over their items'
-/// effects where they have one.
+/// effects where they have one, a first primitive of the kind 9 its effect's (`models::Bands`),
+/// whatever the options' detail (`0x6F1B30`).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its queries and resources one by one"
@@ -2701,13 +2710,7 @@ fn settle(
     children: Query<&Children>,
     layered: Query<(), With<RenderLayers>>,
     mut players: Query<&mut AnimationPlayer, Without<AnimationGraphHandle>>,
-    meshes: Query<
-        (
-            &MeshMaterial3d<StandardMaterial>,
-            Option<&crate::models::Effect>,
-        ),
-        Without<Owned>,
-    >,
+    meshes: Query<FigureMesh, Without<Owned>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     (mut graphs, mut making): (ResMut<Assets<AnimationGraph>>, model_effects::Making),
 ) {
@@ -2723,10 +2726,11 @@ fn settle(
                     .entity(entity)
                     .insert(AnimationGraphHandle(graphs.add(graph)));
             }
-            let Ok((material, effect)) = meshes.get(entity) else {
+            let Ok((material, effect, bands)) = meshes.get(entity) else {
                 continue;
             };
-            let Some(own) = materials.get(&material.0).cloned() else {
+            let material = bands.map_or(&material.0, |bands| &bands.0);
+            let Some(own) = materials.get(material).cloned() else {
                 continue;
             };
             let (colour, reflectance) = (own.base_color, own.reflectance);
