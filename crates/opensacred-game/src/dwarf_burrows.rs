@@ -218,15 +218,18 @@ fn dress(
                 continue;
             }
             *dressed = true;
+            // Both passes after the night's, which leaves them as they are (#2828).
             for (entity, mesh, _, skinned, tag, dynamic, unculled) in own {
-                commands
-                    .entity(entity)
-                    .insert(MeshMaterial3d(made[0].clone()));
+                commands.entity(entity).insert((
+                    MeshMaterial3d(made[0].clone()),
+                    RenderLayers::layer(iso::UNTINTED),
+                ));
                 let mut copy = commands.spawn((
                     Mesh3d(mesh.0.clone()),
                     MeshMaterial3d(made[1].clone()),
                     tag.clone(),
                     ChildOf(entity),
+                    RenderLayers::layer(iso::UNTINTED),
                 ));
                 if let Some(skinned) = skinned {
                     copy.insert(skinned.clone());
