@@ -71,6 +71,8 @@ const SOCKET: f32 = 32.0;
 const SOCKETS_APART: f32 = 40.0;
 const SOCKETS_IN: f32 = 8.0;
 const SOCKETS_ROOM: f32 = 40.0;
+/// What a window with sockets is at least wider than its sockets' 40 each (`0x6E7AF0`).
+const SOCKETS_WIDER: f32 = 16.0;
 /// The image over a socket's square, the colours of the sockets' kinds 1 to 4 (any other white),
 /// and the alphas of the square and of the image tinted by its colour.
 const SOCKET_IMAGE: u32 = 171;
@@ -798,6 +800,11 @@ fn sockets_size(count: usize) -> Vec2 {
     Vec2::new(count * SOCKETS_APART - (SOCKETS_APART - SOCKET), SOCKET)
 }
 
+/// The least width of a tooltip's window with `count` sockets (`0x6E7AF0`): 40 a socket and 16.
+fn sockets_least(count: usize) -> f32 {
+    f32::from(u8::try_from(count).unwrap_or(u8::MAX)) * SOCKETS_APART + SOCKETS_WIDER
+}
+
 /// The tooltips' container.
 fn root() -> impl Bundle {
     (
@@ -819,8 +826,8 @@ fn root() -> impl Bundle {
 
 /// A tooltip's window of `lines` at `at` of the original's screen: its panel, its lines and its
 /// border; and with the sockets of the kinds `sockets` their row of squares (`0x5C0A70`), the
-/// window [`SOCKETS_ROOM`] higher and at least as wide as the row and twice [`SOCKETS_IN`]
-/// (`0x6E7AF0`). The panel, and the row that the sockets' items' models go into.
+/// window [`SOCKETS_ROOM`] higher and at least 40 a socket and 16 wide ([`sockets_least`],
+/// `0x6E7AF0`). The panel, and the row that the sockets' items' models go into.
 fn spawn(
     commands: &mut Commands,
     (images, assets): (&UiImages, &AssetServer),
@@ -840,7 +847,7 @@ fn spawn(
                 min_width: if sockets.is_empty() {
                     Val::Auto
                 } else {
-                    Val::Px(row_size.x + 2.0 * SOCKETS_IN)
+                    Val::Px(sockets_least(sockets.len()))
                 },
                 ..default()
             },
@@ -1515,6 +1522,14 @@ impl Plugin for TooltipPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tooltip_with_sockets_is_40_a_socket_and_16_wide_at_least() {
+        assert_eq!(sockets_least(1), 56.0);
+        assert_eq!(sockets_least(3), 136.0);
+        // Wider than its row of squares and their inset at each side.
+        assert!(sockets_least(2) > sockets_size(2).x + 2.0 * SOCKETS_IN);
+    }
 
     #[test]
     fn a_controls_tooltip_is_centred_and_kept_on_the_screen() {
