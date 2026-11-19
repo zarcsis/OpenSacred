@@ -264,6 +264,7 @@ mod trap_landings;
 mod twisters;
 mod ui_layers;
 mod undead;
+mod under_cursor;
 mod vamp_casts;
 mod vamp_sights;
 mod vertices;
@@ -772,6 +773,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .add_plugins((
         undead::UndeadPlugin,
+        under_cursor::UnderCursorPlugin,
         vamp_casts::VampCastsPlugin,
         vamp_sights::VampSightsPlugin,
         voices::VoicesPlugin,

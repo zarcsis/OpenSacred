@@ -11,19 +11,19 @@
 //! - a container not emptied its type's name in its records' colour (`0xFFEFEFEF`);
 //! - a special (the signposts, `npcs::Special`) its script's name or its type's, in the same.
 //!
-//! Each wants its place 3 left and 1 above its box's top left corner, the box a living creature's
-//! of its type's width and height about its feet (`0x428850`), a dead one's, a container's and a
-//! special's its model's bounds on the screen ([`model_box`]), an item's the 35 × 35 square about
-//! its point (the least box of `0x44CF20`); they are
+//! Each wants its place 3 left and 1 above its box's top left corner, the box the rectangle that
+//! the pick takes of it (`under_cursor::View`): a living creature's of its type's width and height about
+//! its feet (`0x428850`), a dead one's, a container's and a special's its model's bounds on the
+//! screen, an item's the 35 × 35 square about its point (the least box of `0x44CF20`); they are
 //! laid out in turn from the top of the screen by the
 //! original's search (`cLabelLayout`, `0x6620F0`): up to 128 tries, sideways by 8 and upright by
 //! 4 more each pair, up before down, a place touching another not free, a label of no free place
-//! left out. The text under the cursor is light yellow. A left click on an item's label takes its
-//! item (`0x6270A0`, `pickup::pick`), and with Alt held an item comes before a foe under the
-//! cursor (`attack::aim`); a click on a creature's or a container's label is a click on it, its
-//! attack, its talk or its opening (`0x631CEB`). The cursor's look over a label is what it names
-//! (`cursors`). While the hero's sets know the enemies (set 3 at 4 pieces, `UI_KNOW_ENEMY`), the
-//! foe that the cursor picks tells its values under its name ([`foe_values`]).
+//! left out. The text under the cursor is light yellow. With nothing under the cursor's
+//! rectangles, the last label under it picks what it names (`0x6270A0`, `under_cursor`): a click on an
+//! item's label takes its item, a click on a creature's or a container's is a click on it, its
+//! attack, its talk or its opening, and the cursor's look over a label is what it names. While
+//! the hero's sets know the enemies (set 3 at 4 pieces, `UI_KNOW_ENEMY`), the foe that the cursor
+//! picks tells its values under its name ([`foe_values`]).
 //!
 //! Not followed: the mounts' labels and the stargate 1180's; the townsfolk's doings' icons under
 //! Alt are `icons`' (#2234).
@@ -52,69 +52,6 @@ const HEIGHT: f32 = LINE + 2.0 * MARGIN.y;
 const CHARACTER: f32 = 8.0;
 /// Where a label wants its panel's top left, from its box's (`0x6272C8`).
 const FROM_BOX: Vec2 = Vec2::new(-3.0, -1.0);
-/// The bounds of a model that the original takes for wrong and replaces by a box of 10 about its
-/// point (`0x44D19x`): wider than 1,500 across, or both its ends of an axis on the ground farther
-/// than 400 from the point to one side.
-const WIDEST: f32 = 1500.0;
-const FARTHEST: f32 = 400.0;
-const FALLBACK: f32 = 10.0;
-
-/// The world box of a model of the points `points` about its place `at` (`0x44CF20`, the bounds
-/// that its draw grows from its meshes' vertices, `vertices::ModelPoints::bounds_points`): their
-/// least and most, unless the original takes them for wrong ([`WIDEST`], [`FARTHEST`]); none
-/// for a model of no points, not drawn yet.
-fn model_box(points: &[Vec3], at: Vec3) -> Option<(Vec3, Vec3)> {
-    let first = *points.first()?;
-    let (low, high) = points
-        .iter()
-        .fold((first, first), |(low, high), &p| (low.min(p), high.max(p)));
-    let off = |low: f32, high: f32, at: f32| low - at > FARTHEST || at - high > FARTHEST;
-    if high.x - low.x > WIDEST || off(low.x, high.x, at.x) || off(low.z, high.z, at.z) {
-        return Some((at - Vec3::splat(FALLBACK), at + Vec3::splat(FALLBACK)));
-    }
-    Some((low, high))
-}
-
-/// The least side of a box, about its middle (`0x44D3BB`).
-const LEAST_BOX: f32 = 35.0;
-/// A creature's box about its feet on the screen, of its type's half width and height
-/// ([`creature_size`]) in the original's pixels at the zoom 1 by the factors across and upright
-/// that the original's frame gives (**estimate**, measured 2026-11-02 beside the original at the
-/// Seraphim's start, of the default 20 and 170: her label's panel 38 left of her feet and 150
-/// above them): from `HEIGHT_DOWN` of its height below its feet to its height above them.
-const HEIGHT_DOWN: f32 = 1.0 / 6.0;
-const ACROSS: f32 = 1.75;
-const UPRIGHT: f32 = 0.876;
-
-/// The half width and the height of a creature of the type `kind`, its box's about its point
-/// (`0x428850`, docs/re/interface.md, "The labels on Alt"): the sizes the code gives some types,
-/// else 20 and 170.
-fn creature_size(kind: u32) -> (f32, f32) {
-    let (half, height): (u16, u16) = match kind {
-        35 | 56..=59 => (60, 110),
-        37 | 41..=43 | 67 => (25, 180),
-        39 | 40 | 182 | 185 | 187 | 189 | 250..=252 => (30, 195),
-        45 | 60..=62 | 68 => (25, 190),
-        49 | 51 | 137 => (30, 230),
-        52 | 74 | 88 | 100..=103 | 247 | 336 | 354 => (100, 280),
-        53 | 94 | 183 => (30, 430),
-        54 | 167 => (40, 230),
-        55 => (75, 280),
-        69 | 191 | 195 => (30, 70),
-        71 | 513..=516 | 560..=563 | 565 | 566 | 589 | 590 | 594..=596 => (20, 20),
-        72 | 261 | 523..=528 | 530..=533 | 536..=538 | 540 | 541 | 550..=558 => (60, 160),
-        75 => (40, 40),
-        190 => (60, 70),
-        193 | 335 | 512 | 520..=522 | 543..=545 | 567..=570 => (50, 80),
-        1249 => (15, 50),
-        _ => (20, 170),
-    };
-    (f32::from(half), f32::from(height))
-}
-/// A container's box about its point on the screen at the zoom 1, which the original takes of its
-/// model's bounds (`+0xD8` to `+0xEC`): half its width and its height above its point
-/// (**estimate**, measured 2026-11-02 beside the original at the Seraphim's start's chest).
-const CONTAINER_BOX: Vec2 = Vec2::new(35.0, 57.0);
 /// The layout's tries (`0x6620F0`) and its steps by the try (`0x963A2C`), each times half the
 /// try's number: left, right, up, down.
 const TRIES: usize = 128;
@@ -124,8 +61,6 @@ const STEPS: [Vec2; 4] = [
     Vec2::new(0.0, -2.0),
     Vec2::new(0.0, 2.0),
 ];
-/// How far beyond the screen an object's box still takes a label (the push's margin, `0x62FAD5`).
-const BEYOND: f32 = 200.0;
 /// The texts' colours: a creature hostile either way to the hero, a dead one, any other, a
 /// container's, and the text under the cursor (`0x55D444`, `0x5C13C0`, `0x62796D`).
 const HOSTILE: u32 = 0xFFFF_A0A0;
@@ -137,26 +72,18 @@ const UNDER_CURSOR: u32 = 0xFFFF_FF80;
 const NO_LABEL: u32 = 0x0400_0000;
 
 /// The labels shown, each what it names, its rectangle in the window's logical pixels and whether
-/// it names an item, which a click on one takes: an item's (`pickup::pick`), and a creature's or a
-/// container's as a click on its body (`attack::aim`, `talk`, `containers`; the pick's rectangles
-/// replaced by the labels', `0x631CEB`).
+/// it names an item; with nothing under the cursor's rectangles, the last label under it picks
+/// what it names (`0x6270A0`, `under_cursor`).
 #[derive(Resource, Default, Debug)]
 pub struct Shown(Vec<(Entity, Rect, bool)>);
 
 impl Shown {
-    /// The item whose label lies under the point `at` of the window, if any.
-    pub fn under(&self, at: Vec2) -> Option<Entity> {
+    /// What the last label in the list under the point `at` names, if any (`0x6270A0`).
+    pub fn last_under(&self, at: Vec2) -> Option<Entity> {
         self.0
             .iter()
-            .find(|&&(_, rect, item)| item && rect.contains(at))
-            .map(|&(item, ..)| item)
-    }
-
-    /// The creature or the container whose label lies under the point `at`, if any.
-    pub fn labelled(&self, at: Vec2) -> Option<Entity> {
-        self.0
-            .iter()
-            .find(|&&(_, rect, item)| !item && rect.contains(at))
+            .rev()
+            .find(|&&(_, rect, _)| rect.contains(at))
             .map(|&(entity, ..)| entity)
     }
 }
@@ -181,17 +108,10 @@ struct Wanted {
     item: bool,
 }
 
-/// The wanted top left of the label of a box of `box_min` to `box_max` on the screen, its sides
-/// held at the least about their middles (`0x44D3BB`, `0x6272C8`).
-fn corner_of(box_min: Vec2, box_max: Vec2) -> Vec2 {
-    let side = |low: f32, high: f32| {
-        if high - low < LEAST_BOX {
-            (low + high) / 2.0 - (LEAST_BOX / 2.0).floor()
-        } else {
-            low
-        }
-    };
-    Vec2::new(side(box_min.x, box_max.x), side(box_min.y, box_max.y)) + FROM_BOX
+/// The wanted top left of the label of the box `rect` on the screen, its sides held at the least
+/// about their middles (`0x44D3BB`, `0x6272C8`).
+fn corner_of(rect: opensacred_rules::pick::Rect) -> Vec2 {
+    Vec2::from(rect.held().at) + FROM_BOX
 }
 
 /// The types that take no label, of the items table's bit 26 ([`NO_LABEL`]).
@@ -386,57 +306,14 @@ fn label(
     if let Some(texts) = texts.as_deref().filter(|_| held(&keys)) {
         let skipped =
             skipped.get_or_insert_with(|| data.as_deref().map(unlabelled).unwrap_or_default());
-        let (camera, view, projection) = *camera;
-        // The world's scale on the screen: 2 shows twice the world (`iso::zoom`).
-        let zoom = match projection {
-            Projection::Orthographic(ortho) => ortho.scale.max(0.01),
-            _ => 1.0,
-        };
-        let size = camera.logical_viewport_size().unwrap_or(Vec2::ZERO);
-        let project = |at: Vec3| camera.world_to_viewport(view, at).ok();
-        let near = |point: Vec2| {
-            point.cmpge(Vec2::splat(-BEYOND)).all() && point.cmplt(size + BEYOND).all()
-        };
-        // An item's box: the least square about its point.
-        let small = |at: Vec3| {
-            let point = project(at).filter(|&point| near(point))? / scale;
-            Some(corner_of(point, point))
-        };
-        // A creature's box: its type's half width across and its height up from below its feet.
-        let tall = |at: Vec3, kind: u32| {
-            let feet = project(at).filter(|&point| near(point))? / scale;
-            let (half, height) = creature_size(kind);
-            let half = half * ACROSS / zoom;
-            let height = height * UPRIGHT / zoom;
-            let low = feet - Vec2::new(half, height);
-            let high = feet + Vec2::new(half, height * HEIGHT_DOWN);
-            Some(corner_of(low, high))
-        };
-        // A model's box: the screen's box of its bounds' eight corners (`0x44CF20`, `0x623B60`).
+        let view = crate::under_cursor::View::new(*camera, scale);
+        let small = |at: Vec3| view.item(at).map(corner_of);
+        let tall = |at: Vec3, kind: u32| view.creature(at, kind, false).map(corner_of);
         let modelled = |root: Entity, at: Vec3| {
-            project(at).filter(|&point| near(point))?;
-            let (low, high) = model_box(&points.bounds_points(root, &meshes), at)?;
-            let corners = (0..8).filter_map(|k: u8| {
-                let pick = |bit: u8, low: f32, high: f32| if k & bit == 0 { low } else { high };
-                project(Vec3::new(
-                    pick(1, low.x, high.x),
-                    pick(2, low.y, high.y),
-                    pick(4, low.z, high.z),
-                ))
-            });
-            let (min, max) = corners.fold(
-                (Vec2::splat(f32::MAX), Vec2::splat(f32::MIN)),
-                |(min, max), p| (min.min(p), max.max(p)),
-            );
-            (min.x <= max.x).then(|| corner_of(min / scale, max / scale))
+            view.model(&points.bounds_points(root, &meshes), at)
+                .map(corner_of)
         };
-        // A container's box before its model is drawn: a chest's about its point.
-        let chest = |at: Vec3| {
-            let point = project(at).filter(|&point| near(point))? / scale;
-            let low = point - CONTAINER_BOX / zoom;
-            let high = point + Vec2::new(CONTAINER_BOX.x, 0.0) / zoom;
-            Some(corner_of(low, high))
-        };
+        let chest = |at: Vec3| view.chest(at).map(corner_of);
         for (item, at, lying, name) in &items {
             let Some(corner) = small(at.translation()) else {
                 continue;
@@ -732,20 +609,6 @@ mod tests {
     }
 
     #[test]
-    fn a_creatures_box_takes_its_types_size() {
-        // The smith and the heroes the default; the dragon, the wolf and the chickens their own.
-        assert_eq!(creature_size(688), (20.0, 170.0));
-        assert_eq!(creature_size(1), (20.0, 170.0));
-        assert_eq!(creature_size(52), (100.0, 280.0));
-        assert_eq!(creature_size(512), (50.0, 80.0));
-        assert_eq!(
-            [560, 565, 566, 564].map(creature_size)[..3],
-            [(20.0, 20.0); 3]
-        );
-        assert_eq!(creature_size(564), (20.0, 170.0));
-    }
-
-    #[test]
     fn labels_of_one_spot_stand_in_a_column_up_and_down_and_others_stay_where_they_are() {
         let size = Vec2::new(100.0, HEIGHT);
         let spot = Vec2::new(500.0, 300.0);
@@ -764,57 +627,31 @@ mod tests {
     }
 
     #[test]
-    fn a_models_box_is_its_points_bounds_unless_they_lie_wrong() {
-        let at = Vec3::new(1000.0, 0.0, 2000.0);
-        let points = [
-            Vec3::new(990.0, 0.0, 1980.0),
-            Vec3::new(1030.0, 90.0, 2010.0),
-        ];
-        assert_eq!(
-            model_box(&points, at),
-            Some((
-                Vec3::new(990.0, 0.0, 1980.0),
-                Vec3::new(1030.0, 90.0, 2010.0)
-            ))
-        );
-        // Both ends 400 off to one side: a box of 10 about the point.
-        let off = [
-            Vec3::new(1401.0, 0.0, 2000.0),
-            Vec3::new(1500.0, 50.0, 2000.0),
-        ];
-        assert_eq!(
-            model_box(&off, at),
-            Some((at - Vec3::splat(10.0), at + Vec3::splat(10.0)))
-        );
-        assert_eq!(model_box(&[], at), None);
-    }
-
-    #[test]
     fn a_labels_box_holds_its_least_side_about_its_middle() {
+        use opensacred_rules::pick::Rect;
         // A point: the 35 × 35 square about it, the label 20 left and 18 above it.
         assert_eq!(
-            corner_of(Vec2::new(100.0, 100.0), Vec2::new(100.0, 100.0)),
+            corner_of(Rect::between([100.0, 100.0], [100.0, 100.0])),
             Vec2::new(80.0, 82.0)
         );
         // A tall box keeps its top, its narrow side widened about its middle.
         assert_eq!(
-            corner_of(Vec2::new(100.0, 50.0), Vec2::new(120.0, 250.0)),
+            corner_of(Rect::between([100.0, 50.0], [120.0, 250.0])),
             Vec2::new(90.0, 49.0)
         );
     }
 
     #[test]
-    fn a_click_on_a_label_finds_its_item() {
+    fn a_label_under_the_cursor_names_what_it_labels_the_last_of_two() {
         let item = Entity::PLACEHOLDER;
         let creature = Entity::from_raw_u32(7).expect("an entity");
         let shown = Shown(vec![
             (item, Rect::new(10.0, 10.0, 60.0, 30.0), true),
-            (creature, Rect::new(10.0, 40.0, 60.0, 60.0), false),
+            (creature, Rect::new(10.0, 25.0, 60.0, 60.0), false),
         ]);
-        assert_eq!(shown.under(Vec2::new(20.0, 20.0)), Some(item));
-        assert_eq!(shown.under(Vec2::new(70.0, 20.0)), None);
-        // A creature's label is no item's, and picks its creature.
-        assert_eq!(shown.under(Vec2::new(20.0, 50.0)), None);
-        assert_eq!(shown.labelled(Vec2::new(20.0, 50.0)), Some(creature));
+        assert_eq!(shown.last_under(Vec2::new(20.0, 15.0)), Some(item));
+        assert_eq!(shown.last_under(Vec2::new(70.0, 20.0)), None);
+        // Where two lie, the last (`0x6270A0`).
+        assert_eq!(shown.last_under(Vec2::new(20.0, 28.0)), Some(creature));
     }
 }

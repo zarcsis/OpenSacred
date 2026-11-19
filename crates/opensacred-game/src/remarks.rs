@@ -47,9 +47,9 @@ use bevy::input::keyboard::KeyboardInput;
 use bevy::input::mouse::{MouseButtonInput, MouseWheel};
 use bevy::log::debug;
 use bevy::prelude::{
-    App, AssetServer, Assets, ButtonInput, Camera, Commands, CursorMoved, Entity, GlobalTransform,
+    App, AssetServer, Assets, ButtonInput, Commands, CursorMoved, Entity, GlobalTransform,
     IntoScheduleConfigs, Message, MessageReader, MessageWriter, MouseButton, NonSend, OnEnter,
-    Plugin, Query, Res, ResMut, Resource, Single, Time, Transform, Update, Vec3, With, Without,
+    Plugin, Query, Res, ResMut, Resource, Time, Transform, Update, Vec3, With, Without,
 };
 use bevy_kira_audio::prelude::{AudioChannel, AudioControl, AudioInstance};
 use opensacred_rules::quests::{self, Marker};
@@ -712,36 +712,26 @@ fn remark(
     }
 }
 
-/// A press of the left button on a creature alive under the cursor, the nearest to its line of
-/// sight as the clicks take it (`attack::from_line`), posts its click (the mouse handler
-/// `0x6172C0`'s event (9, `0x5C`) with its type, its name and its id, #1674).
+/// A press of the left button on a creature alive that the cursor picks (`under_cursor`) posts
+/// its click (the mouse handler `0x6172C0`'s event (9, `0x5C`) with its type, its name and its
+/// id, #1674).
 fn clicked(
     buttons: Res<ButtonInput<MouseButton>>,
-    pointer: Res<crate::hud::Pointer>,
-    camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
-    creatures: Query<(Entity, &GlobalTransform, &Mind, &Health), Without<Dies>>,
+    (pointer, under): (
+        Res<crate::hud::Pointer>,
+        Res<crate::under_cursor::UnderCursor>,
+    ),
+    creatures: Query<(&Mind, &Health), Without<Dies>>,
     mut posts: MessageWriter<Remark>,
 ) {
-    if !buttons.just_pressed(MouseButton::Left) {
+    if !buttons.just_pressed(MouseButton::Left) || pointer.0.is_none() {
         return;
     }
-    let (camera, view) = *camera;
-    let Some(ray) = pointer
-        .0
-        .and_then(|cursor| camera.viewport_to_world(view, cursor).ok())
-    else {
-        return;
-    };
-    let picked = creatures
-        .iter()
-        .filter(|(.., health)| health.current > 0)
-        .map(|(entity, at, mind, _)| {
-            let distance = crate::attack::from_line(ray, at.translation());
-            (entity, mind.creature, distance)
-        })
-        .filter(|&(.., distance)| distance <= crate::attack::PICKED_WITHIN)
-        .min_by(|a, b| a.2.total_cmp(&b.2));
-    if let Some((entity, creature, _)) = picked {
+    let picked = under.0.and_then(|entity| {
+        let (mind, health) = creatures.get(entity).ok()?;
+        (health.current > 0).then_some((entity, mind.creature))
+    });
+    if let Some((entity, creature)) = picked {
         posts.write(Remark::Click { creature, entity });
     }
 }

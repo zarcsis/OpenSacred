@@ -25,16 +25,14 @@ const TURNS_WITHIN: f32 = 300.0;
 #[derive(Component)]
 pub struct Opens(Entity);
 
-/// On a press of the left button that went to no attack, the door whose model is nearest the
-/// cursor's line of sight, if one is near it, becomes the hero's to turn; any press ends the last
-/// such order.
+/// On a press of the left button that went to no attack, the door that the cursor picks
+/// (`under_cursor`) becomes the hero's to turn; any press ends the last such order.
 pub(crate) fn pick(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
-    pointer: Res<Pointer>,
+    (pointer, under): (Res<Pointer>, Res<crate::under_cursor::UnderCursor>),
     aim: Res<Aim>,
-    camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
-    doors: Query<(Entity, &GlobalTransform), With<Door>>,
+    doors: Query<(), With<Door>>,
     heroes: Query<Entity, With<Body>>,
 ) {
     if !buttons.just_pressed(MouseButton::Left) {
@@ -43,20 +41,10 @@ pub(crate) fn pick(
     for hero in &heroes {
         commands.entity(hero).remove::<Opens>();
     }
-    let Some(cursor) = pointer.0 else {
+    if pointer.0.is_none() || aim.0 {
         return;
-    };
-    let (camera, view) = *camera;
-    let (false, Ok(ray)) = (aim.0, camera.viewport_to_world(view, cursor)) else {
-        return;
-    };
-    let Some(door) = doors
-        .iter()
-        .map(|(door, at)| (door, attack::from_line(ray, at.translation())))
-        .filter(|&(_, distance)| distance <= attack::PICKED_WITHIN)
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(door, _)| door)
-    else {
+    }
+    let Some(door) = under.0.filter(|&entity| doors.contains(entity)) else {
         return;
     };
     for hero in &heroes {

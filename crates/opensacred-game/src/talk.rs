@@ -280,10 +280,10 @@ fn dialogue_by(
     townsfolk.then(|| region(mind.creature)).flatten()
 }
 
-/// On a press of the left button, the creature of a dialogue nearest the cursor's line of sight
-/// becomes the hero's to speak to, the hero walking to it, ahead of an item to take
-/// (`0x53A170`): one alive, or a dead one whose body its dialogue holds ([`corpse_speech`]); any
-/// other press ends a talk not open yet.
+/// On a press of the left button, the creature of a dialogue that the cursor picks
+/// (`under_cursor`) becomes the hero's to speak to, the hero walking to it (`0x53A170`): one
+/// alive, or a dead one whose body its dialogue holds ([`corpse_speech`]); any other press ends a
+/// talk not open yet.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -293,9 +293,11 @@ fn dialogue_by(
 pub(crate) fn pick(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
-    pointer: Res<crate::hud::Pointer>,
+    (pointer, under): (
+        Res<crate::hud::Pointer>,
+        Res<crate::under_cursor::UnderCursor>,
+    ),
     mut aim: ResMut<Aim>,
-    camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     npcs: Option<Res<Npcs>>,
     creatures: Query<
         (
@@ -311,7 +313,6 @@ pub(crate) fn pick(
     >,
     corpses: Query<(Entity, &GlobalTransform, &Talk, &Corpse), With<Dies>>,
     mut heroes: Query<(Entity, &mut Body, Option<&Talking>)>,
-    labels: Res<crate::labels::Shown>,
 ) {
     if !buttons.just_pressed(MouseButton::Left) {
         return;
@@ -321,50 +322,32 @@ pub(crate) fn pick(
             commands.entity(hero).remove::<Talking>();
         }
     }
-    let Some(cursor) = pointer.0 else {
+    if pointer.0.is_none() {
         return;
-    };
-    let (camera, view) = *camera;
-    let Ok(ray) = camera.viewport_to_world(view, cursor) else {
-        return;
-    };
-    // A creature's label under the cursor picks it (`0x631CEB`).
-    let labelled = labels.labelled(cursor);
-    let distance = |entity, at| {
-        if labelled == Some(entity) {
-            0.0
-        } else {
-            attack::from_line(ray, at)
+    }
+    let under = under.0;
+    let living = under.and_then(|entity| {
+        let (_, at, mind, health, talk, trades, (way, stabled)) = creatures.get(entity).ok()?;
+        if health.current == 0 {
+            return None;
         }
-    };
-    let living = creatures
-        .iter()
-        .filter(|(_, _, _, health, ..)| health.current > 0)
-        .filter_map(|(entity, at, mind, _, talk, trades, (way, stabled))| {
-            // A stable's horse's talk stamp opens the horse window (#2300).
-            let dialogue = if stabled {
-                Speech::Horses
-            } else {
-                speech_of(talk, mind, trades, npcs.as_deref())?
-            };
-            let at = at.translation();
-            Some((entity, (at, way.level), dialogue, distance(entity, at)))
-        });
-    let dead = corpses.iter().map(|(entity, at, talk, corpse)| {
-        let at = at.translation();
-        (
-            entity,
-            (at, corpse.level),
-            corpse_speech(talk),
-            distance(entity, at),
-        )
+        // A stable's horse's talk stamp opens the horse window (#2300).
+        let dialogue = if stabled {
+            Speech::Horses
+        } else {
+            speech_of(talk, mind, trades, npcs.as_deref())?
+        };
+        Some((entity, (at.translation(), way.level), dialogue))
     });
-    let Some((creature, (at, level), dialogue)) = living
-        .chain(dead)
-        .filter(|&(.., distance)| distance <= attack::PICKED_WITHIN)
-        .min_by(|a, b| a.3.total_cmp(&b.3))
-        .map(|(entity, at, dialogue, _)| (entity, at, dialogue))
-    else {
+    let dead = || {
+        let (entity, at, talk, corpse) = corpses.get(under?).ok()?;
+        Some((
+            entity,
+            (at.translation(), corpse.level),
+            corpse_speech(talk),
+        ))
+    };
+    let Some((creature, (at, level), dialogue)) = living.or_else(dead) else {
         return;
     };
     aim.0 = true;

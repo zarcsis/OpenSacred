@@ -20,10 +20,6 @@ use crate::hero::{self, Body, Clips, GameSpeed};
 use crate::npcs::Dies;
 use crate::spawning::Rng;
 
-/// How near the cursor's line of sight a creature is picked, and the height of the part of it
-/// that picks, in world units (**hypothesis**: the original picks by the model's shape).
-pub(crate) const PICKED_WITHIN: f32 = 45.0;
-const PICKED_HEIGHT: f32 = 110.0;
 /// The blend into a strike's clip.
 const BLEND: Duration = Duration::from_millis(100);
 
@@ -116,22 +112,10 @@ pub struct Striking {
 #[derive(Resource)]
 struct Dice(Rng);
 
-/// The distance of `point`, or of the nearest of the points up to [`PICKED_HEIGHT`] over it, from
-/// the line of `ray`.
-pub(crate) fn from_line(ray: Ray3d, point: Vec3) -> f32 {
-    let direction = ray.direction.as_vec3();
-    (0..=4_u8)
-        .map(|step| {
-            let up = point + Vec3::Y * (PICKED_HEIGHT * f32::from(step) / 4.0);
-            (up - ray.origin).cross(direction).length()
-        })
-        .fold(f32::INFINITY, f32::min)
-}
-
-/// On a press of the left button, the hero's attack: a hostile creature alive under the cursor
-/// becomes its target, unless Alt is held over an item or its label, which comes first then
-/// (the pick's classes in the order 2, 1, 0, 3, `0x95F934`; `labels`); with Ctrl held it strikes
-/// at once, at the creature or in the air at the cursor; a press elsewhere ends the attack once
+/// On a press of the left button, the hero's attack: the hostile creature alive that the cursor
+/// picks (`under_cursor`, `0x626C50`) becomes its target, which with Alt held an item under the
+/// cursor comes before; with Ctrl held it strikes at once, at the creature or in the air at the
+/// cursor; a press elsewhere ends the attack once
 /// its strike ends, and steers the hero. On the button's release the attack ends with its strike,
 /// unless a click still asks for one.
 #[expect(
@@ -147,9 +131,9 @@ pub(crate) fn aim(
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     mut aim: ResMut<Aim>,
     // A creature of a dialogue is spoken to, hostile or not (`0x53A170`, `crate::talk`).
-    (creatures, items, labels): (
+    (creatures, under): (
         Query<
-            (Entity, &GlobalTransform, &Mind, &Health),
+            (&Mind, &Health),
             (
                 Without<Dies>,
                 Without<crate::npcs::Talk>,
@@ -157,8 +141,7 @@ pub(crate) fn aim(
                 Without<crate::riding::Ridden>,
             ),
         >,
-        Query<&GlobalTransform, With<crate::drops::Lying>>,
-        Res<crate::labels::Shown>,
+        Res<crate::under_cursor::UnderCursor>,
     ),
     mut heroes: Query<
         (
@@ -188,27 +171,11 @@ pub(crate) fn aim(
     let Ok(ray) = camera.viewport_to_world(view, cursor) else {
         return;
     };
-    let items_first = crate::labels::held(&keys)
-        && (labels.under(cursor).is_some()
-            || items
-                .iter()
-                .any(|at| from_line(ray, at.translation()) <= PICKED_WITHIN));
-    // A creature's label under the cursor picks it (`0x631CEB`).
-    let labelled = labels.labelled(cursor);
-    let picked = creatures
-        .iter()
-        .filter(|(_, _, mind, health)| !items_first && mind.hostile() && health.current > 0)
-        .map(|(entity, at, ..)| {
-            let distance = if labelled == Some(entity) {
-                0.0
-            } else {
-                from_line(ray, at.translation())
-            };
-            (entity, distance)
-        })
-        .filter(|&(_, distance)| distance <= PICKED_WITHIN)
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(entity, _)| entity);
+    let picked = under.0.filter(|&entity| {
+        creatures
+            .get(entity)
+            .is_ok_and(|(mind, health)| mind.hostile() && health.current > 0)
+    });
     let at_once = keys.pressed(crate::controls::Action::StrikeAtOnce);
     for (hero, transform, attack, playing) in &mut heroes {
         // Where the cursor's line of sight meets the hero's height: the air it strikes.
@@ -651,26 +618,5 @@ impl Plugin for AttackPlugin {
                     .in_set(Unpaused)
                     .in_set(Step::HeroMove),
             );
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_creature_is_picked_near_the_line_of_sight_up_to_its_height() {
-        let ray = Ray3d::new(Vec3::new(0.0, 1000.0, 0.0), Dir3::NEG_Y);
-        // Straight under the line, or under it by its height, it is on the line.
-        assert!(from_line(ray, Vec3::new(0.0, 0.0, 0.0)) < 1e-3);
-        // Beside it, by the distance.
-        assert!((from_line(ray, Vec3::new(30.0, 0.0, 0.0)) - 30.0).abs() < 1e-3);
-        // A slanted line meets the creature's head before its feet.
-        let slanted = Ray3d::new(
-            Vec3::new(0.0, 1000.0, 0.0),
-            Dir3::new(Vec3::new(1.0, -10.0, 0.0)).unwrap(),
-        );
-        let feet = Vec3::new(100.0 - PICKED_HEIGHT / 10.0, 0.0, 0.0);
-        assert!(from_line(slanted, feet) < 1.0);
     }
 }
