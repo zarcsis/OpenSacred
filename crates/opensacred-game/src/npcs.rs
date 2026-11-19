@@ -479,6 +479,9 @@ struct Placement {
     /// An object of an item's type that lies to be picked up as any lying item, not a quest's
     /// (`CreateObj` without [`QUEST_ITEM`], #1296).
     lies: bool,
+    /// The function that the taking of such an item runs, its `CreateObj`'s [`ON_TAKE`], as the
+    /// pick-up runs it whichever way the item goes (`0x558080`, #2891).
+    taking: Option<String>,
     /// An object's item only raised to its level, not made anew (`CreateObj`'s [`RAISED`],
     /// the scripts' own uniques; #1125).
     raised: bool,
@@ -704,11 +707,13 @@ fn takeable(item: &Item) -> bool {
 
 /// An item that a `CreateObj` of an item's type without [`QUEST_ITEM`] lays in the world, which the
 /// hero picks up as any lying item (seen in the original, #1296): its placement, which is not
-/// placed again once taken ([`Npcs::taken`]), and its `Use:` function ([`ON_USE`], #1272).
+/// placed again once taken ([`Npcs::taken`]), its `Use:` function ([`ON_USE`], #1272), and the
+/// function its taking runs ([`ON_TAKE`], `Take:`; seen in the original, #2891).
 #[derive(Component, Clone, Debug, PartialEq)]
 pub struct ScriptItem {
     pub index: usize,
     pub uses: Option<String>,
+    pub take: Option<String>,
 }
 
 /// A quest's item that a `CreateObj` of [`QUEST_ITEM`] lays in the world, which the hero picks up
@@ -1120,6 +1125,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         quest: None,
         key: None,
         lies: false,
+        taking: None,
         raised: false,
         container: None,
         uses: None,
@@ -3886,6 +3892,14 @@ impl Makers {
             lies: record.kind == CREATE_OBJ
                 && takeable(item)
                 && !ops.iter().any(|o| o.tag == QUEST_ITEM),
+            taking: (record.kind == CREATE_OBJ)
+                .then(|| {
+                    ops.iter().find_map(|o| match (o.tag, &o.value) {
+                        (ON_TAKE, Value::Str(name)) => Some(name.clone()),
+                        _ => None,
+                    })
+                })
+                .flatten(),
             raised: record.kind == CREATE_OBJ && ops.iter().any(|o| o.tag == RAISED),
             quest: (record.kind == CREATE_OBJ
                 && takeable(item)
@@ -5587,6 +5601,7 @@ fn place_index(
             ScriptItem {
                 index,
                 uses: placement.uses.clone(),
+                take: placement.taking.clone(),
             },
             drops::Lying {
                 dropped: laid.clone(),
@@ -14526,9 +14541,13 @@ mod tests {
         );
         assert!(plant.object);
         assert_eq!(plant.quest, Some(Some("od_15001".to_owned())));
-        // Without `0x8E` it is no quest's item lying, and a chest, which nobody picks up, none
-        // either.
-        assert_eq!(made(6001, std::slice::from_ref(&take)).quest, None);
+        // Without `0x8E` it is no quest's item lying, whose taking runs its function all the
+        // same (quest 10254's note, #2891), and a chest, which nobody picks up, none either.
+        let note = made(6001, std::slice::from_ref(&take));
+        assert_eq!(note.quest, None);
+        assert!(note.lies);
+        assert_eq!(note.taking.as_deref(), Some("od_15001"));
+        assert_eq!(made(6001, &[]).taking, None);
         assert_eq!(
             made(5218, &[take, op(QUEST_ITEM, Value::Marker)]).quest,
             None

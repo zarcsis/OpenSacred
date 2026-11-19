@@ -1,16 +1,17 @@
 //! `ui` subcommand: the loading and save screens of `PAK/*.bmp` → PNG, the four menus' pictures,
-//! each assembled from its twelve tiles of `texture.pak` (#1824, #2634), the fonts of `font/` and
-//! the credits → `<out>/ui/` (docs/02 §11), the credits as UTF-8 with LF line ends (#835).
+//! each assembled from its twelve tiles of `texture.pak` (#1824, #2634), `InfoPlayer`'s three
+//! pictures of `Sacred.exe`'s resources (#2891), the fonts of `font/` and the credits →
+//! `<out>/ui/` (docs/02 §11), the credits as UTF-8 with LF line ends (#835).
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, ensure};
-use opensacred_formats::bmp;
 use opensacred_formats::tex::{TexPak, Texture};
+use opensacred_formats::{bmp, pe};
 
 use crate::textures::encode_png;
-use crate::verify::read_game_file;
+use crate::verify::{read_game_file, read_reference_file};
 
 /// The screens, fonts and texts, as the manifest names them.
 pub const SCREENS: [&str; 6] = [
@@ -40,6 +41,11 @@ const MENU_SIDE: u32 = 256;
 const MENU_COLUMNS: u32 = 4;
 const MENU_COUNT: usize = 12;
 pub const MENU_PICTURE: &str = "mainmenu.png";
+/// `InfoPlayer`'s pictures of the mode 10: each picture's file, named as the scripts name it, and
+/// the number of the bitmap of `Sacred.exe`'s resources that `0x4AE350` loads for that name
+/// (`LoadImageA`, docs/re/netscript.md, "Other records"; #2891).
+pub const EXE_PICTURES: [(&str, u32); 3] =
+    [("witz1.png", 125), ("witz2.png", 124), ("witz3.png", 126)];
 pub const CREDITS: [&str; 2] = ["credits.txt", "credits2.txt"];
 /// The screens and texts that `Sacred.exe` never names, which `build` leaves out of the game's
 /// assets (#2650): the loading screens other than `LOADING0.BMP`, which it would show only from a
@@ -107,6 +113,21 @@ pub fn convert(game_dir: &Path, out: &Path) -> Result<Summary> {
         let file = dir.join("screens").join(name);
         fs::write(&file, encode_png(width, height, &rgba)?)
             .with_context(|| format!("writing {}", file.display()))?;
+        summary.screens += 1;
+    }
+    let exe = read_reference_file(game_dir, "Sacred.exe")?;
+    let image = pe::Image::parse(&exe).context("Sacred.exe")?;
+    for (name, number) in EXE_PICTURES {
+        let bitmap = image
+            .resource(pe::BITMAP, number)
+            .and_then(bmp::decode_dib)
+            .with_context(|| format!("Sacred.exe's bitmap {number}"))?;
+        let file = dir.join("screens").join(name);
+        fs::write(
+            &file,
+            encode_png(bitmap.width, bitmap.height, &bitmap.rgba)?,
+        )
+        .with_context(|| format!("writing {}", file.display()))?;
         summary.screens += 1;
     }
     for (paths, sub, count, text) in [
@@ -295,7 +316,30 @@ mod tests {
         let game = opensacred_locate::original();
         let out = scratch_dir("ui");
         let summary = convert(&game, &out).unwrap();
-        assert_eq!((summary.screens, summary.fonts, summary.texts), (10, 2, 2));
+        assert_eq!((summary.screens, summary.fonts, summary.texts), (13, 2, 2));
+        // `InfoPlayer`'s three pictures, each as FFmpeg decodes its bitmap of `Sacred.exe` once
+        // a file's header is put before it, its pixels after its palette (#2891).
+        let exe = read_game_file(&game.join("Sacred.exe")).unwrap();
+        let image = pe::Image::parse(&exe).unwrap();
+        for (name, number) in EXE_PICTURES {
+            let dib = image.resource(pe::BITMAP, number).unwrap();
+            let used = u32::from_le_bytes(dib[32..36].try_into().unwrap());
+            let pixels_at = 14 + 40 + 4 * used;
+            let size = u32::try_from(14 + dib.len()).unwrap();
+            let mut file = b"BM".to_vec();
+            for word in [size, 0, pixels_at] {
+                file.extend_from_slice(&word.to_le_bytes());
+            }
+            file.extend_from_slice(dib);
+            let args = [
+                "-f", "bmp_pipe", "-i", "pipe:0", "-f", "rawvideo", "-pix_fmt", "rgba", "pipe:1",
+            ];
+            let reference = ffmpeg::pipe(&args, &file, name).unwrap();
+            let png = fs::read(output_dir(&out).join("screens").join(name)).unwrap();
+            let (width, height, pixels) = read_png_bytes(&png);
+            assert_eq!((width, height), (1024, 768), "{name}");
+            assert!(pixels == reference, "{name}");
+        }
         // The menus' pictures: each tile as `textures` writes it, at its place (#1824, #2634).
         let tiles = scratch_dir("ui-tiles");
         crate::textures::convert_pak(&game.join(MENU_TILES), &tiles).unwrap();

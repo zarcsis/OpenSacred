@@ -205,8 +205,8 @@ enum Command {
         )]
         out: PathBuf,
     },
-    /// Convert the loading and save screens (BMP to PNG), the menus' pictures, the fonts and the
-    /// credits into <ASSETS_SRC>/ui/
+    /// Convert the loading and save screens (BMP to PNG), the menus' pictures, the three pictures
+    /// of Sacred.exe, the fonts and the credits into <ASSETS_SRC>/ui/
     Ui {
         /// Game installation directory
         #[arg(long, default_value = "OriginalGame")]

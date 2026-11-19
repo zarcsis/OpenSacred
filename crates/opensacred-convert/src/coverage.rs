@@ -54,7 +54,7 @@ const RULES: &[(&str, Status)] = &[
     (
         "Sacred.exe",
         Status::Development(
-            "the original program: the oracle, its runs under Frida, Ghidra; `sound` reads its sound names, `tables` its tables",
+            "the original program: the oracle, its runs under Frida, Ghidra; `sound` reads its sound names, `tables` its tables, `ui` three pictures",
         ),
     ),
     (

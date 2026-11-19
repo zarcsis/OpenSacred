@@ -336,6 +336,12 @@ pub struct TakenForQuest {
 #[derive(Message, Clone, Copy, Debug)]
 pub struct TakenPlaced(pub usize);
 
+/// The function of its taking that an item the scripts laid, no quest's, names, which `scripts`
+/// runs as the hero takes the item (`Take:`; the pick-up, `0x558080`, runs it whichever way the
+/// item goes, into the backpack, the hand or onto the cursor; seen in the original, #2891).
+#[derive(Message, Clone, Debug)]
+pub struct TakenToRun(pub String);
+
 /// An item that the scripts give the hero straight among the main quest's items, its type
 /// (`CreateObj` of `0x61` or `0x62` without `0x8E`, `0x4868F6`; #1256).
 #[derive(Message, Clone, Copy, Debug)]
@@ -650,6 +656,7 @@ pub(crate) struct Taking<'w, 's> {
         ),
     >,
     placed: MessageWriter<'w, TakenPlaced>,
+    to_run: MessageWriter<'w, TakenToRun>,
     for_quest: MessageWriter<'w, TakenForQuest>,
     tables: Option<Res<'w, crate::drops::Tables>>,
     shown: Option<Res<'w, crate::inventory::Shown>>,
@@ -789,9 +796,13 @@ impl Taking<'_, '_> {
                 }
             }
         }
-        // A `CreateObj`'s item taken is not laid again as its sector comes back (#1296).
+        // A `CreateObj`'s item taken is not laid again as its sector comes back (#1296), and its
+        // taking's function runs (#2891).
         if let Some(script_item) = script_item {
             self.placed.write(TakenPlaced(script_item.index));
+            if let Some(take) = &script_item.take {
+                self.to_run.write(TakenToRun(take.clone()));
+            }
         }
         self.commands.entity(item).despawn();
     }
@@ -1436,6 +1447,7 @@ impl Plugin for PickupPlugin {
             .add_message::<Taken>()
             .add_message::<TakenForQuest>()
             .add_message::<TakenPlaced>()
+            .add_message::<TakenToRun>()
             .add_message::<Given>()
             .add_systems(OnEnter(AppState::InGame), start)
             .add_systems(

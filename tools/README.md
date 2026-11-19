@@ -126,6 +126,7 @@ uv run python -I tools/game/remote.py --port 15703 exec quit
 | `analysis/formats/mixed_dump.py` | formats | `items.pak` (types, sprites, names) and `mixed.pak` (the sprites of the statics as pieces of atlases): layout checks on every record, per-record tables for the Rust readers; `--alpha` checks the sprites' texels against their size; `--assembled DIR` assembles every sprite and compares it with the converter's images (#838) |
 | `analysis/formats/bin_tables_dump.py` | formats | the data tables of `bin/`, with the tables after the balance image (the drops' weights, the quality pass's values, the effects' chance parameters; #413; the items' lists and the regions, #1574): layouts checked to the last byte, a fingerprint per file for the Rust reader |
 | `analysis/formats/arts_dump.py` | formats | the combat arts' two tables compiled into `Sacred.exe`, the spells and the weapon arts (#505): the executable checked against the manifest, checks on every record, per-record rows with every field for the Rust reader |
+| `analysis/formats/exe_bitmaps.py` | formats | the bitmaps of `Sacred.exe`'s resources: each one's number, language, size, header and the CRC-32 of its pixels decoded by Pillow, for the Rust readers `pe::Image::resource` and `bmp::decode_dib` (#2891); `--out` writes them as PNG |
 | `analysis/formats/tables_dump.py` | formats | the fixed-record tables `Creature.pak`, `Weapon.pak`, `MOTIONS.PAK`, `Triggers.PAK` and the overlay `Items03.pak`: checks on every record, per-record rows for the Rust readers |
 | `analysis/scripts/netscript_census.py` | scripts | census of NetScript record types across all directories |
 | `analysis/scripts/kwtab.py` | scripts | keyword tables of the script compiler in the client's `.data` |
@@ -153,6 +154,7 @@ uv run python -I tools/game/remote.py --port 15703 exec quit
 | `amh_dump.py` | 8 templates, 64 sections: 40 compressed, 24 stored; with `--saves` on a clean installation 10 files, 80 sections; 46 items, 32 of them in the backpacks, 19 combat arts; every check passes (docs/02, §9) |
 | `bin_tables_dump.py` | 12 files of `bin/` read to the last byte (docs/02, §6.3) |
 | `arts_dump.py` | 70 spells and 94 weapon arts, every check passes (docs/02, §6.5) |
+| `exe_bitmaps.py` | 7 bitmaps: 102, 103, 112, 113 of 813 × 35 and 24 bits, 124 to 126 of 1024 × 768 and 8 bits (docs/02, §11) |
 | `tables_dump.py` | 474 creatures (flags within six bits), 4,883 weapons, 3,423 motion parameter blocks, 1,246 of 2,268 triggers, one overlay item (slot 3999); every check passes (docs/02, §5.5, §6) |
 | `netscript_dump.py` | 2,203,278 records in 51 non-empty files; every record consumes its body exactly with the 40-handler tag table, but the 11 type-50 records whose last tag 0x2A has no payload; 135 record types named (docs/02, §7) |
 
