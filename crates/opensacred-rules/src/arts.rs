@@ -540,11 +540,18 @@ impl Bolt {
     pub fn goes(self) -> bool {
         self == Self::Railgun
     }
+
+    /// Whether its damages grow by its shooter's spells' multipliers, the stats' `+0x96` with
+    /// `+0xB6` (`fight::Combat::spells`, the railgun's), rather than its weapons', `+0x96` with
+    /// `+0xA6` (`fight::Combat::multipliers`, the BFG's; `0x4D2310`).
+    pub fn spells(self) -> bool {
+        self == Self::Railgun
+    }
 }
 
 /// The damages that a bolt of the first table's record `spell` deals, its shooter's effect of the
-/// whole value `level` and its shooter's damage multipliers `multipliers`
-/// (`fight::Combat::multipliers`, `0x4D2310`): each kind's `base + step·L` times its multiplier,
+/// whole value `level` and its shooter's damage multipliers `multipliers` (its spells' or its
+/// weapons', [`Bolt::spells`]; `0x4D2310`): each kind's `base + step·L` times its multiplier,
 /// truncated and held at 65,534; the shooter's spell factor, 1 for a hero (`0x56A800`), is left
 /// out.
 pub fn bolt_damages(spell: &Spell, level: i32, multipliers: [f32; 4]) -> [f32; 4] {

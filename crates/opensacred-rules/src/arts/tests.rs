@@ -2051,6 +2051,9 @@ fn her_shots_are_bolts_while_their_effects_hold() {
     assert_eq!(Bolt::of(true, false, None), Some(Bolt::Bfg));
     assert_eq!(Bolt::of(true, false, Some(200.0)), None);
     assert_eq!(Bolt::of(false, false, Some(500.0)), None);
+    // The railgun's damages by the spells' multipliers, the BFG's by the weapons'.
+    assert!(Bolt::Railgun.spells());
+    assert!(!Bolt::Bfg.spells());
     assert_eq!(
         (
             Bolt::Railgun.count(),
