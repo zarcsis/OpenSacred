@@ -967,8 +967,8 @@ struct Meteor {
     lands: f32,
 }
 
-/// The Mage's chain lightning: its caster, the creature it struck last, the strikes left, its
-/// damages, its level, and how long until it leaps on.
+/// A chain lightning, the Mage's or a creature's: its caster, the one it struck last, the strikes
+/// left, its damages, its level, and how long until it leaps on.
 #[derive(Component, Debug, Clone)]
 struct Chain {
     caster: Entity,
@@ -1914,18 +1914,13 @@ fn act(
                     ward: true,
                 });
                 // Its bolt from his hand to the target's, as its system's (`chain_bolts`).
-                crate::chain_bolts::bolt(&mut commands, act.caster, act.target);
-                commands.spawn((
-                    Chain {
-                        caster: act.caster,
-                        last: act.target,
-                        left: spells::value(record, 0, act.level).saturating_sub(1),
-                        damages,
-                        level: body.level(),
-                        leaps: spells::CHAIN_LEAPS,
-                    },
-                    DespawnOnExit(AppState::InGame),
-                ));
+                chain_lightning(
+                    &mut commands,
+                    (act.caster, act.target),
+                    spells::value(record, 0, act.level),
+                    damages,
+                    body.level(),
+                );
             }
             spells::SPIRAL => {
                 let damages = bolt_damages(record, level, multipliers);
@@ -3205,9 +3200,35 @@ fn meteor(
     }
 }
 
-/// Leaps each chain lightning on, after its wait, to the nearest creature hostile to the hero
-/// within its look of the last it struck, the last aside, striking it, while strikes are left
-/// (`0x5B46CA`).
+/// Starts the chain lightning of `caster`, the hero's or a creature's (#2900), whose first strike
+/// has struck `target`: its bolt from the caster to the target (`chain_bolts`), and its leaps
+/// after it, `strikes` in all with the first, of `damages`, on the level `level` (`0x526CAA`).
+pub(crate) fn chain_lightning(
+    commands: &mut Commands,
+    (caster, target): (Entity, Entity),
+    strikes: u32,
+    damages: [f32; 4],
+    level: Level,
+) {
+    crate::chain_bolts::bolt(commands, caster, target);
+    commands.spawn((
+        Chain {
+            caster,
+            last: target,
+            left: strikes.saturating_sub(1),
+            damages,
+            level,
+            leaps: spells::CHAIN_LEAPS,
+        },
+        DespawnOnExit(AppState::InGame),
+    ));
+}
+
+/// Leaps each chain lightning on, after its wait, to the nearest of its caster's foes within its
+/// look of the last it struck, the last aside, striking it, while strikes are left (`0x5B46CA`):
+/// the hero's, the creatures hostile to the hero; a creature's, the creatures hostile to it and
+/// the hero where it is hostile to the hero (`0x548F30`, #2900), so that it may come back to the
+/// hero from a follower of hers; a creature's whose caster is gone ends.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their filters"
@@ -3220,7 +3241,8 @@ fn chain(
         (Entity, &GlobalTransform, &InTheWay, &ai::Mind, &Health),
         (Without<Body>, Without<Dies>),
     >,
-    places: Query<&GlobalTransform>,
+    heroes: Query<(Entity, &GlobalTransform, &Body, &Health)>,
+    (minds, places): (Query<&ai::Mind>, Query<&GlobalTransform>),
     mut hits: MessageWriter<fight::Hit>,
 ) {
     let dt = time.delta_secs();
@@ -3233,21 +3255,38 @@ fn chain(
             commands.entity(entity).despawn();
             continue;
         };
-        let next = creatures
+        let by_hero = heroes.contains(chain.caster);
+        let caster = minds.get(chain.caster).ok();
+        if !by_hero && caster.is_none() {
+            commands.entity(entity).despawn();
+            continue;
+        }
+        let near = |at: &GlobalTransform| {
+            let d = (at.translation() - from).xz().length();
+            (d < spells::CHAIN_LOOKS).then_some(d)
+        };
+        let foes = creatures
             .iter()
-            .filter(|(target, at, way, mind, health)| {
+            .filter(|(target, _, way, mind, health)| {
                 *target != chain.last
+                    && *target != chain.caster
                     && way.creature
                     && way.level == chain.level
-                    && mind.hostile()
                     && health.current > 0
-                    && (at.translation() - from).xz().length() < spells::CHAIN_LOOKS
+                    && caster.map_or_else(|| mind.hostile(), |caster| caster.hostile_to(mind))
             })
-            .min_by(|a, b| {
-                let d = |at: &GlobalTransform| (at.translation() - from).xz().length();
-                d(a.1).total_cmp(&d(b.1))
-            });
-        let Some((target, ..)) = (chain.left > 0).then_some(next).flatten() else {
+            .filter_map(|(target, at, ..)| Some((target, near(at)?)));
+        let hero = heroes
+            .iter()
+            .filter(|(hero, _, body, health)| {
+                *hero != chain.last
+                    && caster.is_some_and(|caster| caster.hostile())
+                    && body.level() == chain.level
+                    && health.current > 0
+            })
+            .filter_map(|(hero, at, ..)| Some((hero, near(at)?)));
+        let next = foes.chain(hero).min_by(|a, b| a.1.total_cmp(&b.1));
+        let Some((target, _)) = (chain.left > 0).then_some(next).flatten() else {
             commands.entity(entity).despawn();
             continue;
         };
@@ -3765,5 +3804,106 @@ impl Plugin for SpellsPlugin {
                     .after(Step::Npcs)
                     .in_set(Playing),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use bevy::time::TimeUpdateStrategy;
+    use opensacred_rules::ways;
+
+    use super::*;
+
+    #[derive(Resource, Default)]
+    struct Struck(Vec<Entity>);
+
+    fn collect(mut hits: MessageReader<fight::Hit>, mut struck: ResMut<Struck>) {
+        struck.0.extend(hits.read().map(|hit| hit.target));
+    }
+
+    #[test]
+    fn a_creatures_chain_lightning_leaps_between_the_hero_and_her_follower() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+                50,
+            )))
+            .init_resource::<Struck>()
+            .add_message::<fight::Hit>()
+            .add_systems(Update, (chain, collect).chain());
+        let health = Health {
+            current: 50,
+            most: 50,
+            level: 1,
+        };
+        let way = InTheWay {
+            stands: ways::InTheWay {
+                stops: true,
+                hostile: false,
+                creature: true,
+            },
+            level: None,
+        };
+        let mind = |creature, side| {
+            let mut mind = ai::Mind::new(
+                Vec3::ZERO,
+                0x1,
+                (false, false),
+                None,
+                [10.0, 20.0],
+                (creature, 10),
+            );
+            mind.side = side;
+            mind
+        };
+        let at = |x: f32| GlobalTransform::from_translation(Vec3::new(x, 0.0, 0.0));
+        // The god's child, of the monsters' side, beside the hero and a follower of hers of the
+        // townsfolk's; another monster beside her, which its chain leaves alone.
+        let caster = app
+            .world_mut()
+            .spawn((at(150.0), mind(145, 2), way, health))
+            .id();
+        let hero = app
+            .world_mut()
+            .spawn((at(0.0), crate::hero::Body::standing(), health))
+            .id();
+        let follower = app
+            .world_mut()
+            .spawn((at(100.0), mind(679, 3), way, health))
+            .id();
+        app.world_mut()
+            .spawn((at(-50.0), mind(145, 2), way, health));
+        // Its first strike on the hero, four left to leap.
+        app.world_mut().spawn(Chain {
+            caster,
+            last: hero,
+            left: 4,
+            damages: [1.0; 4],
+            level: None,
+            leaps: spells::CHAIN_LEAPS,
+        });
+        for _ in 0..30 {
+            app.update();
+        }
+        assert_eq!(
+            app.world().resource::<Struck>().0,
+            vec![follower, hero, follower, hero]
+        );
+        // Its caster gone, a chain ends.
+        app.world_mut().resource_mut::<Struck>().0.clear();
+        app.world_mut().entity_mut(caster).despawn();
+        app.world_mut().spawn(Chain {
+            caster,
+            last: hero,
+            left: 4,
+            damages: [1.0; 4],
+            level: None,
+            leaps: 0.0,
+        });
+        app.update();
+        app.update();
+        assert!(app.world().resource::<Struck>().0.is_empty());
     }
 }

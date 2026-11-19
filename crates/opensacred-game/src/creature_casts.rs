@@ -15,7 +15,8 @@
 //! friends; the black magicians' raising of a dead monster, Anducar's demon's rings of flames
 //! ([`Flame`]) and the terror sprinter mage's aura ([`SprintersAura`]); the casters of marks of
 //! their own: the ice elf's holy light and holy shield, the ice druid's blades of light, the god's
-//! child's chain lightning, Anducar's guard's homing fire and the demon prince's fan of flames;
+//! child's chain lightning, leaping as the hero's (`spells::chain_lightning`, #2900), Anducar's
+//! guard's homing fire and the demon prince's fan of flames;
 //! the magicians' summon ([`Summoning`], #1869); and the pseudo-spells of what a creature makes of
 //! its own: the medium spider's shot (#2067), the dragons' breath of fire (`dragon_fires`), the
 //! giant spider's, the crab queen's and the flowers' spit (`spits`), the flowers' leap (#2231) and
@@ -658,10 +659,12 @@ fn act(
                     .and_modify(move |mut effects| effects.add(effect, seconds));
             }
             casts::CHAIN => {
-                // Its first strike on its target at once (`0x526CAA`); its leaps are not followed.
-                let Ok(place) = target else {
+                // Its first strike on its target at once, its bolt to it, and its leaps on to the
+                // creatures hostile to the caster and back to the hero (`0x526CAA`, `0x5B46CA`;
+                // #2900), `min(2 + L, 8)` strikes in all.
+                if target.is_err() {
                     continue;
-                };
+                }
                 hits.write(crate::fight::Hit {
                     attacker: entity,
                     target: cast.target,
@@ -673,7 +676,13 @@ fn act(
                     poison: false,
                     ward: true,
                 });
-                crate::lightning_strikes::strike(&mut commands, place, false);
+                crate::spells::chain_lightning(
+                    &mut commands,
+                    (entity, cast.target),
+                    spells::value(record, 0, level),
+                    damages,
+                    way.level,
+                );
             }
             casts::GUARDS_FIRE => {
                 // The guard's fire charging at its hand, then homing (`0x528E97`), and its sound
