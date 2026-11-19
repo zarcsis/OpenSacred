@@ -2814,8 +2814,17 @@ fn whole_signed(value: f32) -> i32 {
 /// its items' and sets' bonus ([`skill_bonuses`]), as the skills' parts of the recomputation and
 /// the statistics window take them (`0x566070`, `0x582450`), at most 255.
 pub fn hero_skills(base: &Base, level: u32, holds: &Holds) -> Vec<(u8, u32)> {
+    skills_held(base, level, true, holds)
+}
+
+/// [`skills`] of a creature of `base` at level `level`, a hero or not (`hero`), that holds and
+/// wears what `holds` holds: each skill at its level and its items' and sets' bonus
+/// ([`skill_bonuses`]), at most 255, as `0x582450` reads a creature's level in a skill, its
+/// slot's base and its bonus (a follower's test of an item and of its second weapon, its fight;
+/// #2948).
+pub fn skills_held(base: &Base, level: u32, hero: bool, holds: &Holds) -> Vec<(u8, u32)> {
     let bonuses = skill_bonuses(base, level, holds);
-    skills(base, level, true)
+    skills(base, level, hero)
         .into_iter()
         .map(|(skill, at)| {
             let bonus = base
