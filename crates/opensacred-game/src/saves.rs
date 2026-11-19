@@ -86,8 +86,8 @@ use crate::{arts, drops, making};
 /// (#2799); the version 19 whether a follower rises again and how long one has lain dead to
 /// rise (#2947); the version 20 the creatures' queues and the scripts' modes (#2890); the version
 /// 21 the scripts' functions done by their files and keys (#2810); the version 22 the difficulty
-/// a made item was made on (#2807).
-pub const VERSION: u32 = 22;
+/// a made item was made on (#2807); the version 23 the stalls that purchases emptied (#2907).
+pub const VERSION: u32 = 23;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -176,6 +176,8 @@ pub struct World {
     pub sectors: Sectors,
     pub pin: Option<(Vec2, Vec2)>,
     pub weather: Option<opensacred_rules::weather::Weather>,
+    /// The stables' stalls that purchases emptied, until their traders fill them (#2907).
+    pub stalls: Vec<crate::stables::SavedStall>,
 }
 
 /// The saves' directory: `saves/` beside the settings' file, else in the configuration
@@ -494,6 +496,7 @@ fn world_of(world: &mut bevy::prelude::World) -> Result<World> {
             .unwrap_or_default(),
         pin: world.get_resource::<Map>().and_then(Map::pinned),
         weather,
+        stalls: crate::stables::saved_stalls(world),
     })
 }
 
@@ -689,6 +692,7 @@ fn restore_world(world: &mut bevy::prelude::World, kept: World) {
         sectors,
         pin,
         weather,
+        stalls,
     } = kept;
     world.insert_resource(stash);
     world.insert_resource(Wares(wares));
@@ -712,6 +716,7 @@ fn restore_world(world: &mut bevy::prelude::World, kept: World) {
         crate::npcs::mount_again(world, horse);
         crate::riding::bridle_again(world, bridle);
     }
+    crate::stables::stalls_again(world, stalls);
     info!("saves: the world is back");
 }
 
@@ -1235,7 +1240,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (22, 0xEA9D_70C2_760A_2433),
+            (23, 0xC35D_8964_F0C4_8CC3),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
