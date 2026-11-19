@@ -12832,6 +12832,15 @@ impl Arms {
             .collect()
     }
 
+    /// The type of the first item it wears of the category `category` (a horse's bridle in its
+    /// slot 1, #2907).
+    pub(crate) fn wears(&self, category: u8) -> Option<u32> {
+        self.worn
+            .iter()
+            .find(|&&(_, worn, _)| worn == category)
+            .map(|&(item, ..)| item)
+    }
+
     /// The values of every item it holds and wears, of those that have some, which the getter of
     /// the items' effects sums (`0x570ED0`, #2286).
     pub(crate) fn item_values(&self) -> Vec<fight::ItemValues> {
@@ -13016,6 +13025,17 @@ impl Rearms {
             takes: vec![(opensacred_rules::casts::DAGGER, Hand::Right, None)],
             disarmed: false,
             wears: Vec::new(),
+        }
+    }
+
+    /// A new item of the type `item` and the category `category` put on, made at its level, of no
+    /// model (a restocked horse's bridle, `0x538199`, #2907).
+    pub(crate) fn wearing(item: u32, category: u8) -> Self {
+        Self {
+            away: Vec::new(),
+            takes: Vec::new(),
+            disarmed: false,
+            wears: vec![(item, category, None)],
         }
     }
 

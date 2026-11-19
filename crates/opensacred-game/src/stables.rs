@@ -53,15 +53,68 @@ pub struct Stabled {
 }
 
 /// A stall that a purchase emptied, which its trader fills again (the stock's record,
-/// `0xAACF80 + 0x79E8`): its trader's name, its horse's creature type, class and place, and
-/// the horse bought from it.
+/// `0xAACF80 + 0x79E8`): its trader's name, its horse's creature type, class and place, the type
+/// of the gear in its slot 1 (its bridle), and the horse bought from it.
 #[derive(Clone, Debug, PartialEq)]
 struct Stall {
     trader: String,
     kind: u32,
     class: u8,
     place: Vec3,
+    gear: Option<u32>,
     horse: Entity,
+}
+
+/// A stall that a purchase emptied as a save keeps it (#2907): its horse the hero's own where it
+/// was at the save, which a load takes back; else none, as gone.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedStall {
+    trader: String,
+    kind: u32,
+    class: u8,
+    place: [f32; 3],
+    gear: Option<u32>,
+    owned: bool,
+}
+
+/// The stalls that purchases emptied, as a save keeps them.
+pub(crate) fn saved_stalls(world: &World) -> Vec<SavedStall> {
+    let owned = world.get_resource::<Owned>().and_then(|owned| owned.0);
+    world
+        .get_resource::<Emptied>()
+        .map(|emptied| {
+            emptied
+                .0
+                .iter()
+                .map(|stall| SavedStall {
+                    trader: stall.trader.clone(),
+                    kind: stall.kind,
+                    class: stall.class,
+                    place: stall.place.to_array(),
+                    gear: stall.gear,
+                    owned: owned == Some(stall.horse),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A loaded save's emptied stalls again, after the hero's own horse is back: a stall's horse the
+/// hero's own where it was so, else none, which its trader fills again as for a horse gone.
+pub(crate) fn stalls_again(world: &mut World, saved: Vec<SavedStall>) {
+    let owned = world.get_resource::<Owned>().and_then(|owned| owned.0);
+    let stalls = saved
+        .into_iter()
+        .map(|stall| Stall {
+            trader: stall.trader,
+            kind: stall.kind,
+            class: stall.class,
+            place: Vec3::from_array(stall.place),
+            gear: stall.gear,
+            horse: owned.filter(|_| stall.owned).unwrap_or(Entity::PLACEHOLDER),
+        })
+        .collect();
+    world.insert_resource(Emptied(stalls));
 }
 
 /// The stalls that purchases emptied, until their traders fill them.
@@ -774,6 +827,9 @@ fn buy(world: &mut World, opened: &Opened) {
             kind: entity.get::<Mind>()?.creature,
             class: entity.get::<Horse>()?.class,
             place: entity.get::<Transform>()?.translation,
+            gear: entity
+                .get::<crate::npcs::Arms>()
+                .and_then(|arms| arms.wears(crate::riding::BRIDLES)),
             horse,
         })
     });
@@ -869,9 +925,10 @@ fn sell(world: &mut World, opened: &Opened) {
 /// `0x538199`–`0x53867D`), at a tick of the world, where its trader is in the world and the
 /// horse bought is gone or dead or stands [`STALL_LEFT`] or more from it: a new horse of its type
 /// at its place, of its class, its level the hero's held within the sector's
-/// (`Npcs::restock_level`, `0x537270`), its trader's stock. A horse sold back joins no stall, as
-/// the original's joins no record. Not followed: the new horse's gear (its slot 1's item) and
-/// gold; the stalls are not saved.
+/// (`Npcs::restock_level`, `0x537270`), its trader's stock, with a new item of the stall's gear
+/// put on (its slot 1's, a bridle, #2907). A horse sold back joins no stall, as the original's
+/// joins no record. Not followed: the new horse's gold, which nothing read reads; the stalls
+/// are saved ([`SavedStall`]).
 fn restock(world: &mut World) {
     if world
         .get_resource::<crate::frame::WorldTick>()
@@ -931,6 +988,11 @@ fn restock(world: &mut World) {
                             trader: stall.trader.clone(),
                         },
                     ));
+                    if let Some(gear) = stall.gear {
+                        world
+                            .entity_mut(horse)
+                            .insert(crate::npcs::Rearms::wearing(gear, crate::riding::BRIDLES));
+                    }
                     info!(
                         "stables: {} fills its stall with {horse} of level {level}",
                         stall.trader
@@ -985,6 +1047,37 @@ impl Plugin for StablesPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_save_keeps_the_emptied_stalls_and_their_horse_if_the_heros_own() {
+        let mut world = World::new();
+        let own = world.spawn_empty().id();
+        let other = world.spawn_empty().id();
+        world.insert_resource(Owned(Some(own)));
+        let stall = |horse, trader: &str| Stall {
+            trader: trader.to_owned(),
+            kind: 590,
+            class: 2,
+            place: Vec3::new(10.0, 0.0, 20.0),
+            gear: Some(4100),
+            horse,
+        };
+        world.insert_resource(Emptied(vec![stall(own, "Rodric"), stall(other, "Ilsa")]));
+        let saved = saved_stalls(&world);
+        assert_eq!(
+            saved.iter().map(|stall| stall.owned).collect::<Vec<_>>(),
+            [true, false]
+        );
+        // At a load the own horse is another entity; the other horse is gone.
+        let mut loaded = World::new();
+        let again = loaded.spawn_empty().id();
+        loaded.insert_resource(Owned(Some(again)));
+        stalls_again(&mut loaded, saved);
+        let stalls = &loaded.resource::<Emptied>().0;
+        assert_eq!(stalls[0], stall(again, "Rodric"));
+        assert_eq!(stalls[1].horse, Entity::PLACEHOLDER);
+        assert_eq!(stalls[1].gear, Some(4100));
+    }
 
     /// A world of the hero of the type `kind` before the horse of quest 602's knight, the knight
     /// a horse trader by `trades`; and the horse.
