@@ -32,8 +32,9 @@ pub fn cell_of(x: f32, z: f32) -> Cell {
 /// `at` on `level`: on the ground, the hero's own point where `asked` and its cell is free, else
 /// the first of twelve points 60 from it whose cell is free and to which a straight way of
 /// walkable cells leads, else the hero's own; on a floor, the hero's own. A cell is free where
-/// `crowd` has no creature but the hero standing in it (**estimate**: the original's test takes
-/// the first object of the cell, of any kind, `0x634AF0`'s `+8`).
+/// `crowd` has no creature but the hero standing in it, where the original's test takes the first
+/// object of the cell, of any kind (`0x634AF0`'s `+8`; docs/decisions/netscript.md, "Places at the
+/// hero freed of creatures alone").
 pub fn about_hero(
     (hero, at, level): (bevy::prelude::Entity, Vec3, crate::terrain::Level),
     (heights, crowd): (&crate::terrain::Heights, Option<&crate::crowd::Crowd>),
