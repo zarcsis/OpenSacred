@@ -372,8 +372,8 @@ fn engage(
             opensacred_rules::arts::quickened(combat.speed, frenzy.map_or(0.0, |frenzy| frenzy.0))
                 / 100.0
         });
-        // A shot of bolts at its own rate (`0x4DCB80`).
-        let rate = |bolt: Option<Bolt>| bolt.map_or(attack_speed, Bolt::rate);
+        // A shot of bolts at its own rate by the attack speed (`0x4DCB80`).
+        let rate = |bolt: Option<Bolt>| bolt.map_or(attack_speed, |bolt| bolt.rate(attack_speed));
         let ticked = tick.seconds.is_some();
         let mut blend = BLEND;
         // Whether a strike starts at this frame whatever the AI's step: the next of a held button

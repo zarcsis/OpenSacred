@@ -2068,15 +2068,18 @@ fn her_shots_are_bolts_while_their_effects_hold() {
         (
             Bolt::Railgun.count(),
             Bolt::Railgun.flight(),
-            Bolt::Railgun.rate()
+            Bolt::Railgun.rate(1.4)
         ),
         (2, (400.0, 2.0), 1.0)
     );
     assert_eq!(
-        (Bolt::Bfg.count(), Bolt::Bfg.flight(), Bolt::Bfg.rate()),
+        (Bolt::Bfg.count(), Bolt::Bfg.flight(), Bolt::Bfg.rate(1.0)),
         (1, (200.0, 3.0), 1.5)
     );
+    // Seen: the ice druid of the attack speed 140 plays its BFG's shot at 2.1.
+    assert!((Bolt::Bfg.rate(1.4) - 2.1).abs() < 1e-6);
     assert!(Bolt::Railgun.goes() && !Bolt::Bfg.goes());
+    assert_eq!((Bolt::Railgun.slot(), Bolt::Bfg.slot()), (164, 145));
     // The first table's 51 and 8 of GOG 2.28: 5 + 3·L physical and 6 + 4·L magic, 30 + 20·L
     // physical.
     let mut railgun = spell(51, [0, 0], 0);

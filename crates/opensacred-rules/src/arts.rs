@@ -527,12 +527,22 @@ impl Bolt {
         }
     }
 
-    /// The rate its shot plays at (`0x4DCB80`): the railgun's slot 164 at 1.0, the BFG's slot 145
-    /// at 1.5 times its own.
-    pub fn rate(self) -> f32 {
+    /// The slot of its shot's clip on foot (`0x4DCB80`; mounted 169): the railgun's 164, the BFG's
+    /// 145.
+    pub fn slot(self) -> u16 {
+        match self {
+            Self::Railgun => 164,
+            Self::Bfg => 145,
+        }
+    }
+
+    /// The rate its shot plays at by its shooter's `attack`, its attack speed over 100 times its
+    /// chain (`+0x210`; `0x4DCB80` at `0x4DCCF7`–`0x4DCDB2`): the railgun's slot 164 at 1.0, the
+    /// BFG's slot 145 at 1.5 times `attack`.
+    pub fn rate(self, attack: f32) -> f32 {
         match self {
             Self::Railgun => 1.0,
-            Self::Bfg => 1.5,
+            Self::Bfg => 1.5 * attack,
         }
     }
 
@@ -1232,7 +1242,8 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         (2, Style::Boon) => Some(plain(151)),
         (2, Style::Glance) => Some(plain(150)),
         // The Seraphim's 1018 the slot 149 at the blend 0.5 and the rate 1.0 (`0x5038F0` at
-        // `0x506017`; 154 mounted), and her 1019 the slot 152 so (at `0x506137`).
+        // `0x506017`), and her 1019 the slot 152 so (at `0x506137`); the ice druid's both 154
+        // (`casts::ice_druids_slot`).
         (1, Style::Boon) => Some(plain(149)),
         (1, Style::Bolts) => Some(plain(152)),
         (6, Style::Rundum) => Some(slot(if class == 8 { 225 } else { 221 })),

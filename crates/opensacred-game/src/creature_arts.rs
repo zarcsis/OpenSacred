@@ -1,7 +1,13 @@
 //! The heroes' weapon arts that the fight's specials order creatures to make (#2564; docs/re/ai.md,
 //! "The Underworld's bosses' specials"): the ice elf champion's `Attacke` and `Hardhit` of the
-//! Dark Elf (1067, 1066), the hell golems' `Attacke` of the Gladiator (1059) and the queens'
-//! of the mark `0x217` (1067).
+//! Dark Elf (1067, 1066), the hell golems' `Attacke` of the Gladiator (1059), the queens' of the
+//! mark `0x217` (1067), and the ice druid's BFG and energy bolts of the Seraphim (1018, 1019).
+//!
+//! The ice druid's arts (#2899, [`give`], [`at_range`]): its own clip, the slot 154, at the rate
+//! 1.0, the BFG's charge at its hand as it starts, and at the art's point the effect 16 or 17 of
+//! its level in play on itself, the energy bolts' sights at its hands with 17's, and the art
+//! ends; while either effect holds it fights at range as an archer, its shots its bolts
+//! (`npcs::Strikes::bolts`).
 //!
 //! The order (the AI's state 11, `0x4FD0F0`) takes the action of the arts of the hero whose
 //! executor the creature's type has (`opensacred_rules::casts::executor`, `0x5500D0`): its clip
@@ -45,17 +51,21 @@ pub struct Ordered {
 }
 
 /// A creature making a weapon art: its target, its style, its level in play and the factor its
-/// strikes carry, while its clip plays ([`ScriptClip::art`]).
+/// strikes carry, while its clip plays ([`ScriptClip::art`]), and what a boon gives it at its
+/// point ([`ScriptClip::boon`]).
 #[derive(Component, Debug)]
 pub struct Makes {
     target: Entity,
     style: Style,
     level: u32,
     factor: f32,
+    boon: Option<(u16, arts::Boon)>,
 }
 
 /// Starts each order: the class's slot of the art for what the creature holds, played once; an
-/// art the game cannot make so (a shot with a bow, a type of no executor) is dropped.
+/// art the game cannot make so (a shot with a bow, a type of no executor, a boon that takes
+/// effects off or gives them as it starts) is dropped. A boon's clip plays at its action's rate
+/// where that is fixed, the BFG's charge showing at the creature's hand as it starts.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's query takes its components one by one"
@@ -85,24 +95,49 @@ fn start(
             ArtClip::Slot(slot) => slot,
             ArtClip::Attack => crate::motions::Slots::attack_slot(class),
         };
+        // The ice druid's own clip of the Seraphim's arts (`0x506017`, `0x506137`).
+        let slot = casts::ice_druids_slot(mind.creature, order.art).unwrap_or(slot);
         let rank = rank.map_or(fight::Rank::Common, |rank| rank.0);
         let level = rules.creature_spell_level(mind.level, rank);
-        let factor = arts_tables
-            .as_deref()
-            .and_then(|tables| {
-                tables
-                    .tables
-                    .weapon_arts
-                    .iter()
-                    .find(|record| record.id == order.art)
-            })
-            .map_or(1.0, |record| {
-                arts::held_factor(arts::factor(record, level), class == 8)
-            });
+        let record = arts_tables.as_deref().and_then(|tables| {
+            tables
+                .tables
+                .weapon_arts
+                .iter()
+                .find(|record| record.id == order.art)
+        });
+        let factor = record.map_or(1.0, |record| {
+            arts::held_factor(arts::factor(record, level), class == 8)
+        });
+        // The Seraphim's 1018 and 1019 give their effects at their point (`0x5038F0`), as the
+        // hero's boons do.
+        let boon = match style {
+            Style::Boon | Style::Bolts => {
+                let Some(boon) = record
+                    .and_then(|record| arts::boon(record, level))
+                    .filter(|b| {
+                        b.clears.is_empty() && b.starts.is_empty() && b.replaces.is_empty()
+                    })
+                else {
+                    continue;
+                };
+                Some((order.art, boon))
+            }
+            _ => None,
+        };
         debug!(
             "creature_arts: {entity} makes {} at {} (the slot {slot}, the level {level})",
             order.art, order.target
         );
+        let clip = match &boon {
+            Some((_, boon)) => {
+                ScriptClip::boon(slot, action.fixed.then_some(action.rate), boon.point)
+            }
+            None => ScriptClip::art(slot, style == Style::Hardhit),
+        };
+        if order.art == casts::ICE_DRUIDS_BFG {
+            crate::sera_sights::charge_on(&mut commands, entity);
+        }
         commands
             .entity(entity)
             .remove::<(npcs::Walk, npcs::Strikes)>()
@@ -112,11 +147,82 @@ fn start(
                     style,
                     level,
                     factor,
+                    boon,
                 },
-                ScriptClip::art(slot, style == Style::Hardhit),
+                clip,
             ));
     }
 }
+
+/// Gives each creature whose boon's clip has passed its point the boon's effects, on itself
+/// (`0x582D50`), the energy bolts' sights at its hands with 1019's; the art ends with them where
+/// it does so, the Seraphim's 1018 and 1019 (`0x5038F0`, #2899).
+fn give(mut commands: Commands, makers: Query<(Entity, &Makes), With<npcs::ClipActs>>) {
+    for (entity, makes) in &makers {
+        let Some((art, boon)) = &makes.boon else {
+            continue;
+        };
+        debug!("creature_arts: {entity} takes {:?} of {art}", boon.effects);
+        let effects = boon.effects.clone();
+        commands
+            .entity(entity)
+            .remove::<npcs::ClipActs>()
+            .entry::<crate::effects::Effects>()
+            .or_default()
+            .and_modify(move |mut list| {
+                for (effect, seconds) in effects {
+                    list.add(effect, seconds);
+                }
+            });
+        if *art == casts::ICE_DRUIDS_BOLTS
+            && let Some(&(_, seconds)) = boon.effects.first()
+        {
+            crate::sera_sights::bolts(&mut commands, entity, seconds);
+        }
+        if boon.ends {
+            commands.entity(entity).remove::<(Makes, ScriptClip)>();
+        }
+    }
+}
+
+/// Makes each creature that holds the Seraphim's effect 16 or 17 fight at range as one with a
+/// ranged weapon does, its shots its bolts (`ai`, `npcs::Strikes::bolts`), and once neither
+/// holds, as its weapons have it (the AI's states 4 and 8 by `+0x200`'s bits `0x600000`,
+/// `0x4E03C1` and `0x4DC146`, #2899).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's query takes its components one by one"
+)]
+fn at_range(
+    mut commands: Commands,
+    mut creatures: Query<(
+        Entity,
+        &mut Mind,
+        Option<&crate::effects::Effects>,
+        Option<&npcs::Arms>,
+        Has<Bolted>,
+    )>,
+) {
+    for (entity, mut mind, effects, arms, bolted) in &mut creatures {
+        let bolts =
+            effects.is_some_and(|effects| effects.holds(arts::BFG) || effects.holds(arts::RAILGUN));
+        if bolts {
+            if !bolted {
+                commands.entity(entity).insert(Bolted);
+            }
+            if !mind.ranged {
+                mind.ranged = true;
+            }
+        } else if bolted {
+            commands.entity(entity).remove::<Bolted>();
+            mind.ranged = arms.is_some_and(npcs::Arms::ranged);
+        }
+    }
+}
+
+/// A creature that fights at range by the Seraphim's effect 16 or 17 ([`at_range`]).
+#[derive(Component, Debug)]
+struct Bolted;
 
 /// Each hit point of a creature's art's clip ([`ArtHit`]): an `Attacke` strikes its target
 /// within the two creatures' reach and 45, a `Hardhit` at its first, whatever the distance.
@@ -604,7 +710,7 @@ impl Plugin for CreatureArtsPlugin {
         app.insert_resource(DaggerDice(crate::seed::dice(2575)))
             .add_systems(
                 Update,
-                (start, strike, end)
+                (at_range, start, strike, give, end)
                     .chain()
                     .run_if(in_state(crate::game::AppState::InGame)),
             )
@@ -785,5 +891,71 @@ mod tests {
         assert!(app.world().get::<Volley>(thrower).is_none());
         assert!(app.world().get::<npcs::Rearms>(thrower).is_none());
         assert_eq!(app.world().resource::<Struck>().0.len(), 1);
+    }
+
+    #[test]
+    fn the_druids_energy_bolts_give_it_their_effect_at_their_point_and_take_it_to_range() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_systems(Update, (at_range, give).chain());
+        let effect = opensacred_rules::fight::Effect {
+            id: arts::RAILGUN,
+            whole: 3,
+            value: 0.0,
+            art: u32::from(casts::ICE_DRUIDS_BOLTS),
+            level: 0,
+        };
+        let boon = arts::Boon {
+            point: 0.65,
+            effects: vec![(effect, 31.0)],
+            clears: Vec::new(),
+            starts: Vec::new(),
+            replaces: Vec::new(),
+            ends: true,
+        };
+        let mind = Mind::new(
+            Vec3::ZERO,
+            0x1,
+            (false, false),
+            None,
+            [10.0, 20.0],
+            (141, 10),
+        );
+        let druid = app
+            .world_mut()
+            .spawn((
+                mind,
+                Makes {
+                    target: Entity::PLACEHOLDER,
+                    style: Style::Bolts,
+                    level: 3,
+                    factor: 1.0,
+                    boon: Some((casts::ICE_DRUIDS_BOLTS, boon)),
+                },
+                ScriptClip::boon(152, Some(1.0), 0.65),
+            ))
+            .id();
+        // Nothing before its clip passes its point.
+        app.update();
+        assert!(app.world().get::<crate::effects::Effects>(druid).is_none());
+        // Then the effect 17 on itself, and the art ends.
+        app.world_mut().entity_mut(druid).insert(npcs::ClipActs);
+        app.update();
+        let effects = app.world().get::<crate::effects::Effects>(druid).unwrap();
+        assert!(effects.holds(arts::RAILGUN));
+        assert!(app.world().get::<Makes>(druid).is_none());
+        assert!(app.world().get::<ScriptClip>(druid).is_none());
+        // While it holds, the druid fights at range, whatever turns it to melee.
+        app.update();
+        assert!(app.world().get::<Mind>(druid).unwrap().ranged);
+        app.world_mut().get_mut::<Mind>(druid).unwrap().ranged = false;
+        app.update();
+        assert!(app.world().get::<Mind>(druid).unwrap().ranged);
+        // Once it is gone, as its weapons have it: none in hand.
+        app.world_mut()
+            .entity_mut(druid)
+            .insert(crate::effects::Effects::default());
+        app.update();
+        assert!(!app.world().get::<Mind>(druid).unwrap().ranged);
     }
 }

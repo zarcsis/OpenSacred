@@ -1995,7 +1995,29 @@ impl Mind {
                 renew(self, rng.below(3));
                 casts(spell)
             }
-            OwnMark::IceDruid => casts::ice_druid_casts(d, reach, rng.below(3)).and_then(casts),
+            // Its band as a magician's; then nearer than five times its reach, by a roll of 1 in
+            // 3, its order of itself, the blades of light about itself or the Seraphim's art at
+            // the hero, after which it stands; else a stroll about its target, after whose start
+            // it stands 3 decisions (`0x4D7C31`–`0x4D7E55`, #2899). The stroll sets no gait,
+            // so that it goes at the one it has, a run in a fight (**hypothesis**).
+            OwnMark::IceDruid => {
+                if let Some(band) = self.keeps_mages_band(sight) {
+                    return Some(band);
+                }
+                if !casts::ice_druid_orders(d, reach, || rng.below(3)) {
+                    self.stands = casts::ICE_DRUID_STROLL_STANDS;
+                    return Some(Self::runs(target, casts::STROLL, rng));
+                }
+                let blades = rng.below(3);
+                match casts::ice_druid_order(blades, || rng.below(6)) {
+                    casts::DruidOrder::Blades => {
+                        self.stands = casts::ART_STANDS;
+                        self.cast_ordered = true;
+                        casts(casts::BLADES)
+                    }
+                    casts::DruidOrder::Art(art) => Some(self.ordered_art(art)),
+                }
+            }
             OwnMark::GodsChild => {
                 let roll = rng.below(3);
                 casts::gods_child_casts(d, reach, (roll, rng.below(4))).and_then(casts)
@@ -2015,6 +2037,27 @@ impl Mind {
             }
             OwnMark::PrincesGuard => None,
         }
+    }
+
+    /// A magician's band (the mark 8's at `0x4D6203`, the ice druid's alike at `0x4D7C3C`), this
+    /// decision counted: nearer than [`casts::MAGE_NEAR`] after a cast or farther than
+    /// [`casts::MAGE_FAR`] while its decisions stay below [`casts::MAGE_MOVES`], it faces its
+    /// target as it walks, else walks into its band where [`casts::band_walks`]; none where it
+    /// decides on.
+    fn keeps_mages_band(&mut self, sight: &Pursuit) -> Option<Pursues> {
+        let (here, target) = (sight.here, sight.hero);
+        let d = (target - here).length();
+        self.band_moves = self.band_moves.saturating_add(1);
+        if !casts::mage_leaves_band(d, self.cast_ordered, self.band_moves) {
+            return None;
+        }
+        if sight.walk.is_some() {
+            return Some(Pursues::Faces);
+        }
+        casts::band_walks(d, self.creature).then(|| {
+            self.banding = true;
+            Pursues::KeepsBand(target + (here - target).unit() * casts::BAND_POINT)
+        })
     }
 
     /// A magician's decision of the mark 8 (`0x4D5F33`; [`Self::cast`]), standing or on its own
@@ -2051,15 +2094,8 @@ impl Mind {
                 };
             }
         }
-        self.band_moves = self.band_moves.saturating_add(1);
-        if casts::mage_leaves_band(d, self.cast_ordered, self.band_moves) {
-            if sight.walk.is_some() {
-                return Pursues::Faces;
-            }
-            if casts::band_walks(d, creature) {
-                self.banding = true;
-                return Pursues::KeepsBand(target + (here - target).unit() * casts::BAND_POINT);
-            }
+        if let Some(band) = self.keeps_mages_band(sight) {
+            return band;
         }
         // The dryad druid blinks about its target where it fights it, and sets thorns there
         // (`0x4D6350`): it decides again 2 s after.
@@ -4852,6 +4888,97 @@ mod tests {
         );
         mind.fighting = true;
         mind
+    }
+
+    #[test]
+    fn the_ice_druid_keeps_its_band_orders_itself_and_strolls_about_its_target() {
+        use crate::spawning::Script;
+        let cast = CastSight {
+            at_hero: false,
+            ..hornets_cast(0, (0, false), false)
+        };
+        // A hero of the size by which the two's reach is 100, five times it within 600.
+        let druids = fighting(141).size();
+        assert!(druids < 200);
+        let sight = |distance: f32| Pursuit {
+            hero_size: 200 - druids,
+            ..hornets_sight(distance, false)
+        };
+        let decide = |mind: &mut Mind, sight: &Pursuit, rolls: Vec<u32>| {
+            mind.stands = 0;
+            mind.cast(sight, &cast, || true, &mut Script::new(rolls))
+        };
+        // Within five times its reach by 0 of 3: the blades about itself by 1 or 2 of 3.
+        let mut druid = fighting(141);
+        assert_eq!(
+            decide(&mut druid, &sight(300.0), vec![0, 1]),
+            Some(Pursues::Casts {
+                spell: casts::BLADES,
+                variant: 0,
+            })
+        );
+        assert!(druid.cast_ordered && druid.stands == casts::ART_STANDS);
+        // Else the BFG by 1 to 5 of 6, the energy bolts by 0.
+        let art = |art| Some(Pursues::MakesArt { art });
+        let mut druid = fighting(141);
+        assert_eq!(
+            decide(&mut druid, &sight(499.0), vec![0, 0, 5]),
+            art(casts::ICE_DRUIDS_BFG)
+        );
+        assert!(druid.cast_ordered && druid.stands == casts::ART_STANDS);
+        assert_eq!(
+            decide(&mut fighting(141), &sight(300.0), vec![0, 0, 0]),
+            art(casts::ICE_DRUIDS_BOLTS)
+        );
+        // Else a run to 280 about its target at a whole degree, standing 3 after.
+        let mut druid = fighting(141);
+        let Some(Pursues::Strolls(to, true)) = decide(&mut druid, &sight(300.0), vec![2, 90])
+        else {
+            panic!("the druid strolls");
+        };
+        assert!((to - at(300.0, casts::STROLL)).length() < 0.01, "{to:?}");
+        assert_eq!(druid.stands, casts::ICE_DRUID_STROLL_STANDS);
+        assert!(!druid.cast_ordered);
+        // From five times its reach it strolls without the order's roll.
+        let Some(Pursues::Strolls(to, true)) = decide(&mut fighting(141), &sight(500.0), vec![0])
+        else {
+            panic!("the druid strolls from afar");
+        };
+        assert!(
+            (to - at(500.0 + casts::STROLL, 0.0)).length() < 0.01,
+            "{to:?}"
+        );
+        // Ordered before, nearer than its band, it walks to its band's point.
+        let mut ordered = fighting(141);
+        ordered.cast_ordered = true;
+        assert_eq!(
+            decide(&mut ordered, &sight(100.0), vec![]),
+            Some(Pursues::KeepsBand(at(100.0 - casts::BAND_POINT, 0.0)))
+        );
+        assert!(ordered.banding);
+        // Its band by the distance between the two, wherever they stand.
+        let aside = Pursuit {
+            here: at(1000.0, 0.0),
+            hero: at(1300.0, 0.0),
+            ..sight(300.0)
+        };
+        assert!(matches!(
+            decide(&mut fighting(141), &aside, vec![2, 0]),
+            Some(Pursues::Strolls(_, true))
+        ));
+        // Beyond 600 too, facing its target while it walks.
+        let walking = Pursuit {
+            walk: Some(Walking {
+                target: at(700.0, 0.0),
+                comes_on: false,
+                runs: true,
+            }),
+            ..sight(700.0)
+        };
+        assert_eq!(
+            decide(&mut fighting(141), &walking, vec![]),
+            Some(Pursues::Faces)
+        );
     }
 
     #[test]

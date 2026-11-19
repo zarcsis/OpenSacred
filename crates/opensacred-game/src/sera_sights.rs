@@ -9,6 +9,8 @@
 //! - her energy bolts' sight (1019) at each hand for the effect's seconds, from its point
 //!   (`0x504B96`, `0x504C4F`): four blue comets going round the hand after a burst of sparks
 //!   (`opensacred_rules::particles::MultiShot::seraphim`).
+//!
+//! The ice druid that makes her arts shows them as she does (`creature_arts`, #2899).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -86,20 +88,26 @@ pub(crate) fn bolts(commands: &mut Commands, bearer: Entity, seconds: f32) {
     }
 }
 
-/// Shows the BFG's charge as the art starts (`0x506077`).
+/// Shows the BFG's charge at `bearer`'s hand as its art starts (`0x506077`): the hero's, or a
+/// creature's that makes it (`creature_arts`, #2899).
+pub(crate) fn charge_on(commands: &mut Commands, bearer: Entity) {
+    commands.spawn((
+        Unmade {
+            bearer,
+            bolts: None,
+        },
+        DespawnOnExit(AppState::InGame),
+    ));
+}
+
+/// Shows the BFG's charge as the hero's art starts (`0x506077`).
 fn charge(
     mut commands: Commands,
     started: Query<(Entity, &crate::making::Making), Added<crate::making::Playing>>,
 ) {
     for (bearer, making) in &started {
         if making.art == BFG {
-            commands.spawn((
-                Unmade {
-                    bearer,
-                    bolts: None,
-                },
-                DespawnOnExit(AppState::InGame),
-            ));
+            charge_on(&mut commands, bearer);
         }
     }
 }
