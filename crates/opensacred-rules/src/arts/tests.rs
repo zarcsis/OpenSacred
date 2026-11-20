@@ -1595,6 +1595,22 @@ fn the_jump_flies_to_its_target_and_strikes_as_it_lands() {
 }
 
 #[test]
+fn a_flight_tests_six_parts_of_its_way_and_a_heros_but_the_daemons_stops_at_a_wall() {
+    let near = |a: &[f32], b: &[f32]| {
+        a.len() == b.len() && a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-5)
+    };
+    let parts = |t: f32| flight_samples(t).collect::<Vec<_>>();
+    // From t/15 by t/5, the last beyond t.
+    assert!(near(&parts(0.75), &[0.05, 0.2, 0.35, 0.5, 0.65, 0.8]));
+    assert!(near(&parts(0.3), &[0.02, 0.08, 0.14, 0.2, 0.26, 0.32]));
+    // At its start none.
+    assert!(parts(0.0).is_empty());
+    // The heroes' types 1 to 8 stop, the Daemon's 9 and the creatures' go over.
+    assert!(flight_stops(1) && flight_stops(8));
+    assert!(!flight_stops(9) && !flight_stops(76));
+}
+
+#[test]
 fn the_gladiators_jump_strikes_about_him_and_stuns() {
     assert_eq!(style(1003), Some(Style::Jump));
     assert_eq!(

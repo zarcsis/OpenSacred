@@ -1624,6 +1624,7 @@ fn make(
                         time: playing.seconds * arts::PANTHER_FLIGHT,
                         flown: 0.0,
                         peak: arts::jump_height((to - here).xz().length(), 0.5),
+                        stops: arts::flight_stops(arts.kind),
                     });
                     arts.start(making.art);
                     end(&mut commands);
@@ -2216,6 +2217,7 @@ fn make(
                         time,
                         flown: 0.0,
                         peak,
+                        stops: arts::flight_stops(arts.kind),
                     });
                     continue;
                 }
@@ -2285,6 +2287,7 @@ fn make(
                         time: playing.seconds * arts::JUMP_FLIGHT,
                         flown: 0.0,
                         peak: arts::jump_height((to - here).xz().length(), 0.5),
+                        stops: arts::flight_stops(arts.kind),
                     });
                     arts.start(making.art);
                 } else if playing.struck == 1 && due(1.0 - lands, done) {
@@ -2947,7 +2950,8 @@ fn blades(
 /// A hero's or a creature's flight of its jump (`0x44DED0`, `0x44DFE0`; the flowers' leap,
 /// `creature_casts`, #2231): from `from` to `to` on the ground in
 /// `time` seconds, `flown` of them gone, its height on the arc of `arts::arc` of the height
-/// `peak` at its middle above the ground under it.
+/// `peak` at its middle above the ground under it; and whether it `stops` at a cell of its way
+/// that it may not pass (`arts::flight_stops`, by the flier's type).
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct Leap {
     pub from: Vec3,
@@ -2955,10 +2959,13 @@ pub struct Leap {
     pub time: f32,
     pub flown: f32,
     pub peak: f32,
+    pub stops: bool,
 }
 
 /// Flies each hero and each creature in its jump (`0x44DFE0`): along the line to its landing in
-/// its flight's time, on its arc, and lands it there.
+/// its flight's time, on its arc, and lands it there; one that stops ends its flight at the first
+/// of the parts of its way that it tests each step (`arts::flight_samples`) whose cell it may not
+/// pass (`terrain::Heights::passes`, `0x636A60`), on the ground where the last it passed put it.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their components"
@@ -2983,6 +2990,25 @@ pub(crate) fn leap(
         } else {
             1.0
         };
+        if leap.stops && t < 1.0 {
+            let mut passed = None;
+            let stopped = arts::flight_samples(t).any(|part| {
+                let at = leap.from.lerp(leap.to, part);
+                let passes = heights.passes(crate::paths::cell_of(at.x, at.z), level);
+                if passes {
+                    passed = Some(at);
+                }
+                !passes
+            });
+            if stopped {
+                let at = passed.unwrap_or(transform.translation);
+                let y = heights.standing(at.x, at.z, level).unwrap_or(at.y);
+                transform.translation = Vec3::new(at.x, y, at.z);
+                commands.entity(hero).remove::<Leap>();
+                debug!("making: {hero}'s flight ends at a cell it may not pass");
+                continue;
+            }
+        }
         let ground = leap.from.lerp(leap.to, t);
         let y = heights
             .standing(ground.x, ground.z, level)
