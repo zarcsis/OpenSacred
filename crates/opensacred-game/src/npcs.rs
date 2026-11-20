@@ -413,9 +413,10 @@ struct Placement {
     listed: bool,
     hostility: Option<bool>,
     /// Whether its `CreateNPC` carries `0x8D` ([`EMERGES`]): its creature plays its clip of the
-    /// slot 154 once as it is made, a big demon turning hostile as it ends (#2461). Not saved: a
-    /// big demon turned keeps it no more ([`turn_emerged`]).
-    #[serde(skip)]
+    /// slot 154 once as it is made, a big demon turning hostile as it ends (#2461); a big demon
+    /// turned keeps it no more ([`turn_emerged`]). A save keeps it, so that a creature saved in
+    /// its clip plays it again as it comes back and turns as it ends (#3075; **hypothesis** for
+    /// what the original's load makes of the clip).
     emerges: bool,
     /// Whether it is drawn under a liquid's surface while it stands in a liquid cell
     /// ([`models::Sinks`]): a `CreateObj`'s object of a type that `0x434070` passes, an item of a
@@ -15599,6 +15600,22 @@ mod tests {
         assert_eq!(entered.back.len(), 1);
         assert_eq!(entered.back[0].0.model, "rabbit");
         assert_eq!(entered.back[0].1, stood(3310, 12));
+    }
+
+    #[test]
+    fn a_save_keeps_a_creature_emerging_to_emerge_again() {
+        // Quest 74's big demon saved in its clip of the slot 154 comes back emerging, to turn
+        // hostile as the clip ends (#3075); one turned keeps the mark no more.
+        let emerging = Placement {
+            creature: (BIG_DEMON, 0, 0),
+            side: 3,
+            emerges: true,
+            ..Placement::default()
+        };
+        let bytes = postcard::to_allocvec(&emerging).expect("saved");
+        let loaded: Placement = postcard::from_bytes(&bytes).expect("loaded");
+        assert!(loaded.emerges);
+        assert_eq!(loaded, emerging);
     }
 
     #[test]
