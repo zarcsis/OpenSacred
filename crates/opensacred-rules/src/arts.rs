@@ -2192,6 +2192,25 @@ pub fn backbreaker_lets_go(class: u8) -> f32 {
     if matches!(class, 2 | 3) { 0.7 } else { 0.5 }
 }
 
+/// The `Creature.pak` classes whose creatures the backbreaker takes up (`0x4FF0B0` at `0x502D06`):
+/// the undead, the hirelings, the goblins, the elves and the class 14.
+const BACKBREAKER_CLASSES: [u8; 5] = [5, 7, 8, 12, 14];
+
+/// The tallest box (`crate::pick::creature_size`) of a creature that the backbreaker takes up
+/// (`0x502D85`).
+const BACKBREAKER_TALLEST: u16 = 260;
+
+/// Whether the backbreaker takes up a creature of the type `creature`, of the `Creature.pak` class
+/// `class` and big where `big` (`Creature.pak` flags bit `0x02`), as its first run asks
+/// (`0x4FF0B0` at `0x502D01` to `0x502D8D`): one of [`BACKBREAKER_CLASSES`], not big (`0x426CB0`)
+/// and no taller than [`BACKBREAKER_TALLEST`] (`0x428850`); for any other the art ends at once,
+/// its regeneration not started (seen).
+pub fn backbreaker_takes(creature: u32, class: u8, big: bool) -> bool {
+    BACKBREAKER_CLASSES.contains(&class)
+        && !big
+        && crate::pick::creature_size(creature).1 <= BACKBREAKER_TALLEST
+}
+
 /// How long the backbreaker holds its target of the level `target` that a Gladiator of the level
 /// `maker` takes up (`0x4FF0B0`): `2·L' + 3 − M` seconds, from 5 to 10 (seen: about 5.4 s on a
 /// goblin warrior of level 1 by the Gladiator of level 1).
