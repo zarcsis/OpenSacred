@@ -13,7 +13,8 @@
 //! strike's life leech one of the variant 2 from the attacker's spine to a bone of the struck
 //! one's at random (`fight`), and a brain-footer's stare one of its type's variant (10 to 12) from
 //! its spine to a bone of its target's at random (`creature_arts`, #2567), which goes on past a
-//! cell that does not pass ([`THROUGH`], #2819).
+//! cell that does not pass ([`THROUGH`], #2819); the zhadum one of the variant 5 at the creature
+//! it kills and on (`zhadums`, #2920), of two sets of quads whose textures flow along it.
 //!
 //! Not followed: the segments' lights of 80.
 
@@ -24,7 +25,7 @@ use opensacred_rules::ways;
 
 use crate::bolt_looks::{models, world};
 use crate::frame::{Playing, Unpaused};
-use crate::fx::{Effect, Orders, Quads, empty, particle_texture, whole_material};
+use crate::fx::{Effect, Orders, Quads, empty, particle_texture, repeated_texture, whole_material};
 use crate::game::{AppState, Data};
 use crate::iso;
 use crate::terrain::Level;
@@ -138,13 +139,44 @@ pub(crate) fn lay(commands: &mut Commands, (from, to): (End, End), flags: u8) {
     ));
 }
 
-/// A segment that lives: its system, its length and axes in the models' frame, and its mesh.
+/// A segment that lives: its system, its length and axes in the models' frame, and its meshes,
+/// its second set's where its variant has one.
 #[derive(Component)]
 struct Segment {
     look: LaserSegment,
     length: f32,
     axes: [[f32; 3]; 3],
     mesh: Handle<Mesh>,
+    second: Option<Handle<Mesh>>,
+}
+
+impl Materials {
+    /// The material of `texture`, made as it is first asked, repeated along its `u` where it
+    /// flows; none where the texture is missing.
+    fn of(
+        &mut self,
+        texture: &'static str,
+        flows: bool,
+        (data, assets, effects): (Option<&Data>, &AssetServer, &mut Assets<Effect>),
+    ) -> Option<Handle<Effect>> {
+        if let Some((_, material)) = self.0.iter().find(|(name, _)| *name == texture) {
+            return material.clone();
+        }
+        let image = data.and_then(|data| {
+            let load = if flows {
+                repeated_texture
+            } else {
+                particle_texture
+            };
+            load(&data.0.assets, assets, texture)
+        });
+        if image.is_none() {
+            warn!("beams: no texture {texture}; its beams are not drawn");
+        }
+        let material = image.map(|image| effects.add(whole_material(image)));
+        self.0.push((texture, material.clone()));
+        material
+    }
 }
 
 /// The beams' materials by their textures, made as the first is asked; none where a texture is
@@ -210,21 +242,11 @@ fn place(
             })
             .flatten();
         let (variant, through) = (beam.flags & !THROUGH, beam.flags & THROUGH != 0);
-        let texture = LaserSegment::texture(variant);
-        let material = match made.0.iter().find(|(name, _)| *name == texture) {
-            Some((_, material)) => material.clone(),
-            None => {
-                let image = data
-                    .as_ref()
-                    .and_then(|data| particle_texture(&data.0.assets, &assets, texture));
-                if image.is_none() {
-                    warn!("beams: no texture {texture}; its beams are not drawn");
-                }
-                let material = image.map(|image| effects.add(whole_material(image)));
-                made.0.push((texture, material.clone()));
-                material
-            }
-        };
+        let flows = LaserSegment::flows(variant);
+        let mut material_of =
+            |texture| made.of(texture, flows, (data.as_deref(), &assets, &mut effects));
+        let material = material_of(LaserSegment::texture(variant));
+        let second = LaserSegment::second_texture(variant).map(&mut material_of);
         let starts = ways::laser_places((from.x, from.z), (to.x, to.z));
         debug!(
             "beams: a beam of {} from {from} to {to} on {level:?} in {} segments",
@@ -242,25 +264,33 @@ fn place(
             }
             let start = from + step * f32::from(k);
             let mesh = meshes.add(empty());
+            let second_mesh = second.as_ref().map(|_| meshes.add(empty()));
             let mut segment = commands.spawn((
                 Segment {
                     look: LaserSegment::new(variant, (k, n)),
                     length,
                     axes,
                     mesh: mesh.clone(),
+                    second: second_mesh.clone(),
                 },
                 Transform::from_translation(start),
                 Visibility::default(),
                 DespawnOnExit(AppState::InGame),
             ));
-            if let Some(material) = material.clone() {
-                segment.with_child((
-                    Mesh3d(mesh),
-                    MeshMaterial3d(material),
-                    Transform::IDENTITY,
-                    NoFrustumCulling,
-                    RenderLayers::layer(iso::UNTINTED),
-                ));
+            let sets = [
+                (material.clone(), Some(mesh)),
+                (second.clone().flatten(), second_mesh),
+            ];
+            for (material, mesh) in sets {
+                if let (Some(material), Some(mesh)) = (material, mesh) {
+                    segment.with_child((
+                        Mesh3d(mesh),
+                        MeshMaterial3d(material),
+                        Transform::IDENTITY,
+                        NoFrustumCulling,
+                        RenderLayers::layer(iso::UNTINTED),
+                    ));
+                }
             }
             if let Some(sound) = LaserSegment::sound(variant) {
                 sounds.write(crate::sfx::PlayAt {
@@ -294,13 +324,29 @@ fn run(
         let at =
             |[a, b, c]: [f32; 3]| world(std::array::from_fn(|i| a * x[i] + b * y[i] + c * z[i]));
         let colour = segment.look.colour();
-        let mut quads = Quads::default();
-        for (corners, uvs) in segment.look.quads(segment.length) {
-            quads.push_corners(corners.map(at), uvs.map(Vec2::from), colour);
-        }
-        if let Some(mut mesh) = meshes.get_mut(&segment.mesh) {
-            quads.in_order(orders.at(start.translation), start.translation);
-            quads.into_mesh(&mut mesh);
+        let order = orders.at(start.translation);
+        let sets = [
+            (
+                Some(segment.look.quads(segment.length)),
+                Some(&segment.mesh),
+            ),
+            (
+                segment.look.second_quads(segment.length),
+                segment.second.as_ref(),
+            ),
+        ];
+        for (set, mesh) in sets {
+            let (Some(set), Some(mesh)) = (set, mesh) else {
+                continue;
+            };
+            let mut quads = Quads::default();
+            for (corners, uvs) in set {
+                quads.push_corners(corners.map(at), uvs.map(Vec2::from), colour);
+            }
+            if let Some(mut mesh) = meshes.get_mut(mesh) {
+                quads.in_order(order, start.translation);
+                quads.into_mesh(&mut mesh);
+            }
         }
     }
 }

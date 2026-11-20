@@ -61,6 +61,13 @@ pub struct Burn {
     pub damages: [f32; 4],
 }
 
+/// A creature slain outright, its health set to 0 and its AI's state to 9, dead, with no strike:
+/// the zhadum's kill (`zhadums`, `0x5B2285`; [`slay`]).
+#[derive(Message, Clone, Copy, Debug)]
+pub struct Slay {
+    pub target: Entity,
+}
+
 /// The dice of the strikes.
 #[derive(Resource)]
 pub(crate) struct Dice(Rng);
@@ -1069,6 +1076,30 @@ pub(crate) fn resolve(
     }
 }
 
+/// Kills each creature slain outright ([`Slay`]): its health 0, it dies at nobody's hands, no kill
+/// and no experience (`npcs::Dies::unkilled`), with no strike, number or line; an immortal one
+/// lives.
+fn slay(
+    mut commands: Commands,
+    mut slays: MessageReader<Slay>,
+    mut dice: ResMut<Dice>,
+    mut targets: Query<(&mut Health, Has<Immortal>), Without<Dies>>,
+) {
+    for slay in slays.read() {
+        let Ok((mut health, immortal)) = targets.get_mut(slay.target) else {
+            continue;
+        };
+        if immortal || health.current == 0 {
+            continue;
+        }
+        health.current = 0;
+        info!("fight: {} is slain outright", slay.target);
+        let mut dies = Dies::unkilled();
+        dies.choice = dice.0.below(2);
+        commands.entity(slay.target).insert(dies);
+    }
+}
+
 /// Takes each strike from nobody ([`Burn`], `0x56B130` for the attacker's id 0;
 /// `opensacred_rules::fight::nobodys_strike`): its damage, through the target's resistances, takes
 /// its health down, shows over it and makes it speak, its poison poisons it, and at 0 it dies at
@@ -1839,6 +1870,7 @@ impl Plugin for FightPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Hit>()
             .add_message::<Burn>()
+            .add_message::<Slay>()
             .add_message::<Kill>()
             .add_message::<Struck>()
             .insert_resource(Dice(crate::seed::dice(0)))
@@ -1848,7 +1880,10 @@ impl Plugin for FightPlugin {
                 OnEnter(AppState::InGame),
                 |mut experience: ResMut<Experience>| *experience = Experience::default(),
             )
-            .add_systems(Update, (resolve, burn, level_up, keep_health, rise).chain())
+            .add_systems(
+                Update,
+                (resolve, burn, slay, level_up, keep_health, rise).chain(),
+            )
             .add_systems(Update, calm.in_set(crate::frame::Unpaused))
             .add_systems(
                 Update,

@@ -11349,6 +11349,8 @@ pub fn skull_turn([x, y]: [f32; 2]) -> f32 {
 pub const BITE_BEAM: u8 = 0;
 pub const LASER_BEAM: u8 = 1;
 pub const DRAIN_BEAM: u8 = 2;
+/// The zhadum's (1165, `0x5B2263`; docs/re/effects.md, "The zhadum").
+pub const ZHADUM_BEAM: u8 = 5;
 
 /// A laser segment's quad: its four corners in its own frame and their texture's points.
 pub type LaserQuad = ([[f32; 3]; 4], [[f32; 2]; 4]);
@@ -11361,7 +11363,10 @@ pub type LaserQuad = ([[f32; 3]; 4], [[f32; 2]; 4]);
 /// seconds and then falls by its rate a second, when it ends: the bite's (0) and the drains' (2 and
 /// the others) 20 wide in `FX_VAMPBLOODLINE`, a quarter of the texture stepping every 0.1 s,
 /// swaying across and up and down by up to 7 at the chain's middle, half grey or tinted; the
-/// lasers' (1) and the variant 4's 30 wide in `LASERBEAMPART`, straight, orange and pale pink.
+/// lasers' (1) and the variant 4's 30 wide in `LASERBEAMPART`, straight, orange and pale pink;
+/// the zhadum's (5) 70 wide, straight, in two sets of quads, `LASERBEAMPART3` and
+/// `LASERBEAMPART4`, flowing from its start to its end at 0.44 and 0.78 of the texture a second,
+/// white.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LaserSegment {
     variant: u8,
@@ -11394,19 +11399,30 @@ impl LaserSegment {
         }
     }
 
-    /// Whether it is straight and 30 wide, the texture whole (the variants 1 and 4), rather than
-    /// swaying and 20 wide on a quarter of it.
+    /// Whether it is straight, the texture whole (the variants 1, 4 and 5), rather than swaying
+    /// and 20 wide on a quarter of it.
     fn straight(&self) -> bool {
-        matches!(self.variant, 1 | 4)
+        matches!(self.variant, 1 | 4 | 5)
     }
 
-    /// Its texture by its variant (`+0x2404`, `+0x2408`).
+    /// Whether its texture flows along it (the variant 5), so that it repeats along its `u`.
+    pub fn flows(variant: u8) -> bool {
+        variant == ZHADUM_BEAM
+    }
+
+    /// Its texture by its variant (`+0x2404`, `+0x2408`; the variant 5's first set's
+    /// `+0x240C`).
     pub fn texture(variant: u8) -> &'static str {
-        if matches!(variant, 1 | 4) {
-            "LASERBEAMPART"
-        } else {
-            "FX_VAMPBLOODLINE"
+        match variant {
+            1 | 4 => "LASERBEAMPART",
+            ZHADUM_BEAM => "LASERBEAMPART3",
+            _ => "FX_VAMPBLOODLINE",
         }
+    }
+
+    /// The texture of its second set of quads, the variant 5's alone (`+0x2410`).
+    pub fn second_texture(variant: u8) -> Option<&'static str> {
+        (variant == ZHADUM_BEAM).then_some("LASERBEAMPART4")
     }
 
     /// The sound each segment of the variant plays as it starts: the bite's `VAMP_BLUTBISS`, the
@@ -11433,7 +11449,8 @@ impl LaserSegment {
         self.fade < 0.0
     }
 
-    /// Its colour now, as the frame's values (`⌊255 f⌋`, halved but for the lasers).
+    /// Its colour now, as the frame's values (`⌊255 f⌋`, halved but for the lasers and the
+    /// zhadum's).
     pub fn colour(&self) -> [f32; 4] {
         let c = (255.0 * self.fade.max(0.0)).floor();
         let [r, g, b] = match self.variant {
@@ -11454,6 +11471,7 @@ impl LaserSegment {
                 (c / 2.0).floor(),
                 (c * 50.0 / 255.0).floor(),
             ],
+            ZHADUM_BEAM => [c; 3],
             _ => [(c / 2.0).floor(); 3],
         };
         [r / 255.0, g / 255.0, b / 255.0, 1.0]
@@ -11475,10 +11493,21 @@ impl LaserSegment {
     /// each its corners from its start's minus side to its end's and back on the plus side, and
     /// their texture's points: the across one and the upright one.
     pub fn quads(&self, length: f32) -> [LaserQuad; 2] {
-        let (half, ends) = if self.straight() {
-            (15.0, [(0.0, 0.0); 2])
-        } else {
-            (10.0, [self.sway(self.k), self.sway(self.k + 1)])
+        self.set(length, FLOWS[0])
+    }
+
+    /// The variant 5's second set of quads, as [`Self::quads`] but flowing at 0.78 a second.
+    pub fn second_quads(&self, length: f32) -> Option<[LaserQuad; 2]> {
+        (self.variant == ZHADUM_BEAM).then(|| self.set(length, FLOWS[1]))
+    }
+
+    /// A set of its two quads, its texture's `u` falling by `flow` a second where its variant
+    /// flows.
+    fn set(&self, length: f32, flow: f32) -> [LaserQuad; 2] {
+        let (half, ends) = match self.variant {
+            ZHADUM_BEAM => (35.0, [(0.0, 0.0); 2]),
+            1 | 4 => (15.0, [(0.0, 0.0); 2]),
+            _ => (10.0, [self.sway(self.k), self.sway(self.k + 1)]),
         };
         // The band of the texture: whole, or the quarter that steps every 0.1 s.
         let (low, high) = if self.straight() {
@@ -11487,7 +11516,15 @@ impl LaserSegment {
             let quarter = (10.0 * self.clock).floor().rem_euclid(4.0) * 0.25;
             (quarter, quarter + 0.25)
         };
-        let uvs = [[0.0, high], [1.0, high], [1.0, low], [0.0, low]];
+        // Its `u` from its start to its end, falling, so that the texture flows on along it
+        // (`0x7A46CA`).
+        let shift = if Self::flows(self.variant) {
+            flow * self.clock
+        } else {
+            0.0
+        };
+        let [u0, u1] = [-shift, 1.0 - shift];
+        let uvs = [[u0, high], [u1, high], [u1, low], [u0, low]];
         let [(a0, b0), (a1, b1)] = ends;
         let across = [
             [0.0, a0 - half, b0],
@@ -11504,6 +11541,10 @@ impl LaserSegment {
         [(across, uvs), (upright, uvs)]
     }
 }
+
+/// The flows of the variant 5's two sets of quads along their texture, a second (`0x8987EC`,
+/// `0x8987E8`).
+const FLOWS: [f32; 2] = [0.44, 0.78];
 
 /// The axes of a laser segment's frame along `direction` in the models' frame (`0x7A50B0`):
 /// turned about `(0, −n.z, n.y)` by `acos(n.x)`, so that its `x` lies along the unit direction
@@ -19490,6 +19531,10 @@ mod tests {
             ([0.0, -10.0, 0.0], [0.0, 0.0, -10.0])
         );
         assert_eq!((uvs[0], uvs[2]), ([0.0, 0.25], [1.0, 0.0]));
+        // Its end at the chain's next joint, swayed across by a quarter turn's sine.
+        let sway = (4.0 * (1.456_34_f32 + 1.783_56).cos() + 3.0 * 2.852_61_f32.cos())
+            * std::f32::consts::FRAC_PI_4.sin();
+        assert!((across[1][1] - (sway - 10.0)).abs() < 1e-4);
         // The bite's holds 4.4 s.
         let mut bite = LaserSegment::new(BITE_BEAM, (1, 2));
         for _ in 0..130 {
@@ -19501,6 +19546,46 @@ mod tests {
         assert!((x[1] - 1.0).abs() < 1e-6 && (z[2] - 1.0).abs() < 1e-6);
         assert_eq!(LaserSegment::texture(LASER_BEAM), "LASERBEAMPART");
         assert_eq!(LaserSegment::sound(BITE_BEAM), Some(2076));
+        assert_eq!(LaserSegment::second_texture(LASER_BEAM), None);
+        assert!(drain.second_quads(53.0).is_none() && !LaserSegment::flows(LASER_BEAM));
+    }
+
+    #[test]
+    fn the_zhadums_beam_is_70_wide_white_and_flows_in_two_textures() {
+        let mut beam = LaserSegment::new(ZHADUM_BEAM, (2, 5));
+        assert_eq!(beam.colour(), [1.0, 1.0, 1.0, 1.0]);
+        assert_eq!(LaserSegment::texture(ZHADUM_BEAM), "LASERBEAMPART3");
+        assert_eq!(
+            LaserSegment::second_texture(ZHADUM_BEAM),
+            Some("LASERBEAMPART4")
+        );
+        assert!(LaserSegment::flows(ZHADUM_BEAM) && LaserSegment::sound(ZHADUM_BEAM).is_none());
+        let [(across, uvs), (upright, _)] = beam.quads(53.0);
+        assert_eq!(
+            (across[0], across[2], upright[3]),
+            ([0.0, -35.0, 0.0], [53.0, 35.0, 0.0], [0.0, 0.0, 35.0])
+        );
+        assert_eq!((uvs[0], uvs[2]), ([0.0, 1.0], [1.0, 0.0]));
+        // Half a second on: the first set's `u` fell by 0.22, the second's by 0.39.
+        beam.update(0.25);
+        beam.update(0.25);
+        let [(_, first), _] = beam.quads(53.0);
+        let Some([(_, second), _]) = beam.second_quads(53.0) else {
+            panic!("the zhadum's beam has a second set");
+        };
+        assert!((first[0][0] + 0.22).abs() < 1e-5 && (first[1][0] - 0.78).abs() < 1e-5);
+        assert!((second[0][0] + 0.39).abs() < 1e-5 && (second[2][0] - 0.61).abs() < 1e-5);
+        // It holds a second and fades over two thirds of one, white times its fade.
+        beam.update(0.25);
+        beam.update(0.25);
+        assert_eq!(beam.colour(), [1.0, 1.0, 1.0, 1.0]);
+        beam.update(0.2);
+        let c = (255.0_f32 * (1.0 - 1.5 * 0.2)).floor() / 255.0;
+        assert!((beam.colour()[0] - c).abs() < 1e-6);
+        for _ in 0..5 {
+            beam.update(0.1);
+        }
+        assert!(beam.done());
     }
 
     #[test]
