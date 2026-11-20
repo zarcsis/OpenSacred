@@ -144,6 +144,9 @@ const EMERGES: u8 = 0x8D;
 /// maker marks the types of `opensacred_rules::spells::VISIONS` (the object's `+0x14` bit
 /// `0x200000`, `0x48290F`, `0x4836BE`; docs/re/drawing.md, "The visions"; #3064).
 const VISION: u8 = 0xA1;
+/// The operand of `CreateNPC` whose value of 0 or more arms its creature by the `MakeGroup` rules
+/// that the last `Enter` left, as a fill's (`sdk_CREATENPC` at `0x48488E`, `0x47F8E0`; #3072).
+const BY_RULES: u8 = 0x54;
 /// The clip's slot that [`EMERGES`] plays, at the rate 1.0, once.
 const EMERGING: u16 = 154;
 /// The big demon (`TYPE_NPC_BIG_DEMON`), which turns hostile as its clip of [`EMERGING`] ends
@@ -339,6 +342,11 @@ struct Placement {
     /// again of their records.
     #[serde(skip)]
     spread: i32,
+    /// The sector whose `Enter` ran last as its `CreateNPC` of the operand [`BY_RULES`] ran, by
+    /// whose `MakeGroup` rules it is armed once it is placed ([`arm_by_rules`], #3072). Not saved:
+    /// a script's creature is made again of its record.
+    #[serde(skip)]
+    by_rules: Option<(u32, u32)>,
     /// The items of an NPC's `CreateNPC`, their types in its order (its `0x02`s after its type),
     /// and those it holds in its hands: their models, and the items themselves.
     items: Vec<u32>,
@@ -1143,6 +1151,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         woman: kind.woman,
         layer: 0,
         spread: 0,
+        by_rules: None,
         items: Vec::new(),
         equipment: Vec::new(),
         holding: Vec::new(),
@@ -1251,6 +1260,10 @@ pub struct Npcs {
     /// art's clip takes its hit points (`creature_arts`, #2564).
     points: HashMap<String, Vec<f32>>,
     spawned: HashSet<(u32, u32)>,
+    /// The sector whose `Enter` ran last, whose `MakeGroup` rules the rules' vector holds
+    /// (`0x4939F0` empties it before it runs a sector's `Enter`), by which a `CreateNPC` of the
+    /// operand `54` arms its creature ([`BY_RULES`], #3072).
+    last_enter: Option<(u32, u32)>,
     /// What became of the creatures that went with their sectors ([`Kept`]).
     kept: Kept,
     /// A loaded save's queues of the kept creatures, by their placements, which each takes again
@@ -2255,6 +2268,76 @@ fn worn_of<'a>(
     Some((item, gear.get(&item)?))
 }
 
+/// What arms a creature by the `MakeGroup` rules ([`arm_by_rules`]): the weapon pools, the items'
+/// gear, the armour switch's groups and the models' clips' slots.
+type Armouries<'a> = (
+    &'a HashMap<i32, Vec<u32>>,
+    &'a HashMap<u32, Gear>,
+    &'a [Vec<[u32; 2]>],
+    &'a HashMap<String, motions::Slots>,
+);
+
+/// Arms `placement`, a creature of `creature`, by the rules `rules` as `0x47F8E0` does a fill's
+/// and a `CreateNPC`'s of the operand `54` (#3072): its first two items ([`gear_of`]) in its hands
+/// and its clips by what it holds, a crossbow its model cannot shoot another weapon by `weapon`
+/// where `chooses` (#1217), and its third, a worn piece ([`worn_of`], #2286). It returns the
+/// items in its hands.
+fn arm_by_rules(
+    placement: &mut Placement,
+    (rules, creature): (&[Rule], u32),
+    (pools, gear, switches, slots): Armouries<'_>,
+    (chooses, weapon): (bool, impl FnOnce(u8, &mut spawning::Rng) -> Option<u32>),
+    rng: &mut spawning::Rng,
+) -> Vec<u32> {
+    let shots = match (chooses, slots.get(&placement.model)) {
+        (true, Some(slots)) => shots(slots),
+        _ => spawning::Shots {
+            crossbow: true,
+            bow: true,
+        },
+    };
+    let held = gear_of(rules, creature, (pools, gear), (shots, weapon), rng);
+    let worn = worn_of(rules, creature, (pools, gear), switches, rng);
+    let worn_model = worn.and_then(|(item, worn)| {
+        placement.worn = vec![(item, worn.category)];
+        (!ATTACHED.contains(&worn.category)).then_some(())?;
+        Some(Held {
+            item,
+            model: worn.model.clone()?,
+            texture: worn.texture.clone(),
+            hand: Hand::Right,
+            mount: Mount::Worn,
+            slot: opensacred_rules::equipment::slot_for(worn.category, |_| false),
+        })
+    });
+    if !held.is_empty() {
+        let categories: Vec<(u8, Option<u8>)> =
+            held.iter().map(|(_, g)| (g.category, g.kind)).collect();
+        placement.holding = InHand::of(held.iter().map(|&(item, g)| (item, g.category, g.kind)));
+        placement.equipment = held
+            .iter()
+            .zip(hands(&categories))
+            .filter_map(|(&(item, g), hand)| {
+                Some(Held {
+                    item,
+                    model: g.model.clone()?,
+                    texture: g.texture.clone(),
+                    hand: hand?,
+                    mount: Mount::held(g.category),
+                    slot: None,
+                })
+            })
+            .collect();
+        placement.held = held_class(&categories);
+        placement.ranged = ranged(&categories);
+        if let Some(slots) = slots.get(&placement.model) {
+            placement.clips = ClipNames::of(slots, placement.held);
+        }
+    }
+    placement.equipment.extend(worn_model);
+    held.into_iter().map(|(item, _)| item).collect()
+}
+
 /// The group of the armour switch of an item of the record `record` (`items.pak +0x74`).
 fn switch_group(record: &Item) -> u16 {
     u16::try_from(record.words_58[7] & 0xFFFF).unwrap_or(0)
@@ -2690,6 +2773,13 @@ fn rises(ops: &[opensacred_data::netscript::Operand]) -> bool {
                 Value::I32(0) | Value::U16(0) | Value::U8(0) | Value::Marker
             )
     })
+}
+
+/// Whether the operands `ops` carry a [`BY_RULES`] of 0 or more, the last of them counting.
+fn by_rules(ops: &[opensacred_data::netscript::Operand]) -> bool {
+    ops.iter()
+        .rfind(|op| op.tag == BY_RULES)
+        .is_some_and(|op| matches!(op.value, Value::I32(v) if v >= 0))
 }
 
 /// Whether the operands `ops` carry a `0x6B` of 0 ([`RISES`]).
@@ -3945,6 +4035,7 @@ impl Makers {
             texture,
             layer,
             spread,
+            by_rules: None,
             items,
             equipment: arming.equipment,
             holding: arming.holding,
@@ -4805,6 +4896,7 @@ impl Npcs {
                 })
                 .collect(),
             spawned: HashSet::new(),
+            last_enter: None,
             kept: Kept::default(),
             queues: HashMap::new(),
             waters: Vec::new(),
@@ -5545,6 +5637,34 @@ fn place_index(
     if npcs.taken.contains(&index) || npcs.removed.contains(&index) {
         return;
     }
+    // A `CreateNPC` of the operand `54` armed once, by the rules of the `Enter` that ran last as
+    // it ran; a crossbow its model cannot shoot another weapon at the hero's level
+    // (**hypothesis**: `sdk_CREATENPC` passes a level held by the hero's, `0x4848AB`; #3072).
+    if let Some(sector) = npcs.placements[index].by_rules.take() {
+        let mut placement = npcs.placements[index].clone();
+        let creature = placement.creature.0;
+        let rules = npcs
+            .rules
+            .get(&sector)
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let mut rng = spawning::Rng::of(placement.cell.0, placement.cell.1, index);
+        let weapon = |kind, rng: &mut spawning::Rng| {
+            armoury.and_then(|armoury| armoury.weapon(kind, hero, rng))
+        };
+        let held = arm_by_rules(
+            &mut placement,
+            (rules, creature),
+            (&npcs.pools, &npcs.gear, &npcs.makers.switches, &npcs.slots),
+            (armoury.is_some(), weapon),
+            &mut rng,
+        );
+        bevy::log::debug!(
+            "npcs: a {creature} of the scripts on {:?} takes {held:?} by {sector:?}'s rules",
+            placement.cell
+        );
+        npcs.placements[index] = placement;
+    }
     // An `Enter`'s creature, made again as its `CreateNPC` runs again, of the type that its
     // area's `RegionChange` list gives it now (`0x482F41`, #1063).
     let turn = area_types
@@ -5890,6 +6010,7 @@ pub fn place(
             continue;
         }
         npcs.spawned.insert(at);
+        npcs.last_enter = Some(at);
         // The closed triggers' cells: of the ground for the floors 0 and 1, of the building's
         // floor for 1 and above (`0x463F50`, which keys the floors 0 and 1 alike).
         for (name, spot) in npcs.closed.get(&at).map(Vec::as_slice).unwrap_or_default() {
@@ -6030,79 +6151,27 @@ pub fn place(
                 // Its items by the sector's rules, in its hands, and its clips by what it holds; a
                 // crossbow its model cannot shoot another weapon of the run's level (#1217).
                 let rules = npcs.rules.get(&at).map(Vec::as_slice).unwrap_or_default();
-                let shots = match (armoury, npcs.slots.get(&placement.model)) {
-                    (Some(_), Some(slots)) => shots(slots),
-                    _ => spawning::Shots {
-                        crossbow: true,
-                        bow: true,
-                    },
-                };
                 let weapon = |kind, rng: &mut spawning::Rng| {
                     armoury.and_then(|armoury| armoury.weapon(kind, shared, rng))
                 };
-                let gear = gear_of(
-                    rules,
-                    made.creature,
-                    (&npcs.pools, &npcs.gear),
-                    (shots, weapon),
+                let held = arm_by_rules(
+                    &mut placement,
+                    (rules, made.creature),
+                    (&npcs.pools, &npcs.gear, &npcs.makers.switches, &npcs.slots),
+                    (armoury.is_some(), weapon),
                     &mut rng,
                 );
-                // Its third, a worn piece (#2286).
-                let worn = worn_of(
-                    rules,
-                    made.creature,
-                    (&npcs.pools, &npcs.gear),
-                    &npcs.makers.switches,
-                    &mut rng,
-                );
+                if !held.is_empty() {
+                    bevy::log::debug!(
+                        "npcs: a {} of {at:?}'s fills on {:?} takes {held:?}",
+                        made.creature,
+                        placement.cell,
+                    );
+                }
                 // A magician's spell of the rule (#2949).
                 if let Some(spell) = spell_of(rules, made.creature, &mut rng) {
                     placement.spell = spell;
                 }
-                let worn_model = worn.and_then(|(item, worn)| {
-                    placement.worn = vec![(item, worn.category)];
-                    (!ATTACHED.contains(&worn.category)).then_some(())?;
-                    Some(Held {
-                        item,
-                        model: worn.model.clone()?,
-                        texture: worn.texture.clone(),
-                        hand: Hand::Right,
-                        mount: Mount::Worn,
-                        slot: opensacred_rules::equipment::slot_for(worn.category, |_| false),
-                    })
-                });
-                if !gear.is_empty() {
-                    bevy::log::debug!(
-                        "npcs: a {} of {at:?}'s fills on {:?} takes {:?}",
-                        made.creature,
-                        placement.cell,
-                        gear.iter().map(|&(item, _)| item).collect::<Vec<_>>()
-                    );
-                    let categories: Vec<(u8, Option<u8>)> =
-                        gear.iter().map(|(_, g)| (g.category, g.kind)).collect();
-                    placement.holding =
-                        InHand::of(gear.iter().map(|&(item, g)| (item, g.category, g.kind)));
-                    placement.equipment = gear
-                        .iter()
-                        .zip(hands(&categories))
-                        .filter_map(|(&(item, g), hand)| {
-                            Some(Held {
-                                item,
-                                model: g.model.clone()?,
-                                texture: g.texture.clone(),
-                                hand: hand?,
-                                mount: Mount::held(g.category),
-                                slot: None,
-                            })
-                        })
-                        .collect();
-                    placement.held = held_class(&categories);
-                    placement.ranged = ranged(&categories);
-                    if let Some(slots) = npcs.slots.get(&placement.model) {
-                        placement.clips = ClipNames::of(slots, placement.held);
-                    }
-                }
-                placement.equipment.extend(worn_model);
                 // A random heading, as the creature maker gives one (`rand() % 361`).
                 placement.heading = f32::from(u16::try_from(rng.below(361)).unwrap_or(0));
                 // A hostile one bit 0, a peaceful one its type's behaviour (`0x480D40`), and a
@@ -8926,6 +8995,17 @@ impl Npcs {
                 },
                 None => placement,
             };
+            // Armed by the rules of the last `Enter` once it is placed (#3072).
+            let mut placement = placement;
+            if record.kind == CREATE_NPC && by_rules(ops) {
+                placement.by_rules = self.last_enter;
+                bevy::log::debug!(
+                    "npcs: a {} of the scripts on {:?} is to be armed by {:?}'s rules",
+                    placement.creature.0,
+                    placement.cell,
+                    self.last_enter
+                );
+            }
             let index = self.placements.len();
             if record.kind == CREATE_OBJ
                 && let (Some(name), Some(trigger)) = (name_of(ops), placement.trigger.clone())
@@ -17218,6 +17298,74 @@ mod tests {
         groups.resize(256, Vec::new());
         groups[200] = vec![1833];
         assert_eq!(with_groups(scripts, Some(&groups))[&200], [1833]);
+    }
+
+    #[test]
+    fn a_create_npc_of_the_operand_54_is_armed_by_the_rules_and_by_its_hands() {
+        // `Kopfgeldauswahl`'s targets carry `54` 0 (#3072); a negative one, or none, arms by no
+        // rule, the last `54` counting.
+        let op = |value| Operand {
+            tag: BY_RULES,
+            value: Value::I32(value),
+        };
+        assert!(by_rules(&[op(0)]));
+        assert!(by_rules(&[op(-1), op(3)]));
+        assert!(!by_rules(&[op(-1)]));
+        assert!(!by_rules(&[op(0), op(-1)]));
+        assert!(!by_rules(&[]));
+        // Armed by its type's rule: a sword in its right hand, its clips by it.
+        let (makers, _) = soldiers();
+        let item = |slot, category: u8| Item {
+            slot,
+            kind: 2,
+            class: 0,
+            subclass: 0,
+            name: "sword.grn".into(),
+            texture: 0,
+            sprite: 0,
+            byte_03: 0,
+            words_08: [0; 2],
+            words_14: [0, 0, 0, 0, 0, 0, u32::from(category) << 16, 0],
+            bytes_34: [0; 3],
+            byte_57: 0,
+            words_58: [0; 10],
+        };
+        let models = HashMap::from([("SWORD.GRN".to_owned(), "models/sword.glb".to_owned())]);
+        let sword = item(1729, WEAPON);
+        let gear = gear_table(
+            &HashMap::from([(1729, &sword)]),
+            &[],
+            &HashMap::from([(1729, 1)]),
+            (&models, &HashMap::new()),
+            [1729].iter(),
+        );
+        let pools = HashMap::from([(5, vec![1729])]);
+        let rules = [Rule {
+            types: vec![313],
+            items: [(5, 100), (0, 0), (-1, 0)],
+            spells: Vec::new(),
+        }];
+        let mut placement = Placement::default();
+        let held = arm_by_rules(
+            &mut placement,
+            (&rules, 313),
+            (&pools, &gear, &makers.switches, &HashMap::new()),
+            (false, |_, _: &mut spawning::Rng| None),
+            &mut spawning::Rng::of(0, 0, 0),
+        );
+        assert_eq!(held, [1729]);
+        assert_eq!(placement.holding.len(), 1);
+        assert_eq!(placement.equipment[0].item, 1729);
+        // A type of no rule takes nothing (its general maker is #3185's).
+        let mut bare = Placement::default();
+        let none = arm_by_rules(
+            &mut bare,
+            (&rules, 43),
+            (&pools, &gear, &makers.switches, &HashMap::new()),
+            (false, |_, _: &mut spawning::Rng| None),
+            &mut spawning::Rng::of(0, 0, 0),
+        );
+        assert!(none.is_empty() && bare.equipment.is_empty());
     }
 
     #[test]
