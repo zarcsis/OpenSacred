@@ -295,10 +295,12 @@ fn choose(
         Query<(&GlobalTransform, &crate::stashes::Stash)>,
         Query<(), With<crate::npcs::Corpse>>,
     ),
-    (heights, buildings, data): (
+    (heights, buildings, data, dungeons, ways): (
         Option<Res<Heights>>,
         Option<Res<Buildings>>,
         Option<Res<crate::game::Data>>,
+        Option<Res<crate::daynight::Dungeons>>,
+        Query<&crate::crowd::InTheWay>,
     ),
     heroes: Query<(
         Option<&Holding>,
@@ -429,8 +431,37 @@ fn choose(
             let art = opensacred_rules::arts::right_button(art, arts.kind, |key| {
                 effects.is_some_and(|effects| effects.holds_any(&[key]))
             });
+            // The mortar's point, the foe's place, else the ground's under the cursor at the
+            // hero's height, on the hero's floor and reached where it must be (`0x51D840`).
+            let mortar = || {
+                let (Some((_, transform, body, ..)), Some(heights), Some(ray)) =
+                    (hero, heights.as_deref(), ray)
+                else {
+                    return false;
+                };
+                let (here, level) = (transform.translation, body.level());
+                let point = foe_under
+                    .and_then(|foe| {
+                        let (_, at, ..) = creatures.get(foe).ok()?;
+                        let on = ways.get(foe).map_or(level, |way| way.level);
+                        Some((at.translation(), on))
+                    })
+                    .unwrap_or_else(|| {
+                        let along = (here.y - ray.origin.y) / ray.direction.y;
+                        (ray.origin + ray.direction.as_vec3() * along, level)
+                    });
+                let dungeon = dungeons
+                    .as_deref()
+                    .is_some_and(|dungeons| dungeons.holds(here.x, here.z));
+                crate::making::mortar_reaches((here, level), point, dungeon, |cell| {
+                    heights.walkable_on(cell, level)
+                })
+            };
             crate::making::may_make(arts, art, (effects, pack.as_deref(), riding)).is_ok()
                 && admits(crate::making::launch(arts, art), under)
+                && (opensacred_rules::arts::style(art)
+                    != Some(opensacred_rules::arts::Style::Mortar)
+                    || mortar())
         });
     glow.set_if_neq(Glow(glows));
 }
