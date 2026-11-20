@@ -24,9 +24,12 @@
 //! `under_cursor`); one without is picked by the cursor's line of sight where the cursor picks
 //! nothing else (**estimate**: the original finds it by the cell under the cursor, `0x634C50`).
 //!
+//! As the hero arrives it searches the event only where it reaches the event's point by a straight
+//! way, or cramped from near it (`0x53BB60`, [`reaches`], #3086).
+//!
 //! Not followed yet: the static object's mark (the stash stands at its cell's centre on the
-//! ground, whatever its floor; #3089), the arrival's straight way, and the hero's walk of the
-//! order 7 (the click's own walk takes it there; #3086).
+//! ground, whatever its floor; #3089), and the hero's walk of the order 7 (the click's own walk
+//! takes it there; its reach not read).
 
 use std::collections::HashSet;
 
@@ -48,6 +51,54 @@ use crate::terrain::Heights;
 /// How near a stash the hero searches it, standing, in world units (as a container's, `0x53BE8C`;
 /// **hypothesis**: the order 7's reach is not read).
 const SEARCHES_WITHIN: f32 = 300.0;
+/// The function that runs as the hero arrives wherever it stands, its name compared case aside
+/// (`0x53BBC5`; the air's element of the ancestors' forge).
+const ANYWHERE: &str = "NimmtElementLuft";
+/// How near the event's point the hero reaches it without a straight way, in world units
+/// (`0x52E460`: 129, the distance's whole square root rounded).
+const CRAMPED_WITHIN: f32 = 129.5;
+/// The cells about the hero's that `0x52E460` tests whether they may be walked on, as its scan
+/// adds each offset of the 3 × 3 to the one before rather than to the hero's cell (**confirmed** by
+/// code, a quirk): four cells up and left of the hero's, each twice, and its own last.
+const CRAMPED_CELLS: [(i32, i32); 9] = [
+    (-1, -1),
+    (-1, -2),
+    (0, -3),
+    (-1, -3),
+    (-1, -3),
+    (0, -3),
+    (-1, -2),
+    (-1, -1),
+    (0, 0),
+];
+
+/// The point of an event at `cell` of the box `boxed`, in world units on the ground
+/// (`0x53BA9E`–`0x53BB15`): its cell's centre, whole, moved along both axes by 3/2 of the box's
+/// fourth number, toward 0, where the box's second or fourth number is not 0.
+fn event_point(cell: (i32, i32), boxed: Option<[i16; 4]>) -> Vec2 {
+    let shift = boxed
+        .filter(|boxed| boxed[1] != 0 || boxed[3] != 0)
+        .map_or(0.0, |boxed| (f32::from(boxed[3]) * 1.5).trunc());
+    crate::paths::centre(cell).map(f32::trunc) + Vec2::splat(shift)
+}
+
+/// Whether the hero standing at `hero` reaches the event at `point` as it arrives (`0x53BB60`):
+/// by a straight way of walkable cells to it (`0x4FCC80`, `paths::straight`), else from within
+/// [`CRAMPED_WITHIN`] where at most one of the cells of [`CRAMPED_CELLS`] about the hero's may be
+/// walked on (`0x52E460`; #3086).
+fn reaches(hero: Vec2, point: Vec2, walkable: impl Fn(crate::paths::Cell) -> bool) -> bool {
+    if crate::paths::straight(hero, point, &walkable) {
+        return true;
+    }
+    let (x, y) = crate::paths::cell_of(hero.x, hero.y);
+    (point - hero).length() < CRAMPED_WITHIN
+        && CRAMPED_CELLS
+            .iter()
+            .filter(|&&(dx, dy)| walkable((x + dx, y + dy)))
+            .count()
+            <= 1
+}
+
 /// How high above its cell's ground a stash is picked, in world units (**estimate**: about the
 /// middle of a bush).
 pub(crate) const PICKED_ABOVE: f32 = 40.0;
@@ -212,10 +263,12 @@ fn pick(
 }
 
 /// The hero that stands, once its way to a stash it was sent to ends: within 300 of it it searches
-/// it (`0x53BA29`): the stash leaves the scripts' list and its function runs
-/// (`scripts::run_function`); farther, it gives up.
+/// it (`0x53BA29`) where it reaches the event's point ([`reaches`]) or the event's function runs
+/// anywhere ([`ANYWHERE`]): the stash leaves the scripts' list and its function runs
+/// (`scripts::run_function`); farther, or out of its reach, it gives up, the stash kept (#3086).
 fn search(
     mut commands: Commands,
+    heights: Res<Heights>,
     stashes: Query<(&Transform, &Stash)>,
     mut heroes: Query<(Entity, &Transform, &Body, &mut Searches)>,
 ) {
@@ -239,7 +292,25 @@ fn search(
             continue;
         }
         let cell = stash.cell;
+        let level = body.level();
+        let reached = reaches(
+            transform.translation.xz(),
+            event_point(cell, stash.boxed),
+            |cell| heights.walkable_on(cell, level),
+        );
         commands.queue(move |world: &mut World| {
+            let anywhere = world.get_non_send::<Live>().is_some_and(|live| {
+                live.stashes()
+                    .iter()
+                    .find(|stash| stash.cell == cell)
+                    .is_some_and(|stash| stash.function.eq_ignore_ascii_case(ANYWHERE))
+            });
+            if !reached && !anywhere {
+                info!(
+                    "stashes: the hero does not reach the stash at {cell:?} from where it stands"
+                );
+                return;
+            }
             let function = world
                 .get_non_send_mut::<Live>()
                 .and_then(|mut live| live.search_stash(cell))
@@ -536,5 +607,37 @@ mod tests {
         assert!(blink_at(8191).is_none());
         let (half, _) = blink_at(8192 + 256).unwrap_or_default();
         assert!((half - 10.0 * std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_stash_is_searched_where_the_hero_reaches_its_point() {
+        // The well at the Seraphim's start, of the box (−53, −47) to (52, 50): its cell's centre,
+        // whole, moved by 75 along both axes; an event of no box its cell's centre (#3086).
+        let well = event_point((3252, 2524), Some([-53, -47, 52, 50]));
+        let centre = crate::paths::centre((3252, 2524)).map(f32::trunc);
+        assert_eq!(well, centre + Vec2::splat(75.0));
+        assert_eq!(event_point((3252, 2524), None), centre);
+        assert_eq!(event_point((3252, 2524), Some([5, 0, 6, 0])), centre);
+        assert_eq!(
+            event_point((0, 0), Some([0, 0, 0, -3])),
+            crate::paths::centre((0, 0)).map(f32::trunc) - Vec2::splat(4.0)
+        );
+        // A wall of closed cells between: no straight way; on open ground, reached.
+        let point = crate::paths::centre((10, 0));
+        let hero = crate::paths::centre((4, 0));
+        let open = |_: crate::paths::Cell| true;
+        assert!(reaches(hero, point, open));
+        let walled = |(x, _): crate::paths::Cell| x != 7;
+        assert!(!reaches(hero, point, walled));
+        // Within 129 but standing in the open: not reached; cramped, its own cell alone open of
+        // the four that the quirk tests, reached.
+        let near = crate::paths::centre((8, 0));
+        assert!(!reaches(near, point, |(x, _): crate::paths::Cell| x != 9));
+        let hero_cell = crate::paths::cell_of(near.x, near.y);
+        let cramped = |cell: crate::paths::Cell| cell == hero_cell;
+        assert!(reaches(near, point, cramped));
+        // Farther than 129, cramped as it may be: not reached.
+        assert!(!reaches(hero, point, |cell| cell
+            == crate::paths::cell_of(hero.x, hero.y)));
     }
 }
