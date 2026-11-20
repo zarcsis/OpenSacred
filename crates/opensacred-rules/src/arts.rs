@@ -2390,6 +2390,23 @@ pub fn arc(peak: f32, t: f32) -> f32 {
     peak * (1.0 - 4.0 * (t - 0.5) * (t - 0.5))
 }
 
+/// The parts of its line at which a flight's step at the part `t` of its time tests the cells of
+/// its way (`0x44DFE0`, its arc's branch at `0x44E149`): from `t/15` on by `t/5` while below
+/// `1.1·t`, six for any `t` above 0, the last some 7% beyond `t`.
+pub fn flight_samples(t: f32) -> impl Iterator<Item = f32> {
+    (0..=6_u8)
+        .map(move |k| t / 15.0 + t * 0.2 * f32::from(k))
+        .take_while(move |&part| part < 1.1 * t)
+}
+
+/// Whether the flight of a creature of the type `creature` ends at the first cell of its way that
+/// it may not pass (`0x636A60`), where the last it passed put it (`0x44DFE0` at `0x44E3E6`): the
+/// types up to 8, the heroes' but the Daemon's (9), whose flights and every other creature's go
+/// over whatever lies under them.
+pub fn flight_stops(creature: u32) -> bool {
+    creature <= 8
+}
+
 /// The flight of the Daemon's charge to a target `distance` away (`0x5192E0` at `0x519CA6`): its
 /// time in seconds, the distance times the float 1/1400 (`0x8910DC`), and how high its middle
 /// flies ([`arc`]), a tenth of it (`0x890D9C`; seen: 0.096 s and 13.4 for 134).
