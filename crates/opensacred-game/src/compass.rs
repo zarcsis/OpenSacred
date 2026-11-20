@@ -128,12 +128,15 @@ fn on_ellipse(phi: f32, axes: Vec2) -> Vec2 {
 #[derive(SystemParam)]
 pub(crate) struct Seek<'w, 's> {
     named: Query<'w, 's, (&'static ScriptName, &'static GlobalTransform)>,
+    objects: Query<'w, 's, (&'static crate::npcs::ObjectName, &'static GlobalTransform)>,
     npcs: Option<Res<'w, Npcs>>,
 }
 
 impl Seek<'_, '_> {
-    /// Where the creature of the script name `name` stands on the ground (`x`, `z`), and whether
-    /// it is in the world: its place there, else the cell where it lives away from it.
+    /// Where the creature or the script's object of the script name `name` stands on the ground
+    /// (`x`, `z`), and whether it is in the world: its place there, else the cell where it lives
+    /// away from it; the original looks the name up among the world's objects whatever they are
+    /// (`0x4A5980`; the objects since #3105).
     fn creature(&self, name: &str) -> Option<(Vec2, bool)> {
         if let Some((_, at)) = self
             .named
@@ -142,7 +145,15 @@ impl Seek<'_, '_> {
         {
             return Some((at.translation().xz(), true));
         }
-        let (x, y) = self.npcs.as_deref()?.away(name)?;
+        if let Some((_, at)) = self
+            .objects
+            .iter()
+            .find(|(object, _)| object.0.eq_ignore_ascii_case(name))
+        {
+            return Some((at.translation().xz(), true));
+        }
+        let npcs = self.npcs.as_deref()?;
+        let (x, y) = npcs.away(name).or_else(|| npcs.object_away(name))?;
         let cell = (i32::try_from(x).ok()?, i32::try_from(y).ok()?);
         Some((paths::centre(cell), false))
     }
