@@ -470,7 +470,7 @@ An **estimate**: a linear scan, which misses values computed at run time and may
 | dwarf_shoot | 500 | 1017 | particle_shoot | particle_shoot `0x10d/g2` |  | 1048969216 | 0x3f7f0000 |
 | dwarfmagic | 100 | 832, 833 | PARTICLE_SPARK04 | PARTICLE_SPARK04 `0x1d/g1` |  | 350, 400 |  |
 | eiterblume | 500 | 1170 | particle_blob01 | particle_blob01 `0x164/g2` |  |  | 0x40108 |
-| elementstone | 1 | 768, 827, 828, 829, 830, 841, 939 | FX_LIGHTSTRIKE05 |  | glow, own geometry |  |  |
+| elementstone | 1 | 768, 827, 828, 829, 830, 841, 939 | FX_LIGHTSTRIKE05 |  | model, glow, own geometry |  |  |
 | elve_sm_cast | 200 | 861 | PARTICLE_SPARK06, PARTICLE_SPARK07 | PARTICLE_SPARK06 `0x19/g1` | glow |  | 0x200 |
 | elve_sm_hit | 152 | 860 | PARTICLE_SPARK06, RUNESHIELD_GRADIENT | PARTICLE_SPARK06 `0x19/g1` | ring | 200 | 0x40 |
 | emperor | 400 | 1159 | PARTICLE_LIGHTNING01, particle_glow03 | PARTICLE_LIGHTNING01 `0x18d/g2` | glow |  | 0x53 |
@@ -1772,6 +1772,30 @@ The two draw no particles: each object raises spikes about its place, its constr
 **Seen** 2026-11-05 beside the original: Anducar's demon's rings about the Mage, a field of dark red spikes with glowing tips in both, the game's a little shorter and thinner; in the game alone, the demon prince 250's fan, its smaller spikes' tips orange, along his line to the Mage.
 Not followed: their shadows.
 
+## The element stones
+
+Read 2026-11-19 for #2915 in Ghidra (**confirmed** by code unless marked).
+
+| Object | FX types | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The main quest's elements, quest 74's heart and the finale's symbols | 827 to 830, 841, 939, 768 `FX_ELEMENTSTONE01` to `_07` | `cParticleSystem_elementstone` (`0x898108`) | `0x788ED0`, `0x7897E0`, `0x7892C0`, `0x789310` |
+
+The set-up's case `0x5A1776` makes all seven of one particle, never alive: the class draws no particle.
+The scripts' `CreateObj` gives each its variant (827 → 1, 828 → 2, 829 → 3, 830 → 4, 841 → 5, 939 → 6, 768 → 7, `0x48961E` … `0x489CBA`) and the FX event `0x36`, which the object's handler (`0x5A3840`) sends to the kind 7's case: the system stands at the event's point and follows nothing.
+- Its start (`0x7897E0`): by the variant a sign's texture (`FX_WATER`, `FX_AIR`, `FX_EARTH`, `FX_FIRE`, `FX_VOID`, `FX_HOLY`, `FX_UNHOLY`) and a model of `models.pak` named by an item type's record (6107, 6105, 6106, 6108, 6109, 6112, 6113): `HQ_WaterElement`, `HQ_AirElement`, `HQ_EarthElement_01`, `HQ_FireElement`, `HQ_LostElement` (the forge's elements', "The forge's elements"), `SACREDSymbol01_01`, `SACREDSymbol02_01`; its phase 0.
+- Its run (`0x7892C0`): the phase grows by `dt` and wraps at 2π, a radian a second; nothing else changes, and the system never ends (the set-up's persistent types keep it, "The set-up: one system per type").
+- Its draw (`0x789310`), each frame in this order:
+  - the model at twice its size, 200 over the point, turned by the phase about the upright, in its rest pose (**hypothesis**: no animation is set), drawn by `cGranny::render` (`0x40D310`) in `FX_MULTITEXBASE01` (the variant 7 `FX_MULTITEXBASE03`) in place of its own texture, white, unlit, its depth tested and not written, added whole;
+  - three upright 40 × 40 squares of the sign, each tangent to a circle of radius 40 about the upright and centred 210 high, 120° apart and turning with the phase, in (160, 160, 255), added by the texture's alpha, the depth test off;
+  - the beam: an upright 20 × 82 strip from 118 to 200, facing the viewer and not turning, of `FX_LIGHTSTRIKE05`, its colour the variant's at its foot and black at its top, added by the alpha; its `u` from `r` at its top to `r + 0.4` at its foot and its `v` the texture's top eighth across it, `r = rand()/32767` rolled anew at each frame drawn;
+  - a large glow, a camera-facing square of `PARTICLE_GLOW03` of the half side 100 at 210, and a small one of `PARTICLE_GLOW05` of the half side `10 + r` at 118, the beam's foot, both added whole with their depth test off.
+- Its colours: the variants 1 to 6 the beam's foot (255, 255, 255), the large glow (128, 128, 192), the small one (240, 240, 240); the variant 7 (255, 64, 64), (192, 128, 128) and (240, 64, 64).
+- It gives no light (its radius `+0x9C` stays 0), makes no Direct3D light, starts no sound (their loops are the sound manager's, docs/re/sound.md, "The element stones and the stargates"), and never reads the night's tint: the stones look the same by day and by night.
+- So a veined, see-through element floats over its stone and turns, three of its signs going round it, a jagged lightning flickering under it down to a bright spark, and a large pale glow about it, all blue-white but the unholy symbol's, which is red.
+
+`opensacred-game` draws them since #2915 (`element_stones`, `opensacred_rules::particles::ElementStone`): each FX object of the seven types that `npcs` places takes its model, added whole in its veined texture as the original's, and its signs, beam and glows in quads of its own, in the object's order, the roll of each frame by the stones' dice.
+**Seen** 2026-11-19 beside the original at the water's stone (827, cell 204,3303): the floating veined element, the zigzags of its signs, the flickering beam and spark and the pale glow about it in both.
+
 ## The stargates
 
 Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code unless marked).
@@ -2580,7 +2604,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn at every detail (the options' detail, a setting since #2352, stretches its emitters' intervals alone), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing (of the scripts' objects the element stones, #2915, the traps, #2916, the hell gates, #2917, and the underworld's glyphs with the other objects of its quests and of the last fight, #2918 to #2921, whose classes no section above reads); the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
+Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing (of the scripts' objects the traps, #2916, the hell gates, #2917, and the underworld's glyphs with the other objects of its quests and of the last fight, #2918 to #2921, whose classes no section above reads); the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions

@@ -3722,6 +3722,116 @@ impl DemonSummon {
     }
 }
 
+/// The variant of an element stone of the FX type `kind` (`FX_ELEMENTSTONE01` to `07`, the FX
+/// event `0x36`'s variants 1 to 7 by the scripts' `CreateObj`, #2915), none for another type.
+pub fn element_stone(kind: u32) -> Option<u8> {
+    Some(match kind {
+        827 => 1,
+        828 => 2,
+        829 => 3,
+        830 => 4,
+        841 => 5,
+        939 => 6,
+        768 => 7,
+        _ => return None,
+    })
+}
+
+/// An element stone's model and sign by its variant less 1 (`cParticleSystem_elementstone`'s
+/// start, `0x7897E0`): the water's, the air's, the earth's, the fire's, the lost element's, and
+/// the holy and the unholy symbols'.
+pub const ELEMENT_STONE_LOOKS: [(&str, &str); 7] = [
+    ("HQ_WATERELEMENT.GRN", "FX_WATER"),
+    ("HQ_AIRELEMENT.GRN", "FX_AIR"),
+    ("HQ_EARTHELEMENT_01.GRN", "FX_EARTH"),
+    ("HQ_FIREELEMENT.GRN", "FX_FIRE"),
+    ("HQ_LOSTELEMENT.GRN", "FX_VOID"),
+    ("SACREDSYMBOL01_01.GRN", "FX_HOLY"),
+    ("SACREDSYMBOL02_01.GRN", "FX_UNHOLY"),
+];
+/// The texture its model wears in place of its own (`FX_MULTITEXBASE01`, `03` for the unholy
+/// symbol), its beam's, and its large and small glows' (`PARTICLE_GLOW03`, `05`).
+pub const ELEMENT_STONE_TEXTURES: [&str; 5] = [
+    "FX_MULTITEXBASE01",
+    "FX_MULTITEXBASE03",
+    "FX_LIGHTSTRIKE05",
+    "PARTICLE_GLOW03",
+    "PARTICLE_GLOW05",
+];
+/// Its model: twice the models' scale, 200 over its point.
+pub const ELEMENT_STONE_SCALE: f32 = 2.0;
+pub const ELEMENT_STONE_LIFT: f32 = 200.0;
+/// Its signs: three upright squares of the half side 20, each tangent to a circle of the radius
+/// 40 about its upright, their middles 210 up, 120° apart, of the colour (160, 160, 255), added
+/// by their texture's alpha.
+pub const ELEMENT_SIGN_HALF: f32 = 20.0;
+pub const ELEMENT_SIGN_RADIUS: f32 = 40.0;
+pub const ELEMENT_SIGN_LIFT: f32 = 210.0;
+pub const ELEMENT_SIGN_COLOUR: [f32; 4] = [160.0 / 255.0, 160.0 / 255.0, 1.0, 1.0];
+/// Its beam: an upright strip 10 to each side, from 118 to 200 up, which does not turn.
+pub const ELEMENT_BEAM_HALF: f32 = 10.0;
+pub const ELEMENT_BEAM_FOOT: f32 = 118.0;
+pub const ELEMENT_BEAM_TOP: f32 = 200.0;
+/// The share of the beam's texture its height shows (`0x890E94`) and the share across its width.
+pub const ELEMENT_BEAM_SPAN: f32 = 0.4;
+pub const ELEMENT_BEAM_ACROSS: f32 = 0.125;
+/// Its glows: the large one's half side at 210 up, the small one's at least at the beam's foot.
+pub const ELEMENT_GLOW_HALF: f32 = 100.0;
+pub const ELEMENT_SPARK_HALF: f32 = 10.0;
+
+/// An element stone (`cParticleSystem_elementstone`, #2915; docs/re/effects.md, "The element
+/// stones"): no particle of its own; its model turning and its signs going round it at 1 radian a
+/// second (`0x7892C0`), its beam's stretch and its spark's size by a roll at each frame drawn, for
+/// ever.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ElementStone {
+    /// The phase, in radians, below a whole turn.
+    pub phase: f32,
+}
+
+impl ElementStone {
+    /// The stone `dt` seconds on: its phase by 1 radian a second, a whole turn taken off it at
+    /// one.
+    pub fn update(&mut self, dt: f32) {
+        self.phase = (self.phase + dt).rem_euclid(std::f32::consts::TAU);
+    }
+
+    /// The colours of its beam's foot, its large glow and its small glow by its `variant`
+    /// (`0x78939C`): white and blue-white, the unholy symbol's (7) red.
+    pub fn colours(variant: u8) -> [[f32; 4]; 3] {
+        let rgb = |r: u8, g: u8, b: u8| {
+            [
+                f32::from(r) / 255.0,
+                f32::from(g) / 255.0,
+                f32::from(b) / 255.0,
+                1.0,
+            ]
+        };
+        if variant == 7 {
+            [rgb(255, 64, 64), rgb(192, 128, 128), rgb(240, 64, 64)]
+        } else {
+            [rgb(255, 255, 255), rgb(128, 128, 192), rgb(240, 240, 240)]
+        }
+    }
+
+    /// The middle of the sign `index` (0 to 2) and its facing's across, in the models' frame about
+    /// the stone's point: 40 toward the viewer turned by the phase and a third of a turn a sign
+    /// (`0x653790`: (x, y) to (x cos φ + y sin φ, −x sin φ + y cos φ)).
+    pub fn sign(&self, index: u8) -> ([f32; 3], [f32; 2]) {
+        let angle = self.phase + std::f32::consts::TAU * f32::from(index) / 3.0;
+        let (sin, cos) = angle.sin_cos();
+        let turn = |x: f32, y: f32| [x * cos + y * sin, -x * sin + y * cos];
+        let [x, y] = turn(0.0, ELEMENT_SIGN_RADIUS);
+        ([x, y, ELEMENT_SIGN_LIFT], turn(1.0, 0.0))
+    }
+
+    /// The beam's texture's `u` at its top and at its foot by a roll `r` of 0 to 1 (`0x849B40`
+    /// over 32,767).
+    pub fn beam_u(r: f32) -> [f32; 2] {
+        [r, r + ELEMENT_BEAM_SPAN]
+    }
+}
+
 /// The forge's elements' FX types, the air's first (`FX_FORGE_AIRELEM` to `FX_FORGE_LOSTELEM`,
 /// 911 to 915): an element's variant is its type less 911.
 pub const FORGE_ELEMENTS: std::ops::RangeInclusive<u32> = 911..=915;
@@ -16871,6 +16981,43 @@ mod tests {
             DemonSummon::new(10).ramp().at(251.0)[..3],
             [150.0 / 256.0, 100.0 / 256.0, 100.0 / 256.0]
         );
+    }
+
+    #[test]
+    fn an_element_stone_turns_its_signs_about_it_and_its_beam_jumps() {
+        assert_eq!(
+            [827, 828, 829, 830, 841, 939, 768].map(element_stone),
+            [1, 2, 3, 4, 5, 6, 7].map(Some)
+        );
+        assert_eq!(element_stone(831), None);
+        // A radian a second, a whole turn taken off past one.
+        let mut stone = ElementStone::default();
+        stone.update(1.0);
+        assert!((stone.phase - 1.0).abs() < 1e-6);
+        stone.update(6.0);
+        assert!((stone.phase - (7.0 - std::f32::consts::TAU)).abs() < 1e-5);
+        // The first sign 40 toward the viewer at the phase 0, the second a third of a turn on.
+        let still = ElementStone::default();
+        let ([x, y, z], across) = still.sign(0);
+        assert!(x.abs() < 1e-5 && (y - 40.0).abs() < 1e-5 && (z - 210.0).abs() < 1e-5);
+        assert!((across[0] - 1.0).abs() < 1e-6 && across[1].abs() < 1e-6);
+        let ([x, y, _], _) = still.sign(1);
+        let angle = std::f32::consts::TAU / 3.0;
+        assert!((x - 40.0 * angle.sin()).abs() < 1e-4 && (y - 40.0 * angle.cos()).abs() < 1e-4);
+        // A quarter turn on, the first sign at x 40, its across turned with it.
+        let ([x, y, _], across) = ElementStone {
+            phase: std::f32::consts::FRAC_PI_2,
+        }
+        .sign(0);
+        assert!((x - 40.0).abs() < 1e-4 && y.abs() < 1e-4);
+        assert!(across[0].abs() < 1e-4 && (across[1] + 1.0).abs() < 1e-4);
+        // The colours: the signs' pale blue, the unholy symbol's red.
+        assert!((ELEMENT_SIGN_COLOUR[0] - 0.627).abs() < 1e-3);
+        assert!((ELEMENT_SIGN_COLOUR[1] - 0.627).abs() < 1e-3);
+        assert_eq!(ElementStone::colours(1)[0], [1.0; 4]);
+        assert_eq!(ElementStone::colours(7)[0][1], 64.0 / 255.0);
+        assert_eq!(ElementStone::colours(6), ElementStone::colours(2));
+        assert_eq!(ElementStone::beam_u(0.25), [0.25, 0.65]);
     }
 
     #[test]
