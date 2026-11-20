@@ -3,8 +3,8 @@
 //! and 16 and its top and 16 (`0x6C1480`, the manager's tooltip of the style `0xB`), kept 16
 //! pixels within the screen (`0x6E7AF0`, the style's bit 8), until the pointer leaves the item.
 //! The same window tells the items of a merchant's page (#1618), of the bar's weapon sets (#1689),
-//! of the equipment window (#1704), of the smith's window (#1821) and of the combat master's
-//! EXCHANGE page (#1895), and the arts of the bar's art slots (#1694) and of the spells page
+//! of the equipment window (#1704), of the smith's window (#1821), of the combat master's
+//! EXCHANGE page (#1895) and of the town stash's window (#3085), and the arts of the bar's art slots (#1694) and of the spells page
 //! (#1696, `art`), each at its own place (`grid`).
 //!
 //! The window (`cUI_Tooltip`, `0x6E76C0`, `0x6E7AF0`, its border `0x727B30`): a black panel at
@@ -408,7 +408,8 @@ struct Scene;
 
 /// Where the item that a tooltip shows lies: the backpack's grid, a page of a merchant's (#1618),
 /// a weapon set's slot of the bar (#1689), a slot of the equipment window (#1704), the smith's
-/// window (#1821) or the combat master's EXCHANGE page (#1895); or the art slot of the bar
+/// window (#1821), the combat master's EXCHANGE page (#1895) or the town stash's window (#3085);
+/// or the art slot of the bar
 /// (#1694) or the spells page's icon (#1696) whose art it shows; or the equipment window's set
 /// icon, whose list of the sets worn it shows (#1670).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -422,6 +423,7 @@ enum Source {
     SetIcon,
     Smith,
     Master,
+    Stash,
 }
 
 /// What a tooltip shows: an item, as its own class or the smith's view of it tells it, an art, or
@@ -480,7 +482,8 @@ type Merchant<'w> = (
 /// the equipment window's set icon (`0x6B7F0F`, #1670); of an art slot's art (`0x5893B0`, #1694)
 /// and of a spells page's art with its next level (`0x6C25A0`, #1696); and of the smith's
 /// window's grid's item, buttons' upgrades and sockets' items (`0x6A33A0`, #1821); and of the
-/// combat master's EXCHANGE page's runes (`0x6D49A0`, #1895).
+/// combat master's EXCHANGE page's runes (`0x6D49A0`, #1895); and of the town stash's window's
+/// grid's item as the backpack's (`0x75B390`, #3085).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -490,13 +493,17 @@ fn grid(
     mut commands: Commands,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     (shown, page): (Option<Res<Shown>>, Res<crate::inventory::Page>),
-    (pack, (merchant, showing, wares), (smith, master, choice)): (
+    (pack, (merchant, showing, wares), (smith, master, choice), (chest, opened)): (
         Res<Pack>,
         Merchant,
         (
             Option<Res<crate::blacksmith::Blacksmith>>,
             Option<Res<crate::master::Master>>,
             Res<crate::master::RuneChoice>,
+        ),
+        (
+            Option<Res<crate::town_stash::Chest>>,
+            Option<Res<crate::town_stash::Opened>>,
         ),
     ),
     (sets, slots, art_slots): (
@@ -565,6 +572,23 @@ fn grid(
             at,
         )?;
         Some((Source::Master, key, corner, Shows::Item(dropped)))
+    };
+    // The town stash's window's item, as the backpack's (#3085).
+    let stashed = || {
+        let (placed, dropped, origin) = crate::town_stash::hovered(
+            (
+                shown_page.as_deref()?,
+                opened.as_deref()?,
+                chest.as_deref()?,
+            ),
+            (&pointer, &ui_scale, &windows),
+        )?;
+        Some((
+            Source::Stash,
+            placed.key,
+            at_item(origin, placed),
+            Shows::Item(dropped),
+        ))
     };
     let carried = || {
         let at = on_grid(&pointer, &ui_scale, &windows, &page)?;
@@ -653,6 +677,7 @@ fn grid(
             smithed()
                 .or_else(exchanged)
                 .or_else(sold)
+                .or_else(stashed)
                 .or_else(carried)
                 .or_else(worn)
                 .or_else(sets_worn)
