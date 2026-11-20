@@ -5030,6 +5030,8 @@ impl Npcs {
             mounted: false,
             class,
             two: two_weapons_of(&holding, class),
+            // Worked out of their values; `equipment::refit` gives the worn items' (#3080).
+            levels: Vec::new(),
         }
     }
 
@@ -13410,6 +13412,8 @@ impl Arms {
             mounted: self.mounted,
             class,
             two: two_weapons_of(&in_hands, class),
+            // Worked out of their values: a creature's items have no sockets filled.
+            levels: Vec::new(),
         }
     }
 }

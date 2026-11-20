@@ -621,14 +621,16 @@ fn refit(
         // Each item's values with its sockets', then the bonus slots of the items in its
         // sockets, as the stats take each item's record and then theirs (`0x5796A0`, #1661);
         // the ridden horse's bridle first, its slot −1.
-        let values: Vec<fight::ItemValues> = bridle
+        // Each item's level its tooltip's, its own raised to its sockets', by which the speeds
+        // fall; its sockets' bonus slots of none (#3080).
+        let (values, levels): (Vec<fight::ItemValues>, Vec<u32>) = bridle
             .iter()
             .chain(pack.worn.iter().flatten().map(|(_, d)| d))
             .flat_map(|d| {
-                std::iter::once(tables.values(d))
-                    .chain(opensacred_rules::smith::bonuses(&d.socketed))
+                std::iter::once((tables.values(d), tables.item_level(d, &rules.0)))
+                    .chain(opensacred_rules::smith::bonuses(&d.socketed).map(|values| (values, 0)))
             })
-            .collect();
+            .unzip();
         let mut holds = holding.0.clone();
         let arms = holds
             .items
@@ -636,6 +638,8 @@ fn refit(
             .saturating_sub(old.map_or(0, |old| old.0.len()));
         holds.items.truncate(arms);
         holds.items.extend(values.iter().cloned());
+        // The levels by the items' places: those of the arms' part worked out (0).
+        holds.levels = std::iter::repeat_n(0, arms).chain(levels).collect();
         holds.sets = set_stats.clone();
         holds.mounted = ridden.is_some();
         commands.entity(entity).insert(Worn(values));

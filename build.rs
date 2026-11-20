@@ -1,6 +1,6 @@
 //! The build script of opensacred-convert and opensacred-game (their `package.build`): the version
 //! of the binaries, passed to the code as `OPENSACRED_VERSION`. The version lives only in Git: the
-//! Release workflow tags every version `vX.Y.Z` (docs/03 §3.6), and `Cargo.toml` has none.
+//! Release workflow tags every released version `vX.Y.Z` (docs/03 §3.6), and `Cargo.toml` has none.
 //! `git describe` gives `0.4.2` on a tag and `0.4.2-3-gabc1234` three commits after it; a clone
 //! without the tags gives the commit alone, a source tree without Git "unknown".
 //!
