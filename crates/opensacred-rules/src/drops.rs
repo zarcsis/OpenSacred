@@ -1137,6 +1137,9 @@ pub struct Catalogue {
     uniques: HashMap<i64, Vec<u32>>,
     /// The records' own values of the uniques and the set pieces, which a drop raises.
     owned: HashMap<u32, crate::fight::ItemValues>,
+    /// The groups of the classes' variants by the types of a group (`0x43CA20`), whose takers
+    /// the use's test asks ([`crate::equipment::class_allows`], #3091).
+    takers: HashMap<u32, crate::equipment::Takers>,
 }
 
 impl Catalogue {
@@ -1292,12 +1295,19 @@ impl Catalogue {
             sets: set_pieces,
             uniques,
             owned,
+            takers: HashMap::new(),
         }
     }
 
     /// The catalogue with the runes that the drops draw from (`0x9565A0`, #1183).
     pub fn with_runes(self, runes: Vec<u32>) -> Self {
         Self { runes, ..self }
+    }
+
+    /// The catalogue with the groups of the classes' variants `takers` by the types of a group
+    /// (`0x43CA20`), which the draw's use's test asks (#3091).
+    pub fn with_takers(self, takers: HashMap<u32, crate::equipment::Takers>) -> Self {
+        Self { takers, ..self }
     }
 
     /// The `items.pak` slot whose record the items table holds for type `item`: the type's own,
@@ -1481,24 +1491,32 @@ impl Catalogue {
             .and_then(|i| of_class.get(i).copied())
     }
 
-    /// Whether the hero can wear an item of type `item` (`0x54ABE0`): its record's class bits
-    /// allow the hero's (**hypothesis** for the item's own test), its least level is at most the
-    /// hero's, and a skill it needs the hero has at its level; the attributes that it might need
-    /// are 0 in every record.
+    /// Whether the hero can wear an item of type `item`, the use's test whole (`0x54ABE0`,
+    /// [`crate::equipment::may_use`], #3091): its classes, its weapon's kind by the hero's class
+    /// and the group of its classes' variants, then its least level, at most the hero's, and a
+    /// skill it needs, the hero's at its level; the attributes that it might ask are 0 in every
+    /// record.
     fn wears(&self, item: u32, hero: &Hero) -> bool {
         let Some(record) = self.records.get(&item) else {
             return false;
         };
-        let classes = record.flags & CLASS_BITS;
-        let class = classes == 0 || class_bit(hero.creature).is_none_or(|bit| classes & bit != 0);
-        let [skill, needed] = record.skill;
-        let skilled = skill == 0
-            || needed == 0
-            || hero
-                .skills
-                .iter()
-                .any(|&(s, at)| s == skill && at >= u32::from(needed));
-        class && u32::from(record.levels[0]) <= hero.level && skilled
+        let asks = crate::equipment::Asks {
+            item,
+            category: self.categories.get(&item).copied().unwrap_or(0),
+            kind: record.kind,
+            classes: record.flags,
+            level: u32::from(record.levels[0]),
+            attributes: [0; 4],
+            skill: record.skill,
+            takers: self.takers.get(&item).copied(),
+        };
+        let wearer = crate::equipment::Wearer {
+            creature: hero.creature,
+            level: hero.level,
+            attributes: None,
+            skills: Some(&hero.skills),
+        };
+        crate::equipment::may_use(&wearer, &asks)
     }
 }
 

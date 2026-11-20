@@ -191,7 +191,7 @@ impl Tables {
             warn!("drops: {e}; no item has a class's variant");
             Vec::new()
         });
-        let switch_of = switches
+        let switch_of: HashMap<u32, u16> = switches
             .iter()
             .enumerate()
             .flat_map(|(group, pairs)| {
@@ -199,6 +199,25 @@ impl Tables {
                 pairs.iter().map(move |&[_, variant]| (variant, group))
             })
             .collect();
+        // Each type's group of the classes' variants, a fixed item's its root's (`0x43CA20`, as
+        // `Self::asks` finds it), which the drops' use's test asks (#3091).
+        let takers = weapons
+            .iter()
+            .filter_map(|weapon| {
+                let item = weapon.id;
+                let fixed = (2000..=2999).contains(&item) || (6500..=7999).contains(&item);
+                let switched = if fixed {
+                    catalogue.slot(item).unwrap_or(item)
+                } else {
+                    item
+                };
+                let group = switch_of.get(&switched).copied()?;
+                let category = catalogue.category(item)?;
+                let takers = opensacred_rules::equipment::takers_of(category, group, &switches)?;
+                Some((item, takers))
+            })
+            .collect();
+        let catalogue = catalogue.with_takers(takers);
         let set_numbers = sets
             .iter()
             .filter(|set| set.bytes[1] != 0)

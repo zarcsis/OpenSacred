@@ -77,6 +77,7 @@ fn catalogue(types: &[(u32, u8, Record)]) -> Catalogue {
         sets: Vec::new(),
         uniques: HashMap::new(),
         owned: HashMap::new(),
+        takers: HashMap::new(),
     }
 }
 
@@ -536,6 +537,75 @@ fn above_level_5_the_jitter_lets_a_type_of_higher_levels_drop() {
     assert_eq!(choose(&[0, 0]), None);
     // Of 2·2: below 10.
     assert_eq!(choose(&[1, 1, 1, 0]), Some(2000));
+}
+
+#[test]
+fn the_three_draws_take_what_the_hero_may_use_whole() {
+    // A sword (1), a bow (7) and an ogres' axe (1800), every class's by their bits; the draws
+    // pass on what the use's test refuses (`0x54ABE0`, #3091): the bow for the Dwarf and the
+    // Daemon, the ogres' axe for every hero.
+    let weapon = |kind| Record {
+        kind,
+        ..record(ANY, [1, 1], [1, 0, 0])
+    };
+    let catalogue = catalogue(&[
+        (1000, 5, weapon(1)),
+        (1001, 5, weapon(7)),
+        (1800, 5, weapon(1)),
+    ]);
+    let wanted = Wanted {
+        category: 5,
+        level: 1,
+        class: 0,
+        loose: false,
+        quality: 0,
+        kind: None,
+    };
+    let choose = |creature, rolls: &[u32]| {
+        let hero = Hero {
+            creature,
+            level: 1,
+            ..Hero::default()
+        };
+        let mut dice = script(rolls);
+        let item = catalogue.choose(wanted, &hero, &mut dice);
+        assert!(dice.0.is_empty(), "{:?} left", dice.0);
+        item
+    };
+    // The way of the three draws: the bow first, then the sword.
+    assert_eq!(choose(8, &[1, 1, 1, 0]), Some(1000));
+    assert_eq!(choose(9, &[1, 1, 1, 0]), Some(1000));
+    // The Seraphim takes the bow at once.
+    assert_eq!(choose(1, &[1, 1, 1]), Some(1001));
+    // The ogres' axe no hero takes: three draws of it, the last kept.
+    assert_eq!(choose(1, &[1, 1, 2, 2, 2]), Some(1800));
+    assert_eq!(choose(1, &[1, 1, 2, 2, 0]), Some(1000));
+    // An armour of the Seraphim's and the Gladiator's bits whose group of the classes' variants
+    // lists the Gladiator alone: refused to the Seraphim, passed to the Gladiator.
+    let armour = Record {
+        kind: 0,
+        ..record(0b11, [1, 1], [1, 0, 0])
+    };
+    let armours = self::catalogue(&[(3000, 6, armour), (3001, 6, armour)]).with_takers(
+        HashMap::from([(3000, crate::equipment::Takers::of(&[[2, 3002]]))]),
+    );
+    let wears = |creature, rolls: &[u32]| {
+        let hero = Hero {
+            creature,
+            level: 1,
+            ..Hero::default()
+        };
+        let wanted = Wanted {
+            category: 6,
+            ..wanted
+        };
+        let mut dice = script(rolls);
+        let item = armours.choose(wanted, &hero, &mut dice);
+        assert!(dice.0.is_empty(), "{:?} left", dice.0);
+        item
+    };
+    assert_eq!(wears(1, &[1, 1, 0, 1]), Some(3001));
+    assert_eq!(wears(2, &[1, 1, 0]), Some(3000));
 }
 
 #[test]
