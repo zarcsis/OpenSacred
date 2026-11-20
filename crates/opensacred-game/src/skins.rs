@@ -18,8 +18,9 @@
 //! worn so too (#1092; "The light strikes"), the state 1 as its strike ends: the model drawn
 //! instead, lit, blended by its alpha, in `GRN_SHADETEXTURE02` taken by its normals (`0x44AB44`,
 //! `0x40BD70`; `models::Pass::Water`), then the state 3 for 2 s, that look and the plain model in
-//! turns every 0.2 s. A vision, Valor's ghost or the Daemon's vision
-//! (`opensacred_rules::spells::VISIONS`, #2519), wears its look for good, its model never drawn
+//! turns every 0.2 s. A vision, Valor's ghost, the Daemon's vision
+//! (`opensacred_rules::spells::VISIONS`, #2519) or a creature that a script marks so
+//! (`npcs::Vision`, #3064), wears its look for good, its model never drawn
 //! plain (`0x44A9D0`'s state 22 or 23, `0x40C320`): its texture in a grey that pulses by the real
 //! clock, times twice the vision's texture taken by its normals, unlit and added to the frame
 //! (`models::Pass::Vision`). The items it wears,
