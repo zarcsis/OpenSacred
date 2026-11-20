@@ -165,9 +165,9 @@ const ANIMALS: u8 = 6;
 
 /// Whether a creature of side `side` and type `creature` is hostile to the heroes (`0x548F60`,
 /// `0x423580`): its side's row of [`FRIENDS`] without the heroes' bit, or its type
-/// [`AGAINST_ALL`]. The client's other cases are not followed: the creatures of `+0x200` bit
-/// `0x10000000` and their lists, a horse taken by its rider's side, and the flags word's bit
-/// `0x40000`, which turns the answer over.
+/// [`AGAINST_ALL`]. The flags word's bit `0x40000`, which turns the answer over, is the field
+/// `Mind::turned`'s. Not followed yet: the creatures of `+0x200` bit `0x10000000` and their lists
+/// (#3077), and a horse taken by its rider's side (#3083).
 pub fn hostile_to_heroes(side: u8, creature: u32) -> bool {
     hostile(side, creature, HEROES, 0)
 }

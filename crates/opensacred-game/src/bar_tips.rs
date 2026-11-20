@@ -17,7 +17,8 @@
 //! `0x55C9F0`) centred 92 left of and 32 above the bar's corner (`0x6D7B80`), as the original's
 //! show them (seen).
 //!
-//! Not followed yet (#1594): the disc's and the compass's texts; a weapon set's slot's item's
+//! Not followed: the disc's and the compass's texts, which the original's frames did not show
+//! either, when they show not read (#3110); a weapon set's slot's item's
 //! tooltip is `tooltip`'s (#1689) and an art slot's `tooltip::art`'s (#1694).
 
 use bevy::prelude::*;

@@ -10,8 +10,9 @@
 //! distance, which each new strike sets anew (the event of the kind 3, `0x531AF7`, which the
 //! original's hero takes as a creature does; seen 2026-11-19).
 //!
-//! Not followed: the interface's messages of the fall (`0x6770E0`, `0x6852B0`) and the object 874
-//! at the hero (the FX event `0x62`).
+//! The fall's voice line of one that falls unconscious (`0x6770E0`, `0x6852B0`) is not spoken,
+//! no hero's voice holding one (a companion's is #3087). Not followed yet: the object 874 at the
+//! hero (the FX event `0x62`, #3023), and its turn to its attacker (#3079).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::KNOCKBACK_SPEED;

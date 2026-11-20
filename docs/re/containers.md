@@ -188,7 +188,8 @@ Read 2026-10-30 (#1478), **confirmed** by code unless marked otherwise, and seen
 - A click (`0x617A5B`) sends the hero to it (the order 7 with the event's index), and as it arrives (`0x53BA29`) the event's function runs (**seen**: the log's `WorkFunktion` of `VERSTECK`, an item at the hero's feet); the stash is then gone, the cursor over it showing nothing (**seen**).
 - `VERSTECK` runs `CreateObj` at the hero (`CPOS:HERO`) with `0x54` 3 and `0x79` (`0xFFFFFF`, 4) and no type, which makes a random item for the local hero (`0x4863D4`): `srand(time)`; the difficulty's bonus `d`, 0 on bronze, 1 on silver, 3 on gold, 5 on platinum, 8 on niobium; in 1 case of 4 a potion (`0x43B1A0` of the difficulty, docs/re/items.md); else in 1 of 3 a weapon (5), else in 1 of 2 an armour (6), else a category of `0x43B090(0)`, each by `0x5C7FA0(category, L + rand() % (⌊L/5⌋ + 3) + d, 0, 15, the hero's type in 1 case of 2 else 0, 2, 1, 14)`, `L` the hero's level; without a type a weapon's roll once more.
   That roll's level only chooses the type: `CreateObj` then makes the item at the hero's level within its sector's levels, as any item it lays (docs/re/netscript.md, "The items' levels"; **seen** in the original, #1125).
-- Not read: what `0x79` gives the item maker, the order 7's walk, and the underworld's pools' use.
+- Not read: the order 7's walk, and the underworld's pools' use.
+  The `0x79` is the colour and the variant of the generic system 856 that the `CreateObj` starts at its item, which the item maker's call above does not take (docs/re/netscript.md, "`Partikel`").
 
 ## The mouse events (`MouseEvent`)
 
@@ -234,7 +235,7 @@ Since #1413 the hero opens a container only along a straight way to it, its own 
 Since #1411 a town stash opens its window with the inventory (`town_stash`): the frame, the grid of 20 × 10 from (0, 20) with its items as the backpack's, its clicks as above, one store for every stash kept while the game runs and by its saves (#1959), empty as a new game starts (#1970), the stash emptied while the window shows and closed, its lid with its clip of the slot 171 and its sound, as the inventory hides (`containers::close_stash`).
 **Seen** in the game beside the original at the town stash at (3435, 2580): the window over the world at the original's place, a healing potion put into the cell (3, 2) and found there again after the window closed and opened, the lid closed.
 Since #1663 Shift with a click on a backpack's item while it shows sends the item into the store, and since #1767 the window's show and hide each play `UI_CLICK01`, as the original's.
-Not followed for it: the hovered item's tooltip.
+Not followed for it: the hovered item's tooltip (#3085).
 
 Since #1412 `FillChest`'s random items of `0x57` follow (`containers::random_items`): each of `drops::random_category`, its type chosen at `⌊rand()/32768·(L − 1) + 1⌋` of the hero's level for the hero's class (**hypothesis**: of the run's quality 14, not loose).
 Since #2858 every item of a container is made as the item maker of the contents makes it (`opensacred_rules::containers::Opening`, `fight::Rules::contained_level`, `drops::Rules::contained_key`, `drops::contained`), its level and its key drawn by the container's own dice: at a level held at the container's sector's raised lowest, and of the key that the time played and the hero's luck raise, the run's of the key 15 for `0x9E`.
@@ -252,4 +253,5 @@ Since #1584 the `MouseEvent` records lay their events beside the stashes (`opens
 **Seen** in the game at the Seraphim's start: 2,059 events in all, the well's text under the cursor, a click on it gave the potion 5057 at her feet, and the well then left the list.
 
 Since #1587 the events of neither flag show the sparks of `0x409D00` (`glitter`, `opensacred_rules::particles::event_sparks`): the glitter's squares, the table at `0x8E80CC` holding the glitter's own numbers, rising `25 |sin(3t + a[i + 6])|`, at half the glitter's hue's value, with no phase (the pass gives 0), at their cell's centre on its ground as the blink (#1788); **seen** beside the original's at the cursed gold of (1050, 3500), the coloured squares with their grey stars over the gold.
-Not followed: the static object's mark (the event is picked at its cell's point on the ground, whatever its floor, not by the object's picture), the arrival's straight way, what the `CreateObj`'s `0x79` gives the item maker, and the order 7's walk.
+Not followed: the static object's mark (the event is picked at its cell's point on the ground, whatever its floor, not by the object's picture; #3089), and the arrival's straight way and the order 7's walk (#3086).
+The `CreateObj`'s `0x79` starts its system 856 at its random item (#1838, #1888; `scripts::Partikel::made`).

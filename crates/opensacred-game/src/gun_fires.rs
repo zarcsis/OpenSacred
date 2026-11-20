@@ -10,8 +10,9 @@
 //! sprays red at its neck along the shot (1151, `cParticleSystem_shoot_impact`,
 //! `particles::shoot_impact`), drawn by `puffs`, tinted by the night.
 //!
-//! Not followed: the impact's test of the struck object's `+0x14` bit `0x10` (not read). The
-//! cannon's own flash (1017, `dwarf_shoot`) is `dwarf_fires`'.
+//! The original makes no impact at a struck object destroyed already (`+0x14` bit `0x10`); here
+//! an entity that is gone has no place to spray at. The cannon's own flash (1017, `dwarf_shoot`)
+//! is `dwarf_fires`'.
 
 use std::collections::HashMap;
 

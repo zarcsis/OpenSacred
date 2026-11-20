@@ -280,7 +280,7 @@ Read 2026-11-05 for #2106 in Ghidra (**confirmed** by code unless marked).
 Bevy's point light falls by the square of the distance alone, so it stands 89 of the models' units (`1/√0.000125`) over the effect's place, where along that place's plane it falls as the fixed function's, the sun's 4,000 lux its whole colour; it lights the models from above rather than from the effect's place, and fades to nothing at 200, where the fixed function's is cut at a sixth (docs/decisions/drawing.md).
 **Seen** 2026-11-05 in the game: a goblin standing in the Wood Elf's thorns, its legs lit green as the original's (#2106's frames).
 The manager's slots follow since #2282 (`fx_lights::Slots`, each light's priority of the table above, `fx_lights::HIGH` and `LOW`): the device of the original's driver had 8 lights (the manager's `+0x04`, read 2026-11-08 by a probe of `0x642B90` while the thorns made theirs), the sun's among them, so at most seven effects' lights shine at once; a light made with every slot taken goes into the first slot of the lowest priority where its own is at least as high, putting that light out for good (`0x642B90` turns it off; its system's later moves by its old handle find no slot), else it never shines.
-Not followed: the demon fire's wobble, the light of the big demons' death (919), whose system the game draws, and those of the systems it does not draw (895 and 909); the terror sprinters' aura's (1167) follows since #2921.
+Not followed: the demon fire's wobble (docs/decisions/drawing.md, "Demon fire's light without its wobble"), the light of the big demons' death (919), whose system the game draws, and that of 909, whose system it does not draw (#3152); the fences' segments' (895) follows since #2916 (`laser_fences`), the slaves' (921) since #2919 (`shaddar_slaves`) and the terror sprinters' aura's (1167) since #2921.
 
 ## The world's effects
 
@@ -374,7 +374,7 @@ Its layer is at `+0x24A8` and its one emission block at `+0x24C8`, the ramp at `
 - **The variant 4**, the dust of a corpse that vanishes (docs/re/fight.md, "The other deaths of class 5"): a burst (the block's interval 0) of 150 particles at the corpse model's skinned vertices (`0x44FC30`, `0x767FB0`), the buoyancy −20 ± 8, the size 10, the angle π ± π, the angle's speed 0.5 ± 0.2, the velocity 0 ± 3 along each axis and a frame of 4; the layer's rates of the buoyancy −10 (they rise ever faster), the life −100 (2.55 s), the size +8 and the angle +1, its wind the renderer's vector as the smoke class's; the ramp of (0.898, 0.836, 0.664), a pale bone colour, from an alpha of 0.5 to 0 over 256 entries.
 - The variant 5 is the variant 4's of (0.625, 0.684, 0.625), a pale green, the buoyancy −16 and the size 7: a body under the flesh to stone's effect (docs/re/fight.md, "The bodies' end"); 0 is a burst of 500 at the skinned vertices (the buoyancy −5 ± 5, the size 2 growing by 1 a second, the life's rate −150, from (0.8, 0.9, 1.0) to opaque black, which adds nothing; the flags `0x19`, added whole), a ghost's, a crow's or a body's on water; 1 a burst of 250 there (the size 10, the angle π ± π, the velocity ± 1 along each axis, a frame of the grid, the life's rate −150, the buoyancy's −1 and the angle's 1; drawn by the flags `0x106`, the ramp's first four words, which the start clears to black, at the alpha of the life, turned and laid over the frame by its alpha), the Vampiress's raised dead's black smoke; 2 the Vampiress's change's ring above.
   Each burst takes every `⌊V/N⌋`th of the model's `V` vertices from each mesh's first in turn, up to its `N` (`0x767FB0`); the system's flags 0, standing where it was made.
-  `opensacred-game` makes the variants 0, 1, 4 and 5 since #2514 (`opensacred_rules::particles::body_end`, `bodies::Ends`, at the body's vertices as last posed, `vertices`, drawn by `puffs`); **seen** 2026-11-10 in the game, a ghost's dense blue-white figure of sparks beside the original's frame of the same death; the wind of the variants 4 and 5 is left out.
+  `opensacred-game` makes the variants 0, 1, 4 and 5 since #2514 (`opensacred_rules::particles::body_end`, `bodies::Ends`, at the body's vertices as last posed, `vertices`, drawn by `puffs`); **seen** 2026-11-10 in the game, a ghost's dense blue-white figure of sparks beside the original's frame of the same death; the wind of the variants 4 and 5 is left out (#3154).
 
 ### The hit sparks: `cParticleSystem_*_sm_hit`
 
@@ -400,7 +400,7 @@ Read 2026-11-04 for #1092 (**confirmed** by code unless marked).
 
 `opensacred-game` follows the hits' bursts since #1092 (`hit_sparks`, `opensacred_rules::particles::{sparks_of, hit_sparks}`): each strike of a hero's art that the table names sends its sparks from `making`, drawn as the bursts of `puffs`, untinted, with the light at the striker; **seen** beside the original at the Seraphim's start, a white burst at the goblin as she strikes and violet-blue sparks falling about it.
 `opensacred-game` draws 864's sights since #2923 (`dark_sights`, `opensacred_rules::particles::DarkSight`): the viper's circle under each creature it holds for its hold (`making`), the spellproof's symbol of the turned spell's largest kind under each creature it strikes (`spells::share_turned`), and the boons' crackles at the Dark Elf's two hands for their time (`making`), each lighting the night; the fear's symbol, which nothing makes, is not drawn.
-Not followed: the other values' looks (862's wait for #3062) but 864's (`dark_sights`) and a trampling horse's floops (1077, drawn since #2329: `floops`, `opensacred_rules::particles::HorseFloops`; docs/re/horses.md, "Fighting from horseback"), the thrown weapons' hits' 864 (`0x44E570`) and the Wood Elf's arrows' 860 (`0x5BC660`, `0x5BC965`), and the creatures' specials of the melee state's sub-states 7, 11 and 13 (842, `0x4E166B`).
+Not followed: the other values' looks (862's wait for #3062) but 864's (`dark_sights`) and a trampling horse's floops (1077, drawn since #2329: `floops`, `opensacred_rules::particles::HorseFloops`; docs/re/horses.md, "Fighting from horseback"), the thrown weapons' hits' 864 (`0x44E570`, #3129) and the Wood Elf's arrows' 860 (`0x5BC660`, `0x5BC965`, #3129), and the creatures' specials of the melee state's sub-states 7, 11 and 13 (842, `0x4E166B`).
 
 ### Not followed here
 
@@ -617,7 +617,8 @@ Read 2026-11-04 for #1092 in Ghidra and with capstone (**confirmed** by code unl
 
 The fireball is 778 (`sdk_CREATE(0x30A)` at `0x523834`): 776, the catalogue's `fireball`, is a weapon's glow that `cWeapon3D` makes (`0x5CDDAD`, below), not the spell's.
 The Daemon's 1103 makes 1159 by the FX event `0x91` (`0x51B0EF`).
-Other makers of these types, not followed: 801 at `0x4D3FA8` and `0x4E369E`; 778 at `0x4D4315`, `0x4E3A84`, `0x5354AA` and `0x57865F`; 1159 at `0x5357B6`, `0x57529B` and `0x6AAEB6`.
+801 at `0x4E369E` is the medium spider's shot, which `opensacred-game` makes since #2067 (`creature_casts`; docs/re/ai.md, "In `opensacred-game`").
+Other makers of these types, not read and not followed: 801 at `0x4D3FA8`; 778 at `0x4D4315`, `0x4E3A84` (inside the fire ghoul's block, #2903), `0x5354AA` and `0x57865F`; 1159 at `0x5357B6`, `0x57529B` and `0x6AAEB6`.
 
 ### Their flight
 
@@ -721,7 +722,8 @@ Read 2026-11-20 for #2922 in Ghidra (**confirmed** by code unless marked); the w
 
 `opensacred-game` draws them since #2922 (`weapon_effects`, `opensacred_rules::weapon_effects`): each model put on (`npcs::Piece`) takes its effect by its type, the bonus's glow on a weapon in hand of the bone `stdfx_bone01` whose own record's or socketed items' bonuses give a style, each following its bones, added and untinted by the night, just behind its holder in the order.
 **Seen** in the game: the whips of quest 6001's ice elves (type 140) trailing blue-violet as they fight.
-Not followed: the bonus's glow on a model worn rather than held (the wings of the bone `stdfx_bone01`), which `cWeapon3D` gives where its bonuses do; the whip's first frames, which the original draws from its points about the world's origin until they settle; the wings, the sword and the glow are not seen in the game, which has no way yet to put an item on its hero but its inventory's.
+Not followed yet: the bonus's glow on a model worn rather than held (the wings of the bone `stdfx_bone01`), which `cWeapon3D` gives where its bonuses do (#3174).
+Not followed: the whip's first frames, which the original draws from its points about the world's origin until they settle (docs/decisions/drawing.md, "Whip's streaks from the whip at once"); the wings, the sword and the glow are not seen in the game, which has no way yet to put an item on its hero but its inventory's.
 
 ### In `opensacred-game`
 
@@ -731,7 +733,7 @@ Their lights follow since #61 (`bolt_looks`): the railgun's 100, the BFG's 120 a
 Their height follows since #2018 (`bolts::leaving`): each leaves from its shooter's bone that its FX handler's case names (the railgun, the Daemon's bolt and the bubble the right hand, the fireball, the fire bolt and the splinters the left, the BFG the staff's `weapon_fx01`, the whirlwind the root `__Root`), at the moment it leaves, and flies level at that height, the fireball and the Daemon's bolt ending at once where the ground rises above them (the flag `0x01`), the BFG's ground glow on the ground under it (its place less `+0xA4`).
 **Seen** 2026-11-04 in the game: the Mage's fireball leaving her raised left hand at 90 over the ground and flying at her chest's height to the goblin it struck.
 A shooter of no such bone keeps its bolts 80 over the ground under them (`bolts::HEIGHT`, a stand-in).
-Not followed: the looks of a caster gone (`+0xA9` 1); the fireball's point light on the models follows since #2106 ("The systems' Direct3D lights").
+Not followed: the looks of a caster gone (`+0xA9` 1, #2902); the fireball's point light on the models follows since #2106 ("The systems' Direct3D lights").
 **Seen** 2026-11-04 beside the original's frames: the railgun's cyan streak and its haze alike in size and colour; the fireball's plume alike; the emperor's flare alike in size, its rays whiter than the original's violet white; the BFG's starburst and its ground glow of their quads' size, but only about half as wide to the eye, their dim middle tones lost, until #2017 ("In `opensacred-game`" below): since, alike.
 
 ## The breath of fire
@@ -767,7 +769,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 The breath and its wall look as their systems since #1092 (`breath`, `opensacred_rules::particles::{walloffire, walloffire_line}`): the breath's look an entity of its own that follows the breath while it flies, leaving its flames and smoke along the way, its glow and its light of 100 at it (at height 0, as the bolts'), outliving the breath until its last flame dies; each fire of the wall its flames on the ground for its 10 s (`arts::WALL_BURNS`), its light of 200 with it until its last; all untinted by the night.
 The wall's flames and the glow are added whole (`fx::whole_material`: the particles' material that takes no alpha, `ONE`, `ONE`).
 **Seen** 2026-11-04 beside the original's frames at the Daemon's start by night: the breath an orange plume with a dark smoke where it stops, and the wall a row of tall flames that run together into a white and yellow sheet, alike in size; the original's smoke drifts and spreads more.
-Not followed: the layers' wind (as the world's smokes'), and the steps' small fire of the variant 1 that the wall's end makes ("The steps' small fire" below).
+Not followed: the layers' wind (as the world's smokes', #3154), and the steps' small fire of the variant 1 that the wall's end makes ("The steps' small fire" below; #3028).
 
 ## The ring of poison
 
@@ -819,7 +821,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` draws it since #1092 (`holy_lights`, `opensacred_rules::particles::{HolyLight, HOLY_COLUMN, holy_pulse}`): the object that `spells` stands at the point gets its look for its seconds, its column of its vertices' colours alone (`fx::plain_material`) with its bands across the screen's horizontal, its symbol and glow on the ground and its sparks added whole, untinted by the night, and its light of 200 at it.
 **Seen** 2026-11-04 beside the original's frames in the chapel of 50,39: a soft white column rising out of the frame with sparks climbing it, over a cyan glow and the turning symbol, alike in breadth, both narrowing as they fade.
-Not followed: the sparks' colours' spread; its Direct3D point light on the models follows since #2106.
+Not followed: the sparks' colours' spread (#3155); its Direct3D point light on the models follows since #2106.
 
 ## The blades of light
 
@@ -859,7 +861,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` draws it since #1092 (`lightning_strikes`, `opensacred_rules::particles::{LightningBolt, lightning_sparks}`, `fx::repeated_texture`): at what the Seraphim's lightning strikes, and at what a creature's lightning strikes in violet (#1852), its three bolts of 12 segments, its glow and its sparks (`puffs`), added whole and untinted by the night, its light of 200 while its sparks fall.
 **Seen** 2026-11-04 beside the original's frames in the chapel of 50,39: three slanting blue zigzags rising out of the frame from the goblin, a white flash at their foot and a shower of blue-white sparks after, alike.
-Not followed: the bolts over all else (their depth test off), and the glow at the system's first point, which the game takes for its place (the original's flash lies a little higher, at the goblin's body).
+Not followed (#3156): the bolts over all else (their depth test off), and the glow at the system's first point, which the game takes for its place (the original's flash lies a little higher, at the goblin's body).
 
 ## The light
 
@@ -932,15 +934,15 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 |---|---|---|---|
 | The battle fog | 868 | `cParticleSystem_battlefog` | `0x770670`, `0x7707D0`, `0x770700`, `0x7709F0` |
 
-- Its makers: the Dark Elf's fog trap 1053, four at (±60, ±60) about where it lands (docs/re/arts.md), and the dryad druid's blink at each end (#1883).
+- Its makers: the Dark Elf's fog trap 1053, four at (±60, ±60) about where it lands (docs/re/arts.md), the dryad druid's blink at each end (#1883), and a minimummy's blink, the variant 1 where it leaves and 2 where it lands (docs/re/ai.md, "The other marks", #2565).
   **Seen** 2026-11-04 (a probe at `0x770A02`): four starts at the trap's landing, each of the variant (`+0x3C`) 0, the level 5 and the factor 1.
 - Its start (`0x7709F0`): its seconds `0x4D26B0(0, L) · [+0x70]` (`+0x20A4`); its ramp from the variant's colour (1 (193, 183, 173) and 2 (173, 183, 193) at an alpha of 150, else a grey of 120 at none, in 256ths) to a grey of 193 at 150 over 64 entries, to one of 150 at none over 192; one layer (the life −50 a second) and one block: buoyancy 0 ± 3, size 60 ± 20, angle π ± π, spin 0 ± 0.3, place (0, 0, 50) ± (30, 80, 50), a frame below 4, every 0.3 s (times 1.5 and 2.2 at the detail levels 1 and 0); its flags 0, no light; the sound 2055 once.
 - Its run (`0x770700`): the renderer's vector in its layer's wind, as the smoke class's; its particles aged, and emitted for its seconds; then it lives while a particle does.
 - Its draw (`0x7707D0`): billboards of the flags `0x14C` (its frame of `PARTICLE_SMOKE03`'s 2 × 2 its own, the ramp's colour, turned, tinted by the light at it, laid over by its alpha).
 
-`opensacred-game` draws it since #1092 (`battle_fogs`, `opensacred_rules::particles::battle_fog`): the four fogs of the trap 1053 and the dryad druid's blink's puffs, drawn with the world under the night's pass.
+`opensacred-game` draws it since #1092 (`battle_fogs`, `opensacred_rules::particles::battle_fog`): the four fogs of the trap 1053 and the dryad druid's and the minimummies' blinks' puffs, drawn with the world under the night's pass.
 **Seen** 2026-11-04 beside the original's frames at the Dark Elf's start: grey fog billowing up over the trap's cells, alike in size and colour.
-Not followed: its layer's wind (as the world's smokes'), and its variants 1 and 2, whose makers are not read.
+Not followed: its layer's wind (as the world's smokes', #3154), and its variants 1 and 2, the minimummies' blink's, whose two fogs the game makes of the variant 0 (#3157).
 
 ## The banishing circle's runes
 
@@ -1042,7 +1044,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` draws it since #1092 (`icebergs`, `opensacred_rules::particles::Iceberg`): each object that `spells` makes gets a look of its own at its place, its strike facing the camera and its glow, then its burst of sparks and its iceberg, untinted by the night but for the iceberg, its light of 150.
 **Seen** 2026-11-04 beside the original's frames at the Mage's start by day: white strikes of light flickering down at the objects' places, then white icebergs standing there over a glow, alike in size and place.
-Not followed: its strike over all else (its depth test off).
+Not followed: its strike over all else (its depth test off, #3156).
 
 ## The chain lightning
 
@@ -1067,7 +1069,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` draws it since #1092 (`chain_bolts`, `opensacred_rules::particles::{ChainBolt, ChainImpact}`): each strike's bolt that `spells` makes, its first from the Mage's left hand and each leap from the last target's, to the target's left hand (80 over its place where it has none, **estimate**), its segments' crossed quads in world space along the line, its glow, its segments' lights, and its impact at its end; all untinted by the night.
 **Seen** 2026-11-04 beside the original's frames at the Mage's start by day: a thin bright bolt from her hand to the goblin between a glow at her hand and a bright glow and sparks at the goblin, alike in place and size.
-Not followed: the bolt's end at a cell that may not be walked on, which in the original ends the spell with no strike (the goblins under a pine at the start took none); the Direct3D lights on the models follow since #2106.
+Not followed: the bolt's end at a cell that may not be walked on, which in the original ends the spell with no strike (the goblins under a pine at the start took none; #3158); the Direct3D lights on the models follow since #2106.
 
 ## The lost souls
 
@@ -1264,7 +1266,7 @@ Read 2026-11-04 for #1964 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` makes it since #1964 (`blood_fountains`, `opensacred_rules::particles::{BloodFountain, bleeds}`) under `[gameplay] violence`, off by default as the installation's `VIOLENCE` (docs/10 §3): a creature that dies, but the hero, the hero's followers and those of a dialogue, bleeds by its class, its gib set (`Item::gib_set`) and its type, in one case of ten at the bone of a part that its death rolls rather than its making (the same odds, as a creature that bleeds dies once), with its sound, its drops dying on the ground where it fell.
 **Seen** 2026-11-05 in the game with the violence on: a few of the wolves 588 killed by the console spurted, a jet of red drops from the head or a limb that fell to the ground beside the corpse.
-Not followed: the 30 of `+0x2B8` bit 1 and the sets' fountains at a hit (the part 100); the drops on the ground (903) follow since #2773 ("The blood splashes" below).
+Not followed (#3159): the 30 of `+0x2B8` bit 1 and the sets' fountains at a hit (the part 100); the drops on the ground (903) follow since #2773 ("The blood splashes" below).
 
 ## The big demons' death
 
@@ -1286,7 +1288,7 @@ Read 2026-11-11 for #2537 in Ghidra (**confirmed** by code unless marked).
 - **Seen** 2026-11-11 under the driver: a big demon 53 killed by `kill` at 3250,2500, a white glow at its body and orange writhing rays rising from it one after another.
 
 `opensacred-game` makes it since #2537 (`demon_deaths`, `opensacred_rules::particles::DemonDeath`; `bodies` at the first tick of lying); **seen** 2026-11-11 in the game beside the original's frames of the same death, alike in the glow and the rays.
-Not followed: the system's flag `0x40`, the glows and the rays being drawn untinted by the night (**hypothesis**).
+Not followed: the system's flag `0x40`, the glows and the rays being drawn untinted by the night (**hypothesis**; #3152).
 
 ## The blood puddle
 
@@ -1380,7 +1382,7 @@ Read 2026-11-07 for #2099 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` follows the giant spider's and the crab queen's spit since #2099 (`spits`, `opensacred_rules::particles::Spit`, `casts::{SPIT, coming_on}`, `fight::Rules::spit_damages`): the cast's decision of the dragons (`minds::Mind::cast`) by the clip 0x4F at the creature's speed, the spit at 0.4 of it (`creature_casts`); its young, its flight from `Head_02` (else the feet), its hits, its trail, its part (the item's model and skin, lit as the world's models are) and its mark and sounds.
 Since #2226 the flowers spit too, by their own mark's decision (`casts::{flower, flower_melee}`, `minds::Mind::cast`): the clip 0x91 and the spit at 0.525 of it (`casts::spit_at`), from their place; and the crab queen drops its ten cages on its target by an odd roll before it spits, the target held 3 s (`plant_cages`, the effect 15 keyed by 40).
-Since #2231 they leap from 400 to 800 as well (`casts::FLOWER_LEAP`, `creature_casts`): by the clip 144 at the creature's speed, as its share left falls below 0.7, to the hero's place held to the panther's reach at the level of a creature's art (`arts::panther_reach`, `fight::Rules::creature_spell_level`), where they may stand, along an arc three times as high as the hero's in half the clip's time (`making::Leap`, now a creature's too), with `SPELL_TURBOBOOST`; the clip's rate by the reach is not followed.
+Since #2231 they leap from 400 to 800 as well (`casts::FLOWER_LEAP`, `creature_casts`): by the clip 144 at the creature's speed, as its share left falls below 0.7, to the hero's place held to the panther's reach at the level of a creature's art (`arts::panther_reach`, `fight::Rules::creature_spell_level`), where they may stand, along an arc three times as high as the hero's in half the clip's time (`making::Leap`, now a creature's too), with `SPELL_TURBOBOOST`; the clip's rate by the reach is not followed (#3160).
 **Seen** 2026-11-07 in the game: an eiterblume made 10 cells from the hero rose high and landed beside her, 523 away from where it stood.
 **Seen** 2026-11-07 in the game: a giant spider of level 20 kited by the hero now and then stopped to spit a tumbling green part toward her, its green trail arcing over her, striking her as it passed, onto the ground ahead, where a green splash stayed; once it bore its young spiders on its spot instead.
 
@@ -1406,7 +1408,7 @@ Read 2026-11-05 for #1964 in Ghidra (**confirmed** by code unless marked otherwi
 - **Seen** 2026-11-05 at the sector 12,74: bursts traced every few seconds (`0x79F160`) and small flames standing on the lava and on the rock about it.
   The lava dragon there breathed its fire at the Daemon beside its mouth at the same time ("The dragons' fire" above): a white-hot jet from its mouth along its heading and white flames standing under it.
 
-`opensacred-game` makes them since #1964 (`lava_bursts`, `opensacred_rules::particles::{LavaBurst, LavaFlames, deep_lava}`): `liquids` keeps each sector's cells of deep lava (a cell on its sector's edge left out), and once a second at most each of them in view rolls the burst in turn, the first that wins throwing its rock with its sound and a small fire there; the rock is the meteors' (`meteors`), the trail, the glow and the flames untinted by the night, the flames lighting it.
+`opensacred-game` makes them since #1964 (`lava_bursts`, `opensacred_rules::particles::{LavaBurst, LavaFlames, deep_lava}`): `liquids` keeps each sector's cells of deep lava (a cell on its sector's edge left out, docs/decisions/drawing.md, "Lava bursts away from a sector's edge"), and once a second at most each of them in view rolls the burst in turn, the first that wins throwing its rock with its sound and a small fire there; the rock is the meteors' (`meteors`), the trail, the glow and the flames untinted by the night, the flames lighting it.
 **Seen** 2026-11-05 at the sector 12,74 in the game: rocks of lava arcing out of the pool with their glows and trails about once a second, small fires on the lava where they leave and on the rock where they land.
 
 ## The dryad ghost
@@ -1429,7 +1431,7 @@ Read 2026-11-05 for #1964 in Ghidra (**confirmed** by code unless marked otherwi
 - **Its end**: at once where its target or its dummy changes its byte `+0x38`, or its place has no sector; fading where it has no target and its dummy is gone; with its sector going idle.
 
 `opensacred-game` makes it since #1964 (`dryad_ghosts`, `opensacred_rules::particles::{DRYAD_GHOST, LostSoul::dryad_ghost}`, `opensacred_rules::fight::Rules::dryad_ghost_damages`): each fill's dummy 1249 is hidden as it is made, its flags' low 16 bits cleared, and its ghost rises on the ground at its place, flies, strikes the hero and its followers and looks and sounds as described (`lost_souls`, `hums::Hum`); it goes with its dummy, its dots fading after it.
-The bytes `+0x38`, the strikes' resolution from an object and the dummy's death are not followed; its green Direct3D light follows since #2106, as the lost souls' (`lost_souls`).
+The bytes `+0x38`, the strikes' resolution from an object and the dummy's death are not followed (#3161); its green Direct3D light follows since #2106, as the lost souls' (`lost_souls`).
 **Seen** 2026-11-05 at the sector 16,79 beside the original: the dummies of neither game showing or stirring; in both a green glow trailing blue dots that rose and flew at the Seraphim within some six cells and circled about her head, striking her.
 
 ## The raised creature's ring
@@ -1586,7 +1588,7 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the runn
   - its rays, billboards of `PARTICLE_LINE01` of the flags `0x8D` (`0x761B00`: standing on their feet, turned, the ramp's colour, added by their alpha), the grid 1, the factor 0.125: each `0.125·size` to each side and `2·size` long from its foot at the ball's centre, at its angle in the screen's plane, so that thin rays up to about 74 long stand out about the ball, their feet hidden within the inner sphere, whose depth they test.
 - So a ball of flowing lava bobs about 45 over the point in a starburst of thin orange rays, growing in over two seconds and shrinking away over its last two; its strikes' beam is not its own (#2119).
 
-`opensacred-game` draws it since #1092 (`demon_fires`, `opensacred_rules::particles::{DemonFire, lava_frame}`): each demon fire's object of `spells` shows its two spheres in the lava's frames, the outer added, and its rays added and untinted by the night, their feet within the inner sphere left out (`Quads::push_ray`), as its depth hides them in the original; its shadow is not followed, its Direct3D light follows since #2106.
+`opensacred-game` draws it since #1092 (`demon_fires`, `opensacred_rules::particles::{DemonFire, lava_frame}`): each demon fire's object of `spells` shows its two spheres in the lava's frames, the outer added, and its rays added and untinted by the night, their feet within the inner sphere left out (`Quads::push_ray`), as its depth hides them in the original; its shadow is not followed (#3162), its Direct3D light follows since #2106.
 **Seen** 2026-11-05 beside the original: in both an orange lava ball in a starburst of thin rays over the point.
 
 ## The hell disk
@@ -1608,7 +1610,7 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the runn
   - its trail, billboards of the flags `0x0D` (`0x761B00`: the ramp's colour, added by their alpha), the grid 1, the factor 1.
 - So a small gyroscope of flowing lava whirls along its flight in a pulsing dull orange glow, trailing orange glows that light up a little behind it and fade within 1.3 s.
 
-`opensacred-game` draws it since #1092 (`hell_disks`, `opensacred_rules::particles::HellDisk`): each hell disk of `spells` shows its model at 0.08 of its size playing its clip's loop, in the lava's frames, lit in its own material and again added over itself on copies of its meshes, and its glow and its trail added and untinted by the night; stopped, it stays where its disk ended until its last glow; its shadow is not followed, its Direct3D light follows since #2106.
+`opensacred-game` draws it since #1092 (`hell_disks`, `opensacred_rules::particles::HellDisk`): each hell disk of `spells` shows its model at 0.08 of its size playing its clip's loop, in the lava's frames, lit in its own material and again added over itself on copies of its meshes, and its glow and its trail added and untinted by the night; stopped, it stays where its disk ended until its last glow; its shadow is not followed (#3162), its Direct3D light follows since #2106.
 **Seen** 2026-11-05 beside the original: in both a whirling ring of lava at the goblin's neck in a bright orange glow, a curving trail of orange glows behind it.
 
 ## The `Hardhit`'s ray
@@ -1690,7 +1692,7 @@ Read 2026-11-05 for #1092 and #2119 in Ghidra (**confirmed** by code), and the h
 - Its draw: depth tested, its depth not written, unlit, added whole (`ONE`, `ONE`), its two crossed quads in its world matrix at its place, not facing the camera, not tinted by the night: `FX_VAMPBLOODLINE` for 0, 2 and the others, `LASERBEAMPART` for 1 and 4, `FX_LIGHTSTRIKE05` for 3, `LASERBEAMPART3` and `LASERBEAMPART4` for 5.
 - So the hellfire's and the lasers' are straight yellow-orange streaks gone in half a second, the drains' swaying chains of red strands fading over a second, the bite's the same whole for 4.4 s.
 
-`opensacred-game` lays them since #1092 (`beams`, `opensacred_rules::particles::{LaserSegment, laser_axes}`, `opensacred_rules::ways::laser_places`): the drains', the hellfire's, the eye lasers' and the bite's, each segment staying where it was laid with its quads, its band, its sway and its colour by its variant, and its sound; the line's test of the strikes is #2123's; the beam of the items' life leech, of the strike handler's transfers, follows since #1366 (docs/re/fight.md) and the `Gehirnfüßler`'s since #2567 (`creature_arts::stare`, docs/re/ai.md), on past a cell that does not pass by its flag `0x80` since #2819 (`beams::THROUGH`); the zhadum's since #2920 ("The zhadum"), its two sets each of its own texture repeated along it; the segments' lights of 80 and the strike handler's other transfers' beams are not followed.
+`opensacred-game` lays them since #1092 (`beams`, `opensacred_rules::particles::{LaserSegment, laser_axes}`, `opensacred_rules::ways::laser_places`): the drains', the hellfire's, the eye lasers' and the bite's, each segment staying where it was laid with its quads, its band, its sway and its colour by its variant, and its sound; the line's test of the strikes is #2123's; the beam of the items' life leech, of the strike handler's transfers, follows since #1366 (docs/re/fight.md) and the `Gehirnfüßler`'s since #2567 (`creature_arts::stare`, docs/re/ai.md), on past a cell that does not pass by its flag `0x80` since #2819 (`beams::THROUGH`); the zhadum's since #2920 ("The zhadum"), its two sets each of its own texture repeated along it; the segments' lights of 80 (#3153) and the strike handler's other transfers' beams (#3163) are not followed.
 **Seen** 2026-11-05 beside the original: in both the hellfire's yellow-orange streak from its ball to the goblin's neck at a strike; the drain's chain of red strands from the Seraphim to the skeleton in the game.
 
 ## The homing fires
@@ -1736,7 +1738,7 @@ Their FX events take the event's direction and the flag `0x40`, so each flies le
 
 `opensacred-game` draws them since #1092 (`bolt_trails`, `opensacred_rules::particles::{BoltTrail, TrailKind}`), in place of their stand-in balls: the whirlwind leaves its caster's `__Root` and flies level at its height, its dust left along its way in the colour of the ground where it leaves (`terrain::Heights::nature`, `GROUND_COLOURS`), at the alpha of its life, laid over and tinted by the light; the fire bolt leaves its caster's left hand, its smoke riding with it, added and untinted by the night.
 **Seen** 2026-11-05 beside the original: the Mage's whirlwinds' dark green dust about her and along their way, gone where a tree stops them; the fire bolt's teal and white glow at the caster's hand and at its target alike in size and colour (Sharifo's in the game, the Mage's taught the spell 52 in the original).
-Not followed: the dust's colour spread and the fire bolt's one puff at its end (its Direct3D light follows since #2106) (**hypothesis**: drawn from a stale origin, far off).
+Not followed: the dust's colour spread (#3155) and the fire bolt's one puff at its end (its Direct3D light follows since #2106) (**hypothesis**: drawn from a stale origin, far off; #3163).
 
 ## The ice splinters
 
@@ -1776,7 +1778,7 @@ Its FX event (`0x47`) takes the event's direction and the flag `0x40`, so the bu
 
 `opensacred-game` draws them since #1092 (`bubble_traps`, `opensacred_rules::particles::{BubbleTrap, SonarRing}`), in place of its stand-in ball: the bubble leaves its caster's right hand, its bush its clip's loop playing, along its flight; burst by an arrow (`bolts::Pops`), its glows where it was and its ring on the ground under it, both untinted by the night.
 **Seen** 2026-11-05 beside the original: the Wood Elf's bubble of the level 5, an orange ball of vines and green leaves alike in size flying from her hand; in the game her arrow burst it over a chasm, its green puff and the ring spreading on the chasm's floor (the original's arrow struck the goblin before it reached the bubble).
-Not followed: its bush's shadow, its glows' place at its bone's state (taken at its place), the world's lights of 100 and 150 and the ring's 200 (`+0x9C`).
+Not followed: its bush's shadow (#3162), its glows' place at its bone's state (taken at its place, #3153), the world's lights of 100 and 150 and the ring's 200 (`+0x9C`, #3153).
 
 ## The soulcatcher
 
@@ -1795,7 +1797,7 @@ Its FX event (`0x5D`) follows its target, the Dark Elf, at his neck (`0x44CB80`:
 
 `opensacred-game` draws it since #1092 (`soulcatchers`, `opensacred_rules::particles::Soulcatcher`): the soulcatcher's object that `making` hangs at the Dark Elf takes its look, its twirls over his `Bip01 Neck` riding with him, each run of one layer in their order a mesh of its own drawn after the one before (`depth_bias`), untinted by the night; each soul that `souls` absorbs swells them and lights the glow.
 **Seen** 2026-11-05 beside the original: the Dark Elf's soulcatcher of the level 5, a gold vortex over his head alike in its place, its colour and its spiral, a little smaller; the swelling and the flash at a soul in the game.
-Not followed: the order of the twirls' slots, which reuses the dead ones (ours their births'), so that its fully dark moments are rarer.
+Not followed: the order of the twirls' slots, which reuses the dead ones (ours their births', docs/decisions/drawing.md, "Soulcatcher's twirls in the order of their births"), so that its fully dark moments are rarer.
 In the original a creature's ordinary death makes no soul (780): a goblin killed by the Dark Elf without his soulcatcher started none (the trace of `0x76CD50`), one killed with it one; its body makes one 20 s later as it vanishes, homing on nothing (#2501, "The souls" below).
 
 ## The souls
@@ -1834,7 +1836,7 @@ The two draw no particles: each object raises spikes about its place, its constr
 
 `opensacred-game` draws them since #1092 (`spikes`, `opensacred_rules::particles::{Spikes, SpikesKind}`), in place of the stand-in balls of flame: each object of `creature_casts`' rings and fan raises its 3, 6 or 10 spikes by the detail on the ground (`spikes_at`, #2817), its models in `Andukar_demon_512`, their glow added in copies of their meshes; the last stand-in ball of the bolts gone with them.
 **Seen** 2026-11-05 beside the original: Anducar's demon's rings about the Mage, a field of dark red spikes with glowing tips in both, the game's a little shorter and thinner; in the game alone, the demon prince 250's fan, its smaller spikes' tips orange, along his line to the Mage.
-Not followed: their shadows.
+Not followed: their shadows (#3162).
 
 ## The element stones
 
@@ -1911,7 +1913,7 @@ The game makes neither.
 `opensacred-game` makes the two traps since #2916 (`pill_fields`, `laser_fences`, `opensacred_rules::script_traps`): `npcs` places each parent at its record's point, the field lays its pieces once its sector is in, and the fences come from their maker as the original's, each strike through `fight::Burn`, which poisons by its poison as any strike.
 The fences' places in the models' frame go to the ground as the flight's do, and their ribbons join from segment to segment; the field's pills and ghosts and the fences' parts are drawn untinted by the night, each at its place in the original's order of drawing.
 **Seen** 2026-11-19 beside the original: the field's balls on the same points of the cave's corridors and its faces gliding along them, the balls eaten for 10 experience each, the faces' strikes; the fences' ribbons and glows crossing the hero at the door and striking it, the creatures that wandered into them killed.
-Not followed: the systems' saves and loads (a save keeps neither field nor fence; the sector's `Enter` makes them again).
+Not followed: the systems' saves and loads (a save keeps neither field nor fence; the sector's `Enter` makes them again), what the original's save keeps of them not read (#3175).
 
 ## The stargates
 
@@ -1980,7 +1982,7 @@ The add-on's trees make the gates up and down at their dimension gates in the ma
 None of the three starts a sound but the gate down's loop; `HOELLENTOR` (221) is played by no call found (docs/re/sound.md).
 
 `opensacred-game` draws them since #2917 (`hell_gates`, `opensacred_rules::particles::{HellgateUp, HellgateDown, HellgateHead}`): `npcs` places each at its record's point, the scripts' signal (`forge_elements::Signal`) fades a gate up and ends a head as the original's, and the gate down hums its loop (`hums`).
-Not followed: a signal to a gate down, which the original takes for its event again, re-placing it at an unwritten point and starting its loop a second time (**hypothesis**: the add-on's quest 37 signals a name that a gate down holds too).
+Not followed: a signal to a gate down (docs/decisions/drawing.md, "A hell gate down not placed again"), which the original takes for its event again, re-placing it at an unwritten point and starting its loop a second time (**hypothesis**: the add-on's quest 37 signals a name that a gate down holds too).
 
 ## The dwarves' magic
 
@@ -2043,7 +2045,7 @@ The scripts (every add-on tree, the same records):
 
 `opensacred-game` draws the three since #2918 (`underworld_glyphs`, `opensacred_rules::particles::{DoorSpikes, UwGlyph, GlyphFire}`): `npcs` places each at its record's point, the signs' two passes are copies of their meshes in materials whose texture transforms slide, and the scripts' signal (`forge_elements::Signal`) sinks the spikes.
 Since #3049 the start's spikes are never placed, as the original's end at once (`npcs::ends_at_start`); their look stays for a spikes' object that a script would make in a marked sector.
-Not followed: the spikes' shadows.
+Not followed: the spikes' shadows, of no matter while no spikes that a script makes live (#3049).
 
 ## Shaddar's slaves
 
@@ -2095,7 +2097,7 @@ Its start sets a block of golden sparks, but its run only counts its clock and i
 
 `opensacred-game` follows them since #2919 (`shaddar_slaves`, `opensacred_rules::shaddar`): `npcs` places each slave at its record's point and never again once placed; each flies, touches, marks, hunts and strikes as above, its rays and its light drawn; the marked hero wears the emblem (drawn after its model, `fx::Orders::over`); and `fight` takes a strike's damage at Shaddar away from an attacker that does not hold the effect 32, and nobody's whole.
 The pentagram is not placed, as it shows and does nothing.
-Not followed: the floors, a slave touching and hunting only on the ground, where its record puts it; the target's byte that the homing keeps (`+0x64`, which ends the system where it changes, **hypothesis**: the target's sector).
+Not followed: the floors, a slave touching and hunting only on the ground, where its record puts it (docs/decisions/drawing.md, "Shaddar's slaves and the zhadum on the ground"); the target's byte that the homing keeps (`+0x64`, which ends the system where it changes, **hypothesis**: the target's sector; #3170).
 
 ## The zhadum
 
@@ -2120,7 +2122,7 @@ Its `items.pak` record gives it the size 1,000 (`+0x14`) and no sound profile.
 `opensacred-game` follows it since #2920 (`zhadums`, `opensacred_rules::zhadum`): `npcs` places it at its record's point; once a second it takes one of the living creatures on the ground within its reach at random, lays its beam of the variant 5 (`beams`) from its place through the creature's neck and on, and slays it (`fight::Slay`, an immortal one excepted); its glow flashes and fades.
 Since #2920 too the beams of the variant 5 look as their system (`LaserSegment::second_quads`).
 **Seen** beside the original: the beam through the hero by the sword, its end within 4 units of the original's, and the beam from the shape's eye eastward to the cave's wall.
-Not followed: the floors (it reaches the creatures on the ground, where it stands); a target whose model is not drawn, at which the original's beam aims at the world's origin.
+Not followed: the floors (it reaches the creatures on the ground, where it stands; docs/decisions/drawing.md, "Shaddar's slaves and the zhadum on the ground"); a target whose model is not drawn, at which the original's beam aims at the world's origin (docs/decisions/drawing.md, "Zhadum's beam at a target not drawn").
 
 ## The terror sprinters' aura
 
@@ -2174,7 +2176,7 @@ The Daemon's executor makes the object 1014 at the form's bearer as the form tak
 
 `opensacred-game` draws it since #1092 (`demon_forms`, `opensacred_rules::particles::DemonForm`): `making` makes the look as a form's effects take hold, at the Daemon's `Bip01 Head`; it goes as his form's effects end, a new form's look taking its place.
 **Seen** 2026-11-05 beside the original: the Daemon's fire and energy forms, the comets whirling in their colour about his head and chest in both, his crest of rays over his head.
-Not followed: the crest in the head bone's own plane, which the game faces to the viewer as the original's frames show it from the front (**estimate**); the tongues of flame about his hands in the original's frames are his form's casts' sights ("The casts' sights"), not the crest.
+Not followed: the crest in the head bone's own plane, which the game faces to the viewer as the original's frames show it from the front (**estimate**, #3164); the tongues of flame about his hands in the original's frames are his form's casts' sights ("The casts' sights"), not the crest.
 
 ## The casts' sights
 
@@ -2199,7 +2201,7 @@ The spells' cast (`0x51E110`, its table `0x521C34` by the spell) makes them for 
 **Seen** 2026-11-05 beside the original: the Mage's fireball's orange glows at his left hand in both; the Daemon's fire form's orange sparks at his hands, the tongues of flame that the original shows about his raised hands.
 **Seen** 2026-11-06 in the game: Anducar's demon's blue glows at his hands as he casts his fire bolt.
 Since #1890 also for the scripts' queued `Partikel` of `n0` −2 at its turn, in the styles of its `n1` at the creature's hands or feet (docs/re/netscript.md, "`Partikel`").
-Not followed: an undead hero's fireball (no hero is one); a particle's own colour's spread is rolled once a particle by one byte, its channels apart.
+Not followed: an undead hero's fireball (no hero is one); a particle's own colour's spread is rolled once a particle by one byte, where the original rolls its channels apart (docs/decisions/drawing.md, "Cast sights' colours from one roll").
 
 ## The Dwarf's guns' fires
 
@@ -2265,10 +2267,10 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
 It draws the overlays since #1092 too (`skins`, `opensacred_rules::spells::{cross_skin_grey, skin_shows}`), asked with the spells' effects as the strikes end: the stone skin's glow and its blink of 2 s, the crusader's strength's crosses and the quickening's speed, each a copy of the bearer's meshes added over them, dressed again on the new meshes where the model is made anew (the hero's is after the quickening; **hypothesis**: by its pace).
 **Seen** 2026-11-06 beside the original: the stone skin's pale glow over the Mage, alike in both; the quickening's blue skin brighter in the game than the original's (#2169).
   The skins' grey taken in the frame's values since #2169 ("The fire skin"), **seen** again at the Mage's start at 22:00 and the zoom 2, the frames about half a second apart over the pulse: the quickening's blue streaks over the Mage's own colours rise and fall in both, the bluish pixels' mean from (43, 55, 74) to (82, 101, 135) in the original and from (66, 74, 101) to (93, 109, 151) in the game, where it lay between (91, 105, 141) and (105, 122, 164) before, a pale blue all over; the crusader's crosses on the Seraphim faint in both, where the game's had laid white crosses over her body.
-Not followed: the strikes over all else (their depth test off), and whether the light follows its object's creature (**hypothesis**: it stands).
+Not followed: the strikes over all else (their depth test off, #3156), and whether the light follows its object's creature (**hypothesis**: it stands).
 Since #1092 the hero's water form wears its overlay too (`skins::Overlay::Water`, `models::Pass::Water`, `opensacred_rules::spells::WATER_SKIN_TEXTURE`), as its strike ends: its model's meshes, not its held items, take a material of `GRN_SHADETEXTURE02` taken by each fragment's normal turned back into the model's frame (glTF's x and −z, the model's x and y), lit, blended by its alpha with the alpha test, their depth written; then 2 s of that look and the plain model in turns.
 **Seen** 2026-11-06 beside the original at the Mage's start at 22:00: a faint translucent figure of light outlines, her head and limbs edged, her staff as it was, alike in both.
-Not followed: a script creature's water form (`ECS_SUPERFLUID`).
+Not followed: a script creature's water form (`ECS_SUPERFLUID`), which no record of any tree names.
 
 ## The holy shield, the shield wall, the mana's spring and the regeneration
 
@@ -2310,7 +2312,8 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
 
 `opensacred-game` draws the four since #1092 (`shields`, `opensacred_rules::particles::{HolyShield, ShieldWall, Regen}`), as `spells` casts the spells and the ice elf's creature cast its holy shield, at their bearer's root for the spells' time, on the layer that the night leaves untinted, the two shields with a light of 300 that goes with them; an arrow that the hero's holy shield or shield wall turns aside flashes it (`arrows`, `shields::Flash`).
 **Seen** 2026-11-06 beside the original at the Seraphim's and the Mage's starts at 22:00 and the zoom 2: the holy shield's pale blue band sweeping about her over its arc on the ground, the shield wall's red walls over their bright ring of glows, and the mana's spring's blue symbol over its glow, alike in both.
-Not followed: a spell turned aside by the shield wall, whose effect `0x1A` turns none aside in the game yet (the items' magic defence alone does, #2277), and the set 32's spring.
+A spell that the shield wall turns aside by its effect `0x1A` flashes it since #2945 (`fight::resolve`, `shields::Flash`).
+Not followed: the set 32's spring (#3136).
 
 ## The Dark Elf's wards
 
@@ -2325,7 +2328,8 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
 
 `opensacred-game` draws the two since #1092 (`dark_wards`, `opensacred_rules::particles::DarkWard`) about the hero who makes the art, with their models' clips looping, under his model (`models::Pass::Under`, as the original draws the system before the creature, #2178), and flashes the arrowproof at each arrow it sends back (`shields::Flash`).
 **Seen** 2026-11-07 in the game (not beside the original): the arrowproof's magenta rings rising about the Dark Elf and standing, the spellproof's cyan rings with it, both under his model and under a creature in a row in front of him.
-Not followed: a spell turned aside, as the effect `0x1A` turns none aside in the game yet, and the wards made at an admitted target other than the Dark Elf.
+The spellproof turns spells aside by its effect `0x1A` since #2945 (`fight::resolve`, `spells::share_turned`).
+Not followed yet: its flash at a spell it turns aside (#3172), and the wards made at an admitted target other than the Dark Elf (#3124).
 
 ## The Dark Elf's casts
 
@@ -2354,7 +2358,7 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
 
 `opensacred-game` draws the three since #1092 (`glad_sights`, `opensacred_rules::particles::GladSight`), as the art's clip starts (`making::Playing` added), at the Gladiator, just behind his model (`fx::Orders`, #2178); the hand of god's interval takes its class's own factors at the lower details, 0.0375 and 0.055 s, since #2817 (`hand_of_god_factor`).
 **Seen** 2026-11-07 in the game (not beside the original): the green glow at his right hand, the five auras on the ground about him, and the heroism's star and sparks about his raised hand, his arm over them.
-Not followed: the awe at a target other than him, and the items' glows of the empty-handed arts.
+Not followed: the awe at a target other than him (#3124), and the items' glows of the empty-handed arts (#3170).
 
 ## The bleed and the parade
 
@@ -2373,7 +2377,8 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
 `opensacred-game` draws both since #1092 (`blow_sights`, `opensacred_rules::particles::{Bleed, Parade, blood_colour, blow_bleeds}`), from each strike that `fight::resolve` resolves (`fight::Struck`, its damage and the target's most health), at the struck creature's neck, the bleed's droplets where they flew, the parade's streaks riding with it in the camera's plane, both just behind its model (`fx::Orders`, #2178); a hero bleeds red.
 **Seen** 2026-11-07 in the game (not beside the original): the Seraphim of level 1 struck for 12 by a bandit, a spray of red droplets beside her neck; at her miss, ten golden streaks bursting from her neck up and aside.
 Since #2773 the bleed leaves its splashes (903, "The blood splashes").
-Not followed: the cell's bit `0x800`, and the clash's sound, which `sfx` plays its own way.
+Not followed: the cell's bit `0x800` (#3170).
+The clash's sound is the striker's weapon's `PARADE`, which `sfx` plays at every strike that does no damage (docs/re/sound.md, "The weapons").
 
 ## The force of hell
 
@@ -2388,7 +2393,7 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
 
 `opensacred-game` draws it since #1092 (`hell_forces`, `opensacred_rules::particles::ForceOfHell`): at the spell's target, for each weapon that the bearer holds in a hand with both bones, sparks along its blade's sweep and its line of beads along the blade, for the effects' seconds, riding with the bearer and just behind its model (`fx::Orders`, #2178).
 **Seen** 2026-11-07 in the game (not beside the original): the Daemon's claw in a fight, an orange line along its blades and orange sparks about them.
-Not followed: the sparks' trails of the top detail, and an item without the bones, whose sparks the original makes at its bone 0; the lower details' longer intervals follow since #2352 ("The emission").
+Not followed: the sparks' trails of the top detail, and an item without the bones, whose sparks the original makes at its bone 0 (#3168); the lower details' longer intervals follow since #2352 ("The emission").
 
 ## The Dwarf's burrowing
 
@@ -2402,7 +2407,7 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
   Then its phase's model at 1.2 times its size, turned about the upright by `t` (D3DX's turn about `z`), at its place, its texture coordinates moved by the texture transform (`0x8000`); first lit (`0x40D060`) in `Fx_dwarf_shield` moved by `(sin 0.285t, cos 0.193t)`, white at the alpha `⌊128·b⌋`, laid over by its alpha, depth tested and not written, culled, the specular on (`0x80`); then unlit (`0x40D310`) in `Fx_dwarf_shield2` moved by `(sin 0.247t, cos 0.125t)`, of the grey `⌊255·b⌋`, added.
 
 `opensacred-game` draws it since #1092 (`dwarf_burrows`, `opensacred_rules::particles::Burrow`): over the caster for its seconds, its four phases' models each made at the start and shown by its phase, the lit pass laid under his model by its alpha (`models::Pass::UnderBlended`, new) and the added one added under it (`Pass::Under`), their textures repeated both ways (`fx::wrapped_texture`), the glow just behind his model (`fx::Orders`, #2178); untinted.
-Not followed: the specular.
+Not followed: the specular (#3169).
 **Seen** 2026-11-07 in the game (not beside the original): the Dwarf of level 1 under a translucent faceted dome of pale blue and violet, built down over him as he leaps, a blue glow at his feet.
 
 ## The Dwarf's berserk
@@ -2448,7 +2453,7 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
   Two opposite fans of rays flat about the bearer, their leading rays the longest, going round and flashing.
 
 `opensacred-game` draws it since #1092 (`war_cry_signs`, `opensacred_rules::particles::WarCrySign`): on the hero for the boon's seconds, from `making`'s boon, at its feet, untinted, just behind its model (`fx::Orders`, #2178).
-Not followed: the followers' and the other heroes' signs, as the war cry gives them no boon here.
+Not followed: the followers' and the other heroes' signs, as the war cry gives them no boon here (the followers' #3144; the other heroes' are a network game's alone).
 **Seen** 2026-11-07 in the game (not beside the original): the Dwarf of level 1 after his war cry, two fans of pale blue rays sweeping round his feet, flashing as they pass.
 
 ## The Dwarf's greed
@@ -2563,7 +2568,7 @@ It draws the speed's two systems since #1092 too (`speed_sights`, `opensacred_ru
 **Seen** 2026-11-06 beside the original at the Wood Elf's start: a flat ring of green, yellow, cyan, blue and white swirls about her feet, growing over its first second, alike in both.
 It draws the multi-shot's sight since #1092 too (`elf_sights`, `opensacred_rules::particles::MultiShot`), at her `Bip01 L Finger3` for the art's seconds: the comets and their first burst, facing the camera, untinted, the burst pulled back to the hand since #2198 (the ageing `0x7640C0` applies a layer's pull to every system); the burst's sparks ride with the hand rather than stand in the world, which their 0.64 s hardly shows.
 **Seen** 2026-11-06 in the game: two small green stars going round her left hand at the level 1, the burst's specks about it; not yet beside the original, whose driver did not make the art.
-It draws the plants' healing's butterflies since #1092 too (`plant_healings`, `opensacred_rules::particles::NatureHealing`), laid along the bearer's way for 3 s and left in the world, each of its own colour (the particles' `colour`, which a block rolls where it spreads one); the renderer's wind is not followed.
+It draws the plants' healing's butterflies since #1092 too (`plant_healings`, `opensacred_rules::particles::NatureHealing`), laid along the bearer's way for 3 s and left in the world, each of its own colour (the particles' `colour`, which a block rolls where it spreads one); the renderer's wind is not followed (#3154).
 **Seen** 2026-11-06 in the game: a cloud of tiny butterflies of every colour rising from about the Wood Elf's feet and fading; not yet beside the original.
 It draws the `Rundum` with a bow's ring since #2240 (`elf_sights`, `opensacred_rules::particles::BowRundumRing`), made as its arrows leave, at the shooter's root, just behind its model.
 **Seen** 2026-11-07 in the game: a green ring at the Wood Elf's hand's height about her, a star at her left hand, shrinking away in a second and a third as her four arrows flew.
@@ -2609,7 +2614,7 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
 
 `opensacred-game` draws them since #1092 (`holding_sights`, `opensacred_rules::particles::{BurningLight, HolyConversion}`, `spells::holding_sight`): the irritation's light and the conversion's halo as `spells` holds their target, and the light on every creature that a blow knocks back (`making::Knocked` inserted), for 3 s; the halo's offset taken in the head bone's glTF axes, the original's `y` its `z`.
 **Seen** 2026-11-06 beside the original: the irritation's bursts of white and pale blue sparks about the goblin, and the conversion's white halo over its head, alike in both, the game's halo a little bluer.
-Not followed: the Dwarf's 1083's and the Gladiator's 1003's own lights and the stun of 862's; the laser stare's follows since #2567 (`creature_arts::stare`, docs/re/ai.md).
+Not followed: the Dwarf's 1083's and the Gladiator's 1003's own lights and the stun of 862's (#3142); the laser stare's follows since #2567 (`creature_arts::stare`, docs/re/ai.md).
 
 ## The mortar's impact
 
@@ -2627,7 +2632,7 @@ Read 2026-11-06 for #2160 in Ghidra (**confirmed** by code unless marked).
 
 `opensacred-game` draws it since #2160 (`grenade_impacts`, `opensacred_rules::particles::GrenadeImpact`) where the Dwarf's shell lands (`guns`), on the ground there.
 **Seen** 2026-11-06 beside the original: the Dwarf's mortar shell's flaming ring, dark cloud and crater at a goblin, alike in both.
-Not followed: the sparks' roll of 211 that falls to an unset fourth block, dropped.
+Not followed: the sparks' roll of 211 that falls to an unset fourth block, dropped: about one spark of an impact's 210, of a block that the original never sets.
 
 ## The teleport
 
@@ -2646,7 +2651,7 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
 
 `opensacred-game` draws them since #1092 (`teleports`, `opensacred_rules::particles::TeleportSight`) at the Mage's feet and at the arrival on the ground as his teleport acts (`spells`), the hero put there by `spells`'s own timer at the same moment.
 **Seen** 2026-11-06 in the game: the two blue rings opening, rising into cylinders, and closing; not beside the original, whose driver's right button on the ground did not make the Mage's teleport.
-Not followed: the sparks' fixed turns (drawn unturned); the fog of the world map revealed about the arrival.
+Not followed: the sparks' fixed turns (drawn unturned); the fog of the world map revealed about the arrival, which the game stamps only as the hero's cell changes there (`explored`); both to be read (#3170).
 
 ## The healing
 
@@ -2664,7 +2669,7 @@ Read 2026-11-06 for #2149 in Ghidra (**confirmed** by code unless marked).
 
 `opensacred-game` draws it since #2149 (`healings`, `opensacred_rules::particles::{HealingSight, healing_corners, ball_heal_level}`, `fx::Quads::push_facing_turned`): the hero's heal and a healer's, and the goblin mages' ball's heal of the creatures it lands among not hostile to its caster (`creature_casts::Ball`, by `spells::healing` with no magic lore, as a creature's heals are), the sparks left in the world where they were born.
 **Seen** 2026-11-06 beside the original: the Mage's heal as a white disk at his feet rising into a pink column and its sparks, alike in both.
-Not followed: the heal's effect 30.
+Not followed: the heal's effect 30 (#3139).
 
 ## The summoning
 
@@ -2702,7 +2707,7 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
 
 `opensacred-game` follows it since #1092 (`plant_cages`, `opensacred_rules::particles::PlantCage`): the Wood Elf's cages (`spells`), a creature's at the hero (`creature_casts`) and the terror's ten (`ai`), each vine from its creature's neck to its base, its glow and its light at the base, untinted by the night, every fifth cage of a cast sounding; a creature's cage holds the hero 3 s (`spells::holds`, #2154).
 **Seen** 2026-11-06 beside the original: the Wood Elf's cages about a goblin, green vines from its neck to their glowing bases on the ground, alike in both.
-Not followed: the hold given as the cage has grown (0.667 s on) rather than at once; the quirk by which a creature's cage whose event's height is exactly 1.0 takes a hero's look.
+Not followed: the hold given as the cage has grown (0.667 s on) rather than at once (#3166); the quirk by which a creature's cage whose event's height is exactly 1.0 takes a hero's look, which only a target at exactly that height meets, practically never.
 The killer crab queen's cages follow since #2226 (`spits`, "The creatures' spit") and the set bonus's since #2547 (`attack::engage`).
 
 ## The flesh to stone
@@ -2760,7 +2765,7 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
 `opensacred-game` draws both since #1092 (`vamp_sights`, `opensacred_rules::particles::{Domination, Raising}`), as `making` dominates or raises, each just behind its creature's model (`fx::Orders`, #2178).
 The game makes the risen creature anew in the corpse's place (`followers::raise`), so the raising's pentagram stays at that place, before the creature standing on it.
 **Seen** 2026-11-07 in the game (not beside the original): the band of dark runes about a bandit's neck, its red band and glow sweeping round it, the bandit over it; the pentagram in its ring of runes glowing red under a goblin rising in her night form.
-Not followed: the raising's other five makers.
+Not followed: the raising's other five makers, not read (#3170).
 
 ## The goblin mages' ball
 
@@ -2785,7 +2790,7 @@ Read 2026-11-06 for #2147 in Ghidra (**confirmed** by code unless marked).
 The ring's streaks are born along the turn's way in the frame, where the original sets the block's offset to the turn's point once a frame and a frame's streaks stand together (**estimate**: at the game's frame rate they stood apart as bright bars).
 **Seen** 2026-11-06 beside the original: the miss's column of blue streaks alike in size, brighter at its right edge and its foot in both; in the game the hit's cracks radiating from the hero's feet.
 Since #2149 its heal of the caster's friends follows ("The healing").
-Not followed: its strikes on the hero's followers (the game's ball strikes the hero alone), the summoned creature hired by its caster (it is made hostile, of the caster's side, as a creature's summons are), the type 145's item `0x73A` in its slot 13, and the event's sound.
+Not followed: its strikes on the hero's followers (the game's ball strikes the hero alone), the summoned creature hired by its caster (it is made hostile, of the caster's side, as a creature's summons are), the type 145's item `0x73A` in its slot 13, and the event's sound (#3167).
 
 ## The guns' sights
 
@@ -2802,7 +2807,7 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
   One corner of the narrow flat quad lies 12.5 behind in its table, read as a slip of its 2.5 (**hypothesis**).
 - Its start chooses one of `particle_gunfire01` to `04` by `rand() % 4`, plays its sound (docs/re/sound.md), scales it by the gun's type (the event's `+0x38`: 1855 2, 1856 0.7, 1857 1.4, any other 1) and turns its `y` onto the event's direction; its world light 300, and a white Direct3D light (1, 1, 1) 5 ahead of it along the shot (**hypothesis**: `+0x2C` times 5).
 - Its run lives 0.1 s and moves nothing; its draw, depth tested and not written, unlit and untinted by the night, adds the texture times the vertices' colours whole (`ONE`, `ONE`), no face culled.
-- The impact is made only by the Dwarf's executor: for each creature that his `Rundum`, `Hardhit` and `Attacke` strike with a gun, right after their flash (`0x515F04`, `0x515372`, `0x514F67`), unless the struck object's `+0x14` has the bit `0x10` (not read); and for each hostile creature near his cannon's (1087) line (`0x517A10`).
+- The impact is made only by the Dwarf's executor: for each creature that his `Rundum`, `Hardhit` and `Attacke` strike with a gun, right after their flash (`0x515F04`, `0x515372`, `0x514F67`), unless the struck object is destroyed already (its `+0x14` bit `0x10`, which `cObjectManager::destroy`, `0x5FBDB0`, sets: docs/re/spawning.md, "The sectors' functions"); and for each hostile creature near his cannon's (1087) line (`0x517A10`).
   Its FX event's kind `0x9C` follows the struck creature at its bone 3 (`Bip01 Neck`), the system's flag `0x40` placing it there once; its direction the gun's bone's `y` axis, or for the cannon the line's far end less the creature.
 - Its start bursts all its 200 particles of `particle_dots03` at its first run: a buoyancy of 30 ± 5 (they fall), a size of 5 ± 1 growing by 4 a second, turned by π ± π, the velocity 120 along the shot ± 40 on each axis and the place ± 5, drawn back to its place by 80 a second, living 0.73 s (the life's rate −350); laid over by their alpha, turned and tinted by the night (the flags `0x4C`), in its red ramp (`+0x3C` 0) from (254, 12, 0) opaque to (164, 3, 0) at 164 over 124 entries, to (137, 3, 0) at 139 over 61 and to nothing over 71; no light; it never ends itself, drawing nothing once its particles are gone.
 - An ordinary shot of a gun, the hero's or a creature's, makes the flash alone.
@@ -2810,7 +2815,8 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
 `opensacred-game` draws them since #1092 (`gun_fires`, `opensacred_rules::particles::{gunfire_quads, gunfire_scale, shoot_impact}`): each `sfx::Gunfire` of a shooter holding a gun flashes at its muzzle, of its gun's scale and one of the four textures, lighting the night by 300 and the models white ahead of it; it keeps to the muzzle and turns with the barrel while it shows, where the original leaves it where it was made (docs/decisions/drawing.md, "The guns' flash at the muzzle").
 Each strike of the Dwarf's `Rundum`, `Hardhit` and `Attacke` with a gun, and each creature his cannon strikes, sprays the impact at the struck creature's neck, else its place (`puffs`, its pull `Layer::pull`).
 **Seen** 2026-11-06 in the game: the Dwarf's pistol's flash at its muzzle, turning with it as he raises it to shoot a goblin (a flash held 3 s in a scratch build, to see it whole); the red spray at the goblin's neck at his `Attacke` and his cannon.
-Not followed: the impact's test of the struck object's `+0x14` bit `0x10`; the cannon's own flash (1017, `dwarf_shoot`) is `dwarf_fires`' ("The Dwarf's guns' fires").
+The impact's test of a destroyed object needs none of its own: `gun_fires::impact` sprays at no creature that is gone.
+The cannon's own flash (1017, `dwarf_shoot`) is `dwarf_fires`' ("The Dwarf's guns' fires").
 
 ## The arrows' elements
 
@@ -2870,10 +2876,10 @@ By night the original's flame keeps its colour (the flags `0x0C` leave out the t
 The chimneys' smokes (`0x146`) and the geyser's jet (`0x46`), which the light at them tints, stay with the world under the night's pass.
 The smokes of the variants 1 to 3 (`FX_HS_SMOKE_*`, 771, 810, 811) and 8 and 9 (`FX_LV_SMOKE_*`, 882, 881) follow as one layer of `PARTICLE_SMOKE03`'s 2 × 2 frames, a frame at random each, turned and spinning, laid over by their alpha (the flags `0x146` and `0x10C` have neither `0x01` nor `0x10`, so the source is the alpha and the destination its inverse), the first three a grey of 224 at the alpha of the life, the lavas' ramp B starting opaque; seen 2026-10-27 in 24,86 as white plumes rising from the braziers, not yet set beside the original's.
 The geyser (7, `FX_GEYSIR`, 879) follows its clock (read 2026-10-27 at `0x76E3E8`): its jet of `PARTICLE_WATER01` at rest rises at 40 every 0.1 s and lives 0.73 s; its first burst comes 3 to 20 s after it starts (**estimate** for the roll), and for the last second of each rest of 30 to 100 s (`rand()`/32767·70 + 30) its jet bursts upward at 200, living longer (the life's rate −75) every 0.035 s at the detail 2, and the first geyser to burst while the latch that every geyser shares (`0x17EEBC8`) is open plays `211` or `212` at it at a rate's factor of 0.4 to 0.6, which closes the latch until a geyser's rest starts again; the burst's hit of 100 (the system flag `0x400`) follows since #2518 (`fx::scald`, "The fires and smokes").
-The wind of the smoke class's layers is not followed; the magic fire (13) follows since #2070 (above), and the other classes as their sections tell.
-The undead's ring and dust follow since #1261 (`puffs`, `opensacred_rules::particles::{rise_ring, body_end}`): an undead or a skeleton warrior that stands again makes the variant 3 of 781 at itself, following it, and a corpse of class 5 that vanishes the variant 4 where it lay, drawn as the fires' billboards and not tinted by the night; the dust leaves the corpse's skinned vertices as last posed since #2514 (`bodies::Ends`; its bones before it); the renderer's wind (**hypothesis**) is not followed.
+The wind of the smoke class's layers is not followed (#3154); the magic fire (13) follows since #2070 (above), and the other classes as their sections tell.
+The undead's ring and dust follow since #1261 (`puffs`, `opensacred_rules::particles::{rise_ring, body_end}`): an undead or a skeleton warrior that stands again makes the variant 3 of 781 at itself, following it, and a corpse of class 5 that vanishes the variant 4 where it lay, drawn as the fires' billboards and not tinted by the night; the dust leaves the corpse's skinned vertices as last posed since #2514 (`bodies::Ends`; its bones before it); the renderer's wind (**hypothesis**) is not followed (#3154).
 The magic skeleton's drain draws its beam since #1263 (`beams`, the `laserbeam` of the catalogue, 901): from its killer's `Bip01 Spine2` to its own, of the variant 2 ("The laser beams"); **seen** beside the original's (the Daemon's and the Seraphim's level 1 killing magic skeletons of the level 3).
-Not followed: its light of 80; the chain's stop at a cell that fails `0x636A60` follows since #2119 (`beams`, `opensacred_rules::ways::laser_places`).
+Not followed: its light of 80 (#3153); the chain's stop at a cell that fails `0x636A60` follows since #2119 (`beams`, `opensacred_rules::ways::laser_places`).
 The last burnings of the 856 (`cParticleSystem_generic`, its virtual table `0x89840C`) follow since #1262 (read 2026-11-02 by code, **confirmed** unless marked otherwise; `opensacred_rules::particles::{burn_variant, generic_sparks, death_flames, scorch_alpha}`).
 - The death's action (`0x53ECA0`) makes one at the last death of three kinds of creature, then sounds `DIEFLAMES`: the variant 0 for the undead goblins 142 and 143 (its case 5, `0x541A0D`), the variant 7 for the fire ghoul 73 once its dying clip has played (its case 4, `0x5416DD`), the variant 8 for the magic skeletons 48, 80 and 81 (its case 3, `0x541E8D`); each at the creature's place on the ground, following nothing.
 - The variant 0 (`0x796E86`) takes the colour of the event's `+0x38`, `0xFFFF4040` for the goblins: 500 sparks at its model's vertices (every `⌊V/500⌋`th), each falling at a buoyancy of 150 ± 30, shrinking from 5 ± 2 by 2 a second, moving at ± (3, 3, 0), bouncing at the ground of its frame without loss (`0x7645C0`, the mode 0); `PARTICLE_SPARK06` added in the colour, a light of 100 while one lives.
@@ -2881,7 +2887,7 @@ The last burnings of the 856 (`cParticleSystem_generic`, its virtual table `0x89
   Under them lies the scorch (`0x7631E0`), a flat quad of a half side of 50 of `FX_STREAKS02` where the start's `rand()` is even, else `FX_STREAKS01`, laid over by its alpha, whole for 10 s and fading by 0.5 a second after; the system ends with it.
 - The game draws them (`undead::burn`, `undead::burn_after_clip`): the goblins' sparks by `puffs` from the corpse's skinned vertices as last posed since #2859 (`vertices::ModelPoints::picked`; its bones before it), the ghoul's and the skeletons' flames and scorch by `fx::last_burning` on the corpse's floor, untinted by the night; **seen** 2026-11-02 in the game (a fire ghoul's in the chapel of 50,39, a magic skeleton's and a goblin's in 52,40), not yet beside the original's.
 - An earlier note (#1202) saw red-orange flames and a white flash at a magic skeleton's last death in the original, against the variant 8's pale cyan that the code reads; which creature showed which colour is a **hypothesis** until both are seen in the original.
-- Not followed: whether the tick and the draw both update the class in one frame, and the 856's other variants (the poison's at a burning target); the detail's factor of the flames' interval (1.5 at `DETAILLEVEL` 1, 2.2 at 0) follows since #2352 ("The emission").
+- Not followed: whether the tick and the draw both update the class in one frame, and the 856's other variants (the poison's at a burning target, #3081); the detail's factor of the flames' interval (1.5 at `DETAILLEVEL` 1, 2.2 at 0) follows since #2352 ("The emission").
 - The variant 10 (`0x796E10`'s case 10, its update `0x7962F0`; read 2026-11-03 for #1846, **confirmed** by code and in the running original), a script's smoke (quests 10251 and 10252, `Partikel` in red at a grave): at its clock's 0 one burst of 25 particles (`0x764760`, the block's interval 0 and its count `+0x5C` 25) within ± (15, 15, 4) of the system's place, each of a velocity of (0, 0, 5) ± (15, 15, 0), a buoyancy of −60 ± 10, a size of 8 ± 1 that grows by 10 a second and an angle of π ± π, living 1.275 s (−200); then only the update (`0x7640C0`), the system ending as its last particle dies.
   Its ramp is the event's colour, each byte over 256, from an alpha of 0.996 through 0.39 over 60 entries to 0 over 196 (`0x763F50`); drawn as `PARTICLE_SMOKE04` with the flags `0x4C`: laid over by its alpha, turned, and tinted by the light at it, so that it darkens by night.
   **Seen** 2026-11-03 with the driver at 1509,1216 (`script OMO10251GrabTriggerArea_10251`): a bright red puff over the grave by noon, a dark red one by night.
@@ -2901,7 +2907,7 @@ The last burnings of the 856 (`cParticleSystem_generic`, its virtual table `0x89
   - a light of the radius `100 + 75 sin 5t` (`+0x9C`).
   **Seen** 2026-11-03 with the driver in a Gladiator's game (`script extquest1`, `extquest2`, `trigger2_2`): a gold arrow pointing down over the stairs, turning, with a thin gold ring climbing about its lower half.
   Since #1846 the game makes it (`beacons`, `opensacred_rules::particles::Beacon`): the arrow among the world's models, the helix untinted by the night; **seen** beside the original's, the two arrows over the stairs.
-  Not followed: the arrow's specular highlights (its gold is duller than the original's), and whether the original keeps the arrow through a save, which the game does not.
+  Not followed: the arrow's specular highlights (its gold is duller than the original's, #3169), and whether the original keeps the arrow through a save, which the game does not (#3170).
 The butterflies fly (`butterflies`, #1073): as a sector of the butterflies' weather entries comes in, ten swarms an entry, each at a walkable cell of the sector at random (a place that `0x638CD0` admits; **estimate**: 40 tries), one in 31 with a glow; a swarm of 3 to 6 wanders at 20 to 40 units of the models a second and turns back where it may not go, its butterflies fluttering about the point 50 units above it, drawn by day as `BUTTERFLY01`'s 8 × 8 wing beats in their own colours at the alpha of their life, and as fireflies by the night's level, by the same billboards as the fires.
 Seen 2026-10-27 in 54,42: small coloured specks by noon; by night clusters of three to six yellow dots, which add to the frame after its night's colouring as the original's do, the butterflies' system drawn by the camera of what the night leaves untinted (#1191).
 

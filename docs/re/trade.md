@@ -92,5 +92,6 @@ Since #1619 the hero trades in it (`merchant`, the purchase window `purchase`): 
 While the purchase window shows, the world's clicks are held back and the backpack's and the merchant's wait for its answer.
 **Seen** in the game: the small healing potion sold for 125 and bought for 585, as the original's prices of it (#1273), the gold short of a ring told.
 Since #1660 a merchant's item rolls its sockets with the merchant's bonus on the first chance (`drops::keyed`, `opensacred_rules::drops::Sockets::roll`); since #1722 the window plays the trader's sound (14, 2, `0x1F`) as it shows; since #1959 a save keeps the stock (docs/re/saves.md).
-Not followed yet: the merchant's own items that the scripts give it (`0x6DA1A0`, not read further, #2939), the frame's pieces (the panel's edges a grey line), the purchase window's buttons' sound and looks, and the trade's sounds (#2940).
+Not followed yet: the merchant's own items that the scripts give it (`0x6DA1A0`, not read further, #2939), the frame's pieces (the panel's edges a grey line) and the purchase window's buttons' sound and looks (#2940).
+The trade's sounds are made: the window's as it shows (#1722, above), and a purchase's and a sale's through the gold's handler (`pickup::Pack::add_gold`, #1792; docs/re/sound.md, "The gold's handler").
 The page's switch of the items to the hero's class's variants is left out: by docs/re/items.md the switch (`0x43CA20`) gives no variant for a hero's type, so that it changes nothing for the local hero.

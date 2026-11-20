@@ -456,7 +456,7 @@ const PISTOLS: [u32; 2] = [1855, 1857];
 /// The gun's fire's sound (1172 `gunfire`, its start `0x7C3AC0`): its sample by the gun at the
 /// shooter, the rate's factor 0.4 and up to 0.2 more (`rand()` / 32767 · 0.2), so 0.9 to 1.1
 /// times the sample's; its volume's argument 5.0 is not followed, the sound manager's treatment
-/// of one above 1 not read.
+/// of one above 1 not read (#3068).
 fn gun_sample(kind: Option<u32>) -> u32 {
     if kind.is_some_and(|kind| PISTOLS.contains(&kind)) {
         PISTOL

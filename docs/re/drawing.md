@@ -55,7 +55,7 @@ On the cells of these buildings the start scripts place 3 chests of layer 0 and 
 The state is the building's exterior (with its roof) while the hero is outside, and the client changes it as the local player's hero walks in and out (**confirmed** by code 2026-10-18, #99; docs/re/movement.md, "Changing layers"): to 2 as the hero steps onto an entrance of the building and goes onto its inside, back to 1 as it steps onto an exit and comes out onto the ground, to `1 << n` as it climbs to the building's layer `n`.
 This is how the original hides a roof and shows the rooms and their furniture (#3): at the chapel of the start, as the hero passes its doorway, not on its stairs.
 A script's `SetTriggerState` of a cell writes the state too, the last change standing, and a save keeps it: the land's banners turn so, between a green banner of the state 1 and a dark one of the state 2 (**seen** 2026-11-19, #2888; docs/re/netscript.md, "Order traps").
-The cells' room bit (bit 1) does not change the state: the client's event as the hero's cell gains or loses it (`0x594011`, docs/02 §5.2) is something else, not followed.
+The cells' bit 1, a settlement's ground (docs/02 §5.2), does not change the state: the client's event as the hero's cell gains or loses it (`0x594011`) is the sound manager's (9, `0xCC`), by which the hero remarks on coming into a settlement (docs/re/sound.md, "The hero's comments"), and `remarks` follows it since #1247.
 
 **Hypothesis**: a start script's position `(x, y, z)` puts its object in layer `z`: of its 2,096 placements at a cell, 653 objects and one NPC have a layer of 1 to 4, and 649 of them stand on cells of a building (bit 0), against 45 of the 1,442 of layer 0.
 While the hero is outside, the original draws layer 0 of every building, so the furniture of layers 1 and above does not show.
@@ -144,7 +144,7 @@ The types of bit `0x800000` (list 4) always cover the hero, and a building's lev
 ## The models
 
 The world's dynamic objects (the creatures, the start script's objects) are entries of the same draw lists.
-After a cell's chain of statics, the "wobj" walk of `0x62AE90` takes the objects of its building's floor that the state shows, if any, then those of the cell's own chain, layer 0 (above), and appends each, as an entry of kind 0 with the object's index, to list 3 (the vector at `+0x96AF4` of the view), or to list 0 or list 4 by tests of its type (`0x4280B0`, `0x4280D0`, `0x4280F0`, not followed), or in a liquid cell to the liquid cells' vector (above).
+After a cell's chain of statics, the "wobj" walk of `0x62AE90` takes the objects of its building's floor that the state shows, if any, then those of the cell's own chain, layer 0 (above), and appends each, as an entry of kind 0 with the object's index, to list 3 (the vector at `+0x96AF4` of the view), or to list 0 or list 4 by tests of its type (`0x4280B0`, `0x4280D0`, `0x4280F0`, not followed, #2941), or in a liquid cell to the liquid cells' vector (above).
 `0x62FF60` walks the five lists in order (the vectors from `+0x96AD0`, 12 bytes apart) and draws an entry of kind 0 by calling the object's own draw (its virtual function at `+0x14`), in its place among the list's sprites; an entry of the kind `0x20`, a hidden stash's, is its blink (docs/re/containers.md, "The hidden stashes").
 So a model is drawn after every sprite of an earlier row and of an earlier cell of its row, and after its cell's statics; the sprites, without the depth test, cover a model drawn before them whole and lie whole under one drawn after them.
 
@@ -304,7 +304,7 @@ Read 2026-11-10 for #2519 by a subagent (**confirmed** by code unless marked oth
 - Not read: the stats' recomputation's reading of the bit (`0x57B68D`) and an AI's test (`0x5409AC`), the alpha test's reference.
 
 `opensacred-game` draws them so since #2519 (`skins::Overlay::Vision`, `models::Pass::Vision`, `opensacred_rules::spells::{VISIONS, vision, vision_grey}`): a creature of the types 223 and 707 wears the look for good, each of its meshes in a material of its own texture in the grey of the real clock, times twice the vision's texture taken by its normals in the model's frame as the water form's (`standard.wesl`), in the frame's sRGB values, unlit, added, its depth written; **seen** 2026-11-10, the Daemon's vision at the gate a golden translucent figure with its cells, as the original's.
-Not followed: `CreateNPC`'s and `SetNPCState`'s tag `0xA1`.
+Not followed yet: `CreateNPC`'s and `SetNPCState`'s tag `0xA1` (#3064).
 The visions' bodies end at once in blue-white sparks since #2514 (docs/re/fight.md, "The bodies' end").
 
 ## What the game does with it
@@ -403,4 +403,4 @@ With the surfaces flat at height 0 and 4,450 back (#103), the miniatures stay at
 The waters' crabs and fish and the items lying on the ground (`models::Sinks`) lie under the water while they stand in a liquid cell (#983, `models::Sunk`): their models' places as far back as the liquid cells' miniatures, under the surfaces, and their translucent texels and their shadows in the layer under the liquids (`blended::Layer::UnderLiquids`).
 Before, they were drawn in list 3, over the surfaces, so that a shoal showed whole and opaque on top of the water with its shadow on the bed under it.
 
-Not followed yet: which types the tests send to lists 0 and 4 (the game draws every model in list 3; the tests are not read, #2941), the scripts' objects of an item's type in a liquid cell, the flag `0x100000` and the virtual function's answer of the test above, the exception of liquid material 13 (sectors 29,72, 30,72 and 55,20; the building at (3563, 1336) lies in 55,20, and main quest 65 gives it the state 2, which `buildings::Buildings` keeps since #2888; #3021), and the trees' fade about the creatures other than the hero, its followers among them (#2942).
+Not followed yet: which types the tests send to lists 0 and 4 (the game draws every model in list 3; the tests are not read, #2941), the scripts' objects of an item's type in a liquid cell, the flag `0x100000` and the virtual function's answer of the test above (#3065), the exception of liquid material 13 (sectors 29,72, 30,72 and 55,20; the building at (3563, 1336) lies in 55,20, and main quest 65 gives it the state 2, which `buildings::Buildings` keeps since #2888; #3021), and the trees' fade about the creatures other than the hero, its followers among them (#2942).
