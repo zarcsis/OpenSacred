@@ -236,6 +236,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/held.rs`: The cursor's item
 - `crates/opensacred-game/src/hell_disks.rs`: The look of the Daemon's hell disk
 - `crates/opensacred-game/src/hell_forces.rs`: The look of the Daemon's force of hell
+- `crates/opensacred-game/src/hell_gates.rs`: The hell gates' looks
 - `crates/opensacred-game/src/hell_screams.rs`: The look of the Daemon's fear
 - `crates/opensacred-game/src/help.rs`: The keys' help
 - `crates/opensacred-game/src/hero.rs`: The hero

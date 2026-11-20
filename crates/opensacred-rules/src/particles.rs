@@ -3827,6 +3827,388 @@ impl ElementStone {
     }
 }
 
+/// The hell gates' FX types (#2917; docs/re/effects.md, "The hell gates"): the gate up
+/// (`FX_HELLGATE_UP`), the gate down (`FX_HELLGATE_DOWN`) and the gate's head
+/// (`FX_HELLGATE_HEAD`).
+pub const HELLGATE_UP: u32 = 1160;
+pub const HELLGATE_DOWN: u32 = 1161;
+pub const HELLGATE_HEAD: u32 = 1181;
+
+/// The gate up's textures (`0x7BDF50`): its threads' glows and its pools' quads.
+pub const GATE_UP_TEXTURES: [&str; 2] = ["PARTICLE_GLOW08", "PARTICLE_GLOW03"];
+/// Its threads' half sides (`+0x20A8`…) and lengths, of the detail's factor
+/// ([`interval_factor`]), and the height they reach.
+const THREAD_HALVES: [f32; 15] = [
+    20.0, 12.0, 10.0, 6.0, 4.0, 4.0, 4.0, 4.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0,
+];
+const THREAD_LENGTHS: [f32; 15] = [
+    1000.0, 800.0, 800.0, 800.0, 600.0, 600.0, 600.0, 600.0, 600.0, 600.0, 600.0, 600.0, 600.0,
+    600.0, 600.0,
+];
+pub const THREAD_HEIGHT: f32 = 300.0;
+/// A pool's half side for a thread's half side, and its colour (`0xFFA0A0FF`).
+const POOL_SIZE: f32 = 4.5;
+pub const GATE_POOL_COLOUR: [f32; 4] = [160.0 / 255.0, 160.0 / 255.0, 1.0, 1.0];
+/// The gate up's fade a second once signalled (`0x7BDFF0`).
+const GATE_UP_FADING: f32 = 0.07;
+
+/// A thread of light of the gate up (`0x7BE3A0`): its glows' half side, its length that sets how
+/// many glows it draws, its foot's offset, its three rates `A`, `B`, `C`, and its ten waves along
+/// each of x and y, each an amplitude, a frequency along the height and a speed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GateThread {
+    pub half: f32,
+    pub length: f32,
+    pub foot: [f32; 2],
+    pub rates: [f32; 3],
+    pub waves: [[[f32; 3]; 10]; 2],
+}
+
+/// A glow of a thread: its place in the models' frame about the gate's point and its colour.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GateGlow {
+    pub place: [f32; 3],
+    pub colour: [f32; 4],
+}
+
+/// The gate up (`cParticleSystem_hellgate_up`): fifteen threads of light swaying over its point,
+/// its clock, and its fade once the scripts signal it (`+0x305C`), which ends it at 0.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HellgateUp {
+    pub threads: Vec<GateThread>,
+    pub clock: f32,
+    pub fade: f32,
+    pub signalled: bool,
+}
+
+impl HellgateUp {
+    /// The gate at its start (`0x7BE3A0`), of the detail's factor `factor`: each thread's foot
+    /// within 50 of its point at random, its rates and its waves rolled.
+    pub fn new(factor: f32, dice: &mut impl Dice) -> Self {
+        let threads = THREAD_HALVES
+            .iter()
+            .zip(THREAD_LENGTHS)
+            .map(|(&half, length)| {
+                let angle = std::f32::consts::TAU * unit(dice);
+                let radius = 50.0 * unit(dice);
+                let rates = [
+                    0.8 + 0.2 * unit(dice),
+                    0.02 + 0.0467 * unit(dice),
+                    2.2 + 2.5 * unit(dice),
+                ];
+                let waves = [(); 2].map(|()| {
+                    [(); 10].map(|()| {
+                        [
+                            5.0 + 3.0 * unit(dice),
+                            0.006_67 + 0.0333 * unit(dice),
+                            0.2 + 2.5 * unit(dice),
+                        ]
+                    })
+                });
+                GateThread {
+                    half,
+                    length: factor * length,
+                    foot: [radius * angle.cos(), radius * angle.sin()],
+                    rates,
+                    waves,
+                }
+            })
+            .collect();
+        Self {
+            threads,
+            clock: 0.0,
+            fade: 1.0,
+            signalled: false,
+        }
+    }
+
+    /// The gate `dt` seconds on (`0x7BDFF0`): its clock, and once signalled its fade falling by
+    /// 0.07 a second. Whether it lives: its fade above 0.
+    pub fn update(&mut self, dt: f32) -> bool {
+        self.clock += dt;
+        if self.signalled {
+            self.fade -= GATE_UP_FADING * dt;
+        }
+        self.fade >= 0.0
+    }
+
+    /// A thread's offset from the gate's point at the height `t` along it: its foot and the sum of
+    /// its ten waves along each axis at the gate's clock.
+    pub fn sway(&self, thread: &GateThread, t: f32) -> [f32; 2] {
+        let tau = self.clock;
+        let along = |axis: usize| {
+            thread.foot[axis]
+                + thread.waves[axis]
+                    .iter()
+                    .map(|[amplitude, frequency, speed]| {
+                        amplitude * (frequency * t - speed * tau).sin()
+                    })
+                    .sum::<f32>()
+        };
+        [along(0), along(1)]
+    }
+
+    /// Whether a thread shows (`0x7BE060`): always before the signal; after it while
+    /// `2(F − 0.5) + (sin Aτ + sin Bτ + sin Cτ)/3` holds at 0 or more, so that the threads blink
+    /// out one by one as the fade falls.
+    pub fn shows(&self, thread: &GateThread) -> bool {
+        if !self.signalled {
+            return true;
+        }
+        let tau = self.clock;
+        let [a, b, c] = thread.rates;
+        2.0 * (self.fade - 0.5) + ((a * tau).sin() + (b * tau).sin() + (c * tau).sin()) / 3.0 >= 0.0
+    }
+
+    /// A thread's glows (`0x7BE060`): `⌊L/s⌋` of them up its height, each swayed, of its colour
+    /// `0.6 + 0.5·sin²(B t − C τ)` of (128, 128, 196); after the signal two dark gaps run up it,
+    /// growing as the fade falls, where no glow shows.
+    pub fn glows(&self, thread: &GateThread) -> Vec<GateGlow> {
+        let tau = self.clock;
+        let [a, b, c] = thread.rates;
+        #[expect(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            reason = "a count of glows of 0 to some thousands, rounded down"
+        )]
+        let count = (thread.length / thread.half).floor().clamp(0.0, 60_000.0) as u16;
+        let gaps = self.signalled.then(|| {
+            let open = 1.0 - self.fade;
+            [(50.0, 160.0), (133.0, 114.0)].map(|(speed, width): (f32, f32)| {
+                let from = (speed * c * tau).rem_euclid(THREAD_HEIGHT);
+                (from, from + width * a * open)
+            })
+        });
+        let mut glows = Vec::new();
+        for k in 0..count {
+            let t = THREAD_HEIGHT * f32::from(k) / f32::from(count);
+            if gaps.is_some_and(|gaps| gaps.iter().any(|&(from, to)| from < t && t < to)) {
+                continue;
+            }
+            let [x, y] = self.sway(thread, t);
+            let q = 0.6 + 0.5 * (b * t - c * tau).sin().powi(2);
+            let red = (128.0 * q).floor() / 255.0;
+            glows.push(GateGlow {
+                place: [x, y, t],
+                colour: [red, red, (196.0 * q).floor() / 255.0, 1.0],
+            });
+        }
+        glows
+    }
+
+    /// A thread's pool of light on the ground under its foot: its centre and its half side.
+    pub fn pool(&self, thread: &GateThread) -> ([f32; 3], f32) {
+        let [x, y] = self.sway(thread, 0.0);
+        ([x, y, 0.0], POOL_SIZE * thread.half)
+    }
+}
+
+/// The gate down's texture (`0x7BEA70`), its grid of 2 × 2, its particles, and how fast its
+/// sparks' turn grows, a second each second (`+0x20EC`, `+0x20F0`).
+pub const GATE_DOWN_TEXTURE: &str = "particle_multi03";
+pub const GATE_DOWN_GRID: u8 = 2;
+const GATE_DOWN_COUNT: usize = 999;
+const GATE_DOWN_SPIN_GROWTH: f32 = 2.5;
+
+/// The gate down (`cParticleSystem_hellgate_down`): rings of sparks laid flat on the ground at its
+/// point, spinning ever faster as they shrink, red laid over by their alpha four times in five,
+/// yellow added the fifth; it never ends of itself, and loops the tentacles' sound
+/// ([`GATE_DOWN_LOOP`]).
+#[derive(Clone, Debug, PartialEq)]
+pub struct HellgateDown {
+    pub system: System,
+}
+
+/// The gate down's loop, `DEMON_TENTAKEL_LOOP` (`0x7BEBF0`).
+pub const GATE_DOWN_LOOP: u32 = 2123;
+
+impl Default for HellgateDown {
+    fn default() -> Self {
+        Self {
+            system: System::new(GATE_DOWN_COUNT),
+        }
+    }
+}
+
+impl HellgateDown {
+    /// Its two layers (`+0x20AC`, `+0x20CC`): the life −50 and the size −35 a second.
+    pub fn layers() -> [Layer; 2] {
+        [Layer {
+            life: -50.0,
+            size: -35.0,
+            ..Layer::default()
+        }; 2]
+    }
+
+    /// Its two blocks (`+0x20F4`, `+0x2158`): falling, the buoyancy 4; the size 140 ± 15; any
+    /// angle, turning at 0.5 ± 0.15 a second; at its point; each of its layer's frame; one every
+    /// 0.005 s at the detail 2.
+    pub fn blocks() -> [Block; 2] {
+        [Block {
+            buoyancy: spread(4.0, 0.0),
+            size: spread(140.0, 15.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            spin: spread(0.5, 0.15),
+            interval: 0.005,
+            frames: FRAME_OF_LAYER,
+            ..Block::default()
+        }; 2]
+    }
+
+    /// Its ramps (`0x763F50` at `+0x21BC` and `+0x25BC`): the layer 0's red pulsing dark and
+    /// bright toward black, the layer 1's yellow fading in and darkening.
+    pub fn ramps() -> [Ramp; 2] {
+        let c = |r: f32, g: f32, b: f32, a: f32| [r / 255.0, g / 255.0, b / 255.0, a / 255.0];
+        [
+            Ramp::new(
+                c(254.0, 9.0, 9.0, 89.0),
+                &[
+                    (c(99.0, 4.0, 4.0, 254.0), 80),
+                    (c(199.0, 9.0, 9.0, 239.0), 50),
+                    (c(49.0, 4.0, 4.0, 229.0), 50),
+                    (c(0.0, 0.0, 0.0, 139.0), 76),
+                ],
+            ),
+            Ramp::new(
+                c(249.0, 208.0, 80.0, 0.0),
+                &[
+                    (c(249.0, 208.0, 80.0, 254.0), 20),
+                    (c(219.0, 179.0, 64.0, 239.0), 160),
+                    (c(79.0, 44.0, 14.0, 139.0), 76),
+                ],
+            ),
+        ]
+    }
+
+    /// How its layers are drawn: the red laid over by its alpha, the yellow added.
+    pub const BLENDS: [Blend; 2] = [Blend::Over, Blend::Add];
+
+    /// The gate `dt` seconds on (`0x7BEB00`): its sparks aged, each one's turn growing by 2.5 a
+    /// second each second (`0x764330`), and new ones emitted.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        let layers = Self::layers();
+        self.system.update(dt, &layers);
+        for particle in &mut self.system.particles {
+            particle.spin += GATE_DOWN_SPIN_GROWTH * dt;
+        }
+        self.system
+            .emit(&Self::blocks(), &layers, GATE_DOWN_COUNT, dice);
+    }
+}
+
+/// The gate's head's textures (`0x7C6CA0`, `0x762E10`'s styles 3 and 9): its smoke's, of a grid
+/// of 2 × 2, and its eyes' large and small glows'.
+pub const GATE_HEAD_TEXTURES: [&str; 3] =
+    ["PARTICLE_SMOKE03", "PARTICLE_GLOW01", "PARTICLE_GLOW08"];
+pub const GATE_HEAD_GRID: u8 = 2;
+const GATE_HEAD_COUNT: usize = 250;
+/// Its two eyes' places about its point (`0xC2100000`…), and their pulse's rate a second.
+const GATE_EYES: [[f32; 3]; 2] = [[-36.0, -257.0, 60.0], [57.0, -207.0, 60.0]];
+const GATE_EYE_RATE: f32 = 0.945;
+/// Its fade's fall at each run for each second of its clock once signalled (`0x7C6D5F`).
+const GATE_HEAD_FADING: f32 = 0.25;
+
+/// An eye of the gate's head (`0x7C6E00`): its place about the head's point, its large glow's
+/// half side and colour, and its small glow's.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GateEye {
+    pub place: [f32; 3],
+    pub large: (f32, [f32; 4]),
+    pub small: (f32, [f32; 4]),
+}
+
+/// The gate's head (`cParticleSystem_hellgate_head`): pale red smoke drifting before two pulsing
+/// red eyes, its clock, and its fade once the scripts signal it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HellgateHead {
+    pub system: System,
+    pub clock: f32,
+    pub fade: f32,
+    pub signalled: bool,
+}
+
+impl Default for HellgateHead {
+    fn default() -> Self {
+        Self {
+            system: System::new(GATE_HEAD_COUNT),
+            clock: 0.0,
+            fade: 1.0,
+            signalled: false,
+        }
+    }
+}
+
+impl HellgateHead {
+    /// Its layer (`+0x24B0`): the life −65 and the size +12 a second.
+    pub fn layers() -> [Layer; 1] {
+        [Layer {
+            life: -65.0,
+            size: 12.0,
+            ..Layer::default()
+        }]
+    }
+
+    /// Its block (`+0x24D0`): rising ever faster, the buoyancy −30; the size 25 ± 6; any angle,
+    /// turning at 0 ± 1 a second; drifting toward the viewer and to the left; from a point before
+    /// the eyes; a frame of four at random; one every 0.06 s at the detail 2.
+    pub fn blocks() -> [Block; 1] {
+        [Block {
+            buoyancy: spread(-30.0, 0.0),
+            size: spread(25.0, 6.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            spin: spread(0.0, 1.0),
+            velocity: spread([-30.0, 60.0, 0.0], [6.0; 3]),
+            offset: spread([-22.0, -113.0, 30.0], [5.0; 3]),
+            interval: 0.06,
+            frames: 4,
+            ..Block::default()
+        }]
+    }
+
+    /// Its ramp (`+0x20AC`): a pale red, its alpha up to 49 over 20 entries, held over 30, and
+    /// gone over 206.
+    pub fn ramp() -> Ramp {
+        let red = |a: f32| [254.0 / 255.0, 99.0 / 255.0, 99.0 / 255.0, a / 255.0];
+        Ramp::new(
+            red(0.0),
+            &[(red(49.0), 20), (red(49.0), 30), (red(0.0), 206)],
+        )
+    }
+
+    /// The head `dt` seconds on (`0x7C6D30`): its clock; before the signal its smoke aged and
+    /// emitted (the original's emission while the fade holds above 0.75, which it always does
+    /// before the signal); after it the smoke stands, and its fade falls by a quarter of its whole
+    /// clock at each run, not of the frame's time, so that a head signalled after 4 s goes at
+    /// once. Whether it lives: its fade at 0 or above.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) -> bool {
+        self.clock += dt;
+        if self.signalled {
+            self.fade -= GATE_HEAD_FADING * self.clock;
+            return self.fade >= 0.0;
+        }
+        let layers = Self::layers();
+        self.system.update(dt, &layers);
+        self.system
+            .emit(&Self::blocks(), &layers, GATE_HEAD_COUNT, dice);
+        true
+    }
+
+    /// Its two eyes at its clock (`0x7C6E00`): each a large glow of the half side
+    /// `80·(1 + 0.2 sin 0.945τ)` and a small one of 17, both by the fade, in reds brightening by
+    /// the beat of `0.945τ` (`0x768600`).
+    pub fn eyes(&self) -> [GateEye; 2] {
+        let phase = GATE_EYE_RATE * self.clock;
+        let b = beat(phase);
+        let channel = |base: f32| (base + 16.0 * b).round() / 255.0;
+        let large = 80.0 * (1.0 + 0.2 * phase.sin()) * self.fade;
+        GATE_EYES.map(|place| GateEye {
+            place,
+            large: (large, [1.0, channel(48.0), channel(48.0), 1.0]),
+            small: (17.0 * self.fade, [1.0, channel(112.0), channel(112.0), 1.0]),
+        })
+    }
+}
+
 /// The forge's elements' FX types, the air's first (`FX_FORGE_AIRELEM` to `FX_FORGE_LOSTELEM`,
 /// 911 to 915): an element's variant is its type less 911.
 pub const FORGE_ELEMENTS: std::ops::RangeInclusive<u32> = 911..=915;
@@ -16982,6 +17364,249 @@ mod tests {
             DemonSummon::new(10).ramp().at(250.0)[..3],
             [150.0 / 256.0, 100.0 / 256.0, 100.0 / 256.0]
         );
+    }
+
+    #[test]
+    fn a_gate_up_raises_fifteen_threads_of_glows_and_breaks_them_up_as_it_fades() {
+        let mut dice = Rng::of(1, 2, 2917);
+        let mut gate = HellgateUp::new(1.0, &mut dice);
+        assert_eq!(gate.threads.len(), 15);
+        let first = &gate.threads[0].clone();
+        assert_eq!((first.half, first.length), (20.0, 1000.0));
+        assert!(first.foot[0].hypot(first.foot[1]) <= 50.0);
+        assert!(gate.threads.iter().all(|thread| {
+            let [a, b, c] = thread.rates;
+            (0.8..=1.0).contains(&a) && (0.02..=0.0667).contains(&b) && (2.2..=4.7).contains(&c)
+        }));
+        // 50 glows up the first thread, every 6, its foot at the ground and swaying with the clock.
+        let glows = gate.glows(first);
+        assert_eq!(glows.len(), 50);
+        assert_eq!(glows[1].place[2], 6.0);
+        assert!(glows.iter().all(|glow| {
+            (76.0 / 255.0..=140.0 / 255.0).contains(&glow.colour[0])
+                && glow.colour[0] == glow.colour[1]
+                && glow.colour[2] > glow.colour[0]
+        }));
+        let ([x, y, z], half) = gate.pool(first);
+        assert_eq!(([x, y], z, half), (gate.sway(first, 0.0), 0.0, 90.0));
+        let still = gate.sway(first, 100.0);
+        assert!(gate.update(0.5));
+        assert_ne!(gate.sway(first, 100.0), still);
+        // A lower detail draws more glows of the same threads.
+        let more = HellgateUp::new(2.2, &mut dice);
+        assert_eq!(more.glows(&more.threads[0]).len(), 110);
+        // Signalled, it fades by 0.07 a second, its threads gapped, and ends in 14.3 s.
+        assert!(gate.threads.iter().all(|thread| gate.shows(thread)));
+        gate.signalled = true;
+        assert!(gate.update(7.0));
+        assert!((gate.fade - 0.51).abs() < 1e-5);
+        let thread = gate.threads[0].clone();
+        assert!(gate.glows(&thread).len() < 50);
+        gate.fade = 0.0;
+        assert!(gate.threads.iter().all(|thread| !gate.shows(thread)));
+        assert!(!gate.update(0.1));
+    }
+
+    #[test]
+    fn a_gate_down_spins_its_rings_faster_as_they_shrink() {
+        let mut dice = Rng::of(1, 2, 1161);
+        let mut gate = HellgateDown::default();
+        for _ in 0..40 {
+            gate.update(0.05, &mut dice);
+        }
+        // Two hundred a second, living some 4 s.
+        let count = gate.system.particles.len();
+        assert!((350..=420).contains(&count), "{count}");
+        let reds = gate
+            .system
+            .particles
+            .iter()
+            .filter(|p| p.layer == 0)
+            .count();
+        assert!(reds * 10 > count * 7, "{reds} of {count}");
+        assert!(gate.system.particles.iter().all(|p| p.frame == p.layer));
+        // A spark of 2 s turns at 0.5 + 2.5·2 a second, give or take its roll, sunk 8.
+        let old = gate
+            .system
+            .particles
+            .iter()
+            .max_by(|a, b| b.life.total_cmp(&a.life))
+            .unwrap();
+        assert!((5.0..=5.8).contains(&old.spin), "{}", old.spin);
+        assert!((-8.5..=-7.0).contains(&old.place[2]), "{}", old.place[2]);
+        assert!((54.0..=86.0).contains(&old.size), "{}", old.size);
+        let [red, yellow] = HellgateDown::ramps();
+        assert!(red.at(255.0)[0] > 0.99 && red.at(255.0)[3] < 0.36);
+        assert_eq!(yellow.at(255.0)[3], 0.0);
+        assert_eq!(yellow.at(235.0)[3], 254.0 / 255.0);
+        assert_eq!(HellgateDown::BLENDS, [Blend::Over, Blend::Add]);
+    }
+
+    #[test]
+    fn a_gates_threads_and_eyes_follow_their_formulas() {
+        let close = |got: f32, want: f32| (got - want).abs() < 1e-3;
+        let mut waves = [[[0.0; 3]; 10]; 2];
+        waves[0][0] = [5.0, 0.01, 1.0];
+        waves[0][3] = [7.0, 0.03, 2.0];
+        waves[1][0] = [6.0, 0.02, 0.5];
+        waves[1][9] = [8.0, 0.005, 3.0];
+        let thread = GateThread {
+            half: 10.0,
+            length: 600.0,
+            foot: [12.0, -7.0],
+            rates: [0.9, 0.05, 3.0],
+            waves,
+        };
+        let mut gate = HellgateUp {
+            threads: vec![thread.clone()],
+            clock: 1.0,
+            fade: 1.0,
+            signalled: false,
+        };
+        assert!(gate.update(0.5));
+        assert_eq!(gate.clock, 1.5);
+        let tau: f32 = 1.5;
+        // Its sway: its foot and its waves' sum.
+        let [x, y] = gate.sway(&thread, 40.0);
+        let want_x = 12.0 + 5.0 * (0.4 - tau).sin() + 7.0 * (1.2 - 2.0 * tau).sin();
+        let want_y = -7.0 + 6.0 * (0.8 - 0.5 * tau).sin() + 8.0 * (0.2 - 3.0 * tau).sin();
+        assert!(close(x, want_x) && close(y, want_y), "{x} {y}");
+        // Its glows, 600/10 of them every 5 up, banded.
+        let height = |k: usize| 5.0 * f32::from(u16::try_from(k).unwrap());
+        let glows = gate.glows(&thread);
+        assert_eq!(glows.len(), 60);
+        for (k, glow) in glows.iter().enumerate() {
+            let t = height(k);
+            let q = 0.6 + 0.5 * (0.05 * t - 3.0 * tau).sin().powi(2);
+            let red = (128.0 * q).floor() / 255.0;
+            assert!(close(glow.place[2], t));
+            assert_eq!(glow.colour, [red, red, (196.0 * q).floor() / 255.0, 1.0]);
+            assert_eq!(
+                [glow.place[0], glow.place[1]],
+                gate.sway(&thread, glow.place[2])
+            );
+        }
+        // Signalled: a thread blinks by its rates and the fade, and two gaps run up it.
+        gate.signalled = true;
+        for step in 0..200u16 {
+            gate.clock = 0.1 * f32::from(step);
+            gate.fade = 1.0 - 0.005 * f32::from(step);
+            let (tau, open) = (gate.clock, 1.0 - gate.fade);
+            let blink = 2.0 * (gate.fade - 0.5)
+                + ((0.9 * tau).sin() + (0.05 * tau).sin() + (3.0 * tau).sin()) / 3.0;
+            assert_eq!(gate.shows(&thread), blink >= 0.0, "{step}");
+            let g = (150.0 * tau).rem_euclid(300.0);
+            let h = (399.0 * tau).rem_euclid(300.0);
+            let gapped =
+                |t: f32| (g < t && t < g + 144.0 * open) || (h < t && t < h + 102.6 * open);
+            let want: Vec<f32> = (0..60).map(height).filter(|&t| !gapped(t)).collect();
+            let got: Vec<f32> = gate.glows(&thread).iter().map(|g| g.place[2]).collect();
+            assert_eq!(got.len(), want.len(), "{step}");
+            assert!(got.iter().zip(&want).all(|(got, want)| close(*got, *want)));
+        }
+        let pale = 160.0 / 255.0;
+        assert_eq!(GATE_POOL_COLOUR, [pale, pale, 1.0, 1.0]);
+        assert!(close(pale, 0.627));
+        // The gate down's and the head's blocks, layers and ramps.
+        let pi = std::f32::consts::PI;
+        assert_eq!(
+            HellgateDown::blocks()[1],
+            Block {
+                buoyancy: spread(4.0, 0.0),
+                size: spread(140.0, 15.0),
+                angle: spread(pi, pi),
+                spin: spread(0.5, 0.15),
+                interval: 0.005,
+                frames: FRAME_OF_LAYER,
+                ..Block::default()
+            }
+        );
+        let [red, yellow] = HellgateDown::ramps();
+        let c = |r: f32, g: f32, b: f32, a: f32| [r / 255.0, g / 255.0, b / 255.0, a / 255.0];
+        assert_eq!(red.at(255.0), c(254.0, 9.0, 9.0, 89.0));
+        assert_eq!(red.at(175.0), c(99.0, 4.0, 4.0, 254.0));
+        assert_eq!(yellow.at(235.0), c(249.0, 208.0, 80.0, 254.0));
+        assert_eq!(
+            HellgateHead::layers()[0],
+            Layer {
+                life: -65.0,
+                size: 12.0,
+                ..Layer::default()
+            }
+        );
+        assert_eq!(
+            HellgateHead::blocks()[0],
+            Block {
+                buoyancy: spread(-30.0, 0.0),
+                size: spread(25.0, 6.0),
+                angle: spread(pi, pi),
+                spin: spread(0.0, 1.0),
+                velocity: spread([-30.0, 60.0, 0.0], [6.0; 3]),
+                offset: spread([-22.0, -113.0, 30.0], [5.0; 3]),
+                interval: 0.06,
+                frames: 4,
+                ..Block::default()
+            }
+        );
+        assert_eq!(HellgateHead::ramp().at(235.0), c(254.0, 99.0, 99.0, 49.0));
+        // The eyes at the clock 0.7: the large by `80(1 + 0.2 sin 0.945τ)`, both by the beat.
+        let head = HellgateHead {
+            clock: 0.7,
+            fade: 0.5,
+            ..HellgateHead::default()
+        };
+        let phase = 0.945 * 0.7;
+        let b = beat(phase);
+        let [eye, _] = head.eyes();
+        assert!(close(eye.large.0, 80.0 * (1.0 + 0.2 * phase.sin()) * 0.5));
+        assert_eq!(eye.small.0, 8.5);
+        let reds = |base: f32| (base + 16.0 * b).round() / 255.0;
+        assert_eq!(eye.large.1, [1.0, reds(48.0), reds(48.0), 1.0]);
+        assert_eq!(eye.small.1, [1.0, reds(112.0), reds(112.0), 1.0]);
+        assert!(eye.large.1[1] > 48.0 / 255.0);
+    }
+
+    #[test]
+    fn a_gate_head_smokes_before_its_pulsing_eyes_and_goes_at_once_when_signalled() {
+        let mut dice = Rng::of(1, 2, 1181);
+        let mut head = HellgateHead::default();
+        for _ in 0..100 {
+            assert!(head.update(0.05, &mut dice));
+        }
+        // Some 65 puffs alive, rising and drifting toward the viewer and to the left.
+        let count = head.system.particles.len();
+        assert!((55..=70).contains(&count), "{count}");
+        assert!(head.system.particles.iter().all(|p| p.frame < 4));
+        let old = head
+            .system
+            .particles
+            .iter()
+            .min_by(|a, b| a.life.total_cmp(&b.life))
+            .unwrap();
+        assert!(old.place[0] < -22.0 && old.place[1] > -113.0 && old.place[2] > 30.0);
+        let ramp = HellgateHead::ramp();
+        assert_eq!(ramp.at(255.0)[3], 0.0);
+        assert_eq!(ramp.at(235.0)[3], 49.0 / 255.0);
+        // The eyes: at the clock 0 the large 80 and the small 17, their reds at the beat's foot.
+        let still = HellgateHead::default();
+        let [left, right] = still.eyes();
+        assert_eq!(left.place, [-36.0, -257.0, 60.0]);
+        assert_eq!(right.place, [57.0, -207.0, 60.0]);
+        assert_eq!(left.large.0, 80.0);
+        assert_eq!(left.small, (17.0, [1.0, 112.0 / 255.0, 112.0 / 255.0, 1.0]));
+        assert_eq!(left.large.1, [1.0, 48.0 / 255.0, 48.0 / 255.0, 1.0]);
+        // Signalled after 5 s, it goes at its next run.
+        head.signalled = true;
+        let puffs = head.system.particles.clone();
+        assert!(!head.update(0.05, &mut dice));
+        assert_eq!(head.system.particles, puffs);
+        let mut early = HellgateHead {
+            signalled: true,
+            ..HellgateHead::default()
+        };
+        assert!(early.update(0.5, &mut dice));
+        assert!((early.fade - 0.875).abs() < 1e-6);
+        assert_eq!(early.eyes()[0].small.0, 17.0 * 0.875);
     }
 
     #[test]
