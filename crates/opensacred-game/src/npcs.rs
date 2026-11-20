@@ -390,8 +390,9 @@ struct Placement {
     forge: Option<(u8, f32)>,
     /// An FX object of the scripts that a module of its own runs: the field of pills and ghosts
     /// (891, `pill_fields`) and the maker of the fences of lightning (894, `laser_fences`; #2916),
-    /// a hell gate (1160, 1161, 1181, `hell_gates`; #2917): its type and its height in the models'
-    /// units, the record's `0x7E`; it has no model.
+    /// a hell gate (1160, 1161, 1181, `hell_gates`; #2917), the Underworld's glyphs, their fire
+    /// and the temple door's spikes (1174 to 1179, `underworld_glyphs`; #2918): its type and its
+    /// height in the models' units, the record's `0x7E`; it has no model of its item's.
     scripted: Option<(u32, f32)>,
     /// An NPC's creature, its `Creature.pak` record's flags and the flags word its record's tags
     /// make (`crowd::flags_word`): how it stands in the others' way.
@@ -3710,7 +3711,8 @@ impl Makers {
         let scripted = (record.kind == CREATE_OBJ
             && category(item) == FX
             && ([script_traps::FIELD, script_traps::FENCES].contains(&creature)
-                || crate::hell_gates::Gate::is(creature)))
+                || crate::hell_gates::Gate::is(creature)
+                || crate::underworld_glyphs::Underworld::is(creature)))
         .then(|| {
             let height = ops.iter().find_map(|o| match (o.tag, &o.value) {
                 (FX_HEIGHT, Value::I32(h)) => i16::try_from(*h).ok().map(f32::from),
@@ -7233,6 +7235,11 @@ fn spawn(
             made.insert(crate::pill_fields::Field);
         } else if kind == script_traps::FENCES {
             made.insert(crate::laser_fences::Maker);
+        } else if crate::underworld_glyphs::Underworld::is(kind) {
+            made.insert(crate::underworld_glyphs::Underworld {
+                kind,
+                name: placement.key.clone(),
+            });
         } else {
             made.insert(crate::hell_gates::Gate {
                 kind,
