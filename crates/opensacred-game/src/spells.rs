@@ -2374,7 +2374,7 @@ fn strike(
         ),
         (Without<Body>, Without<Aura>, Without<Dies>),
     >,
-    mut hits: MessageWriter<fight::Hit>,
+    (mut hits, mut gifts): (MessageWriter<fight::Hit>, MessageWriter<fight::Gift>),
 ) {
     let dt = time.delta_secs();
     // The creatures given an effect keyed by a spell in this frame, which the adder would find
@@ -2575,7 +2575,17 @@ fn strike(
                 });
             }
             if !aura.gives.is_empty() && !given.contains(&(target, aura.key)) {
-                give(&mut commands, target, aura.gives.clone());
+                // An object whose strike asks the magic defence asks it for what it gives in
+                // place of a strike too, the fear's (`0x561860`, #3078).
+                if opensacred_rules::spells::warded(aura.key) {
+                    gifts.write(fight::Gift {
+                        caster: aura.caster,
+                        target,
+                        gives: aura.gives.clone(),
+                    });
+                } else {
+                    give(&mut commands, target, aura.gives.clone());
+                }
                 given.push((target, aura.key));
             }
         }
@@ -3745,7 +3755,7 @@ fn fade(time: Res<Time>, mut commands: Commands, mut sights: Query<(Entity, &mut
 }
 
 /// Gives `bearer` the effects `given`, each for its seconds.
-fn give(commands: &mut Commands, bearer: Entity, given: Vec<(Effect, f32)>) {
+pub(crate) fn give(commands: &mut Commands, bearer: Entity, given: Vec<(Effect, f32)>) {
     if given.is_empty() {
         return;
     }
