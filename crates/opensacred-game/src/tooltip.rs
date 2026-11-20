@@ -30,7 +30,7 @@
 //! puts at its corner, by its style, 16 pixels within the screen.
 
 pub(crate) mod art;
-mod lines;
+pub(crate) mod lines;
 mod set;
 
 use bevy::camera::visibility::RenderLayers;

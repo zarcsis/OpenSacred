@@ -665,7 +665,7 @@ const PER_CENT: [(u32, &str); 16] = [
 
 /// The texts of the creatures' classes 1 to 12 that a bonus holds against (`0x8EB79C`, the
 /// records `{index, name, text}` of `CL_HERO` to `CL_ELF`).
-const OPPONENTS: [&str; 12] = [
+pub(crate) const OPPONENTS: [&str; 12] = [
     "1184", "1187", "1178", "1196", "1180", "1179", "1185", "1186", "1182", "1181", "1188", "1189",
 ];
 
