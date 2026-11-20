@@ -1497,6 +1497,18 @@ impl Rules {
         self.geschick
     }
 
+    /// The terror's per cent that every hero's look has before its items' 852, as the list of
+    /// the bonuses tells it (`0x55E5E0` at `0x55F1B6`, #3100): `SchreckenBase/D`, rounded, `D`
+    /// the difficulty's factor of the sets ([`Self::terror_threshold`]).
+    pub fn terror_base(&self) -> u32 {
+        let factor = f64::from(crate::set_bonuses::factor(self.of));
+        whole_f64(
+            (f64::from(self.terror_base) / factor + 0.5)
+                .trunc()
+                .max(0.0),
+        )
+    }
+
     /// The level on bronze's scale at or below which the look of a hero of level `level`, its
     /// items' effect 852 of `value` ([`TERROR`]), kills a hostile creature at once ([`terrifies`],
     /// `0x5903F0`, read 2026-11-08 for #1125): none without the effect; else the per cent
@@ -5533,6 +5545,10 @@ mod tests {
         assert_eq!(bronze.terror_threshold(10.0, 400), 100);
         // On niobium ⌊25/2.34 + 10.5⌋ = 21 per cent.
         assert_eq!(niobium.terror_threshold(10.0, 20), 4);
+        // The base that the list of the bonuses tells (#3100): 25 on bronze, 25/2.34 rounded,
+        // 11, on niobium.
+        assert_eq!(bronze.terror_base(), 25);
+        assert_eq!(niobium.terror_base(), 11);
         // Within 800, within 400 walking; the bronze level at most the threshold; none of the big,
         // the bosses and champions, or those a script holds.
         assert!(terrifies(7, 7, (799.0, false), (false, false, false)));

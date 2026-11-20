@@ -4,8 +4,11 @@
 //! item's bonus's, in its effect's colour, of the format its effect takes, the value whole and
 //! signed.
 //!
-//! Not followed: the opponents' names but the ranged ones' and the riders' (`0x43D0E0`), and the
-//! line of the effect 852 (`SCHRECKEN_NEU`, its share by the difficulty and `0x570ED0`).
+//! The opponent a bonus holds against is named as an item's tooltip names it (`0x43D0E0`,
+//! `tooltip::lines::OPPONENTS`), and the effect 852's line is its text `SCHRECKEN_NEU` of the
+//! terror's base per cent by the difficulty, its value and the highest level it fells
+//! (`0x55E5E0` at `0x55F1B6`, `opensacred_rules::fight::Rules::terror_base` and
+//! `terror_threshold`; #3100).
 //!
 //! A rare effect's per cent is the share of its rolls that hold, as its code rolls them
 //! (`opensacred_rules::fight::rare_odds`, #1796), where the original's list truncates the chance
@@ -48,6 +51,9 @@ const CHANCE: (f32, f32, f32) = (100.0, 100.0, 90.0);
 pub(crate) struct Words<'a> {
     pub text: &'a dyn Fn(&str) -> Option<String>,
     pub art: &'a dyn Fn(u32) -> Option<String>,
+    /// The terror's base per cent and the highest level that the hero's look fells by the
+    /// effect 852 of a value (`Rules::terror_base`, `Rules::terror_threshold`).
+    pub terror: &'a dyn Fn(f32) -> (u32, u32),
 }
 
 impl Words<'_> {
@@ -58,6 +64,33 @@ impl Words<'_> {
     fn n(&self, number: u32) -> String {
         self.of(&number.to_string())
     }
+}
+
+/// The text of the terror's line (`0x957124`).
+const TERROR_TEXT: &str = "SCHRECKEN_NEU";
+
+/// The game's text `format` with its `%d` filled by `numbers` in turn and its `%%` a per cent,
+/// as the original's `swprintf` fills it, a trailing line's end left out.
+fn printf(format: &str, numbers: &[i64]) -> String {
+    let mut out = String::new();
+    let mut numbers = numbers.iter();
+    let mut rest = format.trim_end_matches("\\n").trim_end();
+    while let Some(at) = rest.find('%') {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + 1..];
+        if let Some(tail) = after.strip_prefix('d') {
+            out.push_str(&numbers.next().map_or(String::new(), i64::to_string));
+            rest = tail;
+        } else if let Some(tail) = after.strip_prefix('%') {
+            out.push('%');
+            rest = tail;
+        } else {
+            out.push('%');
+            rest = after;
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// `x` truncated toward zero, as the runtime's `_ftol`.
@@ -211,6 +244,13 @@ fn line(listed: &Listed, words: &Words, chances: &[EffectChance]) -> Option<Stri
         866 => per_cent_of(1134),
         867 => per_cent_of(1135),
         868 => odds(words.of("UI_RARE_ALCHEMIE"), fight::ALCHEMY_FACES),
+        fight::TERROR => {
+            let (base, most) = (words.terror)(listed.value);
+            printf(
+                &words.of(TERROR_TEXT),
+                &[i64::from(base), v, i64::from(most)],
+            )
+        }
         _ => return None,
     };
     let colour = match e {
@@ -229,10 +269,15 @@ fn line(listed: &Listed, words: &Words, chances: &[EffectChance]) -> Option<Stri
         )),
     }
     line.push_str(&format!("<colorl={colour:08X}>"));
+    // The opponent by the condition's low byte, as an item's tooltip names it (`0x43D0E0`).
     let opponent = match c & 0xFF {
         0x80 => Some("RES_GEG_FERNK"),
         0x81 => Some("RES_GEG_REITER"),
-        _ => None,
+        low => usize::try_from(low)
+            .ok()
+            .and_then(|low| low.checked_sub(1))
+            .and_then(|k| crate::tooltip::lines::OPPONENTS.get(k))
+            .copied(),
     };
     if let Some(key) = opponent {
         line.push_str(&format!("{} {} ", words.n(1161), words.of(key)));
@@ -268,6 +313,7 @@ mod tests {
         Words {
             text: &|name| Some(format!("[{name}]")),
             art: &|id| Some(format!("[art {id}]")),
+            terror: &|_| (12, 20),
         }
     }
 
@@ -277,6 +323,17 @@ mod tests {
             effect,
             value,
         }
+    }
+
+    #[test]
+    fn the_terrors_text_takes_its_three_numbers() {
+        // The text's own format (`SCHRECKEN_NEU`): the base, the value and the highest level.
+        let format = "Opponents die on sight: %d%% + %d%% current lvl (max. lvl %d)\n";
+        assert_eq!(
+            printf(format, &[12, 3, 20]),
+            "Opponents die on sight: 12% + 3% current lvl (max. lvl 20)"
+        );
+        assert_eq!(printf("%x %d", &[]), "%x ");
     }
 
     #[test]
@@ -298,6 +355,9 @@ mod tests {
             listed(0, 1071, 1.0),
             listed(0, 854, 5.0),
             listed(0, 855, 20.0),
+            // Against the dragons (the class 11, #3100), and the terror.
+            listed(0x000B, 805, 15.0),
+            listed(0, 852, 3.0),
         ];
         let text = text(&list, &words(), &chances);
         let lines: Vec<&str> = text.split("<n>").collect();
@@ -316,6 +376,8 @@ mod tests {
                 "<colorl=FF449BEA>[art 1071]: +1",
                 // The trap of the fleeing animals on 20 rolls of 101 (#2606).
                 "<colorl=FFD8AB30>[OPENSACRED_TRAP_FLEEING]: +20 (+19.8%)",
+                "<colorl=FFFFFFA0>[1161] [1188] [1078] [1076]: +15%",
+                "<colorl=FFD8AB30>[SCHRECKEN_NEU]",
             ]
         );
     }

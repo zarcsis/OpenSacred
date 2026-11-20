@@ -176,10 +176,11 @@ fn tips(
     (entries, experience, keys): (Option<Res<bar::Entries>>, Res<Experience>, Keys),
     bars: Query<(), With<bar::BarRoot>>,
     (heroes, healths): (Query<&Health, With<Body>>, Query<&Health>),
-    (holding, arts, data): (
+    (holding, arts, data, rules): (
         Query<&crate::fight::Holding, With<Body>>,
         Option<Res<crate::arts::HeroArts>>,
         Option<Res<crate::game::Data>>,
+        Option<Res<crate::fight::Rules>>,
     ),
     (owned, sheet): (Option<Res<crate::riding::Owned>>, crate::riding::HorseSheet),
     tips: Query<Entity, With<TipRoot>>,
@@ -308,9 +309,20 @@ fn tips(
                     })?;
                 texts?.id(name).map(str::to_owned)
             };
+            // The terror's line by the hero's level and the difficulty (#3100).
+            let level = experience.level;
+            let terror = |value: f32| {
+                rules.as_deref().map_or((0, 0), |rules| {
+                    (
+                        rules.0.terror_base(),
+                        rules.0.terror_threshold(value, level),
+                    )
+                })
+            };
             let words = crate::bonus_list::Words {
                 text: &text,
                 art: &art,
+                terror: &terror,
             };
             let balance = data
                 .as_deref()
