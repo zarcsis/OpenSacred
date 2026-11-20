@@ -159,8 +159,8 @@ fn held_at_once(corpse: &Corpse, on_death: Option<&OnDeath>, talks: bool) -> boo
 /// Each body at its ticks of lying (`0x53ECA0`'s sub-mode 2): from its first, a medium spider's
 /// goes, and one that ends at once ([`undead::at_once`]) does unless held, in its 781 at its
 /// place ([`Ends`]) and hidden; another, once it has lain its time and nothing holds it, vanishes
-/// (`0x54140A`): its figure in the soul's sparks rising where it lies (780 by the FX event `0xC`,
-/// `0x541491`). Each is hidden and out of the world, its destruction to come
+/// (`0x54140A`): its soul leaves where it lies (780 by the FX event `0xC`, `0x541491`;
+/// `souls::Vanished`). Each is hidden and out of the world, its destruction to come
 /// (`undead::destroy`).
 #[expect(
     clippy::type_complexity,
@@ -168,6 +168,7 @@ fn held_at_once(corpse: &Corpse, on_death: Option<&OnDeath>, talks: bool) -> boo
 )]
 fn vanish(
     mut commands: Commands,
+    mut vanished: MessageWriter<crate::souls::Vanished>,
     time: Res<Time>,
     mut lying: Query<(
         Entity,
@@ -246,14 +247,7 @@ fn vanish(
             continue;
         }
         debug!("bodies: {entity}, a {}, vanishes", corpse.creature);
-        commands.spawn((
-            Transform::from_translation(at),
-            crate::soul_sparks::Sparks {
-                from: entity,
-                rising: true,
-            },
-            DespawnOnExit(AppState::InGame),
-        ));
+        vanished.write(crate::souls::Vanished { body: entity, at });
         commands.entity(entity).remove::<Lies>();
         gone(&mut commands, entity);
     }
@@ -413,6 +407,14 @@ mod tests {
         assert!(held(&plain, Some(&kept), (false, false, None), false));
     }
 
+    /// The bodies that vanished, as their souls were sent for.
+    #[derive(Resource, Default)]
+    struct Seen(Vec<Entity>);
+
+    fn seen(mut vanished: MessageReader<crate::souls::Vanished>, mut seen: ResMut<Seen>) {
+        seen.0.extend(vanished.read().map(|vanished| vanished.body));
+    }
+
     #[test]
     fn a_body_vanishes_once_it_has_lain_its_time_and_is_destroyed_later() {
         use bevy::time::TimeUpdateStrategy;
@@ -422,7 +424,9 @@ mod tests {
             .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
                 250,
             )))
-            .add_systems(Update, (lie, vanish).chain());
+            .add_message::<crate::souls::Vanished>()
+            .init_resource::<Seen>()
+            .add_systems(Update, (lie, vanish, seen).chain());
         let body = app
             .world_mut()
             .spawn((corpse(0), Dies::new(0), GlobalTransform::default()))
@@ -447,12 +451,7 @@ mod tests {
             Some(&Visibility::Hidden)
         );
         assert!(app.world().get::<Destroyed>(body).is_some());
-        let mut sparks = app.world_mut().query::<&crate::soul_sparks::Sparks>();
-        assert!(
-            sparks
-                .iter(app.world())
-                .any(|sparks| sparks.from == body && sparks.rising)
-        );
+        assert_eq!(app.world().resource::<Seen>().0, [body]);
         assert!(app.world().get::<Corpse>(named).is_some());
     }
 
@@ -465,6 +464,7 @@ mod tests {
             .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
                 100,
             )))
+            .add_message::<crate::souls::Vanished>()
             .add_systems(Update, (lie, vanish).chain());
         let spider = app
             .world_mut()
@@ -499,6 +499,7 @@ mod tests {
                 .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
                     100,
                 )))
+                .add_message::<crate::souls::Vanished>()
                 .add_systems(Update, (lie, vanish).chain());
             let goblin = app
                 .world_mut()
@@ -562,6 +563,7 @@ mod tests {
             .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
                 100,
             )))
+            .add_message::<crate::souls::Vanished>()
             .add_systems(Update, (lie, vanish).chain());
         let spawn = |app: &mut App, creature, flags| {
             app.world_mut()

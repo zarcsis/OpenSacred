@@ -362,7 +362,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/sonar.wesl`: A sonar's ring
 - `crates/opensacred-game/src/soul_sparks.rs`: The look of the souls that fly to the Dark Elf's soulcatcher
 - `crates/opensacred-game/src/soulcatchers.rs`: The look of the Dark Elf's soulcatcher
-- `crates/opensacred-game/src/souls.rs`: The Dark Elf's soulcatcher 1044
+- `crates/opensacred-game/src/souls.rs`: The souls of the bodies that vanish
 - `crates/opensacred-game/src/sound.rs`: Footsteps
 - `crates/opensacred-game/src/sound_tap.rs`: The game's whole mix for a recording's sound track
 - `crates/opensacred-game/src/sparkle.wesl`: A quad of the interface's sparkles

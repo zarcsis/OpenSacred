@@ -1,6 +1,9 @@
-//! The Dark Elf's soulcatcher 1044 (#757; docs/re/arts.md, "The Dark Elf's"): while its effect 35
-//! holds on the hero, each creature that dies within 550 of him sends him a soul (the objects 869
-//! and 780, `0x5FF7C0`), which flies toward him at `⌊10·t⌋` units a second, `t` its age, and as it
+//! The souls of the bodies that vanish, and the Dark Elf's soulcatcher 1044 (#757; docs/re/arts.md,
+//! "The Dark Elf's"): each body that vanishes as it has lain its time (`bodies`, `0x541491`) makes
+//! its soul (780 by the FX event `0xC`), which homes on the Dark Elf where his effect 35 holds within
+//! 550 of it (the object 869, `0x5FF7C0`), and else rises where it lay, homing on nothing (#3133;
+//! the class 5, the fire ghoul and the bodies held lying never vanish so). A homing soul flies toward
+//! him at `⌊10·t⌋` units a second, `t` its age, and as it
 //! reaches him, nearer than his size and its own, heals him `10 + 30·L` up to his most health
 //! with the effect 30 for 1 s (`opensacred_rules::arts::soul_speed`, `soul_heals`); a soul ends at
 //! a cell that may not be walked on or without him. It flies from the creature's feet to his neck
@@ -18,7 +21,6 @@ use crate::fight::{Experience, Health};
 use crate::frame::{Playing, Step};
 use crate::game::AppState;
 use crate::hero::Body;
-use crate::npcs::Dies;
 use crate::terrain::{Heights, Level};
 use crate::{arrows, paths};
 
@@ -51,67 +53,60 @@ struct Fading {
     left: f32,
 }
 
-/// Sends a soul from each creature that dies within [`SOUL_REACH`] of the hero while his
-/// effect 35 holds, of the health that his 1044 at its level in play gives; an undead that rises
-/// again sends none (#1199), nor a body put back lying, which died before (#2457).
-#[expect(
-    clippy::type_complexity,
-    reason = "a Bevy system's queries carry their filters"
-)]
+/// A body that vanishes as it has lain its time (`0x53ECA0`'s lying step, `0x541491`): the body,
+/// whose figure its soul takes, and where it lies.
+#[derive(Message, Clone, Copy, Debug)]
+pub(crate) struct Vanished {
+    pub(crate) body: Entity,
+    pub(crate) at: Vec3,
+}
+
+/// Sends the soul of each body that vanishes: to the hero where his effect 35 holds within
+/// [`SOUL_REACH`] of it, of the health that his 1044 at its level in play gives, else rising where
+/// it lay, homing on nothing.
 fn catch(
     mut commands: Commands,
+    mut vanished: MessageReader<Vanished>,
     arts: Option<Res<HeroArts>>,
     experience: Res<Experience>,
     heroes: Query<(Entity, &Transform, &Body, &Effects)>,
-    dying: Query<(Entity, &Transform, &Dies), (Added<Dies>, Without<Body>)>,
 ) {
-    let Some(arts) = arts else {
-        return;
-    };
-    let Some((hero, at, body, _)) = heroes
-        .iter()
-        .find(|(.., effects)| effects.holds(SOULCATCHER))
-    else {
-        return;
-    };
-    let level = arts.arts.level_in_play(
-        1044,
-        opensacred_rules::arts::Creature {
-            kind: arts.kind,
-            level: experience.level,
-            player: true,
-        },
-    );
-    let Some(spell) = arts.tables.spells.iter().find(|spell| spell.id == 47) else {
-        return;
-    };
-    let heals = soul_heals(spell, level.unwrap_or(1));
-    for (from, place, _) in dying
-        .iter()
-        .filter(|(.., dies)| !dies.rises && !dies.fallen)
-    {
-        if (place.translation - at.translation).xz().length() >= SOUL_REACH {
-            continue;
-        }
-        debug!(
-            "souls: a soul for {hero} of {heals} from {:?}",
-            place.translation
+    let catcher = arts.as_deref().and_then(|arts| {
+        let (hero, at, body, _) = heroes
+            .iter()
+            .find(|(.., effects)| effects.holds(SOULCATCHER))?;
+        let level = arts.arts.level_in_play(
+            1044,
+            opensacred_rules::arts::Creature {
+                kind: arts.kind,
+                level: experience.level,
+                player: true,
+            },
         );
-        // It leaves the creature's place at its height (`0x5A46B3`).
-        commands.spawn((
-            Transform::from_translation(place.translation),
+        let spell = arts.tables.spells.iter().find(|spell| spell.id == 47)?;
+        let heals = soul_heals(spell, level.unwrap_or(1));
+        Some((hero, at.translation, body.level(), heals))
+    });
+    for &Vanished { body: from, at } in vanished.read() {
+        let home = catcher.filter(|&(_, to, ..)| (at - to).xz().length() < SOUL_REACH);
+        // It leaves the body's place at its height (`0x5A46B3`).
+        let mut soul = commands.spawn((
+            Transform::from_translation(at),
             crate::soul_sparks::Sparks {
                 from,
-                rising: false,
-            },
-            Soul {
-                to: hero,
-                level: body.level(),
-                age: 0.0,
-                heals,
+                rising: home.is_none(),
             },
             DespawnOnExit(AppState::InGame),
         ));
+        if let Some((hero, _, level, heals)) = home {
+            debug!("souls: a soul for {hero} of {heals} from {at:?}");
+            soul.insert(Soul {
+                to: hero,
+                level,
+                age: 0.0,
+                heals,
+            });
+        }
     }
 }
 
@@ -224,7 +219,7 @@ pub struct SoulsPlugin;
 
 impl Plugin for SoulsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.add_message::<Vanished>().add_systems(
             Update,
             (catch, home, absorb)
                 .chain()
