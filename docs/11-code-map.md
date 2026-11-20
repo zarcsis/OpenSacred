@@ -388,6 +388,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/teleports.rs`: The teleport's sights
 - `crates/opensacred-game/src/tentacles.rs`: The looks of the Daemon's tentacles
 - `crates/opensacred-game/src/terrain.rs`: The ground of a sector
+- `crates/opensacred-game/src/terror_sprinters.rs`: The looks of the terror sprinters' aura
 - `crates/opensacred-game/src/tooltip.rs`: The items' tooltip
 - `crates/opensacred-game/src/tooltip/art.rs`: The lines of a combat art's tooltip
 - `crates/opensacred-game/src/tooltip/lines.rs`: The lines of an item's tooltip

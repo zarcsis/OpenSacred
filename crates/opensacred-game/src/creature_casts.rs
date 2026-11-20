@@ -890,6 +890,14 @@ fn act(
                     Transform::from_translation(here),
                     DespawnOnExit(AppState::InGame),
                 ));
+                crate::terror_sprinters::show(
+                    &mut commands,
+                    crate::terror_sprinters::Aura {
+                        bearer: entity,
+                        copy: false,
+                        seconds: casts::SPRINTERS_AURA_LIFE,
+                    },
+                );
             }
             FIRE_BOLT => {
                 launches.write(crate::bolts::Launch {
@@ -1309,6 +1317,14 @@ fn spread(
                     aura.mage
                 );
                 let given = aura.given.clone();
+                crate::terror_sprinters::show(
+                    &mut commands,
+                    crate::terror_sprinters::Aura {
+                        bearer: sprinter,
+                        copy: true,
+                        seconds: given.first().map_or(0.0, |&(_, seconds)| seconds),
+                    },
+                );
                 commands
                     .entity(sprinter)
                     .entry::<crate::effects::Effects>()

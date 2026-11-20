@@ -280,7 +280,7 @@ Read 2026-11-05 for #2106 in Ghidra (**confirmed** by code unless marked).
 Bevy's point light falls by the square of the distance alone, so it stands 89 of the models' units (`1/√0.000125`) over the effect's place, where along that place's plane it falls as the fixed function's, the sun's 4,000 lux its whole colour; it lights the models from above rather than from the effect's place, and fades to nothing at 200, where the fixed function's is cut at a sixth (docs/decisions/drawing.md).
 **Seen** 2026-11-05 in the game: a goblin standing in the Wood Elf's thorns, its legs lit green as the original's (#2106's frames).
 The manager's slots follow since #2282 (`fx_lights::Slots`, each light's priority of the table above, `fx_lights::HIGH` and `LOW`): the device of the original's driver had 8 lights (the manager's `+0x04`, read 2026-11-08 by a probe of `0x642B90` while the thorns made theirs), the sun's among them, so at most seven effects' lights shine at once; a light made with every slot taken goes into the first slot of the lowest priority where its own is at least as high, putting that light out for good (`0x642B90` turns it off; its system's later moves by its old handle find no slot), else it never shines.
-Not followed: the demon fire's wobble, the light of the big demons' death (919), whose system the game draws, and those of the systems it does not draw (895, 909 and 1167).
+Not followed: the demon fire's wobble, the light of the big demons' death (919), whose system the game draws, and those of the systems it does not draw (895 and 909); the terror sprinters' aura's (1167) follows since #2921.
 
 ## The world's effects
 
@@ -2064,6 +2064,41 @@ Since #2920 too the beams of the variant 5 look as their system (`LaserSegment::
 **Seen** beside the original: the beam through the hero by the sword, its end within 4 units of the original's, and the beam from the shape's eye eastward to the cave's wall.
 Not followed: the floors (it reaches the creatures on the ground, where it stands); a target whose model is not drawn, at which the original's beam aims at the world's origin.
 
+## The terror sprinters' aura
+
+Read 2026-11-20 for #2921 in Ghidra (**confirmed** by code unless marked) and **seen** in the running original the same day (a terror sprinter mage 212 of the level 10 made by the driver beside three sprinters 211).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The aura of the spell 72 | 1167 `FX_TERRORSPRINTER` | `cParticleSystem_terrorsprinter` (`0x898FA4`) | `0x7C1050`, `0x7C1390`, `0x7C1120`, `0x7C11C0` |
+
+The mage's spell 72 makes one at the mage, its variant 0, and the aura gives each terror sprinter it reaches a copy of its own, of another variant (docs/re/arts.md, "The creatures' own spells").
+- Its constructor: `Fx_circle03` (`+0x20B0`) and twenty runes (`+0x20B4`), each `fx_terrorsp_rune<n>` of `n = rand() % 5 + 1`.
+- Its start (`0x7C1390`): its clock and its fade 0, its phase 0, the variant from the event's `+0x38`: the mage's (0) of 8 s, a purple Direct3D light (1, 0.1, 1) of the priority 1, the effect 35 to the mage and the system flags `0x2200`; a copy (any other) of the spell's value 0 at its level in seconds, the effect 3 of 4.0 and the record's effects to its sprinter (the action 6), the flags `0x200`; both follow their bearer.
+- Its run (`0x7C1120`): its clock grows; its fade rises by 2 a second, and past 1 it is 1 and the phase 1; past its seconds the phase 2, where the fade falls by 2 a second, and below 0 it ends.
+- Its draw (`0x7C11C0`): the mage's moves its light to its place; then a flat quad (`0x7631E0`, `ONE`, `ONE`) of `Fx_circle03` at its place, of the half side 40 for the mage's and 25 for a copy, turned by `−3.2·t` radians, `t` its clock, in `(⌊k·f⌋, ⌊k′·f⌋, ⌊k·f⌋)`, `f` its fade, `k` 120 and `k′` 20 for the mage's, 70 and 10 for a copy; then a ring of its twenty runes (`0x7638E0`, "The tentacles"), black and laid over by their alpha, unturned, from `34 − 4f` to `34 + 4f` for the mage's and from `21 − 2.5f` to `21 + 2.5f` for a copy.
+- So the mage stands in a purple glowing circle crowned by a band of black runes, lit purple, for 8 s; each sprinter it reaches wears a smaller, dimmer one for the copy's seconds; each grows in over half a second and shrinks away over half a second.
+- **Seen**: the mage's purple circle with its band of black runes about its feet, its legs lit purple.
+
+`opensacred-game` draws them since #2921 (`terror_sprinters`, `opensacred_rules::particles::TerrorSprinter`): `creature_casts` shows the mage's look as it casts 72 and a copy's on each sprinter its aura reaches, each following its bearer, the circle and the runes untinted by the night, the runes laid over the circle, the mage's look lit purple (`fx_lights`).
+**Seen** beside the original: the mage's circle and band of black runes about its feet; the sprinters' smaller ones in the game alone, the original's hidden under their models in its frames.
+
+## The big demon's illusion
+
+Read 2026-11-20 for #2921 in Ghidra (**confirmed** by code unless marked); not seen in the running original.
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The illusion of side quest 402 | 917 `FX_BIG_DEMON_ILLUSION` | `cParticleSystem_big_demon_illusion` (`0x898928`) | `0x7A8550`, `0x7A8A40`, `0x7A8780`, `0x7A87B0` |
+
+- Its constructor: `BIG_DEMON_TEX_FX` (`+0x20AC`) and the model `big_demon.grn` (`+0x20B0`) with its clip 154 (`0x9A`); two calls of `GrannySetAnimationParameter` (3 to 1.0 and 2 to 0.5, not read), and its life (`+0x20A4`) the clip's length as two calls of `GrannyGetAnimationParameter` give it.
+- Its start (`0x7A8A40`): its clock 0, a world light of 200 (`+0x9C`), no system flags.
+- Its run (`0x7A8780`): its clock grows, and past its life it ends.
+- Its draw (`0x7A87B0`): the model turned by 5π/4 about the vertical at its place, drawn only by `0x40D310` in `BIG_DEMON_TEX_FX`, added whole and unlit, its grey `⌊255·min(1, 3·sin(π·t/T))⌋`, `t` its clock and `T` its life.
+- So a ghost of a big demon in its effect's texture grows in, plays its clip once and fades away.
+
+`opensacred-game` does not draw it yet (#3059).
+
 ## The Daemon's forms
 
 Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code unless marked).
@@ -2828,7 +2863,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn at every detail (the options' detail, a setting since #2352, stretches its emitters' intervals alone), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing (the big demon's illusion 917 and the terror sprinter 1167, #2921, whose classes no section above reads); the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
+Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing (the big demon's illusion 917, #3059, read in "The big demon's illusion"); the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions
