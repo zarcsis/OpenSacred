@@ -6,7 +6,7 @@ fn a_weapons_first_styled_bonus_gives_its_glows_colour() {
     // An empty slot, a slot of no style, then the effect 4 (blue) and the effect 5 (red).
     let slots = [(0, 0), (0, 6), (0x0102, 4 | 0x0003_0000), (0, 5)];
     assert_eq!(bonus_style(slots), Some(4));
-    // A condition alone counts its effect 0, which gives none.
+    // A slot of a condition alone, of the effect 0, gives none.
     assert_eq!(bonus_style([(7, 0), (0, 25)]), Some(1));
     assert_eq!(bonus_style([(0, 0), (0, 2)]), Some(2));
     assert_eq!(bonus_style([(0, 29)]), Some(3));
@@ -97,6 +97,22 @@ fn the_whip_hangs_and_trails_after_its_place() {
     assert!(place[0] > 0.0 && place[1] < 0.0);
     assert!((velocity[0] - place[0] * 0.675).abs() < 1e-5);
     assert!((velocity[1] - (place[1] + 1.5) * 0.675).abs() < 1e-5);
+    // Points on one another stay so, with no velocity.
+    let mut heap = MagicWhip::new();
+    heap.points
+        .iter_mut()
+        .for_each(|point| *point = ([1.0; 3], [0.0; 3]));
+    heap.update([1.0; 3]);
+    assert!(
+        heap.points
+            .iter()
+            .all(|&point| point == ([1.0; 3], [0.0; 3]))
+    );
+    assert_eq!(MagicWhip::HALF, 4.0);
+    assert_eq!(
+        MagicWhip::CORNERS,
+        [0xFF00_0080, 0xFF40_4080, 0xFF00_4080, 0xFF40_0080]
+    );
     // Hung from a place, as from 0.
     let mut hung = MagicWhip::new();
     hung.hang_from([3.0, 4.0, 5.0]);
@@ -132,6 +148,43 @@ fn a_streak_steps_two_hundred_a_second_drawn_out_along_its_axis() {
     long.points[0].0 = [1.0, 1.0, 0.0];
     long.update(2.0, [101.0, 1.0, 0.0], [0.0; 3]);
     assert!((long.points[0].0[0] - 100.0).abs() < 1e-3);
+    // A new streak starts at its place, whatever its points held.
+    let mut fresh = MagicStreak::new();
+    fresh.update(0.01, [4.0, 2.0, 0.0], [0.0; 3]);
+    assert_eq!(fresh.points[0].0, [4.0, 2.0, 0.0]);
+    // A first point off the axes' zero moves on from where it stood.
+    let mut off = MagicStreak::new();
+    off.points[0].0 = [0.0, 2.0, 0.0];
+    off.update(0.01, [4.0, 2.0, 0.0], [0.0; 3]);
+    assert_eq!(off.points[0].0, [2.0, 2.0, 0.0]);
+    // The pull along the axis by the weights 0.7 and 0.686, a link of 0.75 each.
+    let mut pulled = MagicStreak::new();
+    pulled.points[0].0 = [0.0, 0.5, 0.0];
+    pulled.points[1].0 = [0.0, 1.25, 0.0];
+    pulled.points[2].0 = [0.0, 2.0, 0.0];
+    pulled.update(0.005, [9.0, 9.0, 0.0], [1.0, 0.0, 0.0]);
+    let link = |from: [f32; 3], to: [f32; 3], weight: f32| {
+        let way = [to[0] - from[0] + weight, to[1] - from[1], to[2] - from[2]];
+        let length = (way[0] * way[0] + way[1] * way[1] + way[2] * way[2]).sqrt();
+        [0, 1, 2].map(|i| from[i] + 0.75 * way[i] / length)
+    };
+    let first = link([0.0, 0.5, 0.0], [0.0, 1.25, 0.0], 0.7);
+    let second = link(first, [0.0, 2.0, 0.0], 0.686);
+    for (got, want) in [(pulled.points[1].0, first), (pulled.points[2].0, second)] {
+        assert!(
+            (0..3).all(|i| (got[i] - want[i]).abs() < 1e-5),
+            "{got:?} {want:?}"
+        );
+    }
+    assert_eq!((MagicStreak::HALF, MagicStreak::HAZE), (1.5, 10.0));
+    assert_eq!(
+        MagicStreak::CORNERS,
+        [0xFF00_00C0, 0xFF80_80C0, 0xFF00_80C0, 0xFF80_00C0]
+    );
+    assert_eq!(
+        MagicStreak::HAZE_CORNERS,
+        [0x4000_0040, 0x4020_2040, 0x4000_2040, 0x4020_0040]
+    );
     // Nothing moves in no time.
     let mut still = MagicStreak::new();
     still.update(0.004, [3.0, 3.0, 0.0], [1.0, 0.0, 0.0]);
@@ -156,6 +209,7 @@ fn the_swords_sparks_live_half_a_second_within_forty() {
     );
     assert_eq!(MagicWorms::layers()[0].life, -500.0);
     assert_eq!(MagicWorms::block().size.value, 1.0);
+    assert_eq!(MagicWorms::block().offset.spread, [40.0; 3]);
     assert_eq!(MagicWorms::block().interval, 0.02);
     assert_eq!(WORMS_COLOUR, [1.0, 68.0 / 255.0, 68.0 / 255.0]);
 }

@@ -24,12 +24,12 @@ pub const GLOW_BONE: &str = "stdfx_bone01";
 pub const GLOW_AT: &str = "weapon_gl01";
 
 /// The style of the glow of a weapon whose bonus slots are `slots`, each its condition and its
-/// effect, in their order (`0x5CEA50`): the first slot of a condition or an effect whose effect's
-/// low 16 bits give a style; none where none does.
+/// effect, in their order (`0x5CEA50`): the first slot whose effect's low 16 bits give a style;
+/// none where none does (the original passes over a slot of no condition and no effect, whose
+/// effect 0 gives none).
 pub fn bonus_style(slots: impl IntoIterator<Item = (u16, u32)>) -> Option<u8> {
     slots
         .into_iter()
-        .filter(|&(condition, effect)| condition != 0 || effect != 0)
         .find_map(|(_, effect)| style_of(effect & 0xFFFF))
 }
 
@@ -172,15 +172,10 @@ impl Default for MagicWhip {
 }
 
 impl MagicWhip {
-    /// Its quad's half side and its corners' colours, from the bottom left, the top left, the
-    /// bottom right and the top right.
+    /// Its quad's half side and its corners' colours (`0xAARRGGBB`), from the bottom left, the
+    /// top left, the bottom right and the top right.
     pub const HALF: f32 = 4.0;
-    pub const CORNERS: [[f32; 4]; 4] = [
-        [0.0, 0.0, 128.0 / 255.0, 1.0],
-        [64.0 / 255.0, 64.0 / 255.0, 128.0 / 255.0, 1.0],
-        [0.0, 64.0 / 255.0, 128.0 / 255.0, 1.0],
-        [64.0 / 255.0, 0.0, 128.0 / 255.0, 1.0],
-    ];
+    pub const CORNERS: [u32; 4] = [0xFF00_0080, 0xFF40_4080, 0xFF00_4080, 0xFF40_0080];
 
     /// A whip hanging down from its place, its points 1.5 apart along −y.
     pub fn new() -> Self {
@@ -226,21 +221,11 @@ impl Default for MagicStreak {
 }
 
 impl MagicStreak {
-    /// Its small quad's half side and corners, and its large one's.
+    /// Its small quad's half side and corners (`0xAARRGGBB`), and its large one's.
     pub const HALF: f32 = 1.5;
-    pub const CORNERS: [[f32; 4]; 4] = [
-        [0.0, 0.0, 192.0 / 255.0, 1.0],
-        [128.0 / 255.0, 128.0 / 255.0, 192.0 / 255.0, 1.0],
-        [0.0, 128.0 / 255.0, 192.0 / 255.0, 1.0],
-        [128.0 / 255.0, 0.0, 192.0 / 255.0, 1.0],
-    ];
+    pub const CORNERS: [u32; 4] = [0xFF00_00C0, 0xFF80_80C0, 0xFF00_80C0, 0xFF80_00C0];
     pub const HAZE: f32 = 10.0;
-    pub const HAZE_CORNERS: [[f32; 4]; 4] = [
-        [0.0, 0.0, 64.0 / 255.0, 64.0 / 255.0],
-        [32.0 / 255.0, 32.0 / 255.0, 64.0 / 255.0, 64.0 / 255.0],
-        [0.0, 32.0 / 255.0, 64.0 / 255.0, 64.0 / 255.0],
-        [32.0 / 255.0, 0.0, 64.0 / 255.0, 64.0 / 255.0],
-    ];
+    pub const HAZE_CORNERS: [u32; 4] = [0x4000_0040, 0x4020_2040, 0x4000_2040, 0x4020_0040];
 
     /// A streak of all its points at its place, none yet placed.
     pub fn new() -> Self {

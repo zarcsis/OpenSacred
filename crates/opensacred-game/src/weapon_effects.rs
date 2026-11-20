@@ -16,7 +16,7 @@
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
-use opensacred_rules::particles::GlowLine;
+use opensacred_rules::particles::{GlowLine, argb};
 use opensacred_rules::spawning::Rng;
 use opensacred_rules::weapon_effects::{
     self as rules, GLOW_AT, GLOW_BONE, GLOW_FLARE, GLOW_TEXTURE, MagicStreak, MagicWhip,
@@ -340,7 +340,12 @@ fn run(
                     let root = models(origin);
                     for (place, _) in &whip.points {
                         let place = std::array::from_fn(|i| place[i] - root[i]);
-                        facing(&mut glows, place, MagicWhip::HALF, MagicWhip::CORNERS);
+                        facing(
+                            &mut glows,
+                            place,
+                            MagicWhip::HALF,
+                            MagicWhip::CORNERS.map(argb),
+                        );
                     }
                 }
             }
@@ -354,12 +359,17 @@ fn run(
                     streak.update(dt, models(at.translation()), axis);
                     for (place, _) in &streak.points {
                         let place = std::array::from_fn(|i| place[i] - root[i]);
-                        facing(&mut glows, place, MagicStreak::HALF, MagicStreak::CORNERS);
+                        facing(
+                            &mut glows,
+                            place,
+                            MagicStreak::HALF,
+                            MagicStreak::CORNERS.map(argb),
+                        );
                         facing(
                             &mut glows,
                             place,
                             MagicStreak::HAZE,
-                            MagicStreak::HAZE_CORNERS,
+                            MagicStreak::HAZE_CORNERS.map(argb),
                         );
                     }
                 }
