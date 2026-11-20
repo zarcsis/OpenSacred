@@ -173,6 +173,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/cursors.rs`: The cursor's looks over the world
 - `crates/opensacred-game/src/daemon.rs`: The Daemon's form of 1094 as its effect 50 holds it
 - `crates/opensacred-game/src/dark_helices.rs`: The Dark Elf's casts' helices
+- `crates/opensacred-game/src/dark_sights.rs`: The Dark Elf's sights of the hit sparks' class that are no hits
 - `crates/opensacred-game/src/dark_wards.rs`: The look of the Dark Elf's two wards
 - `crates/opensacred-game/src/daynight.rs`: Day and night
 - `crates/opensacred-game/src/debug.rs`: The commands for testing that read the world

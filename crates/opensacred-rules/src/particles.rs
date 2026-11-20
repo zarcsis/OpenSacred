@@ -7110,6 +7110,191 @@ pub fn hit_sparks(sparks: Sparks, dice: &mut impl Dice) -> Burst {
     }
 }
 
+/// What a sight of the Dark Elf's hit sparks' class shows that is no hit (864,
+/// `cParticleSystem_dark_sm_hit` of the event's `+0x3C` 1042, 1046 to 1048 or 16; #2923).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DarkSightKind {
+    /// 1042: the magic circle under a creature that the viper holds, for its seconds.
+    Circle,
+    /// 1046: the symbol of the kind of a turned spell's largest damage under a creature it
+    /// strikes (0 the physical, 1 the magic, 2 the fire, 3 the poison), fading.
+    Symbol(u8),
+    /// 16: the fear's symbol under a thrown weapon's target, fading.
+    Fear,
+    /// 1047, red, and 1048, yellow: a boon's crackle of lightning at his hand, for its seconds.
+    Crackle { red: bool },
+}
+
+impl DarkSightKind {
+    /// The symbol under a creature that a turned spell of the damages `damages` strikes (the
+    /// physical, the fire, the magic and the poison's): its largest kind's, the first of equal
+    /// ones (**hypothesis**: the event's `+0x44` names the kind by the symbols' order).
+    pub fn turned(damages: [f32; 4]) -> Self {
+        let largest = (1..4).fold(0, |best, kind| {
+            if damages[kind] > damages[best] {
+                kind
+            } else {
+                best
+            }
+        });
+        Self::Symbol([0, 2, 1, 3][largest])
+    }
+}
+
+/// The sights' textures: the circle's, the fear's, the four kinds' symbols, the crackle's
+/// lightning (a grid of 2 by 2) and the glow that the crackle shines in.
+pub const DARK_CIRCLE: &str = "FX_MAGICCIRCLE04";
+pub const DARK_FEAR: &str = "FXGROUND_FEAR";
+pub const DARK_SYMBOLS: [&str; 4] = [
+    "FXGROUND_PHYSISCH",
+    "FXGROUND_MAGISCH",
+    "FXGROUND_FEUER",
+    "FXGROUND_GIFT",
+];
+pub const DARK_LIGHTNING: &str = "PARTICLE_LIGHTNING01";
+pub const DARK_LIGHTNING_GRID: u8 = 2;
+pub const DARK_GLOW: &str = "PARTICLE_GLOW03";
+/// The light of every sight of the class (`+0x9C`), and its flat quads' half side.
+pub const DARK_SIGHT_LIGHT: f32 = 200.0;
+pub const DARK_SIGHT_HALF: f32 = 40.0;
+const DARK_SIGHT_COUNT: usize = 153;
+
+/// A flat quad of a sight: its texture, its turn, its colour, and whether it is added whole
+/// (`ONE`, `ONE`) rather than laid over by its alpha.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DarkFlat {
+    pub texture: &'static str,
+    pub turn: f32,
+    pub colour: [f32; 4],
+    pub whole: bool,
+}
+
+/// A sight of the Dark Elf's hit sparks' class that is no hit (864, its start `0x794CE0`, run
+/// `0x7946A0` and draw `0x794820`; #2923): its kind, its particles, its clock, its time and its
+/// fade.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DarkSight {
+    pub kind: DarkSightKind,
+    pub system: System,
+    clock: f32,
+    time: f32,
+    fade: f32,
+}
+
+impl DarkSight {
+    /// A sight of `kind`, the circle and the crackle of `seconds` (the event's `+0x2C`).
+    pub fn new(kind: DarkSightKind, seconds: f32) -> Self {
+        Self {
+            kind,
+            system: System::new(DARK_SIGHT_COUNT),
+            clock: 0.0,
+            time: seconds,
+            fade: 1.0,
+        }
+    }
+
+    /// The crackle's layer: the life −800 a second (0.32 s).
+    pub fn layers() -> [Layer; 1] {
+        [Layer {
+            life: -800.0,
+            ..Layer::default()
+        }]
+    }
+
+    /// The crackle's block: the size 4 ± 3, any angle, one every 0.02 s at the detail 2.
+    pub fn block() -> Block {
+        Block {
+            size: spread(4.0, 3.0),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            interval: 0.02,
+            ..Block::default()
+        }
+    }
+
+    /// The crackle's colour at a bolt's life `life`, 0 to 255, opaque: `(i, i/2, i/2)` red or
+    /// `(i, i, i/2)` yellow of `i` its life whole (`0x794E8F`, `0x794F60`).
+    pub fn crackle_colour(red: bool, life: f32) -> [f32; 4] {
+        let i = life.clamp(0.0, 255.0).floor();
+        let half = (i / 2.0).floor();
+        let [r, g, b] = if red { [i, half, half] } else { [i, i, half] };
+        [r / 255.0, g / 255.0, b / 255.0, 1.0]
+    }
+
+    /// Its run of `dt` seconds (`0x7946A0`): the circle stands past its time; the symbols fade by
+    /// 0.75 a second; the crackle's bolts age and come while its time runs, and it ends with the
+    /// last. Whether it lives.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) -> bool {
+        match self.kind {
+            DarkSightKind::Circle => {
+                self.clock += dt;
+                self.clock <= self.time
+            }
+            DarkSightKind::Symbol(_) | DarkSightKind::Fear => {
+                self.clock += dt;
+                self.fade -= 0.75 * dt;
+                self.fade >= 0.0
+            }
+            DarkSightKind::Crackle { .. } => {
+                let layers = Self::layers();
+                self.system.update(dt, &layers);
+                let lives = if self.clock < self.time {
+                    self.system
+                        .emit(&[Self::block()], &layers, DARK_SIGHT_COUNT, dice);
+                    true
+                } else {
+                    !self.system.particles.is_empty()
+                };
+                self.clock += dt;
+                lives
+            }
+        }
+    }
+
+    /// Its flat quad of the half side [`DARK_SIGHT_HALF`] (`0x7631E0`): the circle white, added
+    /// whole, turning a radian a second; a symbol white at the alpha of its fade, laid over,
+    /// turning a radian a second, the fear's four; none for the crackle.
+    pub fn flat(&self) -> Option<DarkFlat> {
+        let faded = [1.0, 1.0, 1.0, (255.0 * self.fade.max(0.0)).floor() / 255.0];
+        match self.kind {
+            DarkSightKind::Circle => Some(DarkFlat {
+                texture: DARK_CIRCLE,
+                turn: self.clock,
+                colour: [1.0; 4],
+                whole: true,
+            }),
+            DarkSightKind::Symbol(kind) => Some(DarkFlat {
+                texture: DARK_SYMBOLS[usize::from(kind.min(3))],
+                turn: self.clock,
+                colour: faded,
+                whole: false,
+            }),
+            DarkSightKind::Fear => Some(DarkFlat {
+                texture: DARK_FEAR,
+                turn: 4.0 * self.clock,
+                colour: faded,
+                whole: false,
+            }),
+            DarkSightKind::Crackle { .. } => None,
+        }
+    }
+
+    /// The crackle's glow at its place (`0x762E10` of the style 5): its half side `7 + 2·r` of a
+    /// roll `r` of 0 to 1, and its colour, (255, 64, 64) or (255, 255, 64); none for the others.
+    pub fn glow(&self, roll: f32) -> Option<(f32, [f32; 4])> {
+        match self.kind {
+            DarkSightKind::Crackle { red } => {
+                let colour = if red {
+                    [1.0, 64.0 / 255.0, 64.0 / 255.0, 1.0]
+                } else {
+                    [1.0, 1.0, 64.0 / 255.0, 1.0]
+                };
+                Some((7.0 + 2.0 * roll, colour))
+            }
+            _ => None,
+        }
+    }
+}
+
 /// The gun's fire's textures (1172, `cParticleSystem_gunfire`, its constructor `0x7C3200`), one
 /// at random for each flash (`rand() % 4`, its start `0x7C3AC0`).
 pub const GUNFIRE_TEXTURES: [&str; 4] = [
@@ -19721,6 +19906,113 @@ mod tests {
         }
         assert!(plant.done() && plant.dots().is_empty());
         assert_eq!(KillerPlant::new(3.0, false, &mut dice).colour, PLANT_BLUE);
+    }
+
+    #[test]
+    fn the_dark_elfs_sights_stand_fade_and_crackle() {
+        let mut dice = Rng::of(4, 2, 864);
+        // The viper's circle: white, added whole, turning a radian a second, its time.
+        let mut circle = DarkSight::new(DarkSightKind::Circle, 1.0);
+        assert!(circle.update(0.5, &mut dice));
+        let flat = circle.flat().unwrap();
+        assert_eq!(
+            (flat.texture, flat.turn, flat.colour, flat.whole),
+            (DARK_CIRCLE, 0.5, [1.0; 4], true)
+        );
+        assert!(circle.update(0.5, &mut dice));
+        assert!(!circle.update(0.25, &mut dice));
+        assert!(circle.glow(0.5).is_none());
+        // A turned spell's fire symbol fades by 0.75 a second; the fear's turns four times.
+        let mut symbol = DarkSight::new(DarkSightKind::Symbol(2), 0.0);
+        assert!(symbol.update(0.5, &mut dice));
+        let flat = symbol.flat().unwrap();
+        assert_eq!(
+            (flat.texture, flat.turn, flat.whole),
+            ("FXGROUND_FEUER", 0.5, false)
+        );
+        assert_eq!(
+            flat.colour,
+            [1.0, 1.0, 1.0, (255.0_f32 * 0.625).floor() / 255.0]
+        );
+        assert!(symbol.update(0.5, &mut dice));
+        assert!(!symbol.update(0.5, &mut dice));
+        // The symbol of a turned spell's largest kind, the first of equal ones.
+        assert_eq!(
+            DarkSightKind::turned([1.0, 0.0, 0.0, 0.0]),
+            DarkSightKind::Symbol(0)
+        );
+        assert_eq!(
+            DarkSightKind::turned([1.0, 2.0, 0.0, 2.0]),
+            DarkSightKind::Symbol(2)
+        );
+        assert_eq!(
+            DarkSightKind::turned([1.0, 0.0, 3.0, 0.0]),
+            DarkSightKind::Symbol(1)
+        );
+        assert_eq!(
+            DarkSightKind::turned([0.0, 0.0, 0.0, 0.5]),
+            DarkSightKind::Symbol(3)
+        );
+        assert_eq!(DarkSightKind::turned([0.0; 4]), DarkSightKind::Symbol(0));
+        let mut fear = DarkSight::new(DarkSightKind::Fear, 0.0);
+        fear.update(0.25, &mut dice);
+        let flat = fear.flat().unwrap();
+        assert_eq!((flat.texture, flat.turn), (DARK_FEAR, 1.0));
+        assert_eq!(
+            DarkSight::new(DarkSightKind::Symbol(0), 0.0)
+                .flat()
+                .unwrap()
+                .texture,
+            "FXGROUND_PHYSISCH"
+        );
+        assert_eq!(
+            DarkSight::new(DarkSightKind::Symbol(9), 0.0)
+                .flat()
+                .unwrap()
+                .texture,
+            "FXGROUND_GIFT"
+        );
+        // A boon's crackle: bolts of 0.32 s while its time runs, then its last die.
+        let mut crackle = DarkSight::new(DarkSightKind::Crackle { red: true }, 0.2);
+        assert!(crackle.flat().is_none());
+        for _ in 0..4 {
+            assert!(crackle.update(0.05, &mut dice));
+        }
+        let count = crackle.system.particles.len();
+        assert!((8..=12).contains(&count), "{count}");
+        assert!(crackle.update(0.05, &mut dice));
+        let mut ended = false;
+        for _ in 0..10 {
+            ended |= !crackle.update(0.05, &mut dice);
+        }
+        assert!(ended && crackle.system.particles.is_empty());
+        // One whose time is over at its start makes no bolt and ends at once.
+        let mut over = DarkSight::new(DarkSightKind::Crackle { red: false }, 0.0);
+        assert!(!over.update(0.05, &mut dice) && over.system.particles.is_empty());
+        assert_eq!(DarkSight::layers()[0].life, -800.0);
+        assert_eq!(
+            (
+                DarkSight::block().size.value,
+                DarkSight::block().size.spread
+            ),
+            (4.0, 3.0)
+        );
+        assert_eq!(DarkSight::block().angle.spread, std::f32::consts::PI);
+        assert_eq!(DarkSight::block().interval, 0.02);
+        assert_eq!(
+            DarkSight::crackle_colour(true, 255.0),
+            [1.0, 127.0 / 255.0, 127.0 / 255.0, 1.0]
+        );
+        assert_eq!(
+            DarkSight::crackle_colour(false, 100.0),
+            [100.0 / 255.0, 100.0 / 255.0, 50.0 / 255.0, 1.0]
+        );
+        assert_eq!(
+            crackle.glow(0.5),
+            Some((8.0, [1.0, 64.0 / 255.0, 64.0 / 255.0, 1.0]))
+        );
+        let yellow = DarkSight::new(DarkSightKind::Crackle { red: false }, 1.0);
+        assert_eq!(yellow.glow(0.0), Some((7.0, [1.0, 1.0, 64.0 / 255.0, 1.0])));
     }
 
     #[test]

@@ -3584,8 +3584,9 @@ fn proof(rank: Option<&fight::Ranked>) -> bool {
 /// Shares a spell of the damages `damages` that the spellproof of the value `value` on `bearer`
 /// turned aside (`0x561860`, #2945): each creature hostile to the hero within
 /// [`opensacred_rules::spells::SHARED_WITHIN`] of the bearer, alive and not the bearer, takes a
-/// sure strike from the bearer of its share (`opensacred_rules::spells::spellproof_share`); the
-/// objects 864 at them are not followed.
+/// sure strike from the bearer of its share (`opensacred_rules::spells::spellproof_share`), and
+/// the symbol of the spell's largest kind fades under it, placed once (the object 864 of the event
+/// 1046, `dark_sights`).
 pub(crate) fn share_turned(world: &mut World, bearer: Entity, damages: [f32; 4], value: f32) {
     let Some(at) = world
         .get::<GlobalTransform>(bearer)
@@ -3608,7 +3609,15 @@ pub(crate) fn share_turned(world: &mut World, bearer: Entity, damages: [f32; 4],
     let Some(share) = spells::spellproof_share(damages, value, struck.len()) else {
         return;
     };
+    let symbol = opensacred_rules::particles::DarkSightKind::turned(damages);
     for target in struck {
+        world.spawn(crate::dark_sights::sight(crate::dark_sights::Sight {
+            bearer: target,
+            kind: symbol,
+            seconds: 0.0,
+            bone: None,
+            follows: false,
+        }));
         world.write_message(fight::Hit {
             attacker: bearer,
             target,
