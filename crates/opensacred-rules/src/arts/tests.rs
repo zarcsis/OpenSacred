@@ -942,6 +942,22 @@ fn the_changeling_changes_the_vampiress_for_the_night_forms_time() {
 }
 
 #[test]
+fn the_backbreaker_takes_up_the_small_of_five_classes_alone() {
+    // A goblin warrior (the class 8) and an undead (5), a hireling (7), an elf (12), the class 14.
+    for class in [5, 7, 8, 12, 14] {
+        assert!(backbreaker_takes(76, class, false));
+    }
+    // A demon (9), an animal (6), a monster (2), none.
+    for class in [2, 6, 9, 0] {
+        assert!(!backbreaker_takes(76, class, false));
+    }
+    // A big type, and one taller than 260 (280), none; one of 230, taken.
+    assert!(!backbreaker_takes(76, 8, true));
+    assert!(!backbreaker_takes(52, 8, false));
+    assert!(backbreaker_takes(49, 8, false));
+}
+
+#[test]
 fn the_backbreaker_holds_its_target_and_lets_it_go_at_its_point() {
     assert_eq!(style(1010), Some(Style::Backbreaker));
     assert_eq!(
