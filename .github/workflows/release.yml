@@ -1,11 +1,12 @@
 # Versions (docs/03 §3.6): a merged pull request labeled `feature` raises the minor version, one
-# labeled `bug` the patch; the other labels leave it. A version is an annotated tag vX.Y.Z on the
-# pull request's squash commit. At most one release a day (#1548): a scheduled run versions the
-# pull requests merged since the last tag once the newest release is a day old, and publishes the
-# newest version alone, as a GitHub Release whose notes list the pull requests since the previous
-# release (.github/release.yml); before 1.0.0, a pre-release. The versions between two releases stay
-# tags. A manual run, `gh workflow run release.yml`, releases at once; the major version is raised
-# only at the maintainer's request: `gh workflow run release.yml -f bump=major` tags the head of main.
+# labeled `bug` the patch; the other labels leave it. At most one release a day (#1548): a scheduled
+# run, once the newest release is a day old, counts the version up through the pull requests merged
+# since that release, tags the newest version alone, an annotated tag vX.Y.Z on the squash commit of
+# the pull request that raised it last, and publishes it as a GitHub Release whose notes list the
+# pull requests since the previous release (.github/release.yml); before 1.0.0, a pre-release. Every
+# tag is a release (#3189): the versions between two releases are counted, never tagged. A manual
+# run, `gh workflow run release.yml`, releases at once; the major version is raised only at the
+# maintainer's request: `gh workflow run release.yml -f bump=major` tags the head of main.
 # The newest version that a run publishes gets the player's archive (#1500, #1494): the game in its
 # packaged build and the converter, in the dist profile, our FFmpeg (ffmpeg.yml, #1499), the licenses
 # and a read-me, in a 7z attached to the release with the FFmpeg build's source archives.
@@ -82,41 +83,55 @@ jobs:
             exit 1
           fi
 
-          # Tags commit $1 with the next version, raising part $2, the message $3.
-          tags=()
-          version() {
-            local major minor patch
-            IFS=. read -r major minor patch <<< "${last#v}"
-            case $2 in
-              major) last=v$((major + 1)).0.0 ;;
-              minor) last=v$major.$((minor + 1)).0 ;;
-              patch) last=v$major.$minor.$((patch + 1)) ;;
-            esac
-            git tag -a "$last" -m "$3" "$1"
-            tags+=("refs/tags/$last")
-          }
-
-          for commit in $(git rev-list --reverse --first-parent "$last..HEAD"); do
-            labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$commit/pulls" \
-              --jq ".[] | select(.merge_commit_sha == \"$commit\") | .labels[].name")
-            if grep -qx feature <<< "$labels"; then
-              version "$commit" minor "$(git log -1 --format=%s "$commit")"
-            elif grep -qx bug <<< "$labels"; then
-              version "$commit" patch "$(git log -1 --format=%s "$commit")"
+          if [[ $last != "$RELEASED" ]]; then
+            # A run that pushed its tag but failed before the release: that tag is released as it
+            # is, so that no tag stays without a release; the pull requests after it wait for the
+            # next release.
+            echo "$last has no release yet; it is released, the pull requests after it wait."
+            if [[ -n $BUMP && $BUMP != none ]]; then
+              echo "::warning::The $BUMP version is not raised: run the workflow again once $last is released."
             fi
-          done
+          else
+            # The version counted up through the pull requests since the newest release, as though
+            # each were tagged: one labeled `feature` raises the minor version, one labeled `bug`
+            # the patch. Only the newest version is tagged, on the commit that raised it last.
+            version=$last
+            # Raises part $1 of the version on commit $2, the tag's message $3.
+            raise() {
+              local major minor patch
+              IFS=. read -r major minor patch <<< "${version#v}"
+              case $1 in
+                major) version=v$((major + 1)).0.0 ;;
+                minor) version=v$major.$((minor + 1)).0 ;;
+                patch) version=v$major.$minor.$((patch + 1)) ;;
+              esac
+              commit=$2
+              message=$3
+            }
 
-          if [[ -n $BUMP && $BUMP != none ]]; then
-            version HEAD "$BUMP" "The $BUMP version, raised at the maintainer's request"
-          fi
+            for c in $(git rev-list --reverse --first-parent "$last..HEAD"); do
+              labels=$(gh api "repos/$GITHUB_REPOSITORY/commits/$c/pulls" \
+                --jq ".[] | select(.merge_commit_sha == \"$c\") | .labels[].name")
+              if grep -qx feature <<< "$labels"; then
+                raise minor "$c" "$(git log -1 --format=%s "$c")"
+              elif grep -qx bug <<< "$labels"; then
+                raise patch "$c" "$(git log -1 --format=%s "$c")"
+              fi
+            done
 
-          if (( ${#tags[@]} )); then
-            git push --atomic origin "${tags[@]}"
+            if [[ -n $BUMP && $BUMP != none ]]; then
+              raise "$BUMP" "$(git rev-parse HEAD)" "The $BUMP version, raised at the maintainer's request"
+            fi
+
+            if [[ $version != "$last" ]]; then
+              git tag -a "$version" -m "$message" "$commit"
+              git push origin "refs/tags/$version"
+              last=$version
+            fi
           fi
 
           # The newest version is released with the pull requests since the previous release, before
-          # 1.0.0 as a pre-release, and gets the archive. A run that pushed its tags but failed before
-          # the release leaves the release to the next run.
+          # 1.0.0 as a pre-release, and gets the archive.
           if [[ $last != "$RELEASED" ]]; then
             options=(--verify-tag --title "$last" --generate-notes --notes-start-tag "$RELEASED")
             if [[ $last == v0.* ]]; then options+=(--prerelease); fi
