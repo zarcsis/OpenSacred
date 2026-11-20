@@ -316,12 +316,19 @@ fn drop_held(
         "held: {} dropped at {cell:?} beside the hero at {hero_cell:?}, toward {toward:?}",
         held.dropped.item
     );
-    drops::drop_at(
+    // Its `Use:` function goes with it (#3099).
+    let kept = pack.release_use(held.key);
+    let dropped = drops::drop_at(
         &mut commands,
         (&assets, &tables, &mut dice),
         (cell, level),
         held.dropped,
     );
+    if let Some(function) = kept {
+        commands
+            .entity(dropped)
+            .insert(crate::pickup::KeptUse(function));
+    }
 }
 
 /// Shift with a left press on the backpack's item, with the cursor empty and neither a merchant's
@@ -372,6 +379,8 @@ fn drop_shifted(
     let Some(key) = pack.grid.at(cell).map(|placed| placed.key) else {
         return;
     };
+    // Its `Use:` function goes with it (#3099).
+    let kept = pack.release_use(key);
     let Some((_, dropped)) = pack.take_out(key) else {
         return;
     };
@@ -394,12 +403,17 @@ fn drop_shifted(
         "held: {} dropped from the backpack at {cell:?}",
         dropped.item
     );
-    drops::drop_at(
+    let dropped = drops::drop_at(
         &mut commands,
         (&assets, &tables, &mut dice),
         (cell, level),
         dropped,
     );
+    if let Some(function) = kept {
+        commands
+            .entity(dropped)
+            .insert(crate::pickup::KeptUse(function));
+    }
 }
 
 /// The cursor's item.
