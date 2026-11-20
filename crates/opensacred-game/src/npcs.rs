@@ -140,6 +140,10 @@ const RISES: u8 = 0x6B;
 /// clip of [`EMERGING`] once (`0x4827EA`, `0x4833CE`: the standing action's sub-state `0x65`; the
 /// event `0x109` of the state 13, a glow, and `+0x200` bit `0x10` not followed; #2461).
 const EMERGES: u8 = 0x8D;
+/// The tag of `CreateNPC` and `SetNPCState` that marks its creature a vision, as the creature
+/// maker marks the types of `opensacred_rules::spells::VISIONS` (the object's `+0x14` bit
+/// `0x200000`, `0x48290F`, `0x4836BE`; docs/re/drawing.md, "The visions"; #3064).
+const VISION: u8 = 0xA1;
 /// The clip's slot that [`EMERGES`] plays, at the rate 1.0, once.
 const EMERGING: u16 = 154;
 /// The big demon (`TYPE_NPC_BIG_DEMON`), which turns hostile as its clip of [`EMERGING`] ends
@@ -419,6 +423,9 @@ struct Placement {
     /// Not saved: a script's object is made again of its record.
     #[serde(skip)]
     sinks: bool,
+    /// Whether its `CreateNPC` or a `SetNPCState` that names it marks it a vision ([`VISION`]),
+    /// which it stays: its type is drawn and ends as the visions' types are ([`Vision`]).
+    vision: bool,
     /// An NPC's walk and run speeds in world units a second, before the game's speed, and its
     /// `Creature.pak` class (`ai::Mind`).
     speed: [f32; 2],
@@ -1131,6 +1138,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         hostility: None,
         emerges: false,
         sinks: false,
+        vision: false,
         texture: kind.texture.clone(),
         woman: kind.woman,
         layer: 0,
@@ -2151,19 +2159,17 @@ fn spell_of(rules: &[Rule], creature: u32, rng: &mut spawning::Rng) -> Option<u8
         .copied()
 }
 
-/// What a rule's first item of 1800 to 1804 becomes, 1723, 1720, 1759, 1729 and 1752, for most
-/// types (`0x47F8E0`).
-const SWAPPED: [u32; 5] = [1723, 1720, 1759, 1729, 1752];
 /// The weapon kinds after which a creature takes no second item: the two-handed, the staves, the
 /// bows and the crossbows (**hypothesis** for the names).
 const ONE_ITEM: [u8; 5] = [2, 3, 4, 7, 12];
 
 /// The items a creature of `creature` takes by the first of the sector's rules that names it
 /// (`0x47F8E0`): each of the first two by its chance from its pool, at random among the pool's
-/// items, the first swapped ([`SWAPPED`]), and a crossbow or a musket first that its model of the
-/// shots `shots` cannot shoot replaced by `weapon` of the kind it asks for, none if it gives none
-/// (`spawning::filled_weapon`, `0x480547`, #1217); the second only after a weapon of a kind that
-/// leaves a hand free; the third, a worn piece, is [`worn_of`]'s (#2286).
+/// items; a crossbow or a musket first that its model of the shots `shots` cannot shoot replaced
+/// by `weapon` of the kind it asks for, none if it gives none (`spawning::filled_weapon`,
+/// `0x480547`, #1217); then the two as its type's own list makes them
+/// (`spawning::own_items`, #3070); the second only after a weapon of a kind that leaves a hand
+/// free; the third, a worn piece, is [`worn_of`]'s (#2286).
 fn gear_of<'a>(
     rules: &[Rule],
     creature: u32,
@@ -2183,10 +2189,7 @@ fn gear_of<'a>(
         let index = usize::try_from(rng.below(u32::try_from(list.len()).ok()?)).ok()?;
         made.then(|| list[index])
     };
-    let first = roll(rule.items[0]).map(|item| match item {
-        1800..=1804 => SWAPPED[usize::try_from(item - 1800).unwrap_or(0)],
-        other => other,
-    });
+    let first = roll(rule.items[0]);
     let second = roll(rule.items[1]);
     let first = first.and_then(|item| {
         match spawning::filled_weapon(gear.get(&item).and_then(|g| g.kind), shots) {
@@ -2194,6 +2197,14 @@ fn gear_of<'a>(
             None => Some(item),
         }
     });
+    // The type's own list, which a first item already made enters (`0x4805E0`).
+    let (first, second) = match first {
+        Some(item) => {
+            let (first, second) = spawning::own_items(creature, (item, second), rng);
+            (Some(first), second)
+        }
+        None => (None, second),
+    };
     let first = first.and_then(|item| Some((item, gear.get(&item)?)));
     let second = second
         .filter(|_| {
@@ -2469,6 +2480,9 @@ struct State {
     /// Whether its `0x6B` sets `+0x2B7` bit `0x08`, above 0, or clears it, for 0 ([`RISES`]), which
     /// keeps a dead follower of the hero to rise ([`RisesAgain`], #2459).
     rises: Option<bool>,
+    /// Whether its `0xA1` marks the creature a vision ([`VISION`]; `0x461540` sets the bit and
+    /// nothing of the record clears it).
+    vision: bool,
 }
 
 impl State {
@@ -2489,6 +2503,7 @@ impl State {
             } else {
                 listed(ops).then_some(false)
             },
+            vision: ops.iter().any(|op| op.tag == VISION),
             ..Self::default()
         };
         for op in ops {
@@ -2529,7 +2544,8 @@ impl State {
 
     /// Whether it gives a creature made before what the game follows on one (#656, #658): its
     /// flags word (#2426), its hostility, its death's functions, its heading, its group, a
-    /// trader's stock, a dialogue (#1028), a hire (#657) or its rise (#2459).
+    /// trader's stock, a dialogue (#1028), a hire (#657), its rise (#2459) or a vision's mark
+    /// (#3064).
     fn restates(&self) -> bool {
         self.word != 0
             || !self.deaths.is_empty()
@@ -2540,6 +2556,7 @@ impl State {
             || self.talk.is_some()
             || self.hire.is_some()
             || self.rises.is_some()
+            || self.vision
     }
 
     /// The dialogue it leaves a creature that had `talk`: its own, or none for a horse it stocks.
@@ -2575,8 +2592,8 @@ impl State {
     }
 
     /// Gives `placement` its death's functions, its heading, its group, its stock's trader, its
-    /// dialogue (none for one joining a stock), its hire, its sight function's bit and its rise
-    /// ([`Self::restates`]).
+    /// dialogue (none for one joining a stock), its hire, its sight function's bit, its rise and
+    /// a vision's mark ([`Self::restates`]).
     fn restate_placement(&self, placement: &mut Placement) {
         self.restate(&mut placement.on_death);
         if let Some(heading) = self.heading {
@@ -2605,6 +2622,7 @@ impl State {
         if let Some(rises) = self.rises {
             placement.rises = rises;
         }
+        placement.vision |= self.vision;
     }
 
     /// Whether it gives its creature a sight function (`0x60`), which sets the flags word's
@@ -3923,6 +3941,7 @@ impl Makers {
             sinks: record.kind == CREATE_OBJ
                 && category(item) != CHEST
                 && (category(item) == SINKING || self.kinds.contains_key(&creature)),
+            vision: record.kind == CREATE_NPC && ops.iter().any(|op| op.tag == VISION),
             texture,
             layer,
             spread,
@@ -7364,13 +7383,11 @@ fn spawn(
     if !placement.equipment.is_empty() {
         entity.insert(equipment(assets, &placement.equipment));
     }
-    // A vision, drawn only in its look for as long as it lives (`skins`, #2519).
-    if !placement.object && opensacred_rules::spells::VISIONS.contains(&placement.creature.0) {
-        let look = opensacred_rules::spells::vision(placement.creature.0);
-        entity.insert(crate::skins::Asked(
-            crate::skins::Overlay::Vision(look),
-            f32::INFINITY,
-        ));
+    // A vision, of its type or a script's mark (#2519, #3064).
+    if !placement.object
+        && (placement.vision || opensacred_rules::spells::VISIONS.contains(&placement.creature.0))
+    {
+        envision(entity.reborrow(), placement.creature.0);
     }
     if placement.casts {
         entity.insert(shadows::Casts);
@@ -11283,6 +11300,7 @@ pub(crate) fn script_records(
                 &Transform,
                 Option<&crowd::InTheWay>,
                 Option<&Talk>,
+                Option<&Corpse>,
             ),
             With<Dies>,
         >,
@@ -11374,7 +11392,7 @@ pub(crate) fn script_records(
                 dying
                     .iter()
                     .find(|(_, named, ..)| named.0 == name)
-                    .map(|(_, _, at, way, _)| {
+                    .map(|(_, _, at, way, ..)| {
                         cell_at(at.translation, way.map_or(0, |way| floor_of(way.level)))
                     })
             }),
@@ -11429,10 +11447,21 @@ pub(crate) fn script_records(
         // A dead creature takes its dialogue too, which holds its body to be spoken to (the dying
         // action's hold, `0x53ECA0`; #2444): Wilbur's of quest 45, given by his death's function.
         if state.talk.is_some() {
-            for (entity, .., talk) in dying.iter().filter(|(_, named, ..)| named.0 == name) {
+            for (entity, .., talk, _) in dying.iter().filter(|(_, named, ..)| named.0 == name) {
                 let talk = state.talk_of(talk.map(|talk| talk.0.clone()));
                 talk_to(&mut commands, entity, talk);
                 bevy::log::info!("npcs: the scripts set {name}'s dialogue as it lies dead");
+            }
+        }
+        // A dead creature takes a vision's mark too (#3064): the Underworld's `Game_over` marks
+        // Vilya as the same run's `SetHP` lifts her.
+        if state.vision {
+            for (entity, corpse) in dying
+                .iter()
+                .filter(|(_, named, ..)| named.0 == name)
+                .filter_map(|(entity, .., corpse)| Some((entity, corpse?)))
+            {
+                envision(commands.entity(entity), corpse.creature);
             }
         }
         for (entity, _, on_death, mut transform, mut mind, way, _, talk, _) in creatures
@@ -11471,6 +11500,12 @@ pub(crate) fn script_records(
                 && let Some(mind) = mind.as_mut()
             {
                 mind.flags |= minds::SIGHT;
+            }
+            // A vision's mark, which it keeps (#3064): Vilya in the Underworld's last scene.
+            if state.vision
+                && let Some(mind) = mind.as_ref()
+            {
+                envision(commands.entity(entity), mind.creature);
             }
             match on_death {
                 Some(mut on_death) => state.restate(&mut on_death.0),
@@ -12252,6 +12287,23 @@ pub struct Corpse {
 /// hero rises 20 s after its death (`0x53FB40`, `followers::rise_again`, #2459).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct RisesAgain;
+
+/// A vision (the object's `+0x14` bit `0x200000`; docs/re/drawing.md, "The visions"): a creature
+/// of the types `opensacred_rules::spells::VISIONS`, or one that a script's [`VISION`] marks
+/// (#3064). It is drawn only in its look for as long as it lives (`skins::Overlay::Vision`), and
+/// its body ends at once in sparks (`bodies`).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Vision;
+
+/// Marks `entity`, a creature of the type `creature`, a vision ([`Vision`]) and gives it its look
+/// for good (`skins`, #2519).
+fn envision(mut entity: bevy::ecs::system::EntityCommands, creature: u32) {
+    let look = opensacred_rules::spells::vision(creature);
+    entity.insert((
+        Vision,
+        crate::skins::Asked(crate::skins::Overlay::Vision(look), f32::INFINITY),
+    ));
+}
 
 /// What a dead creature that may rise again ([`RisesAgain`]) or that the scripts name, which a
 /// `SetHP` or its queue may lift ([`lift`], #2477), laid down as it died, which its rising takes
@@ -14491,6 +14543,26 @@ mod tests {
         assert!(placement.rises);
         State::of(&[rise(0)], &[]).restate_placement(&mut placement);
         assert!(!placement.rises);
+    }
+
+    #[test]
+    fn a_set_npc_states_0xa1_marks_its_creature_a_vision_for_good() {
+        // Quest 56's `Game_over` marks Vilya, of the type 224, a vision (#3064), both her
+        // placement and, made before, the creature in the world.
+        let marker = |tag| Operand {
+            tag,
+            value: Value::Marker,
+        };
+        let marks = State::of(&[marker(VISION)], &[]);
+        assert!(marks.vision && marks.restates());
+        let mut placement = Placement::default();
+        marks.apply(&mut placement);
+        assert!(placement.vision);
+        // A state with no `0xA1` leaves the mark.
+        let hostile = State::of(&[marker(0x08)], &[]);
+        assert!(!hostile.vision);
+        hostile.restate_placement(&mut placement);
+        assert!(placement.vision);
     }
 
     #[test]
