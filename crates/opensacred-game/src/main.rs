@@ -282,6 +282,7 @@ mod volumes;
 mod war_cries;
 mod war_cry_signs;
 mod waterfalls;
+mod weapon_effects;
 mod weather;
 mod world_map;
 mod zhadums;
@@ -800,6 +801,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         war_cries::WarCriesPlugin,
         war_cry_signs::WarCrySignsPlugin,
         waterfalls::WaterfallsPlugin,
+        weapon_effects::WeaponEffectsPlugin,
         weather::WeatherPlugin,
         world_map::WorldMapPlugin,
         zhadums::ZhadumsPlugin,
