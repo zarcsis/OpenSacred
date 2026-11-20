@@ -1332,7 +1332,9 @@ fn lay(
 }
 
 /// Puts the drop `lying` into the world at `transform`, its model, if it was converted, with its
-/// texture.
+/// texture. An item, of a `Weapon.pak` record, is drawn under the surface of a liquid cell
+/// (`0x434070`, [`models::Sinks`]) once it rests: the flight (`0x44DED0`) sets the object's
+/// `+0x14` bit `0x100000`, which keeps it out of the liquid cells' objects (`0x62AE90`, #3065).
 fn put(
     commands: &mut Commands,
     (assets, tables): (&AssetServer, &Tables),
@@ -1340,18 +1342,16 @@ fn put(
     lying: Lying,
 ) -> Entity {
     let item = lying.dropped.item;
+    let resting = lying.resting;
     let mut entity = commands.spawn((transform, lying, DespawnOnExit(AppState::InGame)));
     // A derived type shows its root's model and texture, the items table's entry it holds
     // (#596).
     let slot = tables.catalogue.slot(item).unwrap_or(item);
     if let Some((model, texture)) = tables.looks.get(&slot) {
-        // An item, of a `Weapon.pak` record, which the original draws under the surface of a
-        // liquid cell (`0x434070`).
-        entity.insert((
-            models::scene(assets, model),
-            models::Ordered::default(),
-            models::Sinks,
-        ));
+        entity.insert((models::scene(assets, model), models::Ordered::default()));
+        if resting {
+            entity.insert(models::Sinks);
+        }
         if let Some(texture) = texture {
             entity.insert(Retexture::load(assets, texture));
         }
@@ -1740,7 +1740,11 @@ fn fly(
                 "drops: {} lies at {:.0},{:.0},{:.0}",
                 lying.dropped.item, at.x, at.y, at.z
             );
-            commands.entity(entity).remove::<Flying>();
+            // At rest, it sinks under a liquid's surface ([`put`], #3065).
+            commands
+                .entity(entity)
+                .remove::<Flying>()
+                .insert(models::Sinks);
         }
     }
 }
