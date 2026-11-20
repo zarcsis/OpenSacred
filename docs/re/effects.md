@@ -172,6 +172,7 @@ Since #2352 every system of `opensacred_rules::particles` takes the factor of th
 ### The colour ramps
 
 `0x763F50` fills a table of 256 ARGB words (`0x400` bytes) from a start colour and keys of five words (red, green, blue and alpha in 0 to 1, then a count of entries), each key reached linearly over its count, from the entry 255 down: the entry 255 is the colour at the birth and the entry 0 at the death, and the counts sum to 256.
+Read again 2026-11-19 for #3043 (`0x763FB7` to `0x76406E`): a key's `s`-th entry, `s` from 0, is `previous + (key − previous)·s/count`, each channel times 255 truncated; so a key's first entry is the colour before it, the key itself is first reached at the next key's first entry, and the last key is never reached, the death one entry short of it (`opensacred_rules::particles::Ramp::new` since #3043).
 A class keeps one ramp per layer, side by side; the draw takes the entry of the particle's life, rounded down.
 
 ## Drawing and blending

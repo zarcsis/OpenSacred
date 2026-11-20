@@ -118,27 +118,22 @@ pub const FRAME_OF_LAYER: u8 = 0xFF;
 pub struct Ramp(pub [[f32; 4]; 256]);
 
 impl Ramp {
-    /// The ramp from `start` through `keys`, each a colour reached linearly over its count of
-    /// entries, from the entry 255 down; the counts sum to 256.
+    /// The ramp from `start` through `keys`, from the entry 255 down, each key's count of entries
+    /// going from the colour before it toward it, `s/count` of the way at its `s`-th entry
+    /// (`0x763FB7`…`0x76406E`): its first entry the colour before it, and the key itself first
+    /// reached at the next key's first entry; the counts sum to 256.
     pub fn new(start: [f32; 4], keys: &[([f32; 4], u16)]) -> Self {
         let mut entries = [[0.0; 4]; 256];
         let mut at = 255_usize;
         let mut from = start;
-        let mut first = true;
         for &(to, count) in keys {
             for step in 0..count {
-                let share = (f32::from(step) + 1.0) / f32::from(count);
-                let colour = if first && step == 0 {
-                    from
-                } else {
-                    std::array::from_fn(|k| from[k] + (to[k] - from[k]) * share)
-                };
+                let share = f32::from(step) / f32::from(count);
                 if let Some(entry) = entries.get_mut(at) {
-                    *entry = colour;
+                    *entry = std::array::from_fn(|k| from[k] + (to[k] - from[k]) * share);
                 }
                 at = at.saturating_sub(1);
             }
-            first = false;
             from = to;
         }
         Self(entries)
@@ -15776,7 +15771,7 @@ mod tests {
         // Born opaque red, dying transparent.
         let born = burst.ramp.at(255.0);
         assert!((born[0] - 254.0 / 255.0).abs() < 1e-6 && born[3] == 1.0);
-        assert_eq!(burst.ramp.at(0.0)[3], 0.0);
+        assert!(burst.ramp.at(0.0)[3] < 0.01);
         let mean = burst.particles.iter().map(|p| p.velocity[1]).sum::<f32>() / 200.0;
         assert!((mean - 120.0).abs() < 10.0, "{mean}");
         let mut system = System::new(burst.particles.len());
@@ -15812,7 +15807,7 @@ mod tests {
         assert!(hit.done());
         // Its cracks show over the first tenth of their life.
         assert_eq!(hit.ramp().at(255.0)[3], 0.0);
-        assert_eq!(hit.ramp().at(246.0)[3], 1.0);
+        assert_eq!(hit.ramp().at(245.0)[3], 1.0);
         assert_eq!(hit.ramp().at(200.0)[3], 0.0);
 
         assert_eq!(GoblinLanding::missed_by(127), GoblinLanding::Summons(1));
@@ -16370,7 +16365,13 @@ mod tests {
         assert!(twirls.system.particles.iter().all(|p| p.place[2] == 0.0));
         // Green at birth, near white at death; the dots dark blue at birth.
         assert_eq!(twirls.colour(255.0), s256(20, 255, 22));
-        assert_eq!(twirls.colour(0.0), s256(237, 240, 255));
+        // Its last key, over 12 entries, 11/12 of the way at the death.
+        let near_white = s256(237, 240, 255);
+        let before = s256(27, 69, 255);
+        let death = twirls.colour(0.0);
+        assert!((0..4).all(|k| {
+            (death[k] - (before[k] + (near_white[k] - before[k]) * 11.0 / 12.0)).abs() < 1e-5
+        }));
         assert_eq!(dots.colour(255.0), s256(5, 25, 127));
         assert_eq!(twirls.texture(), "PARTICLE_TWIRL02");
         for _ in 0..50 {
@@ -16656,7 +16657,7 @@ mod tests {
         assert!(fire.particles.is_empty());
         // Its grey up over its first entries, held, and gone at its death.
         assert!((wall.ramps[0].at(200.0)[0] - 199.0 / 255.0).abs() < 1e-6);
-        assert_eq!(wall.ramps[0].at(0.0)[0], 0.0);
+        assert!(wall.ramps[0].at(0.0)[0] < 0.02);
     }
 
     #[test]
@@ -16702,7 +16703,7 @@ mod tests {
         let mut dice = Rng::of(12, 0x9, 5);
         let burst = blast_sparks(&mut dice);
         assert_eq!(burst.particles.len(), 150);
-        assert_eq!(burst.ramp.at(156.0), [0.820, 0.820, 0.996, 1.0]);
+        assert_eq!(burst.ramp.at(155.0), [0.820, 0.820, 0.996, 1.0]);
         assert_eq!(ring_sparks(&mut dice).ramp.at(156.0)[0], 254.0 / 255.0);
     }
 
@@ -16976,9 +16977,9 @@ mod tests {
             circle.update(0.025, &mut dice);
         }
         assert!(circle.done());
-        assert_eq!(circle.ramp().at(0.0)[..3], [0.0; 3]);
+        assert!(circle.ramp().at(0.0)[..3].iter().all(|c| *c < 0.01));
         assert_eq!(
-            DemonSummon::new(10).ramp().at(251.0)[..3],
+            DemonSummon::new(10).ramp().at(250.0)[..3],
             [150.0 / 256.0, 100.0 / 256.0, 100.0 / 256.0]
         );
     }
@@ -17275,8 +17276,9 @@ mod tests {
         );
         // Born transparent, at its whitest 32 entries on, black at its death.
         assert_eq!(skin.ramps[0].at(255.0)[3], 0.0);
-        assert_eq!(skin.ramps[0].at(224.0), [1.0, 1.0, 1.0, 1.0]);
-        assert_eq!(skin.ramps[0].at(0.0), [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(skin.ramps[0].at(223.0), [1.0, 1.0, 1.0, 1.0]);
+        let death = skin.ramps[0].at(0.0);
+        assert!(death[..3].iter().all(|c| *c < 0.02) && death[3] == 1.0);
     }
 
     #[test]
@@ -17300,7 +17302,7 @@ mod tests {
         // Born transparent, its orange whole 32 entries on and to its death.
         let orange = [1.0, 0.7, 0.5, 1.0];
         assert_eq!(circle.ramps[0].at(255.0)[3], 0.0);
-        assert_eq!(circle.ramps[0].at(224.0), orange);
+        assert_eq!(circle.ramps[0].at(223.0), orange);
         assert_eq!(circle.ramps[0].at(0.0), orange);
     }
 
@@ -17350,7 +17352,7 @@ mod tests {
             fire.at(255.0),
             [86.0 / 256.0, 86.0 / 256.0, 86.0 / 256.0, 255.0 / 256.0]
         );
-        assert_eq!(smoke.at(0.0), [0.0; 4]);
+        assert!(smoke.at(0.0).iter().all(|c| *c < 0.01));
     }
 
     #[test]
@@ -17702,7 +17704,7 @@ mod tests {
         let smoke = generic_smoke(0xFF80_8080, &mut dice);
         assert_eq!(smoke.particles.len(), 25);
         assert_eq!(smoke.ramp.at(255.0), [0.5, 0.5, 0.5, 0.996]);
-        assert_eq!(smoke.ramp.at(0.0)[3], 0.0);
+        assert!(smoke.ramp.at(0.0)[3] < 0.01);
         assert!(smoke.tinted && smoke.light == 0.0 && smoke.blend == Blend::Over);
         for particle in &smoke.particles {
             let [x, y, z] = particle.place;
@@ -17799,9 +17801,10 @@ mod tests {
         let ramp = flame_ramp();
         let close = |a: f32, b: f32| (a - b).abs() < 1e-3;
         assert!(close(ramp.at(255.0)[3], 90.0 / 255.0));
-        // The 22nd entry, opaque.
-        assert!(close(ramp.at(255.0 - 21.0)[3], 1.0));
-        assert_eq!(ramp.at(0.0), [0.0; 4]);
+        // The 23rd entry, the next key's first, opaque, the 22nd a step short of it.
+        assert!(close(ramp.at(255.0 - 22.0)[3], 1.0));
+        assert!(ramp.at(255.0 - 21.0)[3] < 1.0);
+        assert!(ramp.at(0.0).iter().all(|c| *c < 0.01));
     }
 
     #[test]
@@ -18033,7 +18036,8 @@ mod tests {
             [12.0 / 256.0, 255.0 / 256.0]
         );
         assert_eq!(BloodFountain::blood(2).at(255.0)[..2], [12.0 / 256.0; 2]);
-        assert_eq!(BloodFountain::blood(0).at(0.0), [0.0; 4]);
+        // Its death one entry short of its last key, transparent black.
+        assert!(BloodFountain::blood(0).at(0.0).iter().all(|c| *c < 0.01));
         let mut dice = Rng::of(1, 2, 3);
         let sounds: std::collections::HashSet<u32> =
             (0..50).map(|_| blood_sound(&mut dice)).collect();
@@ -18655,7 +18659,7 @@ mod tests {
         let mut guard = HomingFlames::new(HomingKind::Guard);
         guard.update(0.1, ([0.0; 3], [0.0; 3]), &mut dice);
         assert!(guard.system.particles.iter().all(|p| p.size < 8.0));
-        assert_eq!(HomingFlames::ramp().at(251.0)[3], 0.352);
+        assert_eq!(HomingFlames::ramp().at(250.0)[3], 0.352);
     }
 
     #[test]
@@ -18810,8 +18814,8 @@ mod tests {
         catcher.update(0.5, [0.0, 0.0, 100.0], &mut dice);
         assert_eq!(catcher.pulse, 13.5);
         let [gold, black] = Soulcatcher::ramps();
-        assert_eq!(gold.at(128.0)[3], 0.25);
-        assert_eq!(black.at(128.0)[3], 0.996);
+        assert_eq!(gold.at(127.0)[3], 0.25);
+        assert_eq!(black.at(127.0)[3], 0.996);
     }
 
     #[test]
@@ -19002,9 +19006,9 @@ mod tests {
                 .iter()
                 .all(|p| p.place[2] >= 95.0 && p.place[2] < 145.0)
         );
-        assert_eq!(yellow.ramp().at(128.0), [1.0, 1.0, 0.6, 1.0]);
+        assert_eq!(yellow.ramp().at(127.0), [1.0, 1.0, 0.6, 1.0]);
         let blue = DwarfMagic::new(2);
-        assert_eq!(blue.ramp().at(128.0), [0.7, 0.7, 1.0, 1.0]);
+        assert_eq!(blue.ramp().at(127.0), [0.7, 0.7, 1.0, 1.0]);
         assert_eq!((dwarf_magic_light(1), dwarf_magic_light(2)), (350.0, 400.0));
     }
 
@@ -19425,7 +19429,8 @@ mod tests {
             cry.colour(255.0),
             [254.0 / 255.0, 254.0 / 255.0, 254.0 / 255.0, 1.0]
         );
-        assert_eq!(cry.colour(0.0), [0.0, 0.0, 0.0, 1.0]);
+        let death = cry.colour(0.0);
+        assert!(death[..3].iter().all(|c| *c < 0.01) && death[3] == 1.0);
     }
 
     #[test]
