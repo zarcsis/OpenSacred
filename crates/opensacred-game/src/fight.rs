@@ -52,7 +52,8 @@ pub struct Hit {
 }
 
 /// A strike from nobody, an attacker's id of 0: a fire smoke's or a bursting geyser's (`fx`,
-/// #2518), of fixed damages, sure ([`burn`]).
+/// #2518), a ghost's of the scripts' field (`pill_fields`) or a fence's of lightning
+/// (`laser_fences`, #2916), of fixed damages, sure ([`burn`]).
 #[derive(Message, Clone, Copy, Debug)]
 pub struct Burn {
     pub target: Entity,
@@ -1051,9 +1052,9 @@ pub(crate) fn resolve(
 
 /// Takes each strike from nobody ([`Burn`], `0x56B130` for the attacker's id 0;
 /// `opensacred_rules::fight::nobodys_strike`): its damage, through the target's resistances, takes
-/// its health down, shows over it and makes it speak, and at 0 it dies at nobody's hands, no kill
-/// and no experience (`npcs::Dies::unkilled`); it makes no foe of anyone. An immortal target
-/// takes none.
+/// its health down, shows over it and makes it speak, its poison poisons it, and at 0 it dies at
+/// nobody's hands, no kill and no experience (`npcs::Dies::unkilled`); it makes no foe of anyone.
+/// An immortal target takes none.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -1083,20 +1084,36 @@ fn burn(
         if health.current == 0 {
             continue;
         }
-        let damage = opensacred_rules::fight::nobodys_strike(
+        let landed = opensacred_rules::fight::nobodys_strike(
             defender.0,
             burn.damages,
             hero_hit,
             &rules,
             &mut dice.0,
         );
+        let damage = landed.damage;
         if !immortal {
             health.current = health.current.saturating_sub(damage);
         }
         debug!(
-            "fight: a fire burns {} for {damage}, health {}/{}",
+            "fight: nobody strikes {} for {damage}, health {}/{}",
             burn.target, health.current, health.most
         );
+        // Its poison, as any strike's (`0x56DFC8`): nobody's, by which the poisons it gives add
+        // up as one source's, and whose strikes the poisoned one takes from itself.
+        if let Some(poison) = poisons(&landed, &mut dice.0) {
+            debug!(
+                "fight: nobody poisons {}: {:.2} for {:.2} s",
+                burn.target, poison.value, poison.seconds
+            );
+            commands
+                .entity(burn.target)
+                .entry::<crate::effects::Effects>()
+                .or_default()
+                .and_modify(move |mut effects| {
+                    effects.poison(poison, Entity::PLACEHOLDER);
+                });
+        }
         struck.write(Struck {
             target: burn.target,
             damage,

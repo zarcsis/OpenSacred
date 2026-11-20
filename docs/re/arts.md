@@ -1346,7 +1346,7 @@ By the object (its spell, "The spells' executor" above):
 | 875 `FX_BFG` | the Seraphim's 1018 | the event, once |
 | 878 `FX_SMALLFIRE` | 50 | an event of `0x51CB00` with the damages 5 and 5, or the caster's (`0x5B79F0`, `0x5B7A00`), to every target from a caster of no hero's class, else to the hostile ones; the spell 50's, its caster its own id, gathers none ("The creatures' own spells" below) |
 | 880 `FX_SPIDERPUKE` | | an event of `0x51CB00` with the damages of the event that made it, once |
-| 895 `FX_TRAP03_LASER` | | an event of `0x51CB00` with 200 of the first kind and 100 of the third, once |
+| 895 `FX_TRAP03_LASER` | | an event of `0x51CB00` from nobody with 200 of the first kind and 100 of the third to every living creature within its size, 20, and the creature's, once a second (its cooldown `+0x11C`; docs/re/effects.md, "The scripts' traps", #2916) |
 | 905 `FX_FLYINGSKULL` | the Vampiress's 1033 | the effects 2, 1 and 23 for 5 s keyed by 1033, their values from the event's (`0x4EB620`; not followed), and an object 862 at each target |
 | 906 `FX_BUBBLETRAP_EXPLO` | | the event at the factor 2.0, once |
 | 910 `FX_DAEMONFIRE`, 922 `FX_SHADDAR_MAGIC` | 50, 52 | an event of `0x51CB00` from the caster, once to each target at its first contact, where it bursts ("The creatures' own spells" below) |

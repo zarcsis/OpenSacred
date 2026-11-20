@@ -4849,25 +4849,26 @@ pub fn scald(variant: u8) -> Option<[f32; KINDS]> {
     Some([damage, damage, 0.0, 0.0])
 }
 
-/// The damage of a strike from nobody, an attacker's id of 0 (`0x56B130`): a fire smoke's or a
-/// geyser's ([`scald`], #2518), of the fixed damages `damages`, sure, against `defender`: a
-/// creature's defence and resistances weighed as against the hero's strike, the id 0 taken for a
-/// player's (`0x56BBA8`–`0x56BC1C`), the hero's (`hero`) not, of the exponent 1, no factor of the
-/// levels and no cap.
+/// A strike from nobody, an attacker's id of 0 (`0x56B130`): a fire smoke's or a geyser's
+/// ([`scald`], #2518), a ghost's or a fence's of the scripts' traps (#2916), of the fixed damages
+/// `damages`, sure, against `defender`: a creature's defence and resistances weighed as against
+/// the hero's strike, the id 0 taken for a player's (`0x56BBA8`–`0x56BC1C`), the hero's (`hero`)
+/// not, of the exponent 1, no factor of the levels and no cap; its damage, and its poison's part,
+/// which may poison as any strike's ([`poisons`]).
 pub fn nobodys_strike(
     defender: Combat,
     damages: [f32; KINDS],
     hero: bool,
     rules: &Rules,
     rng: &mut impl Dice,
-) -> u32 {
+) -> Landed {
     let attacker = Combat {
         damage: damages.map(|damage| [damage; 2]),
         ..defender
     };
     let side = (!hero).then_some(Side::Attacker);
     let (attacker, defender, blow) = weighed(attacker, defender, side, (0, 0), rules);
-    sure_landed(&attacker, &defender, blow, rng).damage
+    sure_landed(&attacker, &defender, blow, rng)
 }
 
 /// How far the steps' small fire reaches beyond a creature's size, and how often it strikes, in
@@ -8430,9 +8431,24 @@ mod tests {
         let rules = Rules::default();
         let mut rng = Rng::of(1, 2, 2518);
         let smoke = scald(5).expect("813 strikes");
-        assert_eq!(nobodys_strike(daemon, smoke, true, &rules, &mut rng), 17);
+        assert_eq!(
+            nobodys_strike(daemon, smoke, true, &rules, &mut rng).damage,
+            17
+        );
         // A creature's resistances are weighed by the difficulty's `ProzRes`, 1 on bronze.
-        assert_eq!(nobodys_strike(daemon, smoke, false, &rules, &mut rng), 17);
+        let landed = nobodys_strike(daemon, smoke, false, &rules, &mut rng);
+        assert_eq!(landed.damage, 17);
+        assert!(poisons(&landed, &mut rng).is_none());
+        // A ghost's 200 of each kind poisons: its poison passes the resistance by more than 99.
+        let landed = nobodys_strike(
+            daemon,
+            crate::script_traps::GHOST_DAMAGES,
+            true,
+            &rules,
+            &mut rng,
+        );
+        assert!(landed.damage > 17);
+        assert!(poisons(&landed, &mut rng).is_some());
     }
 
     #[test]
