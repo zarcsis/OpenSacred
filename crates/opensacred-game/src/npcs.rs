@@ -2177,19 +2177,17 @@ fn spell_of(rules: &[Rule], creature: u32, rng: &mut spawning::Rng) -> Option<u8
         .copied()
 }
 
-/// What a rule's first item of 1800 to 1804 becomes, 1723, 1720, 1759, 1729 and 1752, for most
-/// types (`0x47F8E0`).
-const SWAPPED: [u32; 5] = [1723, 1720, 1759, 1729, 1752];
 /// The weapon kinds after which a creature takes no second item: the two-handed, the staves, the
 /// bows and the crossbows (**hypothesis** for the names).
 const ONE_ITEM: [u8; 5] = [2, 3, 4, 7, 12];
 
 /// The items a creature of `creature` takes by the first of the sector's rules that names it
 /// (`0x47F8E0`): each of the first two by its chance from its pool, at random among the pool's
-/// items, the first swapped ([`SWAPPED`]), and a crossbow or a musket first that its model of the
-/// shots `shots` cannot shoot replaced by `weapon` of the kind it asks for, none if it gives none
-/// (`spawning::filled_weapon`, `0x480547`, #1217); the second only after a weapon of a kind that
-/// leaves a hand free; the third, a worn piece, is [`worn_of`]'s (#2286).
+/// items; a crossbow or a musket first that its model of the shots `shots` cannot shoot replaced
+/// by `weapon` of the kind it asks for, none if it gives none (`spawning::filled_weapon`,
+/// `0x480547`, #1217); then the two as its type's own list makes them
+/// (`spawning::own_items`, #3070); the second only after a weapon of a kind that leaves a hand
+/// free; the third, a worn piece, is [`worn_of`]'s (#2286).
 fn gear_of<'a>(
     rules: &[Rule],
     creature: u32,
@@ -2209,10 +2207,7 @@ fn gear_of<'a>(
         let index = usize::try_from(rng.below(u32::try_from(list.len()).ok()?)).ok()?;
         made.then(|| list[index])
     };
-    let first = roll(rule.items[0]).map(|item| match item {
-        1800..=1804 => SWAPPED[usize::try_from(item - 1800).unwrap_or(0)],
-        other => other,
-    });
+    let first = roll(rule.items[0]);
     let second = roll(rule.items[1]);
     let first = first.and_then(|item| {
         match spawning::filled_weapon(gear.get(&item).and_then(|g| g.kind), shots) {
@@ -2220,6 +2215,14 @@ fn gear_of<'a>(
             None => Some(item),
         }
     });
+    // The type's own list, which a first item already made enters (`0x4805E0`).
+    let (first, second) = match first {
+        Some(item) => {
+            let (first, second) = spawning::own_items(creature, (item, second), rng);
+            (Some(first), second)
+        }
+        None => (None, second),
+    };
     let first = first.and_then(|item| Some((item, gear.get(&item)?)));
     let second = second
         .filter(|_| {
