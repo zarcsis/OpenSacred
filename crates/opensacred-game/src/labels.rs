@@ -190,7 +190,10 @@ type Creatures<'w, 's> = Query<
         Entity,
         &'static GlobalTransform,
         &'static crate::ai::Mind,
-        Option<&'static ScriptName>,
+        (
+            Option<&'static ScriptName>,
+            Option<&'static crate::npcs::Called>,
+        ),
         Option<&'static crate::followers::Follower>,
         Has<crate::npcs::Dies>,
     ),
@@ -276,7 +279,7 @@ fn label(
                 Entity,
                 &GlobalTransform,
                 &crate::npcs::Corpse,
-                Option<&ScriptName>,
+                (Option<&ScriptName>, Option<&crate::npcs::Called>),
             ),
             Without<crate::ai::Mind>,
         >,
@@ -350,7 +353,7 @@ fn label(
             .iter()
             .next()
             .is_some_and(|holding| holding.0.sets.knows_enemies());
-        for (entity, at, mind, key, follower, dies) in &creatures {
+        for (entity, at, mind, keys, follower, dies) in &creatures {
             if skipped.contains(&mind.creature) {
                 continue;
             }
@@ -370,10 +373,8 @@ fn label(
             let (text, colour) = if master_is_hero {
                 (hero_text.clone(), WHITE)
             } else {
-                let text = key
-                    .and_then(|key| texts.named(crate::talk::resource(&key.0)))
-                    .or_else(|| texts.named(&mind.creature.to_string()))
-                    .map(str::to_owned);
+                let text =
+                    crate::npcs::name_of_creature(texts, keys, mind.creature).map(str::to_owned);
                 let colour = if dies {
                     DEAD
                 } else if mind.hostile() {
@@ -426,7 +427,7 @@ fn label(
             });
         }
         // The dead lying, their minds gone (`npcs::die`), grey about their models as they lie.
-        for (entity, at, corpse, key) in &corpses {
+        for (entity, at, corpse, keys) in &corpses {
             if skipped.contains(&corpse.creature) {
                 continue;
             }
@@ -435,9 +436,7 @@ fn label(
             let Some(corner) = corner else {
                 continue;
             };
-            let named = key
-                .and_then(|key| texts.named(crate::talk::resource(&key.0)))
-                .or_else(|| texts.named(&corpse.creature.to_string()));
+            let named = crate::npcs::name_of_creature(texts, keys, corpse.creature);
             let Some(text) = named else {
                 continue;
             };
