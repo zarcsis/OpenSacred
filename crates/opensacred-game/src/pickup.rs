@@ -679,9 +679,22 @@ pub(crate) struct Taking<'w, 's> {
     sets: Option<ResMut<'w, crate::sets::WeaponSets>>,
     settings: Option<Res<'w, crate::settings::Settings>>,
     experience: Option<Res<'w, crate::fight::Experience>>,
+    /// The hero's effects, of which the Seraphim's 16 and 17 keep a picked item out of her hands
+    /// and slots (#3094).
+    hero_effects: Query<'w, 's, &'static crate::effects::Effects, With<crate::hero::Body>>,
 }
 
 impl Taking<'_, '_> {
+    /// Whether the hero holds the Seraphim's effect 16 or 17, which set its `+0x200` bits
+    /// `0x200000` and `0x400000`: a picked item then goes into no hand and no slot, onto the
+    /// cursor or into the backpack (`0x558080`'s branch 5; #3094).
+    fn formed(&self) -> bool {
+        self.hero_effects.iter().next().is_some_and(|effects| {
+            effects.holds(opensacred_rules::arts::BFG)
+                || effects.holds(opensacred_rules::arts::RAILGUN)
+        })
+    }
+
     /// Whether the options' collect mode lets the collecting take `item` (`PICKUPAUTO`,
     /// `0x4EC330`, `opensacred_rules::drops::collects`), by the hero's level; a quest's item that
     /// the scripts laid always (**hypothesis**: the filter's list at `0xAB45A0` or its bit
@@ -775,12 +788,14 @@ impl Taking<'_, '_> {
                 at: None,
                 rate: (0.45, sfx::Roll::Share(0.1)),
             });
-        } else if put_on(
-            (&mut self.pack, self.sets.as_deref_mut()),
-            (self.tables.as_deref(), &self.wearer),
-            &mut self.sounds,
-            &lying.dropped,
-        ) {
+        } else if !self.formed()
+            && put_on(
+                (&mut self.pack, self.sets.as_deref_mut()),
+                (self.tables.as_deref(), &self.wearer),
+                &mut self.sounds,
+                &lying.dropped,
+            )
+        {
             self.taken.write(Taken(lying.dropped.item));
         } else {
             let size = self
@@ -894,10 +909,14 @@ fn put_on(
 /// The weapons' category (`items.pak +0x2E`).
 const WEAPON: u8 = 5;
 
+/// The torches 5632 and 5633, which `0x54ACC0` gives the left hand whatever their kind, as the
+/// slot's test gives them the slot 12 alone (`0x43EFC0`; #3094).
+const TORCHES: [u32; 2] = [5632, 5633];
+
 /// The half of the selected weapon set `halves` (the left hand's and the right's) that a weapon
 /// that `asks` so goes into as the hero that `wearer` tells of picks it up (`0x558080`'s branch
-/// 5, `0x54ACC0`): the left for the bows and the crossbows (the kinds 7 and 12), the right for
-/// any other; none where the hero may not use it or a half holds an item.
+/// 5, `0x54ACC0`): the left for the torches, the bows and the crossbows (the kinds 7 and 12), the
+/// right for any other; none where the hero may not use it or a half holds an item.
 fn into_hands(
     halves: &[Option<Dropped>],
     wearer: &opensacred_rules::equipment::Wearer,
@@ -906,7 +925,8 @@ fn into_hands(
     if halves.iter().any(Option::is_some) || !opensacred_rules::equipment::may_use(wearer, asks) {
         return None;
     }
-    Some(if matches!(asks.kind, 7 | 12) { 0 } else { 1 })
+    let left = TORCHES.contains(&asks.item) || matches!(asks.kind, 7 | 12);
+    Some(if left { 0 } else { 1 })
 }
 
 /// The rate of the pick-up's clip of a hero of the attack speed `attack_speed` (`0x584FE0`, the
@@ -1630,6 +1650,14 @@ mod tests {
         let seraphim = opensacred_rules::equipment::Wearer::of(1, 1);
         assert_eq!(into_hands(&[None, None], &seraphim, &sword), Some(1));
         assert_eq!(into_hands(&[None, None], &seraphim, &bow), Some(0));
+        // A torch, of the kind 1, into the left hand (`0x54ACC0`, #3094).
+        for torch in TORCHES {
+            let torch = opensacred_rules::equipment::Asks {
+                item: torch,
+                ..sword
+            };
+            assert_eq!(into_hands(&[None, None], &seraphim, &torch), Some(0));
+        }
         let held = Dropped {
             kind: Kind::Weapon,
             item: 1712,
