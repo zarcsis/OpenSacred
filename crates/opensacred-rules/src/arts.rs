@@ -2823,7 +2823,8 @@ pub fn throw_point(from: [f32; 2], to: [f32; 2], s: f32, height: f32) -> ([f32; 
 
 /// The damages of an item that the Gladiator's 1013 hurls (`0x56B130` at `0x56BC81`,
 /// `0x56ACD0`): each kind's least and most (`damage`), rolled at the hundredth, times `times`,
-/// `1 + c(s₂)/100 + a0/BalanceGeschick` as 1016's (`crate::fight::Rules::glance_factor`).
+/// `1 + c(s₂)/100 + (a0 + e0)/BalanceGeschick`, 1016's of `a0` and the points spent on it, which
+/// `a0` holds already (`crate::fight::Rules::glance_factor`, the stats' byte `+0x1C`).
 pub fn thrown_damage(
     damage: &[[f32; 2]; crate::fight::KINDS],
     times: f64,
