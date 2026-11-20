@@ -329,14 +329,15 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
   The check builds in a temporary worktree into `target/integration/`, apart from the checkout's own build, whose tests would otherwise run the binaries built for the deleted tree (#1502).
 * **Versions.**
   Since 2026-10-17 the version follows the merged pull requests.
-  The Release workflow (`.github/workflows/release.yml`) looks up the pull request of each commit since the last version: one labeled `feature` raises the minor version, one labeled `bug` the patch, the others leave it.
-  A version is an annotated tag `vX.Y.Z` on the squash commit.
-  At most one release a day (the maintainer's rule of 2026-10-30, #1548): the workflow runs every hour, and a run versions the commits only once the newest release is a day old, then releases the newest version alone, as a GitHub Release whose notes list the pull requests since the previous release by label (`.github/release.yml`).
-  The versions between two releases stay tags; before 1.0.0 the releases are pre-releases, as the versions are initial development (SemVer §4).
+  The Release workflow (`.github/workflows/release.yml`) looks up the pull request of each commit since the newest release: one labeled `feature` raises the minor version, one labeled `bug` the patch, the others leave it.
+  A version is an annotated tag `vX.Y.Z`, and every tag is a release (the maintainer's rule of 2026-11-20, #3189): the workflow counts the version up through those pull requests as though each were tagged, and tags only the newest version, on the squash commit of the pull request that raised it last.
+  At most one release a day (the maintainer's rule of 2026-10-30, #1548): the workflow runs every hour, and a run counts the version only once the newest release is a day old, then tags it and releases it, as a GitHub Release whose notes list the pull requests since the previous release by label (`.github/release.yml`).
+  The versions between two releases are counted, never tagged; until 2026-11-20 each was a tag of its own, and the 703 tags that had no release were then deleted (#3189).
+  Before 1.0.0 the releases are pre-releases, as the versions are initial development (SemVer §4).
   Under daily work a release thus comes about an hour later each day, as the first hourly run past the day.
   Until 2026-10-30 every push to `main` released each version it brought, up to 56 releases a day.
   A manual run (`gh workflow run release.yml`) versions and releases at once, whatever the newest release's age.
-  A run that pushed its tags but failed before the release leaves the release to the next run.
+  A run that pushed its tag but failed before the release leaves it to the next run, which releases that tag as it is; the pull requests after it wait for the release after, so that no tag stays without a release.
   The major version is raised only at the maintainer's request, by a manual run on the head of `main` (`gh workflow run release.yml -f bump=major`).
   The base is `v0.1.0`, `main` before the workflow (677863c).
   The newest version that a run publishes gets the player's archive (#1500, #1494): the Release workflow builds `opensacred-game` with its feature `packaged` and `opensacred-convert` in the profile `dist` (the release profile with thin link-time optimization, one code generation unit and the symbols stripped) on Windows, takes our FFmpeg from `.github/workflows/ffmpeg.yml` (#1499), and attaches `OpenSacred-vX.Y.Z-windows-x64.7z` (LZMA2) to the release with the FFmpeg build's three source archives.
