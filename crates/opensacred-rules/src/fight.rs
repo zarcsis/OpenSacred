@@ -1388,6 +1388,29 @@ impl Rules {
         if hostile { self.hardened } else { Hardened::No }
     }
 
+    /// The factor of the Dark Elf's traps' strikes, the bomb's, the pentagram's and the poison's
+    /// (`0x5ABD80` at `0x5AC6E9` to `0x5AC7A3`), and of their tooltip (`0x589737`), of a creature
+    /// of the skills `skills`, its third attribute `a2` and the points spent on it `spent`, which
+    /// the attribute holds already and which the original adds again (`0x5A03B0`, the stats'
+    /// byte `+0x1E`): the curves of its skills 2 and 26 summed times the float 0.01, stored as a
+    /// float, plus `(spent + a2)` over `BalanceGeschick`, plus 1, stored as a float.
+    pub fn trap_factor(&self, skills: &[(u8, u32)], (a2, spent): (f32, u8)) -> f32 {
+        let level = |skill: u8| {
+            skills
+                .iter()
+                .find(|&&(id, _)| id == skill)
+                .map_or(0, |&(_, at)| at)
+        };
+        let curves = stored(
+            (f64::from(curve(self.curves.damage, level(2)))
+                + f64::from(curve(self.curves.traps, level(26))))
+                * HUNDREDTH,
+        );
+        stored(
+            (f64::from(spent) + f64::from(a2)) / f64::from(self.geschick) + f64::from(curves) + 1.0,
+        )
+    }
+
     /// The factor of the whole value of the Gladiator's 1016's effect, of a creature of the
     /// skills `skills` and the attribute `a0` `strength` (`0x4FF0B0` at `0x500203`): one plus a
     /// hundredth of the damage multipliers' curve at the level of its skill 2 plus `strength`
@@ -1488,6 +1511,7 @@ impl Rules {
         match skill {
             2 => Some(curve(self.curves.damage, level)),
             14 => Some(curve(self.curves.magic, level)),
+            26 => Some(curve(self.curves.traps, level)),
             _ => None,
         }
     }
@@ -3018,6 +3042,9 @@ struct Curves {
     /// The ranged combat's (7, `FEK…AW`, `FEK…SP`), which set 48 takes (#1727).
     ranged: [f32; 3],
     ranged_speed: [f32; 3],
+    /// The skill 26's (`BA…`, at `0xAD45D8` to `0xAD45E0`), which the Dark Elf's traps take
+    /// (#3135; **hypothesis**: the traps' lore).
+    traps: [f32; 3],
 }
 
 impl Default for Curves {
@@ -3043,6 +3070,7 @@ impl Default for Curves {
             fist_speed: [6.0, 50.0, 100.0],
             ranged: [9.0, 50.0, 150.0],
             ranged_speed: [6.0, 50.0, 100.0],
+            traps: [6.0, 50.0, 100.0],
         }
     }
 }
@@ -3088,6 +3116,7 @@ impl Curves {
             fist_speed: triple(["FKoffSP", "FK_s_SP", "FK_w_SP"], default.fist_speed),
             ranged: triple(["FEKoffAW", "FEK_s_AW", "FEK_w_AW"], default.ranged),
             ranged_speed: triple(["FEKoffSP", "FEK_s_SP", "FEK_w_SP"], default.ranged_speed),
+            traps: triple(["BAoff", "BA__s", "BA__w"], default.traps),
         }
     }
 }
@@ -5483,6 +5512,41 @@ mod tests {
 
     use super::*;
     use crate::spawning::Rng;
+
+    #[test]
+    fn a_traps_factor_takes_the_skills_2_and_26_and_the_third_attribute_with_its_points() {
+        let rules = Rules::default();
+        // The skill 26's curve, `BA…`: 6 at its first level, on toward 2·100 − 6.
+        assert_eq!(rules.lore_curve(26, 1), Some(6.0));
+        assert!(
+            rules
+                .lore_curve(26, 50)
+                .is_some_and(|at| at > 6.0 && at < 194.0)
+        );
+        assert_eq!(rules.lore_curve(27, 1), None);
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-5;
+        // No skill: `1 + (e2 + a2)/200`, the spent points added again.
+        assert!(near(rules.trap_factor(&[], (30.0, 0)), 1.15));
+        assert!(near(rules.trap_factor(&[], (30.0, 5)), 1.175));
+        // The skills 2 and 26 at their first levels: `(12 + 6)·0.01`.
+        assert!(near(
+            rules.trap_factor(&[(2, 1), (26, 1)], (30.0, 5)),
+            1.355
+        ));
+        assert!(near(rules.trap_factor(&[(26, 1)], (0.0, 0)), 1.06));
+        assert!(near(rules.trap_factor(&[(2, 1)], (0.0, 0)), 1.12));
+        // The balance's `BAoff`, read in place of the original's 6.
+        let balance = Balance {
+            variables: vec![BalanceVariable {
+                name: "BAoff".to_owned(),
+                offset: 0,
+                value: BalanceValue::F32(9.0),
+            }],
+            ..Balance::default()
+        };
+        let read = Rules::at(Some(&balance), Difficulty::Bronze);
+        assert_eq!(read.lore_curve(26, 1), Some(9.0));
+    }
 
     #[test]
     fn two_weapons_strike_each_hit_at_half_the_share() {

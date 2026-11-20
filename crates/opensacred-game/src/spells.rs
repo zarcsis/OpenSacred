@@ -90,6 +90,11 @@ struct Aura {
     strikes: Strikes,
 }
 
+/// The factor of the strikes of a trap's aura, the ground's poison 1052's
+/// (`fight::Rules::trap_factor`, `0x5AC6E9`); 1 for an aura without it.
+#[derive(Component, Clone, Copy, Debug)]
+struct TrapFactor(f32);
+
 /// The level of a gust's spell, whose object disarms the creatures it strikes by its roll
 /// (`spells::gust_disarms`, #2298).
 #[derive(Component, Clone, Copy, Debug)]
@@ -163,14 +168,15 @@ struct Changeling {
 }
 
 /// The Dark Elf's trap's ball (867, `cParticleSystem_ball`): its caster, its art and level in
-/// play, its damages' multipliers, where it flies from and to, its level, the part of its course
-/// flown, and whether its throw has sounded.
+/// play, its damages' multipliers and its strikes' factor (`fight::Rules::trap_factor`), where it
+/// flies from and to, its level, the part of its course flown, and whether its throw has sounded.
 #[derive(Component, Debug, Clone)]
 struct Ball {
     caster: Entity,
     art: u16,
     spell_level: u32,
     multipliers: [f32; 4],
+    factor: f32,
     from: Vec3,
     to: Vec3,
     level: Level,
@@ -178,12 +184,14 @@ struct Ball {
     shown: bool,
 }
 
-/// The pentagram 782 of the trap 1050 (`0x772C40`): its caster, its damages, its level, the time
-/// until it is armed and its life, and the level at or below which it slays outright.
+/// The pentagram 782 of the trap 1050 (`0x772C40`): its caster, its damages and its strike's
+/// factor, its level, the time until it is armed and its life, and the level at or below which it
+/// slays outright.
 #[derive(Component, Debug, Clone)]
 struct Pentagram {
     caster: Entity,
     damages: [f32; 4],
+    factor: f32,
     level: Level,
     arms: f32,
     left: f32,
@@ -218,7 +226,7 @@ pub fn throw_trap(
     commands: &mut Commands,
     caster: Entity,
     (art, spell_level): (u16, u32),
-    multipliers: [f32; 4],
+    (multipliers, factor): ([f32; 4], f32),
     (from, to, level): (Vec3, Vec3, Level),
 ) {
     commands.spawn((
@@ -227,6 +235,7 @@ pub fn throw_trap(
             art,
             spell_level,
             multipliers,
+            factor,
             from,
             to,
             level,
@@ -389,7 +398,7 @@ fn balls(
                     hits.write(fight::Hit {
                         attacker: ball.caster,
                         target,
-                        share: 1.0,
+                        share: ball.factor,
                         ranged: false,
                         art: None,
                         fixed: Some(damages),
@@ -411,6 +420,7 @@ fn balls(
                     Pentagram {
                         caster: ball.caster,
                         damages,
+                        factor: ball.factor,
                         level: ball.level,
                         arms: opensacred_rules::arts::PENTAGRAM_ARMS,
                         left: seconds,
@@ -456,6 +466,7 @@ fn balls(
                     crate::trap_landings::Landing::Poison {
                         by_hero: bodies.contains(ball.caster),
                     },
+                    TrapFactor(ball.factor),
                     Transform::from_translation(here),
                     Visibility::Inherited,
                     crate::hums::Hum(POISON_LOOP),
@@ -560,16 +571,17 @@ fn pentagrams(
             rate: (0.5, crate::sfx::Roll::None),
         });
         for (target, level) in near {
-            // The event 9, the kill, for one at or below its value 1 (**hypothesis**: slain).
-            let damages = if level <= pentagram.slays {
-                [f32::from(u16::MAX - 1), 0.0, 0.0, 0.0]
+            // The event 9, the kill, for one at or below its value 1 (**hypothesis**: slain);
+            // the event 5 at the trap's factor for another.
+            let (damages, share) = if level <= pentagram.slays {
+                ([f32::from(u16::MAX - 1), 0.0, 0.0, 0.0], 1.0)
             } else {
-                pentagram.damages
+                (pentagram.damages, pentagram.factor)
             };
             hits.write(fight::Hit {
                 attacker: pentagram.caster,
                 target,
-                share: 1.0,
+                share,
                 ranged: false,
                 art: None,
                 fixed: Some(damages),
@@ -2359,7 +2371,13 @@ fn strike(
     (time, heights): (Res<Time>, Res<crate::terrain::Heights>),
     mut dice: ResMut<Dice>,
     heroes: Query<&GlobalTransform, (With<Body>, Without<Aura>)>,
-    mut auras: Query<(Entity, &mut Aura, &mut Transform, Option<&Disarms>)>,
+    mut auras: Query<(
+        Entity,
+        &mut Aura,
+        &mut Transform,
+        Option<&Disarms>,
+        Option<&TrapFactor>,
+    )>,
     bearers: Query<&GlobalTransform, (Without<Aura>, Without<Dies>)>,
     bodies: Query<(Entity, &GlobalTransform, &Body, &Health), Without<Dies>>,
     creatures: Query<
@@ -2380,7 +2398,8 @@ fn strike(
     // The creatures given an effect keyed by a spell in this frame, which the adder would find
     // holding it for the next object.
     let mut given: Vec<(Entity, u16)> = Vec::new();
-    for (entity, mut aura, mut transform, disarms) in &mut auras {
+    for (entity, mut aura, mut transform, disarms, factor) in &mut auras {
+        let share = factor.map_or(1.0, |factor| factor.0);
         aura.left -= dt;
         let bearer = aura.follows.map(|bearer| bearers.get(bearer));
         if aura.left <= 0.0 || bearer.as_ref().is_some_and(Result::is_err) {
@@ -2561,11 +2580,11 @@ fn strike(
                 commands.queue(move |world: &mut World| crate::npcs::disarm(world, target));
             }
             if let Some(damages) = aura.damages {
-                debug!("spells: {entity} strikes {target} for {damages:?}");
+                debug!("spells: {entity} strikes {target} for {damages:?} at {share}");
                 hits.write(fight::Hit {
                     attacker: aura.caster,
                     target,
-                    share: 1.0,
+                    share,
                     ranged: false,
                     art: None,
                     fixed: Some(damages),

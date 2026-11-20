@@ -13,8 +13,8 @@
 //!
 //! Not followed: the first block's time of the flags 1 by the last entry's level and bonus (the
 //! entry's own taken, as the bar's), the language's other level line (`0x17E7D34` 3), and of some
-//! arts a part of their values: the traps' skill 26 (its curve taken as 0) of 1049, 1050 and
-//! 1052, the difficulty's scaling of the levels of 66, 1003 and 1091 (bronze's), the hero's
+//! arts a part of their values: the difficulty's scaling of the levels of 66, 1003 and 1091
+//! (bronze's), the hero's
 //! weapon of 1013 and 1054 (no line), the stats' flag `0x400000` of 1022 and 1023 (their time
 //! doubled by night instead, #1742), and the low 32 bits of 1011's value as a double, which the
 //! original prints (the value shown whole).
@@ -71,6 +71,9 @@ pub(crate) struct Hero<'a> {
     pub multipliers: [f32; KINDS],
     pub spells: [f32; KINDS],
     pub attributes: [f32; 6],
+    /// The points spent on each attribute, which `attributes` hold already and which the traps'
+    /// and 1013's factors add again (the stats' bytes `+0x1C`…).
+    pub spent: [u8; 6],
     pub skills: &'a [(u8, u32)],
     pub ranged: bool,
     pub day: bool,
@@ -254,12 +257,13 @@ impl Values<'_> {
         }
     }
 
-    /// The trap's factor `1 + 0.01f·(c₂ + c₂₆) + (e2 + a2)/BalanceGeschick`, the skill 26's curve
-    /// and the extra points `e2` taken as 0.
+    /// The trap's factor `1 + 0.01f·(c₂ + c₂₆) + (e2 + a2)/BalanceGeschick`, as its strikes take
+    /// it (`opensacred_rules::fight::Rules::trap_factor`, `0x589737`).
     fn trap(&self) -> f64 {
-        self.hero.curve(2) * f64::from(0.01_f32)
-            + f64::from(self.hero.attributes[2]) / f64::from(self.hero.rules.geschick())
-            + 1.0
+        f64::from(self.hero.rules.trap_factor(
+            self.hero.skills,
+            (self.hero.attributes[2], self.hero.spent[2]),
+        ))
     }
 
     /// The Dwarf's guns' factor `1 + a2/BalanceGeschick + 0.01·c₂` (`0x4D21C0`), as his guns
@@ -1300,6 +1304,7 @@ mod tests {
             multipliers: [1.0; KINDS],
             spells: [1.5; KINDS],
             attributes: [10.0; 6],
+            spent: [0; 6],
             skills: &[],
             ranged: false,
             day: true,

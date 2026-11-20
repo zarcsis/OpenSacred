@@ -135,6 +135,8 @@ pub(crate) struct Weighing<'w, 's> {
     experience: Res<'w, Experience>,
     potions: Option<Res<'w, crate::belt::Potions>>,
     heroes: Query<'w, 's, &'static Combat, With<Body>>,
+    /// The hero's points spent on its attributes (`fight::Base::extras`).
+    bases: Query<'w, 's, &'static crate::fight::Base, With<Body>>,
     holding: Query<'w, 's, &'static crate::fight::Holding, With<Body>>,
     difficulty: Option<Res<'w, crate::game::Difficulty>>,
     clips: Option<Res<'w, crate::hero::Clips>>,
@@ -221,6 +223,7 @@ impl Weighing<'_, '_> {
             multipliers: combat.multipliers,
             spells: combat.spells,
             attributes: combat.attributes,
+            spent: self.bases.iter().next().map_or([0; 6], |base| base.extras),
             skills: &arts.skills,
             ranged: self
                 .holding

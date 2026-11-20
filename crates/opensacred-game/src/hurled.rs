@@ -118,7 +118,7 @@ fn fly(
     mut dice: ResMut<Dice>,
     mut hits: MessageWriter<fight::Hit>,
     mut flying: Query<(Entity, &mut Transform, &mut Flying)>,
-    throwers: Query<&Combat>,
+    throwers: Query<(&Combat, Option<&crate::fight::Base>)>,
     creatures: Query<
         (
             Entity,
@@ -156,10 +156,11 @@ fn fly(
                 .and_then(|item| item.values),
         ) {
             // Its own damages, each rolled at the hundredth between its least and most, times
-            // `1 + c(s₂)/100 + a0/BalanceGeschick` (`0x56ACD0`, as 1016's).
-            let strength = throwers
-                .get(flight.thrower)
-                .map_or(0.0, |combat| combat.attributes[0]);
+            // `1 + c(s₂)/100 + (a0 + e0)/BalanceGeschick`, `e0` the points spent on `a0`, which
+            // `a0` holds already (`0x56ACD0`, the stats' byte `+0x1C`, #3135).
+            let strength = throwers.get(flight.thrower).map_or(0.0, |(combat, base)| {
+                combat.attributes[0] + base.map_or(0.0, |base| f32::from(base.extras[0]))
+            });
             let skills = arts
                 .as_deref()
                 .map(|arts| arts.skills.clone())
