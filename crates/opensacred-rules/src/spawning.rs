@@ -562,6 +562,79 @@ pub fn filled_weapon(kind: Option<u8>, shots: Shots) -> Option<u8> {
     (crossbow && !shots.crossbow).then_some(if shots.bow { BOW } else { BLADE })
 }
 
+/// The ogres' weapons, 1800 to 1804 (`TYPE_WEAPON_AXE_OGRE`, `_CLUB_OGRE`, `_MACE_OGRE`,
+/// `_SWORD01_OGRE`, `_SWORD02_OGRE`), and what each becomes as the first item of a creature of a
+/// type with no list of its own ([`own_items`]): 1723, 1720, 1759, 1729 and 1752.
+pub const OGRES_WEAPONS: [u32; 5] = [1800, 1801, 1802, 1803, 1804];
+pub const PLAIN_FOR_OGRES: [u32; 5] = [1723, 1720, 1759, 1729, 1752];
+/// The ogres, 39 and 40, whose first item is any of [`OGRES_WEAPONS`]; the trolls, 49 and 51,
+/// whose is the club or the mace; the Fetzer and its champions, 202, 344 and 359, whose is the
+/// axe or a sword of [`FETZERS_WEAPONS`] (`0x47F8E0`, #3070).
+const OGRES: [u32; 2] = [39, 40];
+const TROLLS: [u32; 2] = [49, 51];
+const FETZERS: [u32; 3] = [202, 344, 359];
+const FETZERS_WEAPONS: [u32; 3] = [1800, 1803, 1804];
+/// The Fetzer (`TYPE_NPC_FETZER`), whose list draws once more before it chooses.
+const FETZER: u32 = 202;
+/// The princes' guards and the hell golem (187, 204 to 208, 253 to 255, 330 to 332), whose first
+/// item is one of the guards' weapons (3651, 3652, 3655 to 3657) and whose second one of their
+/// shields (3653, 3654): an item already of the list is kept.
+const GUARDS: [u32; 12] = [187, 204, 205, 206, 207, 208, 253, 254, 255, 330, 331, 332];
+const GUARDS_WEAPONS: [u32; 5] = [3651, 3652, 3655, 3656, 3657];
+const GUARDS_SHIELDS: [u32; 2] = [3653, 3654];
+/// The goblins (76, 118, 127 to 129), whose items stay as their rule gives them.
+const GOBLINS_KEEPING: [u32; 5] = [76, 118, 127, 128, 129];
+
+/// The first and the second item of a creature of the type `creature` made by a `MakeGroup` rule,
+/// `first` and `second` as the rule and the crossbows' change ([`filled_weapon`]) leave them, as
+/// its type's own list makes them, each choice `rng`'s (`0x47F8E0` at `0x4805E0`–`0x480787`;
+/// docs/re/spawning.md, "`MakeGroup`"; #3070): the ogres', the trolls', the Fetzers' and the
+/// guards' lists choose theirs, the goblins keep theirs, and every other type's ogres' weapon
+/// becomes a plain one ([`PLAIN_FOR_OGRES`]).
+pub fn own_items(
+    creature: u32,
+    (first, second): (u32, Option<u32>),
+    rng: &mut Rng,
+) -> (u32, Option<u32>) {
+    let mut pick = |list: &[u32]| {
+        let n = u32::try_from(list.len()).unwrap_or(1);
+        list[usize::try_from(rng.below(n)).unwrap_or(0)]
+    };
+    if OGRES.contains(&creature) {
+        (pick(&OGRES_WEAPONS), second)
+    } else if TROLLS.contains(&creature) {
+        // The club where the draw is odd, else the mace.
+        (pick(&[1802, 1801]), second)
+    } else if FETZERS.contains(&creature) {
+        if creature == FETZER {
+            pick(&[0, 1]);
+        }
+        (pick(&FETZERS_WEAPONS), second)
+    } else if GUARDS.contains(&creature) {
+        let first = if GUARDS_WEAPONS.contains(&first) {
+            first
+        } else {
+            pick(&GUARDS_WEAPONS)
+        };
+        let second = second.map(|item| {
+            if GUARDS_SHIELDS.contains(&item) {
+                item
+            } else {
+                pick(&GUARDS_SHIELDS)
+            }
+        });
+        (first, second)
+    } else if GOBLINS_KEEPING.contains(&creature) {
+        (first, second)
+    } else {
+        let first = OGRES_WEAPONS
+            .iter()
+            .position(|&weapon| weapon == first)
+            .map_or(first, |index| PLAIN_FOR_OGRES[index]);
+        (first, second)
+    }
+}
+
 /// The kind of the weapon that an item of a `CreateNPC` record asks for in its place, an item of
 /// the weapon kind `kind` held by a model of the shots `shots`, at each of the two steps of
 /// `sdk_CREATENPC` (`0x484C44`, `0x484C93`; #1217): first a crossbow or a musket that the model
@@ -997,5 +1070,73 @@ mod tests {
         assert_eq!(created_weapon(Step::Crossbow, Some(12), soldier), None);
         assert_eq!(created_weapon(Step::Ranged, Some(12), soldier), None);
         assert_eq!(created_weapon(Step::Ranged, Some(1), beast), None);
+    }
+
+    #[test]
+    fn a_types_own_list_makes_its_first_two_items() {
+        // The draws of the same generator as the lists', to tell what each chose.
+        let rng = || Rng::of(18, 40, 2);
+        let draws = |ns: &[u32]| {
+            let mut rng = rng();
+            ns.iter()
+                .map(|&n| usize::try_from(rng.below(n)).expect("an index"))
+                .collect::<Vec<_>>()
+        };
+        let own = |creature, items| own_items(creature, items, &mut rng());
+        // An ogre's first item, whatever it is, becomes the ogres' weapon of the draw; its second
+        // stays.
+        let ogre = OGRES_WEAPONS[draws(&[5])[0]];
+        assert_eq!(own(39, (1729, Some(1213))), (ogre, Some(1213)));
+        assert_eq!(own(40, (1803, None)), (ogre, None));
+        // A troll's the club for an odd draw, else the mace.
+        let troll = if draws(&[2])[0] == 1 { 1801 } else { 1802 };
+        assert_eq!(own(49, (1800, None)), (troll, None));
+        assert_eq!(own(51, (1720, Some(7))), (troll, Some(7)));
+        // A Fetzer's champion's the axe or a sword; the Fetzer draws once before it chooses, on a
+        // generator whose draw so differs.
+        let pair = |record: usize| {
+            let mut once = Rng::of(18, 40, record);
+            let mut twice = Rng::of(18, 40, record);
+            twice.below(2);
+            (once.below(3), twice.below(3))
+        };
+        let record = (0..)
+            .find(|&record| pair(record).0 != pair(record).1)
+            .expect("a record");
+        let (once, twice) = pair(record);
+        let fetzer = |creature| own_items(creature, (1729, None), &mut Rng::of(18, 40, record)).0;
+        let weapon = |draw: u32| FETZERS_WEAPONS[usize::try_from(draw).expect("an index")];
+        assert_eq!(fetzer(344), weapon(once));
+        assert_eq!(fetzer(359), weapon(once));
+        assert_eq!(fetzer(202), weapon(twice));
+        // A guard keeps a weapon and a shield of its lists, and takes them for others.
+        assert_eq!(own(187, (3656, Some(3654))), (3656, Some(3654)));
+        assert_eq!(
+            own(205, (1729, None)),
+            (GUARDS_WEAPONS[draws(&[5])[0]], None)
+        );
+        assert_eq!(
+            own(332, (3651, Some(1213))),
+            (3651, Some(GUARDS_SHIELDS[draws(&[2])[0]]))
+        );
+        let both = draws(&[5, 2]);
+        assert_eq!(
+            own(204, (1729, Some(1213))),
+            (GUARDS_WEAPONS[both[0]], Some(GUARDS_SHIELDS[both[1]]))
+        );
+        // A goblin keeps the ogres' weapon of its rule.
+        assert_eq!(own(76, (1801, Some(1213))), (1801, Some(1213)));
+        assert_eq!(own(129, (1804, None)), (1804, None));
+        // Any other type takes the plain weapons for the ogres', and keeps any other item.
+        for (ogres, plain) in OGRES_WEAPONS.into_iter().zip(PLAIN_FOR_OGRES) {
+            assert_eq!(own(260, (ogres, Some(1213))), (plain, Some(1213)));
+        }
+        assert_eq!(own(260, (1729, None)), (1729, None));
+        // A list that keeps its items draws nothing.
+        let mut kept = rng();
+        own_items(260, (1800, None), &mut kept);
+        own_items(76, (1800, None), &mut kept);
+        own_items(187, (3651, Some(3653)), &mut kept);
+        assert_eq!(kept, rng());
     }
 }
