@@ -384,4 +384,5 @@ Since #2406 a named creature away from the world is sought where it lives away (
 A new marker starts one of four sonar rings at (512, 711), `FX_SONAREFFECT` tinted `0xDDCCAA` as the hero's alarm spreads (`low_health::Sonar`), with the sound 7027.
 **Seen** in the game: at the Seraphim's start the needle points at the novice as she walks to the benches, and turns as the hero moves; `quest trigger 9` turned it at quest 9's target with a sonar.
 Since #1569 the outer pin (image 137 on its ellipse of 58 × 29) points at the world map's pin (docs/re/maps.md, "The pin").
-Not followed: the blinking pin of `GroupIsDead`'s creature (#3104), objects that only a `CreateObj` names (#3105), and the way across a dungeon's mouth (#3106).
+Since #3105 a named target is sought among the scripts' objects too (`npcs::ObjectName`), and one of a sector away from the world at its placement's cell (`npcs::Npcs::object_away`), for the compass, the world map's icons, the overview's arrows and the quest book alike (`compass::Seek`); **seen** in the game: side quest 15001's novice's plant, `nowhere` before, at 3252,2546.
+Not followed: the blinking pin of `GroupIsDead`'s creature (#3104), and the way across a dungeon's mouth (#3106).
