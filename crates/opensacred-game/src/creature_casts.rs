@@ -379,6 +379,7 @@ fn act(
                 flown: 0.0,
                 peak: opensacred_rules::arts::jump_height(distance, 0.5)
                     * casts::FLOWER_LEAP_HIGHER,
+                stops: opensacred_rules::arts::flight_stops(mind.thinks.creature),
             });
             sounds.write(crate::sfx::Play {
                 sound: crate::sfx::Of::Id(casts::FLOWER_LEAP_SOUND),

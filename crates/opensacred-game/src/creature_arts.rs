@@ -452,6 +452,7 @@ fn leaps(
                 time,
                 flown: 0.0,
                 peak: arts::jump_height((to - here).xz().length(), 0.5),
+                stops: arts::flight_stops(mind.thinks.creature),
             });
             leap.over = Some(played * (casts::LEAP_ENDS - casts::LEAP_FLIES));
             debug!("creature_arts: {entity} leaps off for {time:.2} s");
