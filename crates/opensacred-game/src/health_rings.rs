@@ -1,7 +1,8 @@
 //! The health rings on the ground (#2486; docs/re/fight.md, "The health rings"): a creature's ring
 //! shows while its timer runs (its `+0x20C`, `opensacred_rules::fight::RING_*`), the hero's while it
-//! fights or a hostile creature is near, a hostile creature's for 7 s after the hero strikes it,
-//! while it is under the cursor or, with Alt held, in view. The ring lies flat under the creature,
+//! fights or a hostile creature is near and for 7 s after it strikes itself (its poison from
+//! nobody, #3045), a hostile creature's for 7 s after the hero strikes it, while it is under the
+//! cursor or, with Alt held, in view. The ring lies flat under the creature,
 //! drawn before it (`cCreature_render` `0x599910`, `0x4080C0`): a fan of the texture
 //! `UI_DISPLAY_GROUNDSYMBOL01` over its health's share of a turn from its near side, in a colour
 //! by its level against the hero's (`opensacred_rules::fight::ring_colour`), and the frame
@@ -149,9 +150,17 @@ fn hero(
     }
 }
 
-/// Sets a creature's ring for 7 s at each strike of the hero's at it, hit or missed (`0x56B610`);
-/// at least 1 s under the cursor (`0x61258A`); and with Alt held, every hostile one's whose ring
-/// holds 1 s or less (`0x599ACC`).
+/// Whether a strike from `attacker` at `target` sets the target's ring for 7 s, `hero` the hero and
+/// `creature` whether the target is a creature that lives (`0x56B604`…`0x56B610`): a strike of the
+/// hero's, at a creature or at the hero itself, as a poison from nobody strikes it from itself
+/// (#3045).
+fn rings_struck(attacker: Entity, target: Entity, hero: Option<Entity>, creature: bool) -> bool {
+    Some(attacker) == hero && (creature || Some(target) == hero)
+}
+
+/// Sets a creature's ring for 7 s at each strike of the hero's at it, hit or missed, and the
+/// hero's own at its strike at itself (`0x56B610`); at least 1 s under the cursor (`0x61258A`);
+/// and with Alt held, every hostile one's whose ring holds 1 s or less (`0x599ACC`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -160,7 +169,7 @@ fn mark(
     mut commands: Commands,
     mut hits: MessageReader<crate::fight::Hit>,
     heroes: Query<Entity, With<Body>>,
-    mut rings: Query<&mut Ring, Without<Body>>,
+    mut rings: Query<&mut Ring>,
     hostiles: Query<(Entity, &crate::ai::Mind), (Without<Body>, Without<Dies>)>,
     (foe, keys): (Res<crate::cursors::Foe>, crate::controls::Keys),
 ) {
@@ -175,7 +184,12 @@ fn mark(
         }
     };
     for hit in hits.read() {
-        if Some(hit.attacker) == hero && Some(hit.target) != hero && hostiles.contains(hit.target) {
+        if rings_struck(
+            hit.attacker,
+            hit.target,
+            hero,
+            hostiles.contains(hit.target),
+        ) {
             set(&mut commands, hit.target, RING_STRUCK, true);
         }
     }
@@ -386,6 +400,20 @@ impl Plugin for HealthRingsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_heros_strike_sets_its_targets_ring_and_its_own_at_itself() {
+        let mut world = World::new();
+        let [hero, goblin, other] = [(); 3].map(|()| world.spawn_empty().id());
+        assert!(rings_struck(hero, goblin, Some(hero), true));
+        // Its poison from nobody strikes it from itself (#3045).
+        assert!(rings_struck(hero, hero, Some(hero), false));
+        // Another's strike, or the hero's at what is no creature, sets none.
+        assert!(!rings_struck(other, goblin, Some(hero), true));
+        assert!(!rings_struck(other, hero, Some(hero), false));
+        assert!(!rings_struck(hero, other, Some(hero), false));
+        assert!(!rings_struck(hero, hero, None, false));
+    }
 
     #[test]
     fn a_creature_despawned_while_its_ring_shows_takes_the_rings_look_with_it() {
