@@ -12,7 +12,7 @@
 //!
 //! The window's show and hide each play its `UI_CLICK01` (`containers`, #1767).
 //!
-//! Not followed yet: the hovered item's tooltip (`0x75B390`).
+//! The hovered item's tooltip is the backpack's (`0x75B390`, [`hovered`], `tooltip`; #3085).
 
 use bevy::prelude::*;
 use opensacred_rules::drops::Dropped;
@@ -224,6 +224,27 @@ fn lay_out(
 /// The pointer on the original's screen from the grid's top left.
 fn on_grid(pointer: &Pointer, ui_scale: &UiScale, windows: &Query<&Window>) -> Option<Vec2> {
     Some(screen_point(pointer, ui_scale, windows)? - GRID)
+}
+
+/// The item of the window's grid under the pointer while the window shows, where it lies and
+/// what it is, whose tooltip shows as the backpack's does (`0x75B390`, the style `0xB`; #3085):
+/// at its right edge and 16, its top and 16, from the grid's top left on the screen ([`GRID`]).
+pub(crate) fn hovered(
+    (shown, opened, chest): (&Shown, &Opened, &Chest),
+    (pointer, ui_scale, windows): (&Pointer, &UiScale, &Query<&Window>),
+) -> Option<(opensacred_rules::inventory::Placed, Dropped, Vec2)> {
+    if !showing(shown, opened) {
+        return None;
+    }
+    let cell = backpack::cell_in(on_grid(pointer, ui_scale, windows)?, (COLUMNS, ROWS))?;
+    let placed = *chest.grid.at(cell)?;
+    let dropped = chest
+        .items
+        .iter()
+        .find(|(key, _)| *key == placed.key)?
+        .1
+        .clone();
+    Some((placed, dropped, GRID))
 }
 
 /// Tints the cells while the window shows, as the backpack's (`backpack::cell_tint`).
