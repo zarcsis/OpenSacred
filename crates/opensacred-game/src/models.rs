@@ -271,8 +271,8 @@ impl MaterialExtension for InOrder {
 /// (#112). And the floor that the model stands on, if it stands on an upper storey's
 /// ([`statics::Floor::under`]), zero for any other; but for a [`Sunk`] model, how far back along
 /// the line of sight its place lies, in the third coordinate. And the share of its light's
-/// colour that its ambient light takes while the cursor is over it, first, zero for none
-/// (`hover`, #1460).
+/// colour that its ambient light takes while the cursor is over it, first, zero for none, then
+/// the share it takes otherwise (`hover`, #1460, #3108).
 #[derive(Resource)]
 pub struct Anchors {
     buffer: Handle<ShaderBuffer>,
@@ -302,14 +302,16 @@ impl Anchors {
         Some((*self.anchors.get(slot)?, *self.floors.get(slot)?))
     }
 
-    /// Gives the model of `slot` the ambient share `share` of its light, 0 for none.
-    pub fn light(&mut self, slot: u32, share: f32) {
+    /// Gives the model of `slot` the ambient share `share` of its light, 0 for none, in place of
+    /// its share `plain` otherwise.
+    pub fn light(&mut self, slot: u32, share: f32, plain: f32) {
         if let Some(light) = usize::try_from(slot)
             .ok()
             .and_then(|slot| self.lights.get_mut(slot))
-            && light.x != share
+            && (light.x, light.y) != (share, plain)
         {
             light.x = share;
+            light.y = plain;
             self.changed = true;
         }
     }
@@ -670,7 +672,7 @@ fn hold(added: On<Add<Ordered>>, mut anchors: ResMut<Anchors>, mut roots: Query<
     });
     // A slot taken again lights its new model plainly.
     if let Some(slot) = slot {
-        anchors.light(slot, 0.0);
+        anchors.light(slot, 0.0, 0.0);
     }
     ordered.0 = slot;
 }
