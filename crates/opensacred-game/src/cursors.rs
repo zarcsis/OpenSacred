@@ -433,35 +433,42 @@ fn choose(
             });
             // The mortar's point, the foe's place, else the ground's under the cursor at the
             // hero's height, on the hero's floor and reached where it must be (`0x51D840`).
-            let mortar = || {
+            let launch = crate::making::launch(arts, art);
+            let mortar =
+                opensacred_rules::arts::style(art) == Some(opensacred_rules::arts::Style::Mortar);
+            // The art's point, the foe's place for the mortar, else the ground's under the cursor
+            // at the hero's height, on the hero's floor and reached where it must be: the
+            // mortar's way, a point's of the launch type 3 (`0x51D840`).
+            let reached = || {
                 let (Some((_, transform, body, ..)), Some(heights), Some(ray)) =
                     (hero, heights.as_deref(), ray)
                 else {
                     return false;
                 };
                 let (here, level) = (transform.translation, body.level());
+                let ground = || {
+                    let along = (here.y - ray.origin.y) / ray.direction.y;
+                    (ray.origin + ray.direction.as_vec3() * along, level)
+                };
+                let walkable = |cell| heights.walkable_on(cell, level);
+                if !mortar {
+                    return crate::making::point_reached((here, level), ground(), walkable);
+                }
                 let point = foe_under
                     .and_then(|foe| {
                         let (_, at, ..) = creatures.get(foe).ok()?;
                         let on = ways.get(foe).map_or(level, |way| way.level);
                         Some((at.translation(), on))
                     })
-                    .unwrap_or_else(|| {
-                        let along = (here.y - ray.origin.y) / ray.direction.y;
-                        (ray.origin + ray.direction.as_vec3() * along, level)
-                    });
+                    .unwrap_or_else(ground);
                 let dungeon = dungeons
                     .as_deref()
                     .is_some_and(|dungeons| dungeons.holds(here.x, here.z));
-                crate::making::mortar_reaches((here, level), point, dungeon, |cell| {
-                    heights.walkable_on(cell, level)
-                })
+                crate::making::mortar_reaches((here, level), point, dungeon, walkable)
             };
             crate::making::may_make(arts, art, (effects, pack.as_deref(), riding)).is_ok()
-                && admits(crate::making::launch(arts, art), under)
-                && (opensacred_rules::arts::style(art)
-                    != Some(opensacred_rules::arts::Style::Mortar)
-                    || mortar())
+                && admits(launch, under)
+                && (!(mortar || launch == Some(3)) || reached())
         });
     glow.set_if_neq(Glow(glows));
 }
