@@ -92,8 +92,8 @@ use crate::{arts, drops, making};
 /// (#2888); the version 26 the function that a script's plain item's taking runs (#2891); the
 /// version 27 the type of a placement's trap of the scripts (#2916); the version 28 a
 /// placement's vision's mark (#3064); the version 29 the name a fill's creature is called by
-/// (#3071).
-pub const VERSION: u32 = 29;
+/// (#3071); the version 30 a placement's emerging (#3075).
+pub const VERSION: u32 = 30;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -1271,7 +1271,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (29, 0x3C47_520C_27FB_4C70),
+            (30, 0xBF25_B385_02A6_D8DB),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
