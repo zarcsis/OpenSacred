@@ -1333,7 +1333,7 @@ fn lay(
     (assets, tables): (&AssetServer, &Tables),
     (flight, level, marked): (Flight, Level, bool),
     dropped: Dropped,
-) {
+) -> Entity {
     let upright = drops::upright(dropped.item);
     let transform =
         Transform::from_translation(world(flight.at)).with_scale(Vec3::splat(iso::MODEL_SCALE));
@@ -1348,6 +1348,7 @@ fn lay(
         upright,
         marked,
     });
+    entity
 }
 
 /// Puts the drop `lying` into the world at `transform`, its model, if it was converted, with its
@@ -1387,20 +1388,25 @@ pub struct Laid {
     at: Vec3,
     turn: Quat,
     flight: Option<(Flight, u8, bool)>,
+    /// The `Use:` function that it keeps from the pack (`pickup::KeptUse`, #3099).
+    kept_use: Option<String>,
 }
 
 /// The drops as a save keeps them ([`Laid`]), but the scripts' items, which their placements lay
 /// again (`npcs::QuestItem`, `npcs::ScriptItem`).
 pub fn laid(world: &mut World) -> Vec<Laid> {
-    let mut drops = world.query_filtered::<
-        (&Transform, &Lying, Option<&Flying>),
-        (Without<npcs::QuestItem>, Without<npcs::ScriptItem>),
-    >();
+    let mut drops = world.query_filtered::<(
+        &Transform,
+        &Lying,
+        Option<&Flying>,
+        Option<&crate::pickup::KeptUse>,
+    ), (Without<npcs::QuestItem>, Without<npcs::ScriptItem>)>();
     let world = &*world;
     let heights = world.get_resource::<Heights>();
     drops
         .iter(world)
-        .map(|(transform, lying, flying)| Laid {
+        .map(|(transform, lying, flying, kept)| Laid {
+            kept_use: kept.map(|kept| kept.0.clone()),
             dropped: lying.dropped.clone(),
             at: transform.translation,
             turn: transform.rotation,
@@ -1442,6 +1448,11 @@ fn lay_again(
             resting: laid.flight.is_none(),
         };
         let entity = put(&mut commands, (&assets, &tables), transform, lying);
+        if let Some(function) = &laid.kept_use {
+            commands
+                .entity(entity)
+                .insert(crate::pickup::KeptUse(function.clone()));
+        }
         if let Some((flight, floor, marked)) = laid.flight {
             let level = heights
                 .as_deref()
@@ -1477,10 +1488,10 @@ pub(crate) fn drop_at(
     (assets, tables, dice): (&AssetServer, &Tables, &mut Dice),
     (cell, level): ((i32, i32), Level),
     dropped: Dropped,
-) {
+) -> Entity {
     let at = crate::paths::centre(cell);
     let flight = Flight::dropped(at.x, at.y, &mut dice.0);
-    lay(commands, (assets, tables), (flight, level, false), dropped);
+    lay(commands, (assets, tables), (flight, level, false), dropped)
 }
 
 /// The line of the log of a creature's drops, a made item's sockets' kinds with it.
@@ -2144,6 +2155,7 @@ mod tests {
             at: Vec3::new(100.0, 5.0, 30.0),
             turn: Quat::from_rotation_y(1.0),
             flight: None,
+            kept_use: Some("Fass_gesoffen".into()),
         };
         let flight = Flight::dropped(100.0, 30.0, &mut Rng::of(1, 2, 3));
         let flying = Laid {
