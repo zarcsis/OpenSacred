@@ -23,7 +23,7 @@ use opensacred_rules::undead::{self, AtOnce, LIES_ON, Lying};
 use crate::effects::Effects;
 use crate::frame::{Playing, Step};
 use crate::game::AppState;
-use crate::npcs::{Corpse, Dies, Npc, Npcs, OnDeath, RisesAgain, Talk, Trades};
+use crate::npcs::{Corpse, Dies, Npc, Npcs, OnDeath, RisesAgain, Talk, Trades, Vision};
 use crate::spawning::Rng;
 use crate::undead::{Bursts, Destroyed, gone};
 
@@ -75,7 +75,7 @@ fn lie(
             &Dies,
             &GlobalTransform,
             Option<&Npc>,
-            (Has<Bursts>, Has<RisesAgain>),
+            (Has<Bursts>, Has<RisesAgain>, Has<Vision>),
         ),
         Added<Corpse>,
     >,
@@ -90,7 +90,7 @@ fn lie(
     let violence = settings
         .as_deref()
         .is_some_and(|settings| settings.gameplay.violence);
-    for (entity, corpse, dies, at, npc, (bursts, rises)) in &lying {
+    for (entity, corpse, dies, at, npc, (bursts, rises, vision)) in &lying {
         if bursts
             || dies.rises
             || corpse.class == undead::CLASS
@@ -105,7 +105,7 @@ fn lie(
             table: npcs
                 .as_deref()
                 .map_or(0, |npcs| npcs.table_flags(corpse.creature)),
-            vision: opensacred_rules::spells::VISIONS.contains(&corpse.creature),
+            vision,
             falls: npc.is_none_or(Npc::falls),
             nature: heights
                 .as_deref()
