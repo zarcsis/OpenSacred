@@ -342,6 +342,12 @@ pub struct TakenPlaced(pub usize);
 #[derive(Message, Clone, Debug)]
 pub struct TakenToRun(pub String);
 
+/// A drop that keeps the `Use:` function of the pack's item that it was, dropped beside the
+/// hero, which it gives the pack again as the hero takes it (#3099): the original drops the
+/// same item, of the same id, so the script manager's entry of its id stays (`0x611620`).
+#[derive(Component, Clone, Debug, PartialEq, Eq)]
+pub struct KeptUse(pub String);
+
 /// An item that the scripts give the hero straight among the main quest's items, its type
 /// (`CreateObj` of `0x61` or `0x62` without `0x8E`, `0x4868F6`; #1256).
 #[derive(Message, Clone, Copy, Debug)]
@@ -398,6 +404,13 @@ impl Pack {
         let placed = self.grid.remove(key)?;
         self.uses.retain(|(k, _)| *k != key);
         Some((placed, self.items.remove(index).1))
+    }
+
+    /// Lets go the `Use:` function of the item of the key `key` as the item leaves the pack for
+    /// the world, the function itself, which its drop keeps ([`KeptUse`], #3099).
+    pub fn release_use(&mut self, key: u32) -> Option<String> {
+        let index = self.uses.iter().position(|(k, _)| *k == key)?;
+        Some(self.uses.remove(index).1)
     }
 
     /// Gives the item taken last, into the grid or onto the cursor, the `Use:` function
@@ -637,6 +650,15 @@ pub fn take_nearest(world: &mut World) -> Result<String, String> {
     ))
 }
 
+/// A drop as the taking reads it: what it is, and a quest's item's, a script's item's or a
+/// dropped item's ways of the scripts.
+type LyingItem<'a> = (
+    &'a Lying,
+    Option<&'a QuestItem>,
+    Option<&'a crate::npcs::ScriptItem>,
+    Option<&'a KeptUse>,
+);
+
 /// What takes an item off the ground into the hero's purse, pack or hand.
 #[derive(SystemParam)]
 pub(crate) struct Taking<'w, 's> {
@@ -646,15 +668,7 @@ pub(crate) struct Taking<'w, 's> {
     sounds: MessageWriter<'w, sfx::Play>,
     arsenal: Option<Res<'w, crate::arsenal::Arsenal>>,
     throws: MessageWriter<'w, crate::arsenal::Throws>,
-    items: Query<
-        'w,
-        's,
-        (
-            &'static Lying,
-            Option<&'static QuestItem>,
-            Option<&'static crate::npcs::ScriptItem>,
-        ),
-    >,
+    items: Query<'w, 's, LyingItem<'static>>,
     placed: MessageWriter<'w, TakenPlaced>,
     to_run: MessageWriter<'w, TakenToRun>,
     for_quest: MessageWriter<'w, TakenForQuest>,
@@ -673,7 +687,7 @@ impl Taking<'_, '_> {
     /// the scripts laid always (**hypothesis**: the filter's list at `0xAB45A0` or its bit
     /// `0x800`, neither read).
     fn passes(&self, item: Entity) -> bool {
-        let Ok((lying, quest, _)) = self.items.get(item) else {
+        let Ok((lying, quest, ..)) = self.items.get(item) else {
             return false;
         };
         let (Some(tables), false) = (self.tables.as_deref(), quest.is_some()) else {
@@ -706,7 +720,7 @@ impl Taking<'_, '_> {
     /// (`0x4EC560`): gold, a quest's item that the scripts laid, the weapon it hurled, or an item
     /// for which the backpack's grid has room (`0x5DABA0`).
     fn carries(&self, item: Entity) -> bool {
-        let Ok((lying, quest, _)) = self.items.get(item) else {
+        let Ok((lying, quest, ..)) = self.items.get(item) else {
             return false;
         };
         let size = self
@@ -729,7 +743,7 @@ impl Taking<'_, '_> {
     /// `UI_QUESTBOOK_WRITING` (the event `(9, 0x81)`), and the scripts run its taking's function
     /// (`Take:`, `0x4A71F0`; #1256).
     fn take(&mut self, item: Entity) {
-        let Ok((lying, quest, script_item)) = self.items.get(item) else {
+        let Ok((lying, quest, script_item, kept)) = self.items.get(item) else {
             return;
         };
         info!(
@@ -790,8 +804,12 @@ impl Taking<'_, '_> {
             // Gold sounds through the gold's handler (`Pack::add_gold`).
             if lying.dropped.kind != Kind::Gold {
                 self.taken.write(Taken(lying.dropped.item));
-                // A `CreateObj`'s item keeps its use's function in the backpack (#1272).
-                if let Some(function) = script_item.and_then(|item| item.uses.clone()) {
+                // A `CreateObj`'s item keeps its use's function in the backpack (#1272), and
+                // one dropped and taken again its own (#3099).
+                let function = script_item
+                    .and_then(|item| item.uses.clone())
+                    .or_else(|| kept.map(|kept| kept.0.clone()));
+                if let Some(function) = function {
                     self.pack.bind_use(function);
                 }
             }
@@ -1704,6 +1722,14 @@ mod tests {
         assert_eq!((placed.at, dropped.item), ((0, 0), 6080));
         assert_eq!(pack.use_of(first), None);
         assert!(pack.used.is_empty());
+        // Dropped into the world, its use goes with it, and taken again it binds it anew
+        // (#3099).
+        assert!(pack.take(dropped, (1, 1)));
+        pack.bind_use("heilung".into());
+        let again = pack.items.last().unwrap().0;
+        assert_eq!(pack.release_use(again).as_deref(), Some("heilung"));
+        assert_eq!(pack.use_of(again), None);
+        assert_eq!(pack.release_use(second), None);
     }
 
     #[test]
