@@ -13422,6 +13422,106 @@ impl TrapBall {
 /// The tentacles' textures: their tendrils' dots and their runes, `fx_tentacle_rune1` to 15.
 pub const TENTACLE_TEXTURE: &str = "particle_glow01";
 pub const TENTACLE_RUNES: u8 = 15;
+/// The terror sprinters' aura's circle (`Fx_circle03`), its runes (`fx_terrorsp_rune1` to `5`),
+/// each segment's rolled `rand() % 5 + 1` (`0x7C1050`), its ring's segments and the mage's light
+/// (`0x7C1474`, of the priority 1).
+pub const TERROR_CIRCLE: &str = "Fx_circle03";
+pub const TERROR_RUNES: u8 = 5;
+const TERROR_SEGMENTS: u16 = 20;
+pub const TERROR_LIGHT: [f32; 3] = [1.0, 0.1, 1.0];
+
+/// The name of the terror sprinters' rune `rune`, 1 to 5.
+pub fn terror_rune(rune: u8) -> String {
+    format!("fx_terrorsp_rune{rune}")
+}
+
+/// The look of the terror sprinters' aura (1167, `FX_TERRORSPRINTER`,
+/// `cParticleSystem_terrorsprinter`, its constructor `0x7C1050`, start `0x7C1390`, run `0x7C1120`
+/// and draw `0x7C11C0`; #2921): about its bearer's feet a circle of `Fx_circle03` added whole in
+/// purple, turning at 3.2 radians a second, and over it a still ring of twenty black runes laid
+/// over by their alpha, both growing in over half a second, standing for its seconds and shrinking
+/// away over half a second; the mage's own (the event's variant 0) larger and lit purple, a
+/// sprinter's copy (any other) smaller.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TerrorSprinter {
+    pub runes: Vec<u8>,
+    pub copy: bool,
+    seconds: f32,
+    clock: f32,
+    fade: f32,
+    phase: u8,
+}
+
+impl TerrorSprinter {
+    /// A look of `seconds`, a sprinter's `copy` or the mage's own, its runes rolled by `dice`.
+    pub fn new(copy: bool, seconds: f32, dice: &mut impl Dice) -> Self {
+        let runes = (0..TERROR_SEGMENTS)
+            .map(|_| u8::try_from(dice.below(u32::from(TERROR_RUNES))).unwrap_or(0) + 1)
+            .collect();
+        Self {
+            runes,
+            copy,
+            seconds,
+            clock: 0.0,
+            fade: 0.0,
+            phase: 0,
+        }
+    }
+
+    /// A run of `dt` seconds (`0x7C1120`): its fade rises by 2 a second past 1, where it stands
+    /// until its clock passes its seconds, then falls by 2 a second below 0, where it ends.
+    /// Whether it lives.
+    pub fn update(&mut self, dt: f32) -> bool {
+        self.clock += dt;
+        match self.phase {
+            0 => {
+                self.fade += 2.0 * dt;
+                if self.fade > 1.0 {
+                    self.fade = 1.0;
+                    self.phase = 1;
+                }
+            }
+            1 => {
+                if self.clock > self.seconds {
+                    self.phase = 2;
+                }
+            }
+            _ => {
+                self.fade -= 2.0 * dt;
+                if self.fade < 0.0 {
+                    self.fade = 0.0;
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// Its circle (`0x7631E0`, `ONE`, `ONE`): its half side, its turn and its colour, `⌊k·f⌋` of
+    /// the purple `k` (120, 20, 120) for the mage's, (70, 10, 70) for a copy, `f` its fade.
+    pub fn circle(&self) -> (f32, f32, [f32; 4]) {
+        let (half, bright, dim) = if self.copy {
+            (25.0, 70.0, 10.0)
+        } else {
+            (40.0, 120.0, 20.0)
+        };
+        let [c, d] = [bright, dim].map(|k: f32| (k * self.fade).floor() / 255.0);
+        (half, -3.2 * self.clock, [c, d, c, 1.0])
+    }
+
+    /// Its ring of runes (`0x7638E0`, black, unturned): 34 ± 4·f for the mage's, 21 ± 2.5·f for
+    /// a copy.
+    pub fn ring(&self) -> RuneRing {
+        let (radius, width) = if self.copy { (21.0, 2.5) } else { (34.0, 4.0) };
+        RuneRing {
+            inner: radius - width * self.fade,
+            outer: radius + width * self.fade,
+            segments: TERROR_SEGMENTS,
+            turn: 0.0,
+        }
+    }
+}
+
 /// The runes an object of the tentacles rolls, one a segment of its rings, each of the 15 at
 /// random (`0x7B0DF0`'s `+0x7CEC`: `rand() % 15 + 1`).
 const RUNE_ROLLS: usize = 50;
@@ -19621,6 +19721,50 @@ mod tests {
         }
         assert!(plant.done() && plant.dots().is_empty());
         assert_eq!(KillerPlant::new(3.0, false, &mut dice).colour, PLANT_BLUE);
+    }
+
+    #[test]
+    fn a_terror_sprinters_aura_grows_in_stands_and_shrinks_away() {
+        let mut dice = crate::spawning::Script::new(vec![7; 20]);
+        let mut aura = TerrorSprinter::new(false, 1.0, &mut dice);
+        assert_eq!(aura.runes, vec![3; 20]);
+        assert_eq!(terror_rune(5), "fx_terrorsp_rune5");
+        assert_eq!(aura.circle(), (40.0, 0.0, [0.0, 0.0, 0.0, 1.0]));
+        // A quarter second in: half grown, turned by −0.8.
+        assert!(aura.update(0.25));
+        let (half, turn, colour) = aura.circle();
+        assert_eq!((half, turn), (40.0, -0.8));
+        assert_eq!(colour, [60.0 / 255.0, 10.0 / 255.0, 60.0 / 255.0, 1.0]);
+        assert_eq!((aura.ring().inner, aura.ring().outer), (32.0, 36.0));
+        assert_eq!((aura.ring().segments, aura.ring().turn), (20, 0.0));
+        // Grown past 1, then standing until its second has passed.
+        assert!(aura.update(0.375));
+        assert_eq!((aura.ring().inner, aura.ring().outer), (30.0, 38.0));
+        assert!(aura.update(0.375));
+        assert_eq!(aura.circle().2[0], 120.0 / 255.0);
+        assert!(aura.update(0.125));
+        assert!(aura.update(0.25));
+        assert_eq!(aura.circle().2[0], (120.0_f32 * 0.5).floor() / 255.0);
+        assert!(aura.update(0.25));
+        assert!(!aura.update(0.125));
+        assert_eq!(aura.circle().2, [0.0, 0.0, 0.0, 1.0]);
+        // A sprinter's copy: smaller and dimmer.
+        let mut copy = TerrorSprinter::new(true, 9.0, &mut dice);
+        copy.update(0.5);
+        assert_eq!(
+            copy.circle(),
+            (25.0, -1.6, [70.0 / 255.0, 10.0 / 255.0, 70.0 / 255.0, 1.0])
+        );
+        assert_eq!((copy.ring().inner, copy.ring().outer), (18.5, 23.5));
+        // A fade of 1 exactly is not past it: it stands a run later, and shrinks a run later
+        // still.
+        let mut short = TerrorSprinter::new(true, 0.5, &mut dice);
+        short.update(0.5);
+        short.update(0.25);
+        short.update(0.25);
+        assert_eq!(short.circle().2[0], 70.0 / 255.0);
+        short.update(0.25);
+        assert_eq!(short.circle().2[0], 35.0 / 255.0);
     }
 
     #[test]

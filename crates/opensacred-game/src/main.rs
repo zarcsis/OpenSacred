@@ -262,6 +262,7 @@ mod talk;
 mod teleports;
 mod tentacles;
 mod terrain;
+mod terror_sprinters;
 mod tooltip;
 mod torches;
 mod town_stash;
@@ -776,6 +777,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         teleports::TeleportsPlugin,
         tentacles::TentaclesPlugin,
         terrain::GroundPlugin,
+        terror_sprinters::TerrorSprintersPlugin,
     ))
     .add_plugins((
         tooltip::TooltipPlugin,
