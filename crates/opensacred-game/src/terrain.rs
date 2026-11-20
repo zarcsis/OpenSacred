@@ -1699,6 +1699,17 @@ mod tests {
     }
 
     #[test]
+    fn a_wandering_system_stops_at_an_entrance_and_an_exit_and_passes_open_ground() {
+        let heights = Heights::house();
+        // The door (the nibble 9) and the cells before it (10) stop it, the open ground does not.
+        assert!(heights.stops_flight((5, 6)) && heights.stops_flight((4, 7)));
+        assert!(!heights.stops_flight((1, 1)) && heights.passes((1, 1), None));
+        // The house's mass does not stop it by its kind, nor lets it pass.
+        assert!(!heights.stops_flight((5, 5)) && !heights.passes((5, 5), None));
+        assert!(!heights.stops_flight((-1, 0)));
+    }
+
+    #[test]
     fn an_entrance_takes_the_hero_in_and_an_exit_out() {
         let heights = Heights::house();
         let house = Some((0, 0, 1));
