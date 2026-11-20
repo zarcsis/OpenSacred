@@ -412,6 +412,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/waterfalls.rs`: The waterfalls' loop
 - `crates/opensacred-game/src/weather.rs`: The world's weather
 - `crates/opensacred-game/src/world_map.rs`: The world map
+- `crates/opensacred-game/src/zhadums.rs`: The zhadum
 
 ## `crates/opensacred-locate`
 
@@ -469,6 +470,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-rules/src/undead.rs`: The undead that rise again
 - `crates/opensacred-rules/src/ways.rs`: The ways and the cells in the way
 - `crates/opensacred-rules/src/weather.rs`: The weather
+- `crates/opensacred-rules/src/zhadum.rs`: The zhadum
 - `crates/opensacred-rules/tests/fight_properties.rs`: Properties of the fight's formulas on random inputs
 - `crates/opensacred-rules/tests/grid_properties.rs`: Properties of the backpack's grid on random sequences of its operations
 - `crates/opensacred-rules/tests/oracle.rs`: The fight's formulas and the game's rolls against the vectors that `opensacred-oracle` records from the developer's own `Sacred.exe`

@@ -283,6 +283,7 @@ mod war_cry_signs;
 mod waterfalls;
 mod weather;
 mod world_map;
+mod zhadums;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -799,6 +800,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         waterfalls::WaterfallsPlugin,
         weather::WeatherPlugin,
         world_map::WorldMapPlugin,
+        zhadums::ZhadumsPlugin,
     ))
     .insert_resource(console::Console::new(console::history_file(&settings_file)))
     .insert_resource(settings)

@@ -4,7 +4,7 @@ Recovered from the GOG `Sacred.exe` 2.28 with Ghidra and scans of the executable
 Seen in the running original with the driver of #448 on 2026-10-27 (a Seraphim's new game: the braziers of 50,39 by noon and by night, the butterflies of 54,42 by noon and by night, a torch in the hero's hand by night; frames in the scratchpad only).
 Status: **confirmed** by code unless marked otherwise.
 Builds on docs/re/arts.md ("The spells' objects", "The objects' actions", "The objects' hits", "The objects' systems"), docs/re/weather.md ("The butterflies and the birds"), docs/re/daynight.md ("The light", "The glows") and docs/re/drawing.md (the draw lists, the engine's switch of render states `0x643430`/`0x643470`).
-Implemented in `opensacred-rules` (`particles`, `spells`, `casts`, `arrows`, `fight`, `ways`, `pong`, `script_traps`, `shaddar`) and `opensacred-game` (`fx`, `puffs`, `fx_lights`, `npcs`, `bolt_looks`, `torches`, `butterflies`, `hit_sparks`, `beams`, `marks`, `skins`, `item_glows`); a module of `opensacred-game` for each class of effects besides, which the class's section names.
+Implemented in `opensacred-rules` (`particles`, `spells`, `casts`, `arrows`, `fight`, `ways`, `pong`, `script_traps`, `shaddar`, `zhadum`) and `opensacred-game` (`fx`, `puffs`, `fx_lights`, `npcs`, `bolt_looks`, `torches`, `butterflies`, `hit_sparks`, `beams`, `marks`, `skins`, `item_glows`); a module of `opensacred-game` for each class of effects besides, which the class's section names.
 
 ## Summary
 
@@ -595,7 +595,7 @@ An **estimate**: a linear scan, which misses values computed at run time and may
 | walloffire_line | 250 | 1007 | PARTICLE_FIRE02 | PARTICLE_FIRE02 `0x99/g4` |  |  | 0x400 |
 | windstrike | 200 | 831 | PARTICLE_CLOUD01 | PARTICLE_CLOUD01 `0x64/g1` |  |  | 0x50 |
 | zeitkontrolle | 250 | 859 | PARTICLE_GLOW03, PARTICLE_SPARK04 | PARTICLE_SPARK04 `0x19/g1` | flat quad |  | 0x200 |
-| zhadum | 1 | 1165 | particle_glow01 |  | glow |  | 0x400 |
+| zhadum | 1 | 1165 | particle_glow01 (never drawn) |  | glow |  | 0x400 |
 
 ## The bolts
 
@@ -1627,11 +1627,11 @@ Read 2026-11-05 for #1092 and #2119 in Ghidra (**confirmed** by code), and the h
 - Its run: past its hold its fade falls by its rate, and below 0 it ends; by its variant:
   - 0, 2 and the others: its quads 20 wide (±10), a quarter of the texture's height, stepping 0, ¼, ½ and ¾ every 0.1 s, all segments in step; each joint `j` of the chain (`k` at its start, `k + 1` at its end) swayed across by `(4 cos(1.45634 j + 3t + 1.78356) + 3 cos(2.85261 j + 5.895635 t))·sin(jπ/n)` and up by `(4 cos(0.96452 j + 3t + 0.74372) + 3 cos(2.57838 j + 5.83623 t))·sin(jπ/n)`, so that the chain sways most at its middle and keeps its ends; its colour `⌊255 f⌋` halved, grey, else (127, 50, 50) for 10, (50, 50, 127) for 11 and (127, 127, 50) for 12, times its fade;
   - 1 and 4: straight, 30 wide (±15), the whole texture, (255, 146, 39) and (255, 235, 235) times its fade;
-  - 3: the top eighth of `FX_LIGHTSTRIKE05`, 20 wide, half grey, jittering each frame; 5: both sets 70 wide, `LASERBEAMPART3` and `LASERBEAMPART4` flowing along at 0.44 and 0.78 a second, white.
+  - 3: the top eighth of `FX_LIGHTSTRIKE05`, 20 wide, half grey, jittering each frame; 5: straight, both sets 70 wide (±35), `LASERBEAMPART3` and `LASERBEAMPART4`, their `u` falling by 0.44 and 0.78 a second (`0x7A46CA`), so that each texture flows from the segment's start to its end, white times its fade (`⌊255 f⌋`).
 - Its draw: depth tested, its depth not written, unlit, added whole (`ONE`, `ONE`), its two crossed quads in its world matrix at its place, not facing the camera, not tinted by the night: `FX_VAMPBLOODLINE` for 0, 2 and the others, `LASERBEAMPART` for 1 and 4, `FX_LIGHTSTRIKE05` for 3, `LASERBEAMPART3` and `LASERBEAMPART4` for 5.
 - So the hellfire's and the lasers' are straight yellow-orange streaks gone in half a second, the drains' swaying chains of red strands fading over a second, the bite's the same whole for 4.4 s.
 
-`opensacred-game` lays them since #1092 (`beams`, `opensacred_rules::particles::{LaserSegment, laser_axes}`, `opensacred_rules::ways::laser_places`): the drains', the hellfire's, the eye lasers' and the bite's, each segment staying where it was laid with its quads, its band, its sway and its colour by its variant, and its sound; the line's test of the strikes is #2123's; the beam of the items' life leech, of the strike handler's transfers, follows since #1366 (docs/re/fight.md) and the `Gehirnfüßler`'s since #2567 (`creature_arts::stare`, docs/re/ai.md), on past a cell that does not pass by its flag `0x80` since #2819 (`beams::THROUGH`); the segments' lights of 80, the strike handler's other transfers' beams and the zhadum's are not followed.
+`opensacred-game` lays them since #1092 (`beams`, `opensacred_rules::particles::{LaserSegment, laser_axes}`, `opensacred_rules::ways::laser_places`): the drains', the hellfire's, the eye lasers' and the bite's, each segment staying where it was laid with its quads, its band, its sway and its colour by its variant, and its sound; the line's test of the strikes is #2123's; the beam of the items' life leech, of the strike handler's transfers, follows since #1366 (docs/re/fight.md) and the `Gehirnfüßler`'s since #2567 (`creature_arts::stare`, docs/re/ai.md), on past a cell that does not pass by its flag `0x80` since #2819 (`beams::THROUGH`); the zhadum's since #2920 ("The zhadum"), its two sets each of its own texture repeated along it; the segments' lights of 80 and the strike handler's other transfers' beams are not followed.
 **Seen** 2026-11-05 beside the original: in both the hellfire's yellow-orange streak from its ball to the goblin's neck at a strike; the drain's chain of red strands from the Seraphim to the skeleton in the game.
 
 ## The homing fires
@@ -2037,6 +2037,31 @@ Its start sets a block of golden sparks, but its run only counts its clock and i
 `opensacred-game` follows them since #2919 (`shaddar_slaves`, `opensacred_rules::shaddar`): `npcs` places each slave at its record's point and never again once placed; each flies, touches, marks, hunts and strikes as above, its rays and its light drawn; the marked hero wears the emblem (drawn after its model, `fx::Orders::over`); and `fight` takes a strike's damage at Shaddar away from an attacker that does not hold the effect 32, and nobody's whole.
 The pentagram is not placed, as it shows and does nothing.
 Not followed: the floors, a slave touching and hunting only on the ground, where its record puts it; the target's byte that the homing keeps (`+0x64`, which ends the system where it changes, **hypothesis**: the target's sector).
+
+## The zhadum
+
+Read 2026-11-20 for #2920 in Ghidra (**confirmed** by code unless marked) and **seen** in the running original the same day: its beam at the hero by the sword, four of its ends traced.
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The zhadum | 1165 `FX_ZHADUM` | `cParticleSystem_zhadum` (`0x89904C`) | `0x7C2E50`, `0x7C3000`, `0x7C2EE0`, `0x7C2F90` |
+
+The `Enter` of the sector 91,35 makes one in every tree at the cell 5871,2267, its point raised by the record's `0x7E` of 36; the start lays a sword (the item 1779) three cells from it, in a dark cave strewn with skeletons, under the eye of a great black tentacled shape of the world's statics, which the zhadum's point lies in.
+Its `items.pak` record gives it the size 1,000 (`+0x14`) and no sound profile.
+
+- Its constructor: `particle_glow01`, never drawn; no Direct3D light; its start (`0x7C3000`): its clock, its hold and its fade 0, its system flags `0x400` (the targets and the hits), no particle.
+- Its run (`0x7C2EE0`): the signal 8 sets its hold to 1; a hold above 0 falls by the time, and below 0 it is 0 and the fade 1; a fade above 0 falls by 1.5 a second to 0.
+- Its draw (`0x7C2F90`): a glow (`0x762E10` of the style 0, `PARTICLE_FLARE02`, `ONE`, `ONE`) at its place, of a half side of 60, grey `⌊255·b⌋`, `b` 1 while it holds and its fade after, depth tested; so it shows nothing until it strikes, then a white flare for a second fading over two thirds of one.
+- Its targets (`0x5AB490` with no caster, `0x5FF7C0`): every living creature on its floor within its size and the creature's (`items.pak +0x14`, 50 for 0) of its place, of any side, the hero among them.
+- Its hit (`0x5ABD80`, the case `0x48D`), while its cooldown `+0x11C` is 0: the cooldown 1 s; one of its targets at random (`0x443B20(0, n − 1)`); the beam (`0x604030`, the variant 5, "The laser beams") from its place toward the target's neck, else its root (`0x44CBB0`), 500 on in the frame that `0x623AD0` takes with its flag 1, four times the effects' frame ("Their flight"), so 2,000 of that frame: some 2,710 to 2,860 of the world's units by the direction, the neck far nearer; its signal 8; and the target's health (its stats' `+0x130`) 0 and its AI's state 9, dead, with its sub-state 0 (`0x5B2285`…`0x5B22BD`).
+  No strike, no damage's number, no killer: the target dies outright, the hero too, whom the driver's `god` does not save (**seen**: she fell and rose at her home), and drops nothing (**hypothesis**: no death's event).
+- **Seen** under the driver: the Seraphim teleported 13 cells south of it was struck by a purple streaming beam from its point through her chest and some 2,800 units on, its end `wp(315508,124461)`; west of it, north of it and south-east of it the ends lay 2,859, 2,846 and 2,713 away along her directions; the creatures made beside it out of the view died alike, their three beams aimed at the world's origin, as a creature whose model is not drawn has no bones to aim at (**hypothesis**).
+- So the sword lies in a death trap: whoever comes within some 20 cells of the zhadum dies within a second, a purple beam flashing from the tentacled shape's eye.
+
+`opensacred-game` follows it since #2920 (`zhadums`, `opensacred_rules::zhadum`): `npcs` places it at its record's point; once a second it takes one of the living creatures on the ground within its reach at random, lays its beam of the variant 5 (`beams`) from its place through the creature's neck and on, and slays it (`fight::Slay`, an immortal one excepted); its glow flashes and fades.
+Since #2920 too the beams of the variant 5 look as their system (`LaserSegment::second_quads`).
+**Seen** beside the original: the beam through the hero by the sword, its end within 4 units of the original's, and the beam from the shape's eye eastward to the cave's wall.
+Not followed: the floors (it reaches the creatures on the ground, where it stands); a target whose model is not drawn, at which the original's beam aims at the world's origin.
 
 ## The Daemon's forms
 
@@ -2802,7 +2827,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn at every detail (the options' detail, a setting since #2352, stretches its emitters' intervals alone), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing (of the scripts' objects the other objects of the Underworld's quests and of its last fight, #2920 and #2921, whose classes no section above reads); the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
+Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing (the big demon's illusion 917 and the terror sprinter 1167, #2921, whose classes no section above reads); the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions

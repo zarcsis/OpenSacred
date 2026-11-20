@@ -12,7 +12,7 @@
 //! ([`quests`]), the regions' kills ([`regions`]), a quest's reward ([`rewards`]), the weather
 //! ([`weather`]), the peace stream's music and the fights' ([`music`]), the undead that rise
 //! again ([`undead`]), the particle systems ([`particles`]), the scripts' Pong ([`pong`]) and
-//! traps ([`script_traps`]), the
+//! traps ([`script_traps`]) with the sword's guard ([`zhadum`]), the
 //! backpack's grid ([`inventory`]), the equipment's slots and who may use an item
 //! ([`equipment`]), the land explored ([`explored`]), the potions and the belt ([`potions`]),
 //! the weapon sets ([`sets`]), the item sets' bonuses ([`set_bonuses`]), the prices and the
@@ -51,6 +51,7 @@ pub mod trade;
 pub mod undead;
 pub mod ways;
 pub mod weather;
+pub mod zhadum;
 
 /// A global cell of the world: `x` and `y`, 64 to a sector.
 pub type Cell = (i32, i32);
