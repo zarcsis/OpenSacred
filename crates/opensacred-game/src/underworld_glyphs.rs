@@ -7,7 +7,8 @@
 //! glows (`GlyphFire`); the spikes six spikes standing across the temple door, leaning in over its
 //! middle, which grow from the ground in a second and sink back in a second once the scripts
 //! signal them (`DoorSpikes`). None of them lights the world, sounds or darkens by night but the
-//! spikes, lit models as the world's.
+//! spikes, lit models as the world's. The start's own spikes end at once, as the original's, and
+//! are never placed (`npcs`, #3049).
 //!
 //! Not followed: the spikes' shadows.
 

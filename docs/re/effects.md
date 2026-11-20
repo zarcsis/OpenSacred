@@ -32,6 +32,10 @@ Implemented in `opensacred-rules` (`particles`, `spells`, `casts`, `arrows`, `fi
   Several types share a class: the smoke class serves 13 types, the element stones 7, the forge elements 5, the underworld glyphs 4, the teleports 2 (the catalogue below).
 - The set-up then marks the object (`+0x14`): bit `0x10000000` for every type but a list of persistent ones (768, 771, 787, 795, 802, 810 to 813, 827 to 830, 832, 833, 841, 853, 854, 876, 879, 881, 882, 884 to 886, 889, 890, 894 to 900, 904, 939, 1160, 1161, 1175 to 1181), and bit `4` for the smoke family, the torch smoke, the trap 892 and 893 and the blood puddle 903 (its meaning not read).
   The simulation's tick (`0x5A6210`, virtual `+0x04`) destroys an object of bit `0x10000000` whose sector is no longer active, unless its system follows something (system flags `0x1200`), and logs it; the persistent ones (the world's fires and smokes, the glyphs, the gates) stay.
+  Its log names the sector "un-entered": the bit `0x800` of the sector's `+0x30`, which a sector's `Enter` marks.
+  So an effect that the scripts' start makes at once (`0x48907C`) outside the 3 × 3 sectors about the start, of a type off the list, ends at its first tick; **seen** in the original's log for butterflies (873) of the sectors 32,48 to 34,51.
+  Of every tree's start, the add-on's temple door's spikes (1174) alone are such an effect ("The Underworld's glyphs"; a scan of the scripts, #3049).
+  `opensacred-game` follows it since #3049 (`npcs::ends_at_start`, `opensacred_rules::particles::persistent`): such a start's effect is never placed.
   The FX event handler clears bit `0x10000000` too when the system's flags have `0x1200`.
 
 ### The FX event
@@ -1955,7 +1959,7 @@ The handler's case `0xB0` places and starts the spikes for an event's `+0x3C` 0 
 The scripts (every add-on tree, the same records):
 - the spikes: `StartCode` makes `SPIKED_DEMON_TEMPLE_DOOR` at the cell 695,2630 (sector 10,41) and the trigger `TRG_SPIKED_DEMON_TEMPLE_DOOR`, closed and barred over the cells 694 to 696, 2630; quest 53's `QIS_OnEnter53` signals the spikes and, in its next record, unbars and opens the trigger.
   The spikes block nothing; the trigger shuts the door.
-  Made at the start in a sector away from the hero's, a non-persistent type, they most likely end at the first tick in the original, so that the signal finds nothing (**hypothesis**, #3049).
+  Made at the start in a sector away from the hero's, a non-persistent type, they end at their first tick in the original, so that the signal finds nothing ("The set-up: one system per type"; **hypothesis** for this one, which the driver cannot show).
 - the glyphs: quest 52's four locks, each a holder (1397) with a `Take:` function that opens its lock's gates and makes the glyph `1174 + N` at the holder's point (sectors 81,88 to 83,86); nothing signals or takes them away.
 - the fire: quest 53's `MouseEvent` at the cell 5963,4955 (its text 17832, its function `ot_nimmt_flamme`, one use), then `CreateObj "res:17832"` 1179 at the corner of the cells 5963 to 5964, 4955 to 4956, and the compass on it; `ot_nimmt_flamme` takes it away by `DelNPC` and gives the hero the quest's item 4932.
   The cursor picks no FX object but the stargates (`0x5B6680`): the flame is taken through the mouse event's cell.
@@ -1979,7 +1983,8 @@ The scripts (every add-on tree, the same records):
 - So a see-through red sign with gold veins turns 130 over its point in a faint orange-red cloud.
 
 `opensacred-game` draws the three since #2918 (`underworld_glyphs`, `opensacred_rules::particles::{DoorSpikes, UwGlyph, GlyphFire}`): `npcs` places each at its record's point, the signs' two passes are copies of their meshes in materials whose texture transforms slide, and the scripts' signal (`forge_elements::Signal`) sinks the spikes.
-Not followed: the spikes' shadows; whether the start's spikes live at all (#3049).
+Since #3049 the start's spikes are never placed, as the original's end at once (`npcs::ends_at_start`); their look stays for a spikes' object that a script would make in a marked sector.
+Not followed: the spikes' shadows.
 
 ## The Daemon's forms
 
