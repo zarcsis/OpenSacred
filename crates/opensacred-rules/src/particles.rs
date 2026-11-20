@@ -18,6 +18,40 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use crate::spawning::Dice;
 
+/// Whether an FX object of the type `kind` is persistent (the set-up `0x5A0C50`'s tail, its
+/// `+0x14` bit `0x10000000` left clear; docs/re/effects.md, "The set-up: one system per type"):
+/// the simulation's tick keeps it in a sector that is not active, where it ends one of any other
+/// type at once (`0x5A6210`, #3049).
+pub fn persistent(kind: u32) -> bool {
+    matches!(
+        kind,
+        768 | 771
+            | 787
+            | 795
+            | 802
+            | 810..=813
+            | 827..=830
+            | 832
+            | 833
+            | 841
+            | 853
+            | 854
+            | 876
+            | 879
+            | 881
+            | 882
+            | 884..=886
+            | 889
+            | 890
+            | 894..=900
+            | 904
+            | 939
+            | 1160
+            | 1161
+            | 1175..=1181
+    )
+}
+
 /// The options' detail (`DETAILLEVEL`, the byte `0x182EE78`), 0 to 2, that the systems started
 /// from now take: the high's 2 until the game sets it.
 static DETAIL: AtomicU8 = AtomicU8::new(2);
@@ -16198,6 +16232,23 @@ impl DemonDeath {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_persistent_fx_types_are_the_set_ups_list() {
+        let kept: Vec<u32> = (768..=1181).filter(|&kind| persistent(kind)).collect();
+        let mut want = vec![768, 771, 787, 795, 802];
+        want.extend(810..=813);
+        want.extend(827..=830);
+        want.extend([832, 833, 841, 853, 854, 876, 879, 881, 882]);
+        want.extend(884..=886);
+        want.extend([889, 890]);
+        want.extend(894..=900);
+        want.extend([904, 939, 1160, 1161]);
+        want.extend(1175..=1181);
+        assert_eq!(kept, want);
+        // The temple door's spikes, the scripts' field and the butterflies are not.
+        assert!(!persistent(1174) && !persistent(891) && !persistent(873));
+    }
 
     #[test]
     fn a_bubble_prisons_cylinders_turn_and_its_last_rises_and_starts_again() {

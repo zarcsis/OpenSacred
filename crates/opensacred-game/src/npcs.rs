@@ -435,6 +435,12 @@ struct Placement {
     /// start's tree gives it as a game loads; a save keeps no placement of the start's.
     #[serde(skip)]
     made_again: bool,
+    /// Whether it is an effect of the start's of a type off the persistent list outside the 3 × 3
+    /// sectors about its start, which the original makes at once in a sector that no `Enter` has
+    /// marked and its tick ends at its first run (`0x5A6210`, [`ends_at_start`], #3049): never
+    /// placed.
+    #[serde(skip)]
+    ended: bool,
     /// Whether it has a dialogue, a `CreateNPC` with one (the operand `0x09`; **hypothesis**: the
     /// one `0x483AFA` stamps; `ai::Mind`).
     dialogue: bool,
@@ -1087,6 +1093,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         made: (true, false),
         started: false,
         made_again: false,
+        ended: false,
         dialogue: false,
         trades: 0,
         kept: false,
@@ -1875,6 +1882,19 @@ fn model_position(at: Vec3, drawn: Option<Vec2>) -> Vec3 {
     drawn.map_or(at, |drawn| {
         iso::at_height(Vec3::new(drawn.x, 0.0, drawn.y), at.y)
     })
+}
+
+/// Whether an object that the start makes on `cell`, an effect of the type `effect` if it is one,
+/// ends at once, the start's sector `start` (docs/re/effects.md, "The set-up: one system per
+/// type", #3049): an effect of a type off the persistent list outside the 3 × 3 sectors about the
+/// start, which the start makes at once in a sector that no `Enter` has marked (`+0x30` bit
+/// `0x800`, `0x48907C`) and the simulation's tick ends at its first run (`0x5A6210`): the add-on's
+/// temple door's spikes (1174), whose sector lies far from the add-on's start.
+fn ends_at_start(start: (u32, u32), cell: (u32, u32), effect: Option<u32>) -> bool {
+    let side = u32::try_from(SIDE).unwrap_or(64);
+    let sector = (cell.0 / side, cell.1 / side);
+    let outside = sector.0.abs_diff(start.0) > 1 || sector.1.abs_diff(start.1) > 1;
+    outside && effect.is_some_and(|kind| !opensacred_rules::particles::persistent(kind))
 }
 
 /// The hero's start: the global cell of the `StartPosition` record that `tree`'s start script
@@ -3831,6 +3851,7 @@ impl Makers {
             made: (origin.enter, true),
             started: origin.started,
             made_again: false,
+            ended: false,
             dialogue: record.kind == CREATE_NPC
                 && ops.iter().any(|o| {
                     o.tag == DIALOGUE || (o.tag == STAMPED && matches!(o.value, Value::Marker))
@@ -4538,6 +4559,19 @@ impl Npcs {
                 "npcs: {again} of the start's objects lie outside its 3 x 3, made again by their \
                  sectors' Enter"
             );
+            // Its effects of the types off the persistent list there end at once (#3049).
+            for placement in placements.iter_mut().filter(|p| p.object && p.started) {
+                let kind = placement.creature.0;
+                let effect = items.get(&kind).is_some_and(|item| category(item) == FX);
+                placement.ended = ends_at_start(start, placement.cell, effect.then_some(kind));
+                if placement.ended {
+                    bevy::log::debug!(
+                        "npcs: the start's effect {kind} at {:?} ends at once, its sector not \
+                         marked",
+                        placement.cell
+                    );
+                }
+            }
         }
         // What each creature type that has a model is made of, and what each type that the
         // sectors' fills make is placed as ([`template`]).
@@ -4621,7 +4655,7 @@ impl Npcs {
         );
         let side = u32::try_from(SIDE)?;
         let mut by_sector: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
-        for (index, placement) in placements.iter().enumerate() {
+        for (index, placement) in placements.iter().enumerate().filter(|(_, p)| !p.ended) {
             let (x, y) = placement.cell;
             by_sector
                 .entry((x / side, y / side))
@@ -16742,6 +16776,25 @@ mod tests {
         assert_eq!(start_position(&vampiress), Some(((3500, 2477), Some(2))));
         let gladiator = tree(vec![cell(3790), cell(349)]);
         assert_eq!(start_position(&gladiator), Some(((3790, 349), None)));
+    }
+
+    #[test]
+    fn the_starts_effects_of_passing_types_far_from_it_end_at_once() {
+        // The add-on's start in 97,60, the temple door's spikes at the cell 695,2630 (10,41).
+        let start = (97, 60);
+        assert!(ends_at_start(start, (695, 2630), Some(1174)));
+        // Within the 3 × 3 about the start, of a persistent type, or no effect at all: kept.
+        assert!(!ends_at_start(
+            start,
+            (98 * 64 + 5, 61 * 64 + 5),
+            Some(1174)
+        ));
+        assert!(!ends_at_start(start, (96 * 64, 59 * 64), Some(1174)));
+        assert!(!ends_at_start(start, (695, 2630), Some(1175)));
+        assert!(!ends_at_start(start, (695, 2630), None));
+        // Two sectors off along either axis is outside.
+        assert!(ends_at_start(start, (99 * 64, 60 * 64), Some(891)));
+        assert!(ends_at_start(start, (97 * 64, 62 * 64), Some(891)));
     }
 
     #[test]
