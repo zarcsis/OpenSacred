@@ -434,6 +434,8 @@ struct Placement {
     /// Whether its `CreateNPC` or a `SetNPCState` that names it marks it a vision ([`VISION`]),
     /// which it stays: its type is drawn and ends as the visions' types are ([`Vision`]).
     vision: bool,
+    /// The text a fill's creature is called by, its rule's name ([`called_of`], [`Called`]).
+    called: Option<u32>,
     /// An NPC's walk and run speeds in world units a second, before the game's speed, and its
     /// `Creature.pak` class (`ai::Mind`).
     speed: [f32; 2],
@@ -1147,6 +1149,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         emerges: false,
         sinks: false,
         vision: false,
+        called: None,
         texture: kind.texture.clone(),
         woman: kind.woman,
         layer: 0,
@@ -2046,12 +2049,15 @@ struct Gear {
 /// A `MakeGroup` rule (`0x4AB940`): the creature types it equips, its three items' pools and
 /// chances in percent (`87`, `88`, `89`; a pool of −1 or a chance of 0 gives nothing), and its
 /// spells (`67`, up to ten, each kept as a `CreateNPC`'s, [`script_spell`]), of which each
-/// creature it equips takes one at random (#2949).
+/// creature it equips takes one at random (#2949), and its name, the id of the text that its
+/// last `1D` (a `res:` number), `1E` or `16` names (`+0x74`), which the creatures it names are
+/// called by ([`called_of`], #3071).
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Rule {
     types: Vec<u32>,
     items: [(i32, u32); 3],
     spells: Vec<u8>,
+    name: Option<u32>,
 }
 
 /// The scripts' weapon pools (`Waffenpool`, type 114, `0x475F1A`): each record adds its last
@@ -2148,10 +2154,20 @@ fn rules(tree: &Tree) -> HashMap<(u32, u32), Vec<Rule>> {
                 })
                 .take(RULE_SPELLS)
                 .collect();
+            let name = ops
+                .iter()
+                .filter_map(|o| match (o.tag, &o.value) {
+                    (0x1D, Value::I32(id)) => Some(id.to_string()),
+                    (0x1E | 0x16, Value::Str(key)) => Some(key.clone()),
+                    _ => None,
+                })
+                .next_back()
+                .map(|key| opensacred_data::text::sacred_hash(key.as_bytes()));
             out.entry(sector).or_default().push(Rule {
                 types,
                 items,
                 spells,
+                name,
             });
         }
     }
@@ -2160,6 +2176,18 @@ fn rules(tree: &Tree) -> HashMap<(u32, u32), Vec<Rule>> {
 
 /// The most spells a `MakeGroup` rule carries (`0x4AB940`).
 const RULE_SPELLS: usize = 10;
+
+/// The text a creature of `creature` that a fill makes is called by: the name of the last of the
+/// sector's rules that names its type and carries one, which `FillSector` puts in the creature's
+/// key (`+0x3C`, `0x44A1B0` at `0x47F0C2`) as it walks every rule; none where none does, and the
+/// creature is called by its type's name (`sdk_REFKEY`, `0x44A1C0`; [`Called`], #3071).
+fn called_of(rules: &[Rule], creature: u32) -> Option<u32> {
+    rules
+        .iter()
+        .filter(|rule| rule.types.contains(&creature))
+        .filter_map(|rule| rule.name)
+        .next_back()
+}
 
 /// The spell that a creature of `creature` takes by the first of the sector's rules that names
 /// it, one of the rule's at random (`0x47F8E0`, `+0x2B6`; **hypothesis** for the roll, a draw of
@@ -4028,6 +4056,7 @@ impl Makers {
             listed: record.kind == CREATE_NPC && listed(ops),
             hostility,
             emerges: record.kind == CREATE_NPC && markers().any(|tag| tag == EMERGES),
+            called: None,
             sinks: record.kind == CREATE_OBJ
                 && category(item) != CHEST
                 && (category(item) == SINKING || self.kinds.contains_key(&creature)),
@@ -6172,6 +6201,8 @@ pub fn place(
                 if let Some(spell) = spell_of(rules, made.creature, &mut rng) {
                     placement.spell = spell;
                 }
+                // The name its rules call it by (#3071).
+                placement.called = called_of(rules, made.creature);
                 // A random heading, as the creature maker gives one (`rand() % 361`).
                 placement.heading = f32::from(u16::try_from(rng.below(361)).unwrap_or(0));
                 // A hostile one bit 0, a peaceful one its type's behaviour (`0x480D40`), and a
@@ -7516,6 +7547,9 @@ fn spawn(
         }
         if placement.rises {
             entity.insert(RisesAgain);
+        }
+        if let Some(called) = placement.called {
+            entity.insert(Called(called));
         }
         if placement.emerges {
             entity.insert(ScriptClip::emerging());
@@ -12383,6 +12417,25 @@ fn envision(mut entity: bevy::ecs::system::EntityCommands, creature: u32) {
         Vision,
         crate::skins::Asked(crate::skins::Overlay::Vision(look), f32::INFINITY),
     ));
+}
+
+/// The id of the text a fill's creature is called by, its `MakeGroup` rule's name, which
+/// `FillSector` puts in the creature's key `+0x3C` ([`called_of`], #3071).
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Called(pub u32);
+
+/// The name of a creature of the type `creature` (`sdk_REFKEY`, `0x44A1C0`): the text of its
+/// script's name `script`, else of the name its rule called it by (`called`), else its type's;
+/// none where none has a text.
+pub fn name_of_creature<'a>(
+    texts: &'a crate::lines::Texts,
+    (script, called): (Option<&ScriptName>, Option<&Called>),
+    creature: u32,
+) -> Option<&'a str> {
+    script
+        .and_then(|key| texts.named(crate::talk::resource(&key.0)))
+        .or_else(|| called.and_then(|called| texts.id(called.0)))
+        .or_else(|| texts.named(&creature.to_string()))
 }
 
 /// What a dead creature that may rise again ([`RisesAgain`]) or that the scripts name, which a
@@ -17344,6 +17397,7 @@ mod tests {
             types: vec![313],
             items: [(5, 100), (0, 0), (-1, 0)],
             spells: Vec::new(),
+            name: None,
         }];
         let mut placement = Placement::default();
         let held = arm_by_rules(
@@ -17369,11 +17423,66 @@ mod tests {
     }
 
     #[test]
+    fn a_filled_creature_is_called_by_the_last_named_rule_of_its_type() {
+        // 10,49's ice elf champion 146 and its 140, each named by its rule's `1D` (#3071); a
+        // `1E`'s key and a `16`'s names too, the last tag of a record its name.
+        let op = |tag, value| Operand { tag, value };
+        let group = |ops: Vec<Operand>| Record {
+            kind: MAKE_GROUP,
+            body: Body::Operands(ops),
+        };
+        let tree = Tree {
+            start: Vec::new(),
+            quest: Vec::new(),
+            functions: vec![opensacred_data::netscript::Function {
+                name: "Sector10049Enter".into(),
+                quest: -1,
+                region: 0,
+                records: vec![
+                    group(vec![op(0x02, Value::I32(146)), op(0x1D, Value::I32(17769))]),
+                    group(vec![op(0x02, Value::I32(140)), op(0x1D, Value::I32(17768))]),
+                    group(vec![op(0x02, Value::I32(140))]),
+                    group(vec![
+                        op(0x02, Value::I32(260)),
+                        op(0x1D, Value::I32(17557)),
+                        op(0x1E, Value::Str("R25_DRACHENGARDE_MAG".into())),
+                    ]),
+                    group(vec![
+                        op(0x02, Value::I32(261)),
+                        op(0x16, Value::Str("R25_DRACHENGARDE".into())),
+                    ]),
+                ],
+            }],
+            quests: Vec::new(),
+            regions: Vec::new(),
+        };
+        let rules = rules(&tree);
+        let rules = &rules[&(10, 49)];
+        let hash = |key: &str| opensacred_data::text::sacred_hash(key.as_bytes());
+        assert_eq!(called_of(rules, 146), Some(hash("17769")));
+        // A later rule of no name leaves the earlier's.
+        assert_eq!(called_of(rules, 140), Some(hash("17768")));
+        assert_eq!(called_of(rules, 260), Some(hash("R25_DRACHENGARDE_MAG")));
+        assert_eq!(called_of(rules, 261), Some(hash("R25_DRACHENGARDE")));
+        assert_eq!(called_of(rules, 258), None);
+        // A later named rule calls it by its own.
+        let mut later = rules.clone();
+        later.push(Rule {
+            types: vec![146],
+            items: [(-1, 0), (0, 0), (-1, 0)],
+            spells: Vec::new(),
+            name: Some(7),
+        });
+        assert_eq!(called_of(&later, 146), Some(7));
+    }
+
+    #[test]
     fn a_filled_magician_takes_one_of_its_rules_spells() {
         let rule = |types: Vec<u32>, spells: Vec<u8>| Rule {
             types,
             items: [(-1, 0), (0, 0), (-1, 0)],
             spells,
+            name: None,
         };
         let rules = [rule(vec![258, 262], vec![5, 43]), rule(vec![258], vec![34])];
         let mut rng = spawning::Rng::of(48, 39, 0);
@@ -17420,6 +17529,7 @@ mod tests {
             types,
             items,
             spells: Vec::new(),
+            name: None,
         };
         let rules = [
             rule(vec![306, 313], [(125, 100), (50, 100), (-1, 0)]),

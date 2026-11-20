@@ -19,7 +19,7 @@ use crate::fight::{Combat, Health, Ranked, Rules};
 use crate::frame::Playing;
 use crate::game::{AppState, FONT};
 use crate::lines::Texts;
-use crate::npcs::ScriptName;
+use crate::npcs::{Called, ScriptName};
 use crate::settings::Settings;
 
 /// The panel's top on the original's screen, the line of its font, and the room each icon takes
@@ -157,18 +157,16 @@ fn shows(
         &Health,
         Option<&Combat>,
         Option<&Ranked>,
-        Option<&ScriptName>,
+        (Option<&ScriptName>, Option<&Called>),
     )>,
 ) -> Option<(Shows, f32)> {
     if inventory || settings.is_some_and(|settings| !settings.interface.enemy_info) {
         return None;
     }
-    let (mind, health, combat, ranked, key) = creatures.get(foe.0?).ok()?;
+    let (mind, health, combat, ranked, keys) = creatures.get(foe.0?).ok()?;
     let texts = texts?;
     // Its key's text, else its type's (`sdk_REFKEY`, `0x44A1C0`).
-    let name = key
-        .and_then(|key| texts.named(crate::talk::resource(&key.0)))
-        .or_else(|| texts.named(&mind.creature.to_string()))?;
+    let name = crate::npcs::name_of_creature(texts, keys, mind.creature)?;
     let level = rules.map_or(health.level, |rules| rules.0.on_bronze(health.level));
     let class = CLASS_NAMES
         .get(usize::from(mind.class))
@@ -216,7 +214,7 @@ fn follow(
         &Health,
         Option<&Combat>,
         Option<&Ranked>,
-        Option<&ScriptName>,
+        (Option<&ScriptName>, Option<&Called>),
     )>,
     mut bars: Query<(&mut Node, &mut BackgroundGradient)>,
 ) {
