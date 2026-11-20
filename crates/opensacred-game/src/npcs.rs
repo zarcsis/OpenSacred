@@ -5624,6 +5624,15 @@ fn laid_item(
     let Some((tables, difficulty)) = made else {
         return plain_item(item);
     };
+    // A pile of gold, its record's price its amount, which the pick-up adds to the purse
+    // (`0x5D3AB0`'s first step, the files' 600; seen: quest 1301's 5135 gave 600; #3090).
+    if opensacred_rules::drops::GOLD.contains(&item) {
+        return opensacred_rules::drops::Dropped {
+            kind: opensacred_rules::drops::Kind::Gold,
+            amount: u32::try_from(tables.price(item)).unwrap_or(0),
+            ..plain_item(item)
+        };
+    }
     let hero = if placement.started {
         fight::HERO_LEVEL
     } else {
