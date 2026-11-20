@@ -500,8 +500,8 @@ An **estimate**: a linear scan, which misses values computed at run time and may
 | healing | 400 | 784 | PARTICLE_SPARK02 | PARTICLE_SPARK02 `5/g1` |  |  | 0x200 |
 | hellFire | 100 | 820 | PARTICLE_FIRE02, PARTICLE_FIRE09, PARTICLE_GLOW03 | PARTICLE_FIRE09 `0x89/g4` | flat quad, own geometry | 200 | 0x420 |
 | helldisk | 300 | 1005 | A_LAVA%.2d, fx_multiTexGlow01, particle_glow03 | particle_glow03 `0xd/g1` | glow, model |  | 0x10000 |
-| hellgate_down | 999 | 1161 | particle_multi03 | particle_multi03 `ebp/g?` |  |  |  |
-| hellgate_head | 250 | 1181 | PARTICLE_SMOKE03 | PARTICLE_SMOKE03 `0x14c/g2` | chain, glow |  |  |
+| hellgate_down | 999 | 1161 | particle_multi03 | particle_multi03 `0x10d/g2`, flat |  |  |  |
+| hellgate_head | 250 | 1181 | PARTICLE_SMOKE03 | PARTICLE_SMOKE03 `0x14c/g2` | glow |  |  |
 | hellgate_up | 999 | 1160 | particle_glow03, particle_glow08 |  | flat quad, glow |  |  |
 | hellscream | 150 | 1012 | PARTICLE_GLOW01, PARTICLE_GLOW03, laserbeampart |  | flat quad, own geometry, ring | 350 | 0x400 |
 | highspeed | 250 | 846 | PARTICLE_DOTS02, PARTICLE_TWIRL02 | PARTICLE_TWIRL02 `ebp/g?` |  | 1064108032 | 0x202,0x3f1b0000 |
@@ -1876,6 +1876,49 @@ Since #2539 the whirls are drawn after the window and the window lies at least 0
 **Seen** 2026-11-11 in the game at the gate of 2201,2815: before, the gate's area fell from 137 to 108 in brightness for some 22 frames in every 60; after, it held between 137 and 138 over 240 frames.
 Not followed: the window's depth written over its whole rectangle, its clear corners included (**hypothesis**: the original's alpha test is off there).
 
+## The hell gates
+
+Read 2026-11-19 for #2917 in Ghidra (**confirmed** by code unless marked); the gate's head seen in the running original under the driver of #448.
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The gate up | 1160 `FX_HELLGATE_UP` | `cParticleSystem_hellgate_up` (`0x898EC0`) | `0x7BDF50`, `0x7BE3A0`, `0x7BDFF0`, `0x7BE060` |
+| The gate down | 1161 `FX_HELLGATE_DOWN` | `cParticleSystem_hellgate_down` (`0x898EF8`) | `0x7BEA70`, `0x7BEBF0`, `0x7BEB00`, `0x7BEB50` |
+| The gate's head | 1181 `FX_HELLGATE_HEAD` | `cParticleSystem_hellgate_head` (`0x899138`) | `0x7C6CA0`, `0x7C7040`, `0x7C6D30`, `0x7C6E00` |
+
+The set-up's cases `0x5A2DE5`, `0x5A2E1B` and `0x5A3167` make them of 999, 999 and 250 particles; none makes a Direct3D light nor writes a world light's radius, and each start ignores its event's values.
+`CreateObj` (`0x48A26F`) gives the three one event but their kinds `0xA4`, `0xA5` and `0xB4`: no caster nor target, the record's point at the height of its tag `0x7E` (none for the gates up and down, 0 for the heads), `+0x38` and `+0x3C` 0, the flags `0x2C0`.
+The handler's cases `0xA4` and `0xB4` place and start the system for an event's `+0x3C` 0, and for any other write 8 to its word `+0x74`, the signal; `0xA5` places and starts the gate down whatever its event holds.
+The scripts' `SetObjState` with the tag `0x3C` sends an FX object of its name its own kind with `+0x3C` 1 (`0x48B187`, `0x48B8F3` to `0x48B95E`): the signal of a gate up or a head.
+The add-on's trees make the gates up and down at their dimension gates in the main quests 14, 15, 25, 26, 36, 37, 42 and 43 and at the start, and every tree makes a head in the `Enter` of 12,79 (cell 789,5084) and of 39,55 (2541,3564); the add-on's quests 15 and 26 signal the heads as they make a gate up beside them.
+
+**The gate up (1160).**
+- Its start (`0x7BE3A0`): fifteen threads, of the half sides 20, 12, 10, 6, four of 4 and seven of 2 and the lengths 1000, three of 800 and eleven of 600 times the detail's factor (1, 1.5 or 2.2 by `DETAILLEVEL` 2, 1 or 0); each one's foot at `r` of 50 times a roll at an angle of a turn times a roll; its rates `A` 0.8 + 0.2 r, `B` 0.02 + 0.0467 r and `C` 2.2 + 2.5 r; ten waves along each of x and y, each of the amplitude 5 + 3 r, the frequency along the height 0.00667 + 0.0333 r and the speed 0.2 + 2.5 r, each `r` a roll of `rand()/32767`; it draws no particle.
+- Its run (`0x7BDFF0`): its clock `τ`; at the signal its fade falls by 0.07 a second, and below 0 it ends, 14.3 s after.
+- Its draw (`0x7BE060`), each thread: `⌊L/s⌋` glows of `PARTICLE_GLOW08` up its 300 at the heights `t = 300k/N`, each of its half side `s` at `(x(t), y(t), t)`, `x(t)` its foot's x and the sum of its ten waves `a sin(f t − v τ)`, `y` alike; added whole, depth tested and not written, untinted; its colour `q·(128, 128, 196)`, `q = 0.6 + 0.5 sin²(B t − C τ)`; then a flat quad of `PARTICLE_GLOW03` of the half side `4.5 s` at its foot on the ground, (160, 160, 255), added whole.
+  A lower detail draws more glows of the same threads (some 3,000 at the detail 2, 6,700 at 0), a quirk of the original.
+  Once signalled, a thread shows while `2(F − 0.5) + (sin Aτ + sin Bτ + sin Cτ)/3` holds at 0 or more, `F` the fade, and two gaps of no glow run up it from `(50 C τ) mod 300` and `(133 C τ) mod 300`, `160 A (1 − F)` and `114 A (1 − F)` long.
+- So fifteen thin lavender threads of light rise 300 over the gate, swaying and banded with brighter light climbing them, each over a pool of blue light on the ground; signalled, they break up and blink out over 14 s.
+
+**The gate down (1161).**
+- Its start (`0x7BEBF0`): two layers, the life −50 and the size −35 a second; two blocks, the buoyancy 4 (falling), the size 140 ± 15, any angle turning at 0.5 ± 0.15 a second, each of its layer's frame of `particle_multi03`'s grid of 2 × 2 (a ring of dots), at the gate's point, one every 0.005 s times the detail's factor, the layer 0 four times in five; its turn grows by 2.5 a second each second (`0x764330`).
+  Its ramps: the layer 0 from (254, 9, 9) at an alpha of 89 to (99, 4, 4, 254) over 80 entries, (199, 9, 9, 239) over 50, (49, 4, 4, 229) over 50 and black at 139 over 76; the layer 1 from a transparent (249, 208, 80) to the same at 254 over 20, (219, 179, 64, 239) over 160 and (79, 44, 14, 139) over 76.
+- It loops `DEMON_TENTAKEL_LOOP` (2123) at its object while it lives; it never ends of itself, and has no signal: the scripts take it away by `del_npc`.
+- Its draw (`0x7BEB50`): its billboards of the flags `0x10D` with the identity matrix, so that each lies flat on the ground at its place, turned by its angle about the upright, in its ramp's colour, untinted; the layer 0 laid over by its alpha, the layer 1 added by it; culling off.
+- So a whirlpool of red rings of sparks, 280 across, lies on the ground at the gate, each spinning faster as it shrinks to nothing in some 4 s and sinks a little, one in five yellow; it hums with the tentacles' loop.
+
+**The gate's head (1181).**
+- Its start (`0x7C7040`): one layer, the life −65 and the size +12 a second; one block, the buoyancy −30 (rising ever faster), the size 25 ± 6, any angle turning at 0 ± 1 a second, the velocity (−30, 60, 0) ± 6, from (−22, −113, 30) ± 5 off its point, a frame of `PARTICLE_SMOKE03`'s four at random, one every 0.06 s times the detail's factor; its ramp a pale red (254, 99, 99), its alpha up to 49 over 20 entries, held over 30, gone over 206.
+- Its run (`0x7C6D30`): its clock `τ`; before the signal its smoke aged and emitted; after it the smoke stands and its fade falls by a quarter of its whole clock at each run, not of the frame's time, so that a head signalled after 4 s goes at once (**hypothesis**: a fade over 4 s was meant).
+- Its draw (`0x7C6E00`): the smoke, camera-facing, turned, laid over by its alpha and tinted by the night; then two eyes at (−36, −257, 60) and (57, −207, 60) off its point, each a large glow of `PARTICLE_GLOW01` added by its alpha, of the half side `80 (1 + 0.2 sin 0.945τ) F` and the colour (255, 48 + 16b, 48 + 16b), and a small one of `PARTICLE_GLOW08` added whole, of the half side `17 F` and (255, 112 + 16b, 112 + 16b), `b` the beat of `0.945 τ` (`0x768600`), untinted.
+- So two red eyes glow and pulse in the great demon's head over its mouth, pale red smoke drifting from before them toward the viewer.
+  **Seen** 2026-11-19 at the head of 12,79 (the hero at 789,5088): two red glows at the stone head's eyes and a pale red cloud before its mouth.
+
+None of the three starts a sound but the gate down's loop; `HOELLENTOR` (221) is played by no call found (docs/re/sound.md).
+
+`opensacred-game` draws them since #2917 (`hell_gates`, `opensacred_rules::particles::{HellgateUp, HellgateDown, HellgateHead}`): `npcs` places each at its record's point, the scripts' signal (`forge_elements::Signal`) fades a gate up and ends a head as the original's, and the gate down hums its loop (`hums`).
+Not followed: a signal to a gate down, which the original takes for its event again, re-placing it at an unwritten point and starting its loop a second time (**hypothesis**: the add-on's quest 37 signals a name that a gate down holds too).
+
 ## The dwarves' magic
 
 Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code unless marked).
@@ -2658,7 +2701,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn at every detail (the options' detail, a setting since #2352, stretches its emitters' intervals alone), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing (of the scripts' objects the hell gates, #2917, and the underworld's glyphs with the other objects of its quests and of the last fight, #2918 to #2921, whose classes no section above reads); the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
+Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing (of the scripts' objects the underworld's glyphs with the other objects of its quests and of the last fight, #2918 to #2921, whose classes no section above reads); the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions

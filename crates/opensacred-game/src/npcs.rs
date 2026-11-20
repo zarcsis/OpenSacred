@@ -388,10 +388,11 @@ struct Placement {
     /// its variant, the type less 911, and its height in the models' units, the record's `0x7E`;
     /// it has no model of its item's.
     forge: Option<(u8, f32)>,
-    /// A trap of the scripts of the FX objects, the field of pills and ghosts (891,
-    /// `pill_fields`) or the maker of the fences of lightning (894, `laser_fences`; #2916): its
-    /// type and its height in the models' units, the record's `0x7E`; it has no model.
-    trap: Option<(u32, f32)>,
+    /// An FX object of the scripts that a module of its own runs: the field of pills and ghosts
+    /// (891, `pill_fields`) and the maker of the fences of lightning (894, `laser_fences`; #2916),
+    /// a hell gate (1160, 1161, 1181, `hell_gates`; #2917): its type and its height in the models'
+    /// units, the record's `0x7E`; it has no model.
+    scripted: Option<(u32, f32)>,
     /// An NPC's creature, its `Creature.pak` record's flags and the flags word its record's tags
     /// make (`crowd::flags_word`): how it stands in the others' way.
     creature: (u32, u8, u32),
@@ -1103,7 +1104,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         prison: None,
         dwarf_magic: None,
         forge: None,
-        trap: None,
+        scripted: None,
         trigger: None,
         creature: (creature, kind.flags, 0),
         side: kind.class,
@@ -3704,10 +3705,12 @@ impl Makers {
             let variant = u8::try_from(creature - first).unwrap_or(0);
             (variant, height.unwrap_or(0.0))
         });
-        // A trap of the scripts of the FX objects, which has no model: its type and its height.
-        let trap = (record.kind == CREATE_OBJ
+        // A trap or a hell gate of the scripts of the FX objects, which has no model: its type and
+        // its height.
+        let scripted = (record.kind == CREATE_OBJ
             && category(item) == FX
-            && [script_traps::FIELD, script_traps::FENCES].contains(&creature))
+            && ([script_traps::FIELD, script_traps::FENCES].contains(&creature)
+                || crate::hell_gates::Gate::is(creature)))
         .then(|| {
             let height = ops.iter().find_map(|o| match (o.tag, &o.value) {
                 (FX_HEIGHT, Value::I32(h)) => i16::try_from(*h).ok().map(f32::from),
@@ -3736,7 +3739,7 @@ impl Makers {
                 || prison.is_some()
                 || dwarf_magic.is_some()
                 || forge.is_some()
-                || trap.is_some()
+                || scripted.is_some()
                 || pong.is_some())
             .then_some(&empty))
         else {
@@ -3857,7 +3860,7 @@ impl Makers {
             prison,
             dwarf_magic,
             forge,
-            trap,
+            scripted,
             pong,
             trigger: (record.kind == CREATE_OBJ && [DOOR, CHEST].contains(&category(item)))
                 .then(|| {
@@ -7220,7 +7223,7 @@ fn spawn(
             ))
             .id();
     }
-    if let Some((kind, height)) = placement.trap {
+    if let Some((kind, height)) = placement.scripted {
         let mut made = commands.spawn((
             Transform::from_translation(raised(spot, height)),
             layered,
@@ -7228,8 +7231,13 @@ fn spawn(
         ));
         if kind == script_traps::FIELD {
             made.insert(crate::pill_fields::Field);
-        } else {
+        } else if kind == script_traps::FENCES {
             made.insert(crate::laser_fences::Maker);
+        } else {
+            made.insert(crate::hell_gates::Gate {
+                kind,
+                name: placement.key.clone(),
+            });
         }
         return made.id();
     }
