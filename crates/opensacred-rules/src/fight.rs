@@ -1787,6 +1787,11 @@ pub struct Holds {
     /// Whether it strikes with two weapons, its class [`TWO_WEAPONS_CLASS`] or an item in each
     /// hand, the left no shield, which halves its hits' share ([`Holds::share`]).
     pub two: bool,
+    /// The levels of its items by their places in [`Self::items`] as its game knows them, the
+    /// levels their tooltips tell, each at least its sockets' items' highest (`0x5D3AB0`,
+    /// `0x5C0810`), by which they lower its speeds ([`combat_with`], #3080); an item past its
+    /// end, or of 0, takes the level its values work out ([`item_level`]).
+    pub levels: Vec<u32>,
 }
 
 /// The class of what a creature holds with a weapon in each hand, the left no shield
@@ -3968,7 +3973,11 @@ pub fn combat_with(
     };
     // An item above its holder's level and skill lowers its speeds (`0x57C6BB`, `0x579FBF`,
     // `0x57CA0A`; #844): the highest level of its weapons the attack speed, the armour's least
-    // factor its pace.
+    // factor its pace, each item's level its game's where it knows it (#3080).
+    let level_of = |index: usize, item: &ItemValues| match holds.levels.get(index) {
+        Some(&known) if known > 0 => known,
+        _ => item_level(item, rules),
+    };
     let skill_level = |id: u8| {
         skills
             .iter()
@@ -3980,8 +3989,9 @@ pub fn combat_with(
     let weapons = holds
         .items
         .iter()
-        .filter(|item| matches!(item.class, 5 | 27))
-        .map(|item| item_level(item, rules))
+        .enumerate()
+        .filter(|(_, item)| matches!(item.class, 5 | 27))
+        .map(|(index, item)| level_of(index, item))
         .max()
         .unwrap_or(0);
     if let Some(factor) = shortfall(weapons, v, skill_level(holds.skill)) {
@@ -3990,10 +4000,11 @@ pub fn combat_with(
     let armour = holds
         .items
         .iter()
-        .filter(|item| slows(item.class))
-        .filter(|item| (1..1000).contains(&item.scale))
-        .filter_map(|item| {
-            let q = shortfall(item_level(item, rules), v, skill_level(11))?;
+        .enumerate()
+        .filter(|(_, item)| slows(item.class))
+        .filter(|(_, item)| (1..1000).contains(&item.scale))
+        .filter_map(|(index, item)| {
+            let q = shortfall(level_of(index, item), v, skill_level(11))?;
             Some(stored(
                 1.0 - (1.0 - q) * f64::from(item.scale) * PACE_PER_CENT,
             ))
@@ -4051,8 +4062,8 @@ fn shortfall(required: u32, level: u32, skill: u32) -> Option<f64> {
 /// or their most where every least is 0; `T`, `D` and its resistances, at least 1, times 100
 /// over its template's scale where it has one; then `(T − SpawnWeaponMin)`, at least 1, times 100
 /// over `SpawnWeaponMax − SpawnWeaponMin`, rounded, held from 1 to 255. The original raises it to
-/// its sockets' items' highest (`0x5C0810`); the values passed here merge the sockets' additions
-/// into the item's own, which #3080 settles.
+/// its sockets' items' highest (`0x5C0810`), which `opensacred-game` does of the item's own values
+/// and passes to the speeds as [`Holds::levels`] (#3080).
 pub fn item_level(values: &ItemValues, rules: &Rules) -> u32 {
     own_level(values, rules.spawn_weapon)
 }
@@ -6486,6 +6497,34 @@ mod tests {
         // The skill 11 at 9 makes up the shortfall.
         let skilled = combat(&seraphim, 1, holding(vec![armour]), &[(11, 9)], &rules);
         assert!(skilled.pace > 129.0, "{}", skilled.pace);
+        // The level the game knows, the tooltip's of a socket's item's 20, in place of the one
+        // the values work out (#3080): the staff at level 8 asks it, 140 · (16/21)², 81 held at
+        // 100; a level of 0 and one past the items' end work it out, as before.
+        let known = |levels: Vec<u32>| Holds {
+            levels,
+            ..holding(vec![staff, armour])
+        };
+        assert_eq!(
+            combat(&seraphim, 8, known(vec![20, 0]), &[], &rules).speed,
+            100.0
+        );
+        assert_eq!(
+            combat(&seraphim, 8, known(vec![0, 0]), &[], &rules).speed,
+            140.0
+        );
+        assert_eq!(
+            combat(&seraphim, 8, known(Vec::new()), &[], &rules).speed,
+            140.0
+        );
+        // The armour's pace at level 1 by its known level 1, which asks nothing, and by its own.
+        assert_eq!(
+            combat(&seraphim, 1, known(vec![0, 1]), &[], &rules).pace,
+            130.0
+        );
+        assert_eq!(
+            combat(&seraphim, 1, known(vec![0, 0]), &[], &rules).pace,
+            83.0
+        );
     }
 
     #[test]
