@@ -13573,14 +13573,17 @@ impl Rearms {
 }
 
 /// Disarms `entity` (`0x4E9900`, read 2026-11-08 for #2298): an NPC that is no follower of the
-/// hero's throws down what its right hand holds, else its left (the slots 13 and 12), from its
+/// hero's and that the scripts keep to rise again (`+0x2B7` bit 8, [`RisesAgain`], #3088) throws
+/// down what its right hand holds, else its left (the slots 13 and 12), from its
 /// model's place, the item with its values ([`crate::drops::throw_disarmed`]); a living one's
 /// values are made anew of what it holds then, of which it keeps a share
 /// (`opensacred_rules::fight::disarmed`), a dying one's model alone goes. With its hands empty it
 /// takes off what it wears of the slot 1, else the slot 0 (the armour, the helmet; #2816), from
 /// its neck's bone ([`disarm_worn`]).
 pub(crate) fn disarm(world: &mut bevy::prelude::World, entity: Entity) {
-    if world.get::<crate::followers::Follower>(entity).is_some() {
+    if world.get::<crate::followers::Follower>(entity).is_some()
+        || world.get::<RisesAgain>(entity).is_some()
+    {
         return;
     }
     let Some(arms) = world.get::<Arms>(entity) else {
@@ -16705,11 +16708,18 @@ mod tests {
             .id();
         let follower = world.spawn((arms(), GlobalTransform::default())).id();
         crate::followers::rehire(&mut world, follower, living, false);
+        // One that the scripts keep to rise again keeps its arms (`+0x2B7` bit 8, #3088).
+        let rises = world
+            .spawn((arms(), GlobalTransform::default(), RisesAgain))
+            .id();
         // The drops' tables are not read here: the weapons are not thrown, the hands empty all
         // the same.
         disarm(&mut world, living);
         disarm(&mut world, dying);
         disarm(&mut world, follower);
+        disarm(&mut world, rises);
+        assert!(world.get::<Rearms>(rises).is_none());
+        assert_eq!(world.get::<Arms>(rises).unwrap().holding.len(), 2);
         let rearms = world.get::<Rearms>(living).unwrap();
         assert!(rearms.disarmed && rearms.away == [Hand::Right] && rearms.takes.is_empty());
         let kept: Vec<u32> = world
