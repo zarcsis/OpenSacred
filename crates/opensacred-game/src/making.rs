@@ -864,6 +864,18 @@ fn make(
                 end(&mut commands);
                 continue;
             };
+            // The backbreaker takes up a creature of its classes alone, small, and for any other
+            // ends at once, without its regeneration (`0x4FF0B0` at `0x502D01`).
+            if style == Style::Backbreaker
+                && !creatures.get(making.target).is_ok_and(|(_, _, mind, _)| {
+                    let thinks = &mind.thinks;
+                    arts::backbreaker_takes(thinks.creature, thinks.class, thinks.big)
+                })
+            {
+                info!("making: {} does not take up {}", making.art, making.target);
+                end(&mut commands);
+                continue;
+            }
             // The multi-shot plays no clip: its effect at once, its regeneration, and it ends
             // (`0x50AC00` at `0x50C585`).
             if style == Style::Volley {
