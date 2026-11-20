@@ -9559,6 +9559,30 @@ impl Npcs {
             })
     }
 
+    /// The cell of the script's object of the name `name`, case aside, that a `CreateObj` laid
+    /// and that stands away from the world, its sector not in it: the first such placement that
+    /// no taking and no `DelNPC` took away, which a compass's marker points at as the original's
+    /// finds the object of its name wherever it stands (`0x4A5980`, #3105).
+    pub fn object_away(&self, name: &str) -> Option<(u32, u32)> {
+        let side = u32::try_from(SIDE).ok()?;
+        self.placements
+            .iter()
+            .enumerate()
+            .find(|(index, placement)| {
+                placement.object
+                    && !self.taken.contains(index)
+                    && !self.removed.contains(index)
+                    && !self
+                        .spawned
+                        .contains(&(placement.cell.0 / side, placement.cell.1 / side))
+                    && placement
+                        .name
+                        .as_deref()
+                        .is_some_and(|own| own.eq_ignore_ascii_case(name))
+            })
+            .map(|(_, placement)| placement.cell)
+    }
+
     /// Clears the sight's bit of the kept placement `index` (`minds::SIGHT`, `0x59F78F`, #2475):
     /// its creature saw the hero, and comes back so with its sector or a save.
     pub(crate) fn sighted(&mut self, index: usize) {
