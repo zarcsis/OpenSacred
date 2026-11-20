@@ -12,7 +12,7 @@ Implemented in `opensacred-rules` (`particles`, `spells`, `casts`, `arrows`, `fi
 - An FX event (`cEventFX`) starts the object; its kind says how the object attaches and moves, and a value of it (`+0x38`) picks a variant inside the system.
 - The systems share one machinery: 64-byte particles, up to four emitter layers, 256-entry colour ramps over a particle's life, camera-facing quads of pre-lit vertices, and a handful of helpers for glows, flat quads, rings and helices.
 - The world's fires are not their own class: `FX_FIRE_L` (884, 885, 886), the fire smokes, the chimney smokes, the lava smokes, the geysers and the magic fires are all `cParticleSystem_smoke`, its 13 variants chosen by the scripts' `CreateObj`.
-- The torch's flame is `FX_TORCHSMOKE` (787) on the torch's bone `weapon_fx01`; the butterflies are `FX_BUTTERFLY` (873), swarms of 3 to 6 that wander the walkable ground and turn into fireflies by night.
+- The torch's flame is `FX_TORCHSMOKE` (787) on the torch's bone `weapon_fx01`; the butterflies are `FX_BUTTERFLY` (873), swarms of 3 to 6 that wander the ground and turn into fireflies by night.
 
 ## The FX objects
 
@@ -360,6 +360,7 @@ The world's wall torches and fire pits are statics (`DUN_torch1` to `4`, `TORCH0
   - So by day the swarms are tinted butterflies, by night only fireflies, and both at dusk and dawn.
   - **Seen** 2026-10-27: by noon small coloured specks in 54,42; by night (23:30) clusters of three to six yellow-green glowing dots.
 - The swarm's butterflies are born together, so their alpha and their frames run in step: the whole swarm fades from opaque to nothing over 2.55 s and comes back at once (by code; **hypothesis** that it shows so, not checked frame by frame).
+- `opensacred-game` follows the wander's two tests since #3053 (`butterflies`, `terrain::Heights::stops_flight` and `passes`), so that a swarm flies over a cell an arrow flies over and turns back at a stair, a teleport, an entrance or an exit, and moves in the effects' frame ("Their flight"); before, it turned back from every cell that may not be walked on.
 
 ### The undead's effects: `cParticleSystem_puzzleSolved_v`
 

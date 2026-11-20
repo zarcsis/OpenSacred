@@ -1,8 +1,10 @@
 //! The butterflies (#1073; docs/re/effects.md, "The butterflies", docs/re/weather.md): as a sector
 //! of the butterflies' weather entries comes in, ten swarms an entry at walkable places at random
-//! (the event of kind 10), one in 31 with a glow; each swarm of 3 to 6 butterflies wanders the
-//! walkable ground at 20 to 40 units of the models a second, turning by its own rate and turning
-//! back where it may not go, its butterflies fluttering about a point 50 units above it
+//! (the event of kind 10), one in 31 with a glow; each swarm of 3 to 6 butterflies wanders at 20
+//! to 40 units of the effects' frame a second (`iso::flight`), turning by its own rate and turning
+//! back from a cell of a kind that stops it or that neither a walker nor an arrow passes, so that
+//! it flies over a cliff's edge and the water an arrow flies over (#3053), its butterflies
+//! fluttering about a point 50 units above it
 //! (`cParticleSystem_butterfly`, `0x79B020`, the object's flag `0x8000`). By day they are drawn
 //! as billboards of `PARTICLE_BUTTERFLY01` playing its 8 × 8 wing beats over their looping life of
 //! 2.55 s, each its own colour at the alpha of its life; by night as fireflies, glows of
@@ -46,8 +48,9 @@ const GRID: f32 = 8.0;
 /// The seed of the butterflies' `rand()` (**estimate**: any).
 const SEED: usize = 0x369;
 
-/// A swarm, at its entity's place: the way it goes and how fast it turns and goes, whether it
-/// glows, its butterflies, and its meshes of the butterflies and of the glows.
+/// A swarm, at its entity's place: the way it goes in the effects' frame and how fast it turns
+/// and goes, whether it glows, its butterflies, and its meshes of the butterflies and of the
+/// glows.
 #[derive(Component)]
 struct Swarm {
     way: Vec2,
@@ -225,9 +228,12 @@ fn wander(
     let dt = time.delta_secs().min(0.1);
     for (mut swarm, mut transform) in &mut swarms {
         let swarm = &mut *swarm;
-        let step = swarm.way * swarm.speed * iso::MODEL_SCALE * dt;
-        let next = transform.translation + Vec3::new(step.x, 0.0, step.y);
-        if heights.walkable(paths::cell_of(next.x, next.z)) {
+        // Its step in the effects' frame, taken to the ground (`0x5AA330`); a cell that stops it
+        // (`0x636D70`) or that may not be walked on unless an arrow flies over it (`0x636D20`)
+        // turns it back.
+        let next = transform.translation + iso::flight((swarm.way * swarm.speed * dt).to_array());
+        let cell = paths::cell_of(next.x, next.z);
+        if heights.passes(cell, None) && !heights.stops_flight(cell) {
             transform.translation = next;
             if let Some(y) = heights.standing(next.x, next.z, None) {
                 transform.translation.y = y;
