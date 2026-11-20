@@ -16,7 +16,8 @@
 //! backpack's grid ([`inventory`]), the equipment's slots and who may use an item
 //! ([`equipment`]), the land explored ([`explored`]), the potions and the belt ([`potions`]),
 //! the weapon sets ([`sets`]), the item sets' bonuses ([`set_bonuses`]), the prices and the
-//! merchants' stock ([`trade`]), the blacksmith ([`smith`]) and the horses ([`horses`]).
+//! merchants' stock ([`trade`]), the blacksmith ([`smith`]), the horses ([`horses`]) and the last
+//! fight's slaves with Shaddar's ward ([`shaddar`]).
 
 pub mod arrows;
 pub mod arts;
@@ -42,6 +43,7 @@ pub mod rewards;
 pub mod script_traps;
 pub mod set_bonuses;
 pub mod sets;
+pub mod shaddar;
 pub mod smith;
 pub mod spawning;
 pub mod spells;

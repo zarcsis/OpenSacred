@@ -347,6 +347,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/sets.rs`: The taskbar's five weapon sets
 - `crates/opensacred-game/src/settings.rs`: The game's settings
 - `crates/opensacred-game/src/sfx.rs`: The fight's sounds but the voices
+- `crates/opensacred-game/src/shaddar_slaves.rs`: Shaddar's slaves and their mark
 - `crates/opensacred-game/src/shaders.rs`: The library of the game's shaders
 - `crates/opensacred-game/src/shadow_dots.rs`: The models' shadow dots
 - `crates/opensacred-game/src/shadow_levels.wesl`: A level of the shadows' mask
@@ -458,6 +459,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-rules/src/script_traps.rs`: The scripts' traps
 - `crates/opensacred-rules/src/set_bonuses.rs`: The sets' bonuses
 - `crates/opensacred-rules/src/sets.rs`: The weapon sets of the taskbar
+- `crates/opensacred-rules/src/shaddar.rs`: The last fight's slaves and Shaddar's ward
 - `crates/opensacred-rules/src/smith.rs`: The blacksmith
 - `crates/opensacred-rules/src/spawning.rs`: The creatures that the sectors' `FillSector` records make at random as their sectors come near
 - `crates/opensacred-rules/src/spells.rs`: The spells' cast and their objects

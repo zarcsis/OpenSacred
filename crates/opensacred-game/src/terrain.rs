@@ -547,10 +547,14 @@ impl Heights {
     /// 3, a teleport, and 5 to 8, the stairs (`0x4F7E10`), and 9 and 10, an entrance and an exit,
     /// through which `0x5FCCB0` moves no horse; and any of an inside layer, which no horse
     /// enters.
-    pub fn barred_to_riders(&self, (cx, cy): (i32, i32), level: Level) -> bool {
-        if level.is_some() {
-            return true;
-        }
+    pub fn barred_to_riders(&self, cell: (i32, i32), level: Level) -> bool {
+        level.is_some() || self.stops_flight(cell)
+    }
+
+    /// Whether a cell of the ground is of a low nibble that stops a wandering system (`0x636D70`,
+    /// docs/re/effects.md, "Shaddar's slaves"): 3, a teleport, 5 to 8, the stairs, and 9 and 10,
+    /// an entrance and an exit.
+    pub fn stops_flight(&self, (cx, cy): (i32, i32)) -> bool {
         match (u32::try_from(cx), u32::try_from(cy)) {
             (Ok(x), Ok(y)) => self
                 .cells

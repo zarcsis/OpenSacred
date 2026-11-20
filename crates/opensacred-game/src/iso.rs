@@ -95,6 +95,29 @@ pub fn fx_axes() -> (Vec3, Vec3) {
     )
 }
 
+/// The foreshortening of the effects' frame's second axis on the ground, the camera's tilt
+/// `2/√5`.
+const FLIGHT_TILT: f32 = 0.894_427_2;
+
+/// The world's vector on the ground of `[x, y]` in the effects' systems' frame, as their flight
+/// takes a system's place to the ground (`0x5AA330` by `0x623AD0`; docs/re/effects.md, "Their
+/// flight"): its x [`MODEL_SCALE`] world units along [`fx_axes`]' first, its y `2/√5` of that
+/// along the second.
+pub fn flight([x, y]: [f32; 2]) -> Vec3 {
+    let (across, down) = fx_axes();
+    (across * x + down * (y * FLIGHT_TILT)) * MODEL_SCALE
+}
+
+/// The effects' frame's `[x, y]` of the world's vector `world` on the ground, [`flight`]'s
+/// inverse; its height left out.
+pub fn in_flight(world: Vec3) -> [f32; 2] {
+    let (across, down) = fx_axes();
+    [
+        world.dot(across) / MODEL_SCALE,
+        world.dot(down) / (MODEL_SCALE * FLIGHT_TILT),
+    ]
+}
+
 /// The world's projection at `zoom` (clamped to the original's range), the [`Untinted`]
 /// camera's too.
 fn projection(zoom: f32) -> Projection {
@@ -289,6 +312,19 @@ mod tests {
         assert!((raised.y - 130.0).abs() < 1e-3);
         let along = 100.0 * 1.5_f32.sqrt();
         assert!((raised.xz() - point.xz() - Vec2::splat(along)).length() < 1e-2);
+    }
+
+    #[test]
+    fn the_effects_fly_foreshortened_down_the_screen() {
+        // A unit across: MODEL_SCALE along the screen's horizontal; one down: 2/√5 of that.
+        let across = flight([1.0, 0.0]);
+        let down = flight([0.0, 1.0]);
+        assert!((across.length() - MODEL_SCALE).abs() < 1e-5);
+        assert!((down.length() - MODEL_SCALE * 2.0 / 5.0_f32.sqrt()).abs() < 1e-5);
+        assert!(screen(across).y.abs() < 1e-4 && screen(across).x > 0.0);
+        assert!(screen(down).x.abs() < 1e-4 && screen(down).y > 0.0);
+        let back = in_flight(flight([3.0, -7.0]) + Vec3::Y * 5.0);
+        assert!((back[0] - 3.0).abs() < 1e-4 && (back[1] + 7.0).abs() < 1e-4);
     }
 
     #[test]

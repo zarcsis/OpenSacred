@@ -71,21 +71,11 @@ impl Default for Dice {
     }
 }
 
-/// The foreshortening of the models' frame's second axis on the ground, the camera's tilt.
-const TILT: f32 = 0.894_427_2;
-
-/// The world's vector on the ground of `[x, y]` in the models' frame, as the flight takes the
-/// system's place to the ground (`0x5AA330` by `0x623AD0`; docs/re/effects.md, "Their flight").
-fn ground([x, y]: [f32; 2]) -> Vec3 {
-    let (across, down) = iso::fx_axes();
-    (across * x + down * (y * TILT)) * iso::MODEL_SCALE
-}
-
 /// Where a segment of the models' place `place` about its maker's point `maker` stands in the
 /// world: on the ground as the flight's place, its height raised as a placed object's.
 fn placed(maker: Vec3, place: [f32; 3]) -> Vec3 {
     maker
-        + ground([place[0], place[1]])
+        + iso::flight([place[0], place[1]])
         + Vec3::Y * iso::height(place[2] * iso::PIXELS_PER_MODEL_HEIGHT)
 }
 
@@ -259,8 +249,8 @@ fn fly(
 /// swayed across and up by `sway`.
 fn ribbon(segment: &Segment, sway: [[f32; 2]; 2]) -> [[Vec3; 4]; 2] {
     let [ax, ay] = segment.along();
-    let end = ground([ax * segment.length, ay * segment.length]);
-    let across = ground([-ay, ax]);
+    let end = iso::flight([ax * segment.length, ay * segment.length]);
+    let across = iso::flight([-ay, ax]);
     let up = world([0.0, 0.0, 1.0]);
     let [near, far] = sway;
     let w = LASER_HALF_WIDTH;
@@ -306,7 +296,7 @@ fn draw(
         }
         let mut glows = Quads::default();
         let [ax, ay] = segment.along();
-        let end = ground([ax * segment.length, ay * segment.length]);
+        let end = iso::flight([ax * segment.length, ay * segment.length]);
         let white = [shade, shade, shade, 1.0];
         for (shows, centre) in segment.glows().into_iter().zip([Vec3::ZERO, end]) {
             if shows {

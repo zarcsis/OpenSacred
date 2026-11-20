@@ -4,7 +4,7 @@ Recovered from the GOG `Sacred.exe` 2.28 with Ghidra and scans of the executable
 Seen in the running original with the driver of #448 on 2026-10-27 (a Seraphim's new game: the braziers of 50,39 by noon and by night, the butterflies of 54,42 by noon and by night, a torch in the hero's hand by night; frames in the scratchpad only).
 Status: **confirmed** by code unless marked otherwise.
 Builds on docs/re/arts.md ("The spells' objects", "The objects' actions", "The objects' hits", "The objects' systems"), docs/re/weather.md ("The butterflies and the birds"), docs/re/daynight.md ("The light", "The glows") and docs/re/drawing.md (the draw lists, the engine's switch of render states `0x643430`/`0x643470`).
-Implemented in `opensacred-rules` (`particles`, `spells`, `casts`, `arrows`, `fight`, `ways`, `pong`, `script_traps`) and `opensacred-game` (`fx`, `puffs`, `fx_lights`, `npcs`, `bolt_looks`, `torches`, `butterflies`, `hit_sparks`, `beams`, `marks`, `skins`, `item_glows`); a module of `opensacred-game` for each class of effects besides, which the class's section names.
+Implemented in `opensacred-rules` (`particles`, `spells`, `casts`, `arrows`, `fight`, `ways`, `pong`, `script_traps`, `shaddar`) and `opensacred-game` (`fx`, `puffs`, `fx_lights`, `npcs`, `bolt_looks`, `torches`, `butterflies`, `hit_sparks`, `beams`, `marks`, `skins`, `item_glows`); a module of `opensacred-game` for each class of effects besides, which the class's section names.
 
 ## Summary
 
@@ -280,7 +280,7 @@ Read 2026-11-05 for #2106 in Ghidra (**confirmed** by code unless marked).
 Bevy's point light falls by the square of the distance alone, so it stands 89 of the models' units (`1/√0.000125`) over the effect's place, where along that place's plane it falls as the fixed function's, the sun's 4,000 lux its whole colour; it lights the models from above rather than from the effect's place, and fades to nothing at 200, where the fixed function's is cut at a sixth (docs/decisions/drawing.md).
 **Seen** 2026-11-05 in the game: a goblin standing in the Wood Elf's thorns, its legs lit green as the original's (#2106's frames).
 The manager's slots follow since #2282 (`fx_lights::Slots`, each light's priority of the table above, `fx_lights::HIGH` and `LOW`): the device of the original's driver had 8 lights (the manager's `+0x04`, read 2026-11-08 by a probe of `0x642B90` while the thorns made theirs), the sun's among them, so at most seven effects' lights shine at once; a light made with every slot taken goes into the first slot of the lowest priority where its own is at least as high, putting that light out for good (`0x642B90` turns it off; its system's later moves by its old handle find no slot), else it never shines.
-Not followed: the demon fire's wobble, the light of the big demons' death (919), whose system the game draws, and those of the systems it does not draw (895, 909, 921 and 1167).
+Not followed: the demon fire's wobble, the light of the big demons' death (919), whose system the game draws, and those of the systems it does not draw (895, 909 and 1167).
 
 ## The world's effects
 
@@ -1986,6 +1986,58 @@ The scripts (every add-on tree, the same records):
 Since #3049 the start's spikes are never placed, as the original's end at once (`npcs::ends_at_start`); their look stays for a spikes' object that a script would make in a marked sector.
 Not followed: the spikes' shadows.
 
+## Shaddar's slaves
+
+Read 2026-11-20 for #2919 in Ghidra and by scans of the executable (**confirmed** by code unless marked); the slaves' look and the mark **seen** in the running original the same day.
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The pentagram | 920 `FX_SHADDAR_PENTA` | `cParticleSystem_shaddar_penta` (`0x898998`) | `0x7A9ED0`, `0x7AA140`, `0x7A9F60`, `0x7A9F80` |
+| A slave | 921 `FX_SHADDAR_SLAVE` | `cParticleSystem_shaddar_slave` (`0x8989B8`) | `0x7AA250`, `0x7AA6F0`, `0x7AA330`, `0x7AA4B0` |
+
+The set-up's cases `0x5A25E6` and `0x5A261C` make them of 400 particles each; neither type is persistent, their sound profiles are 0 and neither starts a sound.
+`CreateObj` gives them the kinds `0x80` and `0x81`, the record's point at the height 0 and no caster nor target.
+
+The scripts:
+- the pentagram: the `Enter` of the sector 98,22 makes one at the cell 6303,1437, in every tree.
+- the slaves: `steve_test` makes thirteen at the pentagram's point and offsets of it within some 22 units, four points doubled, in the nine classic trees; the death function of the seven priestesses about the pentagram (the type 311, group 81, quest 81) calls it once the group is dead, so the slaves come once, at the last priestess's death.
+  No script names, signals or takes them away.
+
+**The pentagram (920).**
+Its start sets a block of golden sparks, but its run only counts its clock and its draw is empty: it shows and does nothing, an invisible marker (the block reads as a leftover, **hypothesis**).
+
+**A slave (921).**
+- Its event's case (`0x5A4E53`): the object's bits `0x04` and `0x10`; its heading `(2r₂ − 1, 2r₁ − 1)` normalised and its turn `0.1 + 0.4 r₃` radians a second, `r` rolls of `rand()/32767`; its system at the event's point, following nothing.
+- Its constructor: `PARTICLE_LINE01`; a Direct3D light (1, 0.8, 0.7) of the priority 1 at its place ("The systems' Direct3D lights").
+- Its start (`0x7AA6F0`): one layer, the life −200 and the size −25 a second; one block, the size 30 ± 7, any angle, 40 over its place ± 1, no velocity, one every 0.0066 s times the detail's factor; two ramps, orange from (254, 96, 1) and red from (254, 1, 1), each fading in over 76 entries, dimming over 66 and fading to a grey nothing over 114; its flags `0x8002` (the wandering), its speed `⌊shaddar_slave_speed⌋` (`Balance.bin` 85).
+- Its run (`0x7AA330`): its flash falls by the time and at its end sets the orange ramp again; the block's size `30·(2f + 1)` by the flash `f`; its rays aged and, unless it fades, emitted; then its signal, the last written in a frame: `2` fades it out (no more rays, it stands, it ends as they die), `8` sets the flash to 0.5 s, `0x10` turns it from orange and wandering at 85 to red and homing (`0x10002`) at `⌊3 · 85⌋` = 255, or back.
+- Its draw (`0x7AA4B0`): its light to its place; each ray a camera-facing streak standing on its foot (the billboards' flags `0x8D`, the factor 0.125), `0.25·s` wide and `2·s` long outward at its angle, its texture's bright end at the foot, in its ramp's colour by its alpha, added, depth tested and not written, untinted by the night.
+- So a slave is a star of some 190 orange rays up to 60 long, each shrinking over 1.2 s, about a point 40 over its place; a hero's touch makes its new rays twice as long for half a second, and hunting it turns red.
+
+**Its flight** (the object's update, `0x5A6680`).
+- Wandering (`0x5A8885`, the butterflies' code): it moves by its speed along its heading in the effects' frame ("Their flight"), its heading turns by its turn, it gathers its touches and acts on them, and where its new cell is of a low nibble that stops it (3 and 5 to 10, `0x636D70`) or may not be walked on unless an arrow flies over it (`0x636D20`), it goes back, its heading reversed and its turn `0.2 r`; so it flies over the lava and the pentagram.
+  Its height stays its record's, the plane of the height 0.
+- Homing (`0x5A7DD0`, the lost souls' code): a target that is no longer a living creature is dropped; without one it takes the nearest living creature of any side on its floor within a squared 100,000 of its place (some 316 units, `0x600570`), and without that it fades.
+  It steers its heading toward the target at most 3 radians a second, flies level, gathers its touches and acts on them, and on a cell that may not be walked on, unless an arrow flies over it, it fades.
+- Its touches (`0x5AB490`): every living creature on its floor, the hero, its followers and Shaddar alike, within 50 and the creature's size of its place (`items.pak`'s, 50 where 0: 100 for a hero and for Shaddar).
+- Its acts (`0x5ABD80`, the case `0x399`):
+  - wandering, while its touches' cooldown is out: a player's hero (an id up to 16) takes the effect 32 for 5 s, one alone, a touch renewing its seconds, and the slave flashes; Shaddar (the type 700) turns it to homing on the local hero (`0x603E30`);
+  - homing: each creature but Shaddar takes an event of `0x51CB00` from nobody of the damages `⌊shaddar_slave_dmg_ph⌋`, `_fi`, `_ma` and `_po` (100 each in `Balance.bin`), and the slave turns back to wandering, its target dropped, its cooldown 1 s.
+- So a wandering slave marks the hero who touches it; one that reaches Shaddar turns red and hunts the hero at three times its speed, strikes the first creature but Shaddar in its way for up to 400 before its resistances, and wanders again.
+  As one signal stands a frame, a hero and Shaddar touched in one frame give the flash or the turn by their order; a flash's end sets the orange ramp on a homing slave too, whose next strike turns it red and homing again with no target, so that it takes the nearest creature.
+- It ends by its signals alone: fading, or a move that fails (`0x5AA330`), or with its object as its sector stops being active; the scripts never make the slaves again.
+
+**The effect 32, Shaddar's ward and the mark.**
+- The effect 32 sets the creature's `+0x1F4` bit `0x40000000` while it holds (`0x582D50` at `0x5847B8`, `0x587AA8`) and changes no stat.
+- The strike's resolution (`0x56B130` at `0x56DAD2`) takes a strike's whole damage away where the defender is of the type 700 and the attacker is nobody or lacks the bit, after the player's cap and the rounding (docs/re/fight.md, "A strike's resolution"); the later steps scale the damage, so it stays 0.
+  So only a hero who touched a slave in the last 5 s harms Shaddar, with its weapons, arts and spells alike; its followers never can, nor anything from nobody.
+- The model's draw (`cCreature_render` at `0x599FCE`) draws over a creature of the bit the emblem `FX_SACREDLOGO` (`0x40A690` of the style 0): one upright square from 15 to each side and from 12 to 42 over its `Bip01 Head`, turned about the upright by the real clock's milliseconds modulo 65,536 over 512 radians (a turn in some 3.2 s), white, added whole, unlit, two-sided, depth tested and not written.
+  **Seen**: the Seraphim touched by a slave in the finale's hall wore the spinning cyan emblem over her head, and her strikes then harmed Shaddar, who took none before.
+
+`opensacred-game` follows them since #2919 (`shaddar_slaves`, `opensacred_rules::shaddar`): `npcs` places each slave at its record's point and never again once placed; each flies, touches, marks, hunts and strikes as above, its rays and its light drawn; the marked hero wears the emblem (drawn after its model, `fx::Orders::over`); and `fight` takes a strike's damage at Shaddar away from an attacker that does not hold the effect 32, and nobody's whole.
+The pentagram is not placed, as it shows and does nothing.
+Not followed: the floors, a slave touching and hunting only on the ground, where its record puts it; the target's byte that the homing keeps (`+0x64`, which ends the system where it changes, **hypothesis**: the target's sector).
+
 ## The Daemon's forms
 
 Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code unless marked).
@@ -2750,7 +2802,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn at every detail (the options' detail, a setting since #2352, stretches its emitters' intervals alone), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing (of the scripts' objects the other objects of the Underworld's quests and of its last fight, #2919 to #2921, whose classes no section above reads); the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
+Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing (of the scripts' objects the other objects of the Underworld's quests and of its last fight, #2920 and #2921, whose classes no section above reads); the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions

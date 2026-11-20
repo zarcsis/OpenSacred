@@ -52,8 +52,9 @@ pub struct Hit {
 }
 
 /// A strike from nobody, an attacker's id of 0: a fire smoke's or a bursting geyser's (`fx`,
-/// #2518), a ghost's of the scripts' field (`pill_fields`) or a fence's of lightning
-/// (`laser_fences`, #2916), of fixed damages, sure ([`burn`]).
+/// #2518), a ghost's of the scripts' field (`pill_fields`), a fence's of lightning
+/// (`laser_fences`, #2916) or a slave's of Shaddar's (`shaddar_slaves`, #2919), of fixed
+/// damages, sure ([`burn`]).
 #[derive(Message, Clone, Copy, Debug)]
 pub struct Burn {
     pub target: Entity,
@@ -650,6 +651,24 @@ pub(crate) fn resolve(
             Some(value) => whole_damage(damage, value),
             None => damage,
         };
+        // Shaddar's ward: no damage from an attacker that holds no slave's mark (`0x56DAD2`,
+        // #2919); its poison still passes.
+        let damage = if victim.is_some_and(|victim| {
+            opensacred_rules::shaddar::wards(
+                victim.creature,
+                effects
+                    .get(hit.attacker)
+                    .is_ok_and(|held| held.holds(opensacred_rules::shaddar::MARK)),
+            )
+        }) {
+            debug!(
+                "fight: Shaddar's ward takes {damage} of {}'s strike",
+                hit.attacker
+            );
+            0
+        } else {
+            damage
+        };
         // The Vampiress's strike in her night form raises her bloodlust, by day sets it to 0
         // (the sectors of `0x63D180` that keep it by day are left out), and draws more health by
         // it (`0x56DB08`).
@@ -1071,13 +1090,14 @@ fn burn(
             &GlobalTransform,
             Has<Body>,
             Has<Immortal>,
+            Option<&crate::ai::Mind>,
         ),
         Without<Dies>,
     >,
     (mut struck, mut lines): (MessageWriter<Struck>, MessageWriter<crate::voices::Speak>),
 ) {
     for burn in burns.read() {
-        let Ok((mut health, defender, at, hero_hit, immortal)) = targets.get_mut(burn.target)
+        let Ok((mut health, defender, at, hero_hit, immortal, mind)) = targets.get_mut(burn.target)
         else {
             continue;
         };
@@ -1091,7 +1111,13 @@ fn burn(
             &rules,
             &mut dice.0,
         );
-        let damage = landed.damage;
+        // Shaddar's ward takes nobody's damage whole (`0x56DAD2`, #2919).
+        let damage =
+            if mind.is_some_and(|mind| opensacred_rules::shaddar::wards(mind.creature, false)) {
+                0
+            } else {
+                landed.damage
+            };
         if !immortal {
             health.current = health.current.saturating_sub(damage);
         }
