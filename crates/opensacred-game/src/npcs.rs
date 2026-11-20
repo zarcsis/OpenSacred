@@ -413,6 +413,12 @@ struct Placement {
     /// big demon turned keeps it no more ([`turn_emerged`]).
     #[serde(skip)]
     emerges: bool,
+    /// Whether it is drawn under a liquid's surface while it stands in a liquid cell
+    /// ([`models::Sinks`]): a `CreateObj`'s object of a type that `0x434070` passes, an item of a
+    /// `Weapon.pak` record or one of the category `0x20`, that is no chest (`0x62AE90`; #3065).
+    /// Not saved: a script's object is made again of its record.
+    #[serde(skip)]
+    sinks: bool,
     /// An NPC's walk and run speeds in world units a second, before the game's speed, and its
     /// `Creature.pak` class (`ai::Mind`).
     speed: [f32; 2],
@@ -680,6 +686,9 @@ const ATTACHED: [u8; 5] = [WEAPON, SHIELD, 8, 20, 25];
 /// that holds one (`0x4F7E10`); the signposts are of 15, `cSpecial3D`, which casts none and
 /// takes no cell.
 const CHEST: u8 = 4;
+/// The category of the waters' crab and fish (163 to 166), which `0x434070` passes as it does an
+/// item's type: an object of it is drawn under a liquid's surface ([`models::Sinks`]).
+const SINKING: u8 = 0x20;
 /// The category of the doors (`items.pak` 5650 to 5766, `0x428130`).
 const DOOR: u8 = 10;
 /// The category of the specials (`cSpecial3D`, `0x451300`): the signposts 4993 to 4999.
@@ -1121,6 +1130,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         listed: false,
         hostility: None,
         emerges: false,
+        sinks: false,
         texture: kind.texture.clone(),
         woman: kind.woman,
         layer: 0,
@@ -3910,6 +3920,9 @@ impl Makers {
             listed: record.kind == CREATE_NPC && listed(ops),
             hostility,
             emerges: record.kind == CREATE_NPC && markers().any(|tag| tag == EMERGES),
+            sinks: record.kind == CREATE_OBJ
+                && category(item) != CHEST
+                && (category(item) == SINKING || self.kinds.contains_key(&creature)),
             texture,
             layer,
             spread,
@@ -7372,6 +7385,10 @@ fn spawn(
         }
         if placement.blocks {
             entity.insert(crowd::InTheWay::object(level));
+        }
+        // An item's under a liquid's surface in a liquid cell, as a drop's (#3065).
+        if placement.sinks {
+            entity.insert(models::Sinks);
         }
         if placement.door {
             entity.insert(Door {
@@ -14688,6 +14705,9 @@ mod tests {
         };
         makers.items.insert(6001, item(6001, "bush01.grn", 15));
         makers.items.insert(5218, item(5218, "chest.grn", CHEST));
+        // Both of a `Weapon.pak` record, which `0x434070` passes (#3065).
+        makers.kinds.insert(6001, 0);
+        makers.kinds.insert(5218, 0);
         let signpost = Item {
             subclass: UNTAKEABLE,
             ..item(4993, "wegweiser_01.grn", 15)
@@ -14758,6 +14778,11 @@ mod tests {
         assert!(!takeable(&signpost));
         let sign = made(4993, &[]);
         assert!(sign.object && !sign.lies && sign.quest.is_none());
+        // An item's type sinks under a liquid's surface, a chest's not, nor a type of no
+        // `Weapon.pak` record (`0x62AE90`, #3065).
+        assert!(made(6001, &[]).sinks);
+        assert!(!made(5218, &[]).sinks);
+        assert!(!sign.sinks);
     }
 
     #[test]

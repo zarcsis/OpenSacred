@@ -352,9 +352,11 @@ impl Ordered {
 /// The root of a model that the original draws under a liquid's surface while it lies in a
 /// liquid cell: the row walk sends a world object of such a cell whose type passes `0x434070`, of
 /// the category `0x20` (the waters' crab and fish) or an item of a `Weapon.pak` record, to the
-/// liquid cells' objects rather than to the lists, unless it is a chest's (`0x62AE90` at
+/// liquid cells' objects rather than to the lists, unless it is a chest's or flies (`0x62AE90` at
 /// `0x62CB04`), and `0x62E410` draws those before the surfaces (docs/re/drawing.md, "The liquid
-/// cells").
+/// cells"). The creatures of the category `0x20` (`npcs`), the scripts' objects of such a type
+/// (`npcs`, #3065), the drops at rest (`drops`) and a hurled weapon once it lies (`hurled`)
+/// take it.
 #[derive(Component)]
 pub struct Sinks;
 
