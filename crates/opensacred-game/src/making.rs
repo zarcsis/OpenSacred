@@ -25,6 +25,7 @@ use opensacred_rules::arts::{
     self, ArtClip, Candidate, Creature, Style, attacke_target, due, hardhit_point, held_factor,
     made_from, rundum_radius, rundum_target,
 };
+use opensacred_rules::particles::DarkSightKind;
 use opensacred_rules::{minds, spells};
 
 use crate::ai::Mind;
@@ -1633,6 +1634,15 @@ fn make(
                                 .entry::<crate::effects::Effects>()
                                 .or_default()
                                 .and_modify(move |mut effects| effects.add(effect, seconds));
+                            // Its object 864 at it, the magic circle for its time
+                            // (`dark_sights`).
+                            commands.spawn(crate::dark_sights::sight(crate::dark_sights::Sight {
+                                bearer: entity,
+                                kind: DarkSightKind::Circle,
+                                seconds,
+                                bone: None,
+                                follows: true,
+                            }));
                         }
                     }
                     info!(
@@ -2493,18 +2503,29 @@ fn make(
                                 DespawnOnExit(crate::game::AppState::InGame),
                             ));
                         }
-                        // The testosterone's and the adrenaline's two objects 864 at him, made
-                        // with their effects (`0x5080F0`, `0x5081CB`; `0x508396`, `0x508471`),
-                        // each living the effects' time (the event's `+0x2C`) and looping its
-                        // sound; their sights are not made.
+                        // The testosterone's and the adrenaline's two objects 864 at his hands'
+                        // bones 21 and 22, made with their effects (`0x5080F0`, `0x5081CB`;
+                        // `0x508396`, `0x508471`), each living the effects' time (the event's
+                        // `+0x2C`), crackling red or yellow (`dark_sights`) and looping its sound.
                         if ADRENALINE.contains(&making.art)
                             && let Some(&(_, seconds)) = boon.effects.first()
                         {
-                            for _ in 0..2 {
+                            for hand in ["Bip01 L Finger3", "Bip01 R Finger3"] {
                                 commands.entity(hero).with_child((
                                     crate::hums::Hum(ADRENALINE_LOOP),
                                     crate::spells::Fades(seconds),
                                     Transform::default(),
+                                ));
+                                commands.spawn(crate::dark_sights::sight(
+                                    crate::dark_sights::Sight {
+                                        bearer: hero,
+                                        kind: DarkSightKind::Crackle {
+                                            red: making.art == ADRENALINE[0],
+                                        },
+                                        seconds,
+                                        bone: Some(hand),
+                                        follows: true,
+                                    },
                                 ));
                             }
                         }

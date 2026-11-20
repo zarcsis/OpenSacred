@@ -156,8 +156,9 @@ fn make(
 }
 
 /// The corners of a flat square of the half side `half` turned by `turn` about its middle, in
-/// the models' frame at the world's scale, a little over the ground.
-fn flat(half: f32, turn: f32) -> [Vec3; 4] {
+/// the models' frame at the world's scale, a little over the ground (the Dark Elf's sights' too,
+/// `dark_sights`).
+pub(crate) fn flat(half: f32, turn: f32) -> [Vec3; 4] {
     let (sin, cos) = turn.sin_cos();
     let corner = |x: f32, y: f32| {
         world([x * cos - y * sin, x * sin + y * cos, 0.0]) * half + Vec3::Y * GROUND_LIFT

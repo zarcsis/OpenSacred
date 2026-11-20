@@ -66,6 +66,7 @@ mod crowd;
 mod cursors;
 mod daemon;
 mod dark_helices;
+mod dark_sights;
 mod dark_wards;
 mod daynight;
 mod debug;
@@ -573,6 +574,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         daemon::DaemonPlugin,
         dark_helices::DarkHelicesPlugin,
+        dark_sights::DarkSightsPlugin,
         dark_wards::DarkWardsPlugin,
         daynight::DayNightPlugin,
         demon_deaths::DemonDeathsPlugin,
