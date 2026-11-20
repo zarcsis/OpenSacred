@@ -9707,6 +9707,251 @@ impl Burrow {
     }
 }
 
+/// The Underworld's FX types of its main quests 52 and 53 (#2918; docs/re/effects.md, "The
+/// Underworld's glyphs"): the temple door's spikes, the four locks' glyphs (their variant the type
+/// less 1175) and the glyphs' fire.
+pub const DOOR_SPIKES: u32 = 1174;
+pub const UW_GLYPHS: std::ops::RangeInclusive<u32> = 1175..=1178;
+pub const UW_GLYPH_FIRE: u32 = 1179;
+
+/// The textures' offsets of a glyph's model and of the fire's at the clock `t`, its two passes'
+/// (the texture transform's translation, `0x898DC0`, `0x8990F0`): `(sin 0.285t, cos 0.193t)`, the
+/// Dwarf's burrowing's lit pass's too, and `(sin 0.063t, cos 0.143t)`.
+pub fn glyph_offsets(t: f32) -> [[f32; 2]; 2] {
+    [
+        [(0.285 * t).sin(), (0.193 * t).cos()],
+        [(0.063 * t).sin(), (0.143 * t).cos()],
+    ]
+}
+
+/// The temple door's spikes' model (`0x7C4470`), how many of the ten made are drawn, and their
+/// tilt of the model's up toward its +x before each one's turn (`0x653850`).
+pub const DOOR_SPIKE_MODEL: &str = "DOOR_SPIKE.GRN";
+pub const DOOR_SPIKE_TEXTURE: &str = "door_spike";
+const SPIKES_DRAWN: u8 = 6;
+pub const SPIKE_TILT: f32 = 0.6;
+
+/// A spike of the door (`+0x20AC`, `+0x20D8`): its size, the model's scale at its whole growth;
+/// its foot's offset from the system's point along the models' diagonal (1, 1); and its turn about
+/// the upright after its tilt (`0x653790`), so that each leans in over the middle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DoorSpike {
+    pub size: f32,
+    pub offset: [f32; 2],
+    pub turn: f32,
+}
+
+/// The temple door's spikes (`cParticleSystem_doorspikes`): their growth from the ground, and
+/// their state: growing for a second, standing until the scripts signal them, then sinking for a
+/// second and gone.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DoorSpikes {
+    pub growth: f32,
+    pub sinking: bool,
+    pub signalled: bool,
+}
+
+impl DoorSpikes {
+    /// The spikes `dt` seconds on (`0x7C4520`): grown by the time to 1; then, once signalled (a
+    /// signal while they grow waits), sinking by the time, and gone below 0. Whether they stand.
+    pub fn update(&mut self, dt: f32) -> bool {
+        if self.sinking {
+            self.growth -= dt;
+            return self.growth >= 0.0;
+        }
+        if self.growth < 1.0 {
+            self.growth = (self.growth + dt).min(1.0);
+        } else if self.signalled {
+            self.sinking = true;
+        }
+        true
+    }
+
+    /// The six spikes drawn (`0x7C4780`, `0x7C45C0`): the `i`-th of the size `7 + 2.7·⌊i/2⌋` at
+    /// `13·(⌊i/2⌋ + 0.5)` along (1, 1), the even ones forward and turned by `3π/4`, the odd ones
+    /// back and turned by `−π/4`.
+    pub fn spikes() -> Vec<DoorSpike> {
+        (0..SPIKES_DRAWN)
+            .map(|i| {
+                let pair = f32::from(i / 2);
+                let along = 13.0 * (pair + 0.5);
+                let forward = i % 2 == 0;
+                DoorSpike {
+                    size: 7.0 + 2.7 * pair,
+                    offset: if forward {
+                        [along, along]
+                    } else {
+                        [-along, -along]
+                    },
+                    turn: if forward {
+                        3.0 * std::f32::consts::FRAC_PI_4
+                    } else {
+                        -std::f32::consts::FRAC_PI_4
+                    },
+                }
+            })
+            .collect()
+    }
+}
+
+/// A glyph's models by its variant (`0x7C5100`), its textures (`0x7C4A00`): its model's in place
+/// of its own and its rings', and its model's scale, lift and grey (`0x80808080`); its rings'
+/// lift, half width, colour (`0xFF644B00`) and count; its glow's half side and colour
+/// (`0xFF5E4700`).
+pub const UW_GLYPH_MODELS: [&str; 4] = ["GLYPH_A.GRN", "GLYPH_B.GRN", "GLYPH_C.GRN", "GLYPH_D.GRN"];
+pub const UW_GLYPH_TEXTURES: [&str; 3] =
+    ["FX_MULTITEXBASE06", "fx_demonform_demon", "PARTICLE_GLOW03"];
+pub const UW_GLYPH_SCALE: f32 = 0.35;
+pub const UW_GLYPH_LIFT: f32 = 140.0;
+pub const UW_GLYPH_GREY: f32 = 128.0 / 255.0;
+pub const UW_RING_LIFT: f32 = 145.0;
+pub const UW_RING_HALF: f32 = 3.0;
+pub const UW_RING_COLOUR: [f32; 4] = [100.0 / 255.0, 75.0 / 255.0, 0.0, 1.0];
+const UW_RINGS: usize = 20;
+const UW_RING_POINTS: usize = 9;
+pub const UW_GLOW_HALF: f32 = 100.0;
+pub const UW_GLOW_COLOUR: [f32; 4] = [94.0 / 255.0, 71.0 / 255.0, 0.0, 1.0];
+
+/// A lock's glyph (`cParticleSystem_uw_glyph`): its clock, its model's turn, and its twenty
+/// rings' speeds and radii.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UwGlyph {
+    pub clock: f32,
+    pub phase: f32,
+    pub rings: [[f32; 2]; UW_RINGS],
+}
+
+impl UwGlyph {
+    /// The glyph at its start (`0x7C5100`): each ring's speed `−0.45 − 0.8 r` and radius
+    /// `10 + 5 r`, rolled in that order.
+    pub fn new(dice: &mut impl Dice) -> Self {
+        let rings = [(); UW_RINGS].map(|()| {
+            let speed = -0.45 - 0.8 * unit(dice);
+            let radius = 10.0 + 5.0 * unit(dice);
+            [speed, radius]
+        });
+        Self {
+            clock: 0.0,
+            phase: 0.0,
+            rings,
+        }
+    }
+
+    /// The glyph `dt` seconds on (`0x7C4B40`): its clock, and its model's turn a radian a second,
+    /// wrapped at a whole turn. It never ends.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        self.phase = (self.phase + dt).rem_euclid(std::f32::consts::TAU);
+    }
+
+    /// The ring `k`'s nine points about the glyph's rings' lift: an arc of 160° of 1.2 times its
+    /// radius at the height `2(k − 10)`, turning at its speed times π a second.
+    pub fn ring(&self, k: usize) -> [[f32; 3]; UW_RING_POINTS] {
+        let [speed, radius] = self.rings.get(k).copied().unwrap_or([0.0; 2]);
+        let height = 2.0 * (f32::from(u8::try_from(k).unwrap_or(0)) - 10.0);
+        std::array::from_fn(|j| {
+            let share = f32::from(u8::try_from(j).unwrap_or(0)) / 9.0;
+            let angle = (share + speed * self.clock) * std::f32::consts::PI;
+            [
+                1.2 * radius * angle.cos(),
+                1.2 * radius * angle.sin(),
+                height,
+            ]
+        })
+    }
+
+    /// A ring's band facing the camera (`0x7C4C10`): at each point the pair 3 to each side of it,
+    /// across the band's way and the view's, the last point taking the one before's.
+    pub fn band(points: &[[f32; 3]; UW_RING_POINTS]) -> [[[f32; 3]; 2]; UW_RING_POINTS] {
+        let across = |j: usize| {
+            let [a, b] = [points[j], points[j + 1]];
+            let [x, y, z] = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            // The way × the view's (0, −2, −1) in the models' frame (`0x89094C`, `0x89074C`).
+            let n = [2.0 * z - y, x, -2.0 * x];
+            let length = n.iter().map(|v| v * v).sum::<f32>().sqrt().max(1e-6);
+            n.map(|v| UW_RING_HALF * v / length)
+        };
+        std::array::from_fn(|j| {
+            let n = across(j.min(UW_RING_POINTS - 2));
+            let p = points[j];
+            [
+                [p[0] + n[0], p[1] + n[1], p[2] + n[2]],
+                [p[0] - n[0], p[1] - n[1], p[2] - n[2]],
+            ]
+        })
+    }
+}
+
+/// The glyphs' fire's model, its textures (its model's two passes' and its glows'), and its
+/// model's scale and lift (`0x7C54C0`, `0x7C5680`).
+pub const UW_FIRE_MODEL: &str = "FIRE-GLYPH.GRN";
+pub const UW_FIRE_TEXTURES: [&str; 3] =
+    ["FX_MULTITEXBASE03", "FX_MULTITEXBASE06", "PARTICLE_GLOW03"];
+pub const UW_FIRE_SCALE: f32 = 0.16;
+pub const UW_FIRE_LIFT: f32 = 130.0;
+const UW_FIRE_COUNT: usize = 300;
+
+/// The glyphs' fire (`cParticleSystem_uw_glyph_fire`): its glows about its sign, its clock and
+/// its model's turn; it never ends of itself.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GlyphFire {
+    pub system: System,
+    pub phase: f32,
+}
+
+impl Default for GlyphFire {
+    fn default() -> Self {
+        Self {
+            system: System::new(UW_FIRE_COUNT),
+            phase: 0.0,
+        }
+    }
+}
+
+impl GlyphFire {
+    /// Its layer (`+0x24AC`): the life −150 a second.
+    pub fn layers() -> [Layer; 1] {
+        [Layer {
+            life: -150.0,
+            ..Layer::default()
+        }]
+    }
+
+    /// Its block (`+0x24CC`): the size 20 ± 5, still, within (25, 25, 45) of 128 over its point,
+    /// one every 0.015 s at the detail 2.
+    pub fn blocks() -> [Block; 1] {
+        [Block {
+            size: spread(20.0, 5.0),
+            offset: spread([0.0, 0.0, 128.0], [25.0, 25.0, 45.0]),
+            interval: 0.015,
+            ..Block::default()
+        }]
+    }
+
+    /// Its ramp (`+0x20AC`): from black up to a faint red over 40 entries, to a faint orange over
+    /// 160 and back to black over 56, its alpha 0 throughout.
+    pub fn ramp() -> Ramp {
+        Ramp::new(
+            [0.0; 4],
+            &[
+                ([0.125, 0.011_718_75, 0.001_953_125, 0.0], 40),
+                ([0.125, 0.042_968_75, 0.003_906_25, 0.0], 160),
+                ([0.0; 4], 56),
+            ],
+        )
+    }
+
+    /// The fire `dt` seconds on (`0x7C5600`): its model's turn a radian a second, wrapped at a
+    /// whole turn, and its glows aged and emitted.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        self.phase = (self.phase + dt).rem_euclid(std::f32::consts::TAU);
+        let layers = Self::layers();
+        self.system.update(dt, &layers);
+        self.system
+            .emit(&Self::blocks(), &layers, UW_FIRE_COUNT, dice);
+    }
+}
+
 /// A phase's index of the progress `progress`, truncated as `__ftol` takes it.
 fn phase_of(progress: f32) -> usize {
     #[expect(
@@ -17607,6 +17852,191 @@ mod tests {
         assert!(early.update(0.5, &mut dice));
         assert!((early.fade - 0.875).abs() < 1e-6);
         assert_eq!(early.eyes()[0].small.0, 17.0 * 0.875);
+    }
+
+    #[test]
+    fn the_temple_doors_spikes_grow_stand_and_sink_at_the_signal() {
+        let mut spikes = DoorSpikes::default();
+        assert!(spikes.update(0.4));
+        assert!((spikes.growth - 0.4).abs() < 1e-6);
+        // A signal while they grow waits.
+        spikes.signalled = true;
+        assert!(spikes.update(0.7));
+        assert_eq!(spikes.growth, 1.0);
+        assert!(!spikes.sinking);
+        assert!(spikes.update(0.1));
+        assert!(spikes.sinking);
+        assert_eq!(spikes.growth, 1.0);
+        assert!(spikes.update(0.5));
+        assert!((spikes.growth - 0.5).abs() < 1e-6);
+        assert!(spikes.update(0.5));
+        assert!(!spikes.update(0.01));
+        // Unsignalled, they stand.
+        let mut standing = DoorSpikes {
+            growth: 1.0,
+            ..DoorSpikes::default()
+        };
+        assert!(standing.update(5.0) && standing.growth == 1.0 && !standing.sinking);
+        // Six of them, mirrored pairs along (1, 1), leaning in.
+        let six = DoorSpikes::spikes();
+        assert_eq!(six.len(), 6);
+        let quarter = std::f32::consts::FRAC_PI_4;
+        assert_eq!(
+            six[0],
+            DoorSpike {
+                size: 7.0,
+                offset: [6.5, 6.5],
+                turn: 3.0 * quarter
+            }
+        );
+        assert_eq!(
+            six[3],
+            DoorSpike {
+                size: 9.7,
+                offset: [-19.5, -19.5],
+                turn: -quarter
+            }
+        );
+        assert!((six[5].size - 12.4).abs() < 1e-5 && six[5].offset == [-32.5, -32.5]);
+        assert_eq!((six[1].offset, six[1].turn), ([-6.5, -6.5], -quarter));
+        assert_eq!((six[2].offset, six[2].turn), ([19.5, 19.5], 3.0 * quarter));
+    }
+
+    #[test]
+    fn a_glyph_turns_and_its_rings_swirl_about_it_facing_the_camera() {
+        let mut dice = crate::spawning::Script::new(vec![0, 32_767, 16_384, 0]);
+        let mut glyph = UwGlyph::new(&mut dice);
+        assert_eq!(glyph.rings[0], [-0.45, 15.0]);
+        assert!((glyph.rings[1][0] - (-0.45 - 0.8 * 16_384.0 / 32_767.0)).abs() < 1e-6);
+        assert_eq!(glyph.rings[1][1], 10.0);
+        glyph.update(1.0);
+        assert_eq!((glyph.clock, glyph.phase), (1.0, 1.0));
+        glyph.update(6.0);
+        assert!((glyph.phase - (7.0 - std::f32::consts::TAU)).abs() < 1e-5);
+        assert_eq!(glyph.clock, 7.0);
+        // The ring 0's nine points: 18 out, 20 under the rings' lift, from its turn on.
+        let points = glyph.ring(0);
+        let pi = std::f32::consts::PI;
+        for (j, point) in points.iter().enumerate() {
+            let share = f32::from(u8::try_from(j).unwrap()) / 9.0;
+            let angle = (share - 0.45 * 7.0) * pi;
+            assert!((point[0] - 18.0 * angle.cos()).abs() < 1e-3);
+            assert!((point[1] - 18.0 * angle.sin()).abs() < 1e-3);
+            assert_eq!(point[2], -20.0);
+        }
+        assert_eq!(glyph.ring(19)[0][2], 18.0);
+        // Its band 3 to each side, across its way and the view's (0, −2, −1).
+        let flat = [
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [2.0, 0.0, 0.0],
+            [3.0, 0.0, 0.0],
+            [4.0, 0.0, 0.0],
+            [5.0, 0.0, 0.0],
+            [6.0, 0.0, 0.0],
+            [7.0, 0.0, 0.0],
+            [8.0, 0.0, 0.0],
+        ];
+        let band = UwGlyph::band(&flat);
+        let n = [0.0, 3.0 / 5.0_f32.sqrt(), -6.0 / 5.0_f32.sqrt()];
+        for (j, [plus, minus]) in band.iter().enumerate() {
+            let x = f32::from(u8::try_from(j).unwrap());
+            for k in 0..3 {
+                let p = if k == 0 { x } else { 0.0 };
+                assert!((plus[k] - (p + n[k])).abs() < 1e-5, "{j} {k}");
+                assert!((minus[k] - (p - n[k])).abs() < 1e-5, "{j} {k}");
+            }
+        }
+        // Along the ring's own arc: each pair across its way to the next point and the view's,
+        // the last pair the one before's.
+        let band = UwGlyph::band(&points);
+        let across = |j: usize| {
+            let (a, b) = (points[j], points[j + 1]);
+            let way = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            // way × (0, −2, −1)
+            let n = [-way[1] + 2.0 * way[2], way[0], -2.0 * way[0]];
+            let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            n.map(|v| 3.0 * v / length)
+        };
+        for (j, [plus, minus]) in band.iter().enumerate() {
+            let n = across(j.min(7));
+            for k in 0..3 {
+                assert!((plus[k] - (points[j][k] + n[k])).abs() < 1e-4, "{j} {k}");
+                assert!((minus[k] - (points[j][k] - n[k])).abs() < 1e-4, "{j} {k}");
+            }
+        }
+        let tilted = [
+            [0.0, 0.0, 0.0],
+            [1.0, 2.0, 3.0],
+            [3.0, 1.0, 5.0],
+            [4.0, 4.0, 4.0],
+            [6.0, 3.0, 7.0],
+            [7.0, 7.0, 2.0],
+            [9.0, 5.0, 1.0],
+            [8.0, 9.0, 6.0],
+            [11.0, 8.0, 3.0],
+        ];
+        let band = UwGlyph::band(&tilted);
+        let [a, b] = [tilted[2], tilted[3]];
+        let way = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let n = [-way[1] + 2.0 * way[2], way[0], -2.0 * way[0]];
+        let length = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        for k in 0..3 {
+            assert!(
+                (band[2][0][k] - (a[k] + 3.0 * n[k] / length)).abs() < 1e-4,
+                "{k}"
+            );
+        }
+        // The two passes' offsets.
+        let [first, second] = glyph_offsets(2.0);
+        assert_eq!(first, [(0.57_f32).sin(), (0.386_f32).cos()]);
+        assert_eq!(second, [(0.126_f32).sin(), (0.286_f32).cos()]);
+        assert!(
+            (UW_RING_COLOUR[0] - 0.392).abs() < 1e-3 && (UW_RING_COLOUR[1] - 0.294).abs() < 1e-3
+        );
+        assert!(
+            (UW_GLOW_COLOUR[0] - 0.369).abs() < 1e-3 && (UW_GLOW_COLOUR[1] - 0.278).abs() < 1e-3
+        );
+        assert!((UW_GLYPH_GREY - 0.502).abs() < 1e-3);
+    }
+
+    #[test]
+    fn the_glyphs_fire_glows_faintly_about_its_turning_sign() {
+        let mut dice = Rng::of(1, 2, 1179);
+        let mut fire = GlyphFire::default();
+        for _ in 0..40 {
+            fire.update(0.05, &mut dice);
+        }
+        // Some 113 glows at the detail 2, each still within its spread of 128 up.
+        let count = fire.system.particles.len();
+        assert!((105..=120).contains(&count), "{count}");
+        assert!(fire.system.particles.iter().all(|p| {
+            p.place[0].abs() <= 25.0
+                && p.place[1].abs() <= 25.0
+                && (83.0..=173.0).contains(&p.place[2])
+                && p.velocity == [0.0; 3]
+        }));
+        assert!((fire.phase - 2.0).abs() < 1e-4);
+        assert_eq!(
+            GlyphFire::blocks()[0],
+            Block {
+                size: spread(20.0, 5.0),
+                offset: spread([0.0, 0.0, 128.0], [25.0, 25.0, 45.0]),
+                interval: 0.015,
+                ..Block::default()
+            }
+        );
+        assert_eq!(
+            GlyphFire::layers()[0],
+            Layer {
+                life: -150.0,
+                ..Layer::default()
+            }
+        );
+        let ramp = GlyphFire::ramp();
+        assert_eq!(ramp.at(255.0), [0.0; 4]);
+        assert_eq!(ramp.at(215.0), [0.125, 0.011_718_75, 0.001_953_125, 0.0]);
+        assert_eq!(ramp.at(55.0), [0.125, 0.042_968_75, 0.003_906_25, 0.0]);
     }
 
     #[test]

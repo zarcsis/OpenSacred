@@ -583,8 +583,8 @@ An **estimate**: a linear scan, which misses values computed at run time and may
 | trap03_laser | 1 | 895 | FX_LIGHTNING01, PARTICLE_GLOW06 |  | glow, own geometry |  | 0x10 |
 | trap03_parent | 1 | 894 |  |  | none |  |  |
 | twister | 250 | 826 | PARTICLE_CLOUD01 | PARTICLE_CLOUD01 `0x44/g1` |  |  | 0x600 |
-| uw_glyph | 1 | 1175, 1176, 1177, 1178 | FX_MULTITEXBASE06, fx_demonform_demon |  | glow, own geometry |  |  |
-| uw_glyph_fire | 300 | 1179 | FX_MULTITEXBASE03, FX_MULTITEXBASE06, PARTICLE_GLOW03 | PARTICLE_GLOW03 `0x19/g1` |  |  |  |
+| uw_glyph | 1 | 1175, 1176, 1177, 1178 | FX_MULTITEXBASE06, fx_demonform_demon |  | model, glow, own geometry |  |  |
+| uw_glyph_fire | 300 | 1179 | FX_MULTITEXBASE03, FX_MULTITEXBASE06, PARTICLE_GLOW03 | PARTICLE_GLOW03 `0x19/g1` | model |  |  |
 | vamp_sm_cast | 200 | 863 | FX_TRIBALS2_VAMP, FX_TRIBALS2_VAMP_G, PARTICLE_GLOW03, PARTICLE_MULTI01, PARTICLE_SPARK06, PARTICLE_SPARK07 | PARTICLE_GLOW03 `0x19/g1`; PARTICLE_MULTI01 `0x119/g2` | flat quad, glow | 35, 250 | 0x200,0x40 |
 | vamp_sm_hit | 250 | 862 | FX_GHOST, PARTICLE_DOTS03, PARTICLE_GLOW07, PARTICLE_MULTI02 | PARTICLE_GLOW07 `0x19/g1`; PARTICLE_DOTS03 `0x4c/g1` | glow, own geometry | 150, 200 | 0x1200,0x204,0x40 |
 | walloffire | 250 | 1006 | PARTICLE_FIRE03 | PARTICLE_FIRE03 `0xc/g1` | glow | 100 | 0x78,0xc00 |
@@ -1937,6 +1937,50 @@ The scripts' `CreateObj` makes them (about 900 in the Seraphim's tree, the secto
 `opensacred-game` draws them since #1092 (`dwarf_magics`, `opensacred_rules::particles::DwarfMagic`): each such object of the scripts (`npcs`) twinkles at its place and height and lights the world's table, untinted by the night.
 **Seen** 2026-11-05 beside the original at 4510, 915 (the dark elves' cave, 70,14): in both the blue stars twinkling over the blue crystal lamps, alike in size, colour and count.
 
+## The Underworld's glyphs
+
+Read 2026-11-20 for #2918 in Ghidra (**confirmed** by code unless marked); not seen in the running original, whose driver starts the Ancaria campaign alone.
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The temple door's spikes | 1174 `FX_DOORSPIKE` | `cParticleSystem_doorspikes` (`0x8990AC`) | `0x7C4470`, `0x7C4780`, `0x7C4520`, `0x7C45C0` |
+| A lock's glyph | 1175 to 1178 `FX_UW_GLYPH01` to `04` | `cParticleSystem_uw_glyph` (`0x8990CC`) | `0x7C4A00`, `0x7C5100`, `0x7C4B40`, `0x7C4C10` |
+| The glyphs' fire | 1179 `FX_UW_GLYPH_FIRE` | `cParticleSystem_uw_glyph_fire` (`0x8990F8`) | `0x7C54C0`, `0x7C58C0`, `0x7C5600`, `0x7C5680` |
+
+The set-up's cases `0x5A3025`, `0x5A3058` to `0x5A30D9` and `0x5A310C` make them of 1, 1 and 300 particles; none makes a Direct3D light, writes a world light's radius, reads the night's tint, sets system flags or starts a sound, and the six types' sound profiles are 0.
+`CreateObj` gives each its kind (`0xB0`, `0xB1` with the variants 0 to 3, `0xB2`), the record's point at the height 0 (none of the records carries a `0x7E`) and no caster nor target.
+The handler's case `0xB0` places and starts the spikes for an event's `+0x3C` 0 and signals them otherwise (its word `+0x74` 8); `0xB1` and `0xB2` place and start their systems whatever the event holds.
+1175 to 1181 are persistent; 1174 is not.
+
+The scripts (every add-on tree, the same records):
+- the spikes: `StartCode` makes `SPIKED_DEMON_TEMPLE_DOOR` at the cell 695,2630 (sector 10,41) and the trigger `TRG_SPIKED_DEMON_TEMPLE_DOOR`, closed and barred over the cells 694 to 696, 2630; quest 53's `QIS_OnEnter53` signals the spikes and, in its next record, unbars and opens the trigger.
+  The spikes block nothing; the trigger shuts the door.
+  Made at the start in a sector away from the hero's, a non-persistent type, they most likely end at the first tick in the original, so that the signal finds nothing (**hypothesis**, #3049).
+- the glyphs: quest 52's four locks, each a holder (1397) with a `Take:` function that opens its lock's gates and makes the glyph `1174 + N` at the holder's point (sectors 81,88 to 83,86); nothing signals or takes them away.
+- the fire: quest 53's `MouseEvent` at the cell 5963,4955 (its text 17832, its function `ot_nimmt_flamme`, one use), then `CreateObj "res:17832"` 1179 at the corner of the cells 5963 to 5964, 4955 to 4956, and the compass on it; `ot_nimmt_flamme` takes it away by `DelNPC` and gives the hero the quest's item 4932.
+  The cursor picks no FX object but the stargates (`0x5B6680`): the flame is taken through the mouse event's cell.
+
+**The spikes (1174).**
+- Its start (`0x7C4780`): ten spikes, the `i`-th of the size `7 + 2.7·⌊i/2⌋` at `±13·(⌊i/2⌋ + 0.5)` along the models' (1, 1), the even ones forward; its growth 0.
+- Its run (`0x7C4520`): the growth rises by the time to 1 (1 s); it stands until the signal (one that comes while it grows waits); then it falls by the time, and below 0 the system ends (1 s).
+- Its draw (`0x7C45C0`): the first six alone, each `door_spike.grn` in `door_spike.tga`, its scale its size times the growth, its up tilted 0.6 rad toward its +x and then turned by `3π/4` (the even ones) or `−π/4` (the odd), so that every spike leans in over the middle; lit, its depth written, its shadow at the detail 2.
+- So six tall brown spikes stand across the temple door, leaning in over its middle, growing from the ground in a second and sinking back in a second once signalled.
+
+**A lock's glyph (1175 to 1178).**
+- Its start (`0x7C5100`): its variant's model, `glyph_a.grn` to `glyph_d.grn`; twenty rings, each of the speed `−0.45 − 0.8 r` and the radius `10 + 5 r`.
+- Its run (`0x7C4B40`): its clock and its turn a radian a second; it never ends.
+- Its draw (`0x7C4C10`): the model at 0.35 times its size, 140 over its point, turned by its turn, drawn twice by `0x40D310` in `FX_MULTITEXBASE06` (gold veins) of the grey 128, added whole, unlit, its depth tested and not written, its texture's coordinates moved by `(sin 0.285t, cos 0.193t)` and then by `(sin 0.063t, cos 0.143t)`; then the twenty rings 145 over its point, each a strip of nine points, an arc of 160° of 1.2 times its radius at the height `2(k − 10)`, turning at its speed times π a second, 3 to each side across its way and the view's `(0, −2, −1)`, of `fx_demonform_demon` (a soft streak with a bright head) in (100, 75, 0), added whole, culling off; then a glow of `PARTICLE_GLOW03` of the half side 100 and (94, 71, 0) at 145, its depth test off.
+- So over each lock a see-through golden sign turns, its veins shimmering as its two copies slide, wrapped in twenty arcs of gold light swirling about it, in a large dim amber glow.
+
+**The glyphs' fire (1179).**
+- Its start (`0x7C58C0`): `fire-glyph.grn`; one layer, the life −150 a second; one block, the size 20 ± 5, still, within (25, 25, 45) of 128 over its point, one every 0.015 s times the detail's factor; its ramp from black to (32, 3, 0) over 40 entries, to (32, 11, 1) over 160 and to black over 56, its alpha 0.
+- Its run (`0x7C5600`): its turn a radian a second; its glows aged and emitted; it never ends of itself.
+- Its draw (`0x7C5680`): the model at 0.16 times its size, 130 over its point, turned, drawn twice added whole, in `FX_MULTITEXBASE03` (red veins) white and in `FX_MULTITEXBASE06` of the grey 128, both textures sliding as the glyph's; then its glows, camera-facing billboards of `PARTICLE_GLOW03` (the flags `0x19`), added whole in the ramp's colour.
+- So a see-through red sign with gold veins turns 130 over its point in a faint orange-red cloud.
+
+`opensacred-game` draws the three since #2918 (`underworld_glyphs`, `opensacred_rules::particles::{DoorSpikes, UwGlyph, GlyphFire}`): `npcs` places each at its record's point, the signs' two passes are copies of their meshes in materials whose texture transforms slide, and the scripts' signal (`forge_elements::Signal`) sinks the spikes.
+Not followed: the spikes' shadows; whether the start's spikes live at all (#3049).
+
 ## The Daemon's forms
 
 Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code unless marked).
@@ -2701,7 +2745,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn at every detail (the options' detail, a setting since #2352, stretches its emitters' intervals alone), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing (of the scripts' objects the underworld's glyphs with the other objects of its quests and of the last fight, #2918 to #2921, whose classes no section above reads); the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
+Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing (of the scripts' objects the other objects of the Underworld's quests and of its last fight, #2919 to #2921, whose classes no section above reads); the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions

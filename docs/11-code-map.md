@@ -400,6 +400,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/ui_layers.rs`: The interface's layers
 - `crates/opensacred-game/src/undead.rs`: The undead that rise again
 - `crates/opensacred-game/src/under_cursor.rs`: What lies under the cursor
+- `crates/opensacred-game/src/underworld_glyphs.rs`: The Underworld's glyphs
 - `crates/opensacred-game/src/vamp_casts.rs`: The Vampiress's casts' sights
 - `crates/opensacred-game/src/vamp_sights.rs`: The Vampiress's domination's ring and her raising's pentagram
 - `crates/opensacred-game/src/vertices.rs`: A model's vertices as last posed
