@@ -662,8 +662,60 @@ Other makers of these types, not followed: 801 at `0x4D3FA8` and `0x4E369E`; 778
 ### 776, a weapon's glow
 
 `cWeapon3D` (`0x5CDD5D` to `0x5CDE3E`) makes it for a weapon of a bonus's style 1 to 5 (`0x5CEA50`) with the bone 18 `weapon_gl01`, by the FX event `0xB` with the weapon its caster, `+0x38` 1 and `+0x3C` the style (**confirmed** by code, not seen).
-Its start (`0x76B5F0`) fills a ramp of white, a style's colour over 8 entries, a darker one at the alpha 0.8 over 192 and to transparent over 56 (1 red, 2 green, 3 grey, 4 blue, else violet); its layer's life −1000 and size −2.7, a block of the size 3 every 0.005 s; its flags `0x1200`, its light 250.
+Its start (`0x76B5F0`) fills a ramp of white, a style's colour over 8 entries (1 red (0.5, 0.2, 0.2), 2 green (0.2, 0.5, 0.2), 3 grey (0.3, 0.3, 0.3), 4 blue (0.2, 0.2, 0.5), else violet (0.4, 0.2, 0.5)), a darker one at the alpha 0.8 over 192 ((0.3, 0.1, 0.1), (0.1, 0.3, 0.1), (0.2, 0.2, 0.2), (0.1, 0.1, 0.3), (0.3, 0.2, 0.3)) and to transparent over 56; its layer's life −1000 and size −2.7, a block of the size 3 every 0.005 s times the detail's factor; its flags `0x1200`, its light 250.
 Its update (`0x76B4C0`) emits at its point 0 in the state 0; its draw (`0x76B540`) draws `PARTICLE_GLOW01` billboards (the flags 9) and, while it emits, a `PARTICLE_FLARE02` glow at the point 0 of a half side of `17 + 3 p`, `p = (sin 2t + 1) / 2`.
+
+**The bonus's style** (`0x5CEA50`, read 2026-11-20 for #2922, **confirmed** by code): the weapon's bonus records in turn, its own (`+0x118`) first and then each of the list `+0x100` (records of `0x82` bytes), and in each its eight slots in order; a slot counts where its condition (`+0x3A`) or its effect (`+0x4A`) is not 0, and its effect's low 16 bits of 1 to 51 give a style by a byte table (`0x5CEBA8`), the first that gives one deciding:
+
+| Style | Its colour | The effects |
+|---|---|---|
+| 1 | red | 5, 11, 24, 25 |
+| 2 | green | 2, 16, 26, 27 |
+| 3 | grey | 1, 29, 30, 34 |
+| 4 | blue | 4, 28, 35, 36 |
+| 5 | violet | 3, 7 to 10, 13, 15, 17 to 23, 31 to 33, 37 to 41, 43, 44 |
+
+The effects 6, 12, 14, 42, 45 to 51, and those from 52, give none, and a weapon of none has no glow.
+
+### The unique weapons' effects
+
+Read 2026-11-20 for #2922 in Ghidra (**confirmed** by code unless marked); the whip's and the wings' **seen** in the running original the same day (the driver's `wear 3073` and `wear 4010` on the Seraphim).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The whip 3073's | 824 `FX_MAGICWHIP` | `cParticleSystem_magicwhip` (`0x89807C`) | `0x787120`, `0x787760`, `0x787330`, `0x7874A0` |
+| A streak of the wings 4010 and 4092 | 837 `FX_MAGICSTREAK` | `cParticleSystem_magicstreak` (`0x89809C`) | `0x7877C0`, `0x788120`, `0x787AC0`, `0x787E70` |
+| The sword 1771's | 858 `FX_MAGICWORMS` | `cParticleSystem_magicworms` (`0x897D80`) | `0x77C500`, `0x77C870`, `0x77C590`, `0x77C600` |
+
+`cWeapon3D`'s switch (`0x5CDB60`, its argument on) makes them as its model is put on, each by an FX event with the weapon its caster and `+0x38` 1, kept in the weapon (`+0x1A4`, the list `+0x1C4`, `+0x1A8`); its argument off sends the same kinds with `+0x38` 0, which turns each off and ends it (the handlers' `0x7CBA90`, the signal 1).
+- The handler's cases start with the bone 15 in hand (`0x5A3B02`).
+- The whip (3073, `0x428190`): one 824 by the kind `0x33`, following the weapon at its bone 15, `weapon_fx01` (`0x5A4FE0`).
+- The wings (4010 and 4092, `0x4282F0`): one 837 for each of the model's streak bones, by the kind `0x3C`, its `+0x3C` the bone's index from `fx_streak01` (the bone `0x1A` and on, `0x5A5000`).
+- The sword (1771, `0x428360`): one 858 by the kind `0x52`, following the weapon at its root, its points at its root, its bone 15 and its bone 16 (`0x5A5207`).
+
+**The whip (824).**
+- Its constructor: fifty points, each a place and a velocity, hanging from the first 1.5 apart (`(0, −1.5 i, 0)`); `PARTICLE_GLOW01`; a quad of the half side 4 whose corners are (0, 0, 128), (64, 64, 128), (0, 64, 128) and (64, 0, 128), opaque.
+- Its start: its clock 0, the flag `0x200` (it follows its bone), no speed.
+- Its run (`0x787330`), each frame whatever its time: the first point at its place; then each next point 1.5 from the one before it, along its own offset from it plus its velocity, its velocity its move times 0.675 (`13.5 · 0.05`).
+- Its draw: the quad facing the camera at each of the fifty points, blended by its alpha onto the frame and added, its depth tested and not written.
+- So a whip of fifty blue glows trails from the weapon and swings after it as it moves.
+
+**A streak (837).**
+- Its constructor: fifty points at its place; `PARTICLE_GLOW01`; a small quad of the half side 1.5, its corners (0, 0, 192), (128, 128, 192), (0, 128, 192) and (128, 0, 192), opaque, and a large one of the half side 10, its corners (0, 0, 64), (32, 32, 64), (0, 32, 64) and (32, 0, 64) at the alpha 64.
+- Its run (`0x787AC0`): its clock; its bone's `x` axis by its turn (`+0x14`); its time held at 0.5 s and cut into `⌊200·t⌋` steps; at each step its first point is moved on along its way from where it stood to its place, and each next point lies 0.75 from the one before, along its offset plus its velocity plus the axis times a weight that falls from 0.7 by 0.014 a point, its velocity its move times 0.675.
+- Its draw: as the whip's, both quads at each point.
+- So each streak bone of the wings trails a ribbon of fifty small blue glows in a faint blue haze, drawn out along the bone and lagging as the wings move.
+
+**The sword's worms (858).**
+- Its start (`0x77C870`): a ramp of (255, 68, 68) at the alpha 0; one layer, the life −500 a second (0.51 s); one block of the size 1 within 40 of its place each way, one every 0.02 s times the detail's factor; the flags `0x1204`.
+- Its run: its particles aged and, in the state 0, emitted; in the state 1, gone with its last.
+- Its draw: its particles as billboards of `PARTICLE_GLOW01` (the flags 3: the ramp's colour at the alpha of its life, added by it); then a line of glows (`0x40DA80`, "The arrows' elements") from its point 0 to its point 1, both offset by its point 3, of the density 0.5, each glow's half side from 3 to 4 at random (`rand()`, its last argument 4), in (255, 64, 64).
+- So red sparks flicker about the sword, short-lived, within 40 of its grip each way, along a line of red glows from its grip toward its bone `weapon_fx01` (**hypothesis**: its points' bones and offset not traced).
+- **Seen** in the original: the Seraphim's whip a violet glowing band hanging from her hand; her wings eight blue-white streaks spread out from her back, each as long as she is tall.
+
+`opensacred-game` draws them since #2922 (`weapon_effects`, `opensacred_rules::weapon_effects`): each model put on (`npcs::Piece`) takes its effect by its type, the bonus's glow on a weapon in hand of the bone `stdfx_bone01` whose own record's or socketed items' bonuses give a style, each following its bones, added and untinted by the night, just behind its holder in the order.
+**Seen** in the game: the whips of quest 6001's ice elves (type 140) trailing blue-violet as they fight.
+Not followed: the bonus's glow on a model worn rather than held (the wings of the bone `stdfx_bone01`), which `cWeapon3D` gives where its bonuses do; the whip's first frames, which the original draws from its points about the world's origin until they settle; the wings, the sword and the glow are not seen in the game, which has no way yet to put an item on its hero but its inventory's.
 
 ### In `opensacred-game`
 
@@ -2874,7 +2926,6 @@ The order above is #1092's: the machinery with the world's fires first, then the
 - Which statics the fires and fire smokes stand on (the units and the frame of their height, the scripts' tag `0x7E`, are read since #2728: "Who makes them").
 - The renderer's vector `+0x6C`, `+0x70` that the smoke's wind takes besides `+0x68` and `+0x74`.
 - Whether the butterflies' fade in step shows in the original (frames at 60 a second over 3 s).
-- The weapons' effects of `cWeapon3D` of the kinds `0x33`, `0x3C` and `0x52` and their systems, which with the glow 776 the game does not draw yet (#2922; `0xB` is read in "776, a weapon's glow", `0x1C` and `0x1D` in "The arrows' elements").
 - The FX event's words `+0x10` … `+0x1C`, and the kinds of the handler not listed in docs/re/arts.md.
 - The remaining helpers (`0x762650`, `0x763CB0`) and the classes of the catalogue that no section above reads.
 - `cParticleSystem_anducar_human`'s virtual table (`0x898FEC`) while `0x5A0C50` builds 1169 with `anducar_demon`'s constructor.
