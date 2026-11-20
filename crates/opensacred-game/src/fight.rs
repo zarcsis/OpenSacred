@@ -353,67 +353,19 @@ pub(crate) fn resolve(
         // all (`0x561860`, the sets' M17, #2277): the target's items' 858, the hero's grown by its
         // sets' terms, against the caster's level raised by its magic lore.
         if hit.ward {
-            let ward = match (hero_hit, guarded) {
-                (true, Some(guarded)) => {
-                    guarded
-                        .0
-                        .sets
-                        .magic_defence(opensacred_rules::fight::item_effect(
-                            &guarded.0.items,
-                            opensacred_rules::fight::MAGIC_DEFENCE,
-                            None,
-                        ))
-                }
-                _ => arms.map_or(0.0, |arms| {
-                    opensacred_rules::fight::item_effect(
-                        &arms.item_values(),
-                        opensacred_rules::fight::MAGIC_DEFENCE,
-                        None,
-                    )
-                }),
-            };
-            let lore = match (hero, caster_arms) {
-                (true, _) => hero_arts.as_deref().map_or(0.0, |arts| {
-                    opensacred_rules::fight::magic_lore(&arts.skills, &rules)
-                }),
-                (false, Some(arms)) => opensacred_rules::fight::magic_lore(
-                    &[(MAGIC_LORE, arms.skill_level(level, MAGIC_LORE))],
-                    &rules,
-                ),
-                (false, None) => 0.0,
-            };
-            if let Some(share) = opensacred_rules::fight::magic_ward(ward, level, lore) {
-                let roll = dice.0.below(opensacred_rules::fight::MAGIC_DEFENCE_FACES);
-                if opensacred_rules::fight::warded(share, roll) {
-                    debug!(
-                        "fight: {} turns aside the spell of {} by its magic defence {ward} ({share:.3})",
-                        hit.target, hit.attacker
-                    );
-                    continue;
-                }
-            }
-            // Then its effect 0x1A by the arrows' rule, `k` 1 (`0x561860`'s second stage, #2945):
-            // the spellproof's shares the spell among the creatures hostile to its bearer, the
-            // shield wall's only flashes its object.
-            let turns = effects.get(hit.target).ok().and_then(|held| {
-                held.list()
-                    .into_iter()
-                    .find(|effect| effect.id == opensacred_rules::spells::TURNS_SPELLS)
-            });
-            if let Some(turns) = turns {
-                let chance =
-                    opensacred_rules::arrows::deflection_chance(turns.level, turns.art, level);
-                let roll = f32::from(u16::try_from(dice.0.below(32_768)).unwrap_or(0)) / 32_767.0;
-                if roll <= chance {
-                    debug!(
-                        "fight: {} turns aside the spell of {} by its effect of {} ({:.0} %)",
-                        hit.target,
-                        hit.attacker,
-                        turns.art,
-                        chance * 100.0
-                    );
-                    let bearer = hit.target;
-                    let (art, value, damages) = (turns.art, turns.value, hit.fixed);
+            let ward = magic_defence(hero_hit, guarded, arms);
+            let lore = caster_lore((hero, caster_arms, level), hero_arts.as_deref(), &rules);
+            let held = effects.get(hit.target).ok();
+            if let Some(turned) = turned_aside(
+                &mut dice,
+                (ward, level, lore),
+                held,
+                (hit.target, hit.attacker),
+            ) {
+                // The spellproof's shares the spell among the creatures hostile to its bearer,
+                // the shield wall's only flashes its object.
+                if let Turned::Effect { art, value } = turned {
+                    let (bearer, damages) = (hit.target, hit.fixed);
                     commands.queue(move |world: &mut World| {
                         if art == opensacred_rules::spells::SPELLPROOF {
                             if let Some(damages) = damages {
@@ -423,8 +375,8 @@ pub(crate) fn resolve(
                             world.write_message(crate::shields::Flash(bearer, art));
                         }
                     });
-                    continue;
                 }
+                continue;
             }
         }
         // A defender in its defending clip, a parry's or a script's (the slots 53 to 65), doubles
@@ -1863,12 +1815,159 @@ fn rise(
     }
 }
 
+/// What turned a spell object's strike or gift aside ([`turned_aside`]): the target's magic
+/// defence, or its effect `0x1A` of the art `art` and the value `value`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Turned {
+    Defence,
+    Effect { art: u32, value: f32 },
+}
+
+/// The magic defence of a target (`0x561860`, the sets' M17, #2277): the hero's items' 858 grown
+/// by its sets' terms (`guarded`, where `hero` the target is the hero), else its arms' items'.
+fn magic_defence(hero: bool, guarded: Option<&Holding>, arms: Option<&crate::npcs::Arms>) -> f32 {
+    match (hero, guarded) {
+        (true, Some(guarded)) => {
+            guarded
+                .0
+                .sets
+                .magic_defence(opensacred_rules::fight::item_effect(
+                    &guarded.0.items,
+                    opensacred_rules::fight::MAGIC_DEFENCE,
+                    None,
+                ))
+        }
+        _ => arms.map_or(0.0, |arms| {
+            opensacred_rules::fight::item_effect(
+                &arms.item_values(),
+                opensacred_rules::fight::MAGIC_DEFENCE,
+                None,
+            )
+        }),
+    }
+}
+
+/// The magic lore of a spell's caster of the level `level`: the hero's skills' (`hero`), else its
+/// arms' skill at its level.
+fn caster_lore(
+    (hero, arms, level): (bool, Option<&crate::npcs::Arms>, u32),
+    hero_arts: Option<&crate::arts::HeroArts>,
+    rules: &Rules,
+) -> f32 {
+    match (hero, arms) {
+        (true, _) => hero_arts.map_or(0.0, |arts| {
+            opensacred_rules::fight::magic_lore(&arts.skills, rules)
+        }),
+        (false, Some(arms)) => opensacred_rules::fight::magic_lore(
+            &[(MAGIC_LORE, arms.skill_level(level, MAGIC_LORE))],
+            rules,
+        ),
+        (false, None) => 0.0,
+    }
+}
+
+/// Whether a spell object's strike or gift of a caster of the level `level` and the magic lore
+/// `lore` is turned aside before it reaches its target (`0x561860`): the target's magic defence
+/// `ward` by its roll (#2277), then its effect `0x1A` of `held` by the arrows' rule, `k` 1, by its
+/// own (#2945), each of `dice`; `target` and `caster` for the log.
+fn turned_aside(
+    dice: &mut Dice,
+    (ward, level, lore): (f32, u32, f32),
+    held: Option<&crate::effects::Effects>,
+    (target, caster): (Entity, Entity),
+) -> Option<Turned> {
+    if let Some(share) = opensacred_rules::fight::magic_ward(ward, level, lore) {
+        let roll = dice.0.below(opensacred_rules::fight::MAGIC_DEFENCE_FACES);
+        if opensacred_rules::fight::warded(share, roll) {
+            debug!(
+                "fight: {target} turns aside the spell of {caster} by its magic defence {ward} ({share:.3})"
+            );
+            return Some(Turned::Defence);
+        }
+    }
+    let turns = held?
+        .list()
+        .into_iter()
+        .find(|effect| effect.id == opensacred_rules::spells::TURNS_SPELLS)?;
+    let chance = opensacred_rules::arrows::deflection_chance(turns.level, turns.art, level);
+    let roll = f32::from(u16::try_from(dice.0.below(32_768)).unwrap_or(0)) / 32_767.0;
+    (roll <= chance).then(|| {
+        debug!(
+            "fight: {target} turns aside the spell of {caster} by its effect of {} ({:.0} %)",
+            turns.art,
+            chance * 100.0
+        );
+        Turned::Effect {
+            art: turns.art,
+            value: turns.value,
+        }
+    })
+}
+
+/// Effects that a spell's object gives a target in place of a strike, which the target's magic
+/// defence and its effect `0x1A` turn aside as they turn a strike (`0x561860` before
+/// `0x5ABD80`'s event; the Daemon's fear 1012; [`gifts`], #3078).
+#[derive(Message, Clone, Debug)]
+pub struct Gift {
+    pub caster: Entity,
+    pub target: Entity,
+    pub gives: Vec<(opensacred_rules::fight::Effect, f32)>,
+}
+
+/// Gives each living target of a [`Gift`] its effects unless the gift is turned aside
+/// ([`turned_aside`]), a shield wall's flashing as for a strike.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn gifts(
+    mut commands: Commands,
+    mut gifts: MessageReader<Gift>,
+    (mut dice, experience, rules, hero_arts): (
+        ResMut<Dice>,
+        Res<Experience>,
+        Res<Rules>,
+        Option<Res<crate::arts::HeroArts>>,
+    ),
+    effects: Query<&crate::effects::Effects>,
+    casters: Query<(
+        Has<Body>,
+        Option<&crate::ai::Mind>,
+        Option<&crate::npcs::Arms>,
+    )>,
+    targets: Query<(Has<Body>, Option<&Holding>, Option<&crate::npcs::Arms>), Without<Dies>>,
+) {
+    for gift in gifts.read() {
+        let Ok((hero_hit, guarded, arms)) = targets.get(gift.target) else {
+            continue;
+        };
+        let (hero, mind, caster_arms) = casters.get(gift.caster).unwrap_or((false, None, None));
+        let level = mind.map_or(experience.level, |mind| mind.level);
+        let ward = magic_defence(hero_hit, guarded, arms);
+        let lore = caster_lore((hero, caster_arms, level), hero_arts.as_deref(), &rules);
+        let held = effects.get(gift.target).ok();
+        match turned_aside(
+            &mut dice,
+            (ward, level, lore),
+            held,
+            (gift.target, gift.caster),
+        ) {
+            Some(Turned::Effect { art, .. }) if art != opensacred_rules::spells::SPELLPROOF => {
+                commands.write_message(crate::shields::Flash(gift.target, art));
+            }
+            Some(_) => {}
+            None => crate::spells::give(&mut commands, gift.target, gift.gives.clone()),
+        }
+    }
+}
+
 /// The fight's rules.
 pub struct FightPlugin;
 
 impl Plugin for FightPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Hit>()
+            .add_message::<Gift>()
             .add_message::<Burn>()
             .add_message::<Slay>()
             .add_message::<Kill>()
@@ -1882,7 +1981,7 @@ impl Plugin for FightPlugin {
             )
             .add_systems(
                 Update,
-                (resolve, burn, slay, level_up, keep_health, rise).chain(),
+                (resolve, gifts, burn, slay, level_up, keep_health, rise).chain(),
             )
             .add_systems(Update, calm.in_set(crate::frame::Unpaused))
             .add_systems(
@@ -2158,6 +2257,31 @@ mod tests {
         let (paid, lost_too) = after_a_strike_with(opensacred_rules::fight::PAINKILLER, 20);
         assert!((1..40).contains(&paid), "{paid}");
         assert_eq!(lost_too, lost);
+    }
+
+    #[test]
+    fn a_gift_of_a_spells_object_is_turned_aside_as_its_strike_would_be() {
+        // The fear's effect at a creature of no magic defence comes always; at one of a great
+        // magic defence, as a strike, mostly not (#3078).
+        let mut dice = Dice(crate::seed::dice(0));
+        let (target, caster) = (Entity::from_raw_u32(1).expect("an id"), Entity::PLACEHOLDER);
+        let turned = |dice: &mut Dice, ward: f32| {
+            (0..100)
+                .filter(|_| turned_aside(dice, (ward, 10, 0.0), None, (target, caster)).is_some())
+                .count()
+        };
+        assert_eq!(turned(&mut dice, 0.0), 0);
+        let warded = turned(&mut dice, 1_000.0);
+        assert!(warded > 80, "{warded}");
+        assert_eq!(
+            turned_aside(
+                &mut Dice(crate::seed::dice(0)),
+                (1e9, 1, 0.0),
+                None,
+                (target, caster)
+            ),
+            Some(Turned::Defence)
+        );
     }
 
     /// The hero's health after ten spell strikes of 100 at it by a creature of level 1, each
