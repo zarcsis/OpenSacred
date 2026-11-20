@@ -391,8 +391,9 @@ struct Placement {
     /// An FX object of the scripts that a module of its own runs: the field of pills and ghosts
     /// (891, `pill_fields`) and the maker of the fences of lightning (894, `laser_fences`; #2916),
     /// a hell gate (1160, 1161, 1181, `hell_gates`; #2917), the Underworld's glyphs, their fire
-    /// and the temple door's spikes (1174 to 1179, `underworld_glyphs`; #2918): its type and its
-    /// height in the models' units, the record's `0x7E`; it has no model of its item's.
+    /// and the temple door's spikes (1174 to 1179, `underworld_glyphs`; #2918), Shaddar's slaves
+    /// (921, `shaddar_slaves`; #2919): its type and its height in the models' units, the record's
+    /// `0x7E`; it has no model of its item's.
     scripted: Option<(u32, f32)>,
     /// An NPC's creature, its `Creature.pak` record's flags and the flags word its record's tags
     /// make (`crowd::flags_word`): how it stands in the others' way.
@@ -1183,7 +1184,8 @@ pub struct Npcs {
     /// took, which their sectors do not place again ([`QuestItem`], #1256; [`ScriptItem`], #1296).
     taken: HashSet<usize>,
     /// The placements of the objects that a play's `DelNPC` removed by their names, which their
-    /// sectors do not place again (#2758); a save's records remove them again as it loads.
+    /// sectors do not place again (#2758); a save's records remove them again as it loads. Shaddar's
+    /// slaves too, once placed: they end with their sector, never made again (#2919).
     removed: HashSet<usize>,
     /// The level that each placement's item lying was made at the first time it was placed,
     /// which its sector's later comings make it at again (`CreateObj`'s, #1125).
@@ -3732,14 +3734,15 @@ impl Makers {
             && category(item) == FX
             && ([script_traps::FIELD, script_traps::FENCES].contains(&creature)
                 || crate::hell_gates::Gate::is(creature)
-                || crate::underworld_glyphs::Underworld::is(creature)))
-        .then(|| {
-            let height = ops.iter().find_map(|o| match (o.tag, &o.value) {
-                (FX_HEIGHT, Value::I32(h)) => i16::try_from(*h).ok().map(f32::from),
-                _ => None,
+                || crate::underworld_glyphs::Underworld::is(creature)
+                || creature == opensacred_rules::shaddar::SLAVE))
+            .then(|| {
+                let height = ops.iter().find_map(|o| match (o.tag, &o.value) {
+                    (FX_HEIGHT, Value::I32(h)) => i16::try_from(*h).ok().map(f32::from),
+                    _ => None,
+                });
+                (creature, height.unwrap_or(0.0))
             });
-            (creature, height.unwrap_or(0.0))
-        });
         // A piece of the scripts' Pong of the FX objects, which has no model: its height.
         let pong = (record.kind == CREATE_OBJ && category(item) == FX)
             .then(|| crate::pong::Piece::of(creature))
@@ -5624,6 +5627,14 @@ fn place_index(
             (&npcs.fight, &npcs.items),
         ),
     };
+    // A slave of Shaddar's lives while its sector is in the world, never made again
+    // (docs/re/effects.md, "Shaddar's slaves").
+    if placement
+        .scripted
+        .is_some_and(|(kind, _)| kind == opensacred_rules::shaddar::SLAVE)
+    {
+        npcs.removed.insert(index);
+    }
     // A loaded save's queue of it, which it takes on again (#2890).
     if let Some(queue) = npcs.queues.remove(&index) {
         queue.give(commands, entity);
@@ -7269,6 +7280,8 @@ fn spawn(
             made.insert(crate::pill_fields::Field);
         } else if kind == script_traps::FENCES {
             made.insert(crate::laser_fences::Maker);
+        } else if kind == opensacred_rules::shaddar::SLAVE {
+            made.insert(crate::shaddar_slaves::Slave);
         } else if crate::underworld_glyphs::Underworld::is(kind) {
             made.insert(crate::underworld_glyphs::Underworld {
                 kind,

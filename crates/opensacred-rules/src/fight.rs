@@ -872,6 +872,11 @@ pub struct Rules {
     /// The spit's damages of the four kinds a level (`spiderpuke_dmg_ph`, `_fi`, `_ma` and `_po`,
     /// the balance's `0x12CC` to `0x12D8`).
     spit: [f32; 4],
+    /// The last fight's slaves' strike's damages of the four kinds (`shaddar_slave_dmg_ph`, `_fi`,
+    /// `_ma` and `_po`, the balance's `0x968` to `0x974`) and their wandering speed
+    /// (`shaddar_slave_speed`, `0x978`; #2919).
+    shaddar_slave: [f32; 4],
+    shaddar_slave_speed: f32,
     spawn_weapon: [f32; 2],
     /// The rare effects' parameters `(a, b, c)` of the balance's tail's fifth table, by their
     /// effects (`0x5F23A0`), and the factor of the wounds' damage (`TollwutFactor`).
@@ -923,6 +928,8 @@ impl Default for Rules {
             dragon_fire: [2.0, 2.5, 0.0, 0.0],
             dryad_ghost: [2.0, 2.5, 0.0, 0.0],
             spit: [1.0, 0.0, 0.0, 5.0],
+            shaddar_slave: [100.0; 4],
+            shaddar_slave_speed: 85.0,
             spawn_weapon: [25.0, 275.0],
             rare: Vec::new(),
             tollwut: 1.0,
@@ -1296,6 +1303,16 @@ impl Rules {
                         .unwrap_or(default.spit[k])
                 })
             },
+            shaddar_slave: {
+                let kinds = ["ph", "fi", "ma", "po"];
+                std::array::from_fn(|k| {
+                    b.f32(&format!("shaddar_slave_dmg_{}", kinds[k]))
+                        .unwrap_or(default.shaddar_slave[k])
+                })
+            },
+            shaddar_slave_speed: b
+                .f32("shaddar_slave_speed")
+                .unwrap_or(default.shaddar_slave_speed),
             spawn_weapon: [
                 b.f32("SpawnWeaponMin").unwrap_or(default.spawn_weapon[0]),
                 b.f32("SpawnWeaponMax").unwrap_or(default.spawn_weapon[1]),
@@ -1415,6 +1432,18 @@ impl Rules {
     /// physical and 22 fire at a skill of 0.
     pub fn dryad_ghost_damages(&self, skill_2: u32) -> [f32; 4] {
         self.object_damages(self.dryad_ghost, 0, skill_2)
+    }
+
+    /// The damages of the four kinds of a hunting slave's strike of the last fight (921,
+    /// `0x5AF5C0`; #2919): each kind's `shaddar_slave_dmg_*` rounded down, 100 each.
+    pub fn slave_damages(&self) -> [f32; 4] {
+        self.shaddar_slave.map(f32::floor)
+    }
+
+    /// A slave's wandering speed in the flight's units a second (`shaddar_slave_speed` rounded
+    /// down, `0x7AA6F0`), 85.
+    pub fn slave_speed(&self) -> f32 {
+        self.shaddar_slave_speed.floor()
     }
 
     /// The damages of the four kinds of a creature's spit (880, `0x4E5C7A`; #2099): each kind's

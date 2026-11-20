@@ -228,6 +228,7 @@ mod set_icon;
 mod sets;
 mod settings;
 mod sfx;
+mod shaddar_slaves;
 mod shaders;
 mod shadow_dots;
 mod shadows;
@@ -740,6 +741,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     ))
     .add_plugins((
         sfx::SfxPlugin,
+        shaddar_slaves::ShaddarSlavesPlugin,
         shaders::ShaderLibrary,
         shadow_dots::ShadowDotsPlugin,
         shadows::ShadowsPlugin,
