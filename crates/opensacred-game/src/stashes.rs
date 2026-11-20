@@ -24,9 +24,9 @@
 //! `under_cursor`); one without is picked by the cursor's line of sight where the cursor picks
 //! nothing else (**estimate**: the original finds it by the cell under the cursor, `0x634C50`).
 //!
-//! Not followed: the static object's mark (the stash stands at its cell's centre on the ground,
-//! whatever its floor), the arrival's straight way, and the hero's walk of the order 7 (the
-//! click's own walk takes it there).
+//! Not followed yet: the static object's mark (the stash stands at its cell's centre on the
+//! ground, whatever its floor; #3089), the arrival's straight way, and the hero's walk of the
+//! order 7 (the click's own walk takes it there; #3086).
 
 use std::collections::HashSet;
 

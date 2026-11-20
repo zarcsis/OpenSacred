@@ -4050,8 +4050,9 @@ fn shortfall(required: u32, level: u32, skill: u32) -> Option<f64> {
 /// (`0x5D3AB0`; #844): its damage's worth `D`, the mean of the four kinds' least and most summed,
 /// or their most where every least is 0; `T`, `D` and its resistances, at least 1, times 100
 /// over its template's scale where it has one; then `(T − SpawnWeaponMin)`, at least 1, times 100
-/// over `SpawnWeaponMax − SpawnWeaponMin`, rounded, held from 1 to 255. Its sockets' items, which
-/// raise it, are not followed.
+/// over `SpawnWeaponMax − SpawnWeaponMin`, rounded, held from 1 to 255. The original raises it to
+/// its sockets' items' highest (`0x5C0810`); the values passed here merge the sockets' additions
+/// into the item's own, which #3080 settles.
 pub fn item_level(values: &ItemValues, rules: &Rules) -> u32 {
     own_level(values, rules.spawn_weapon)
 }

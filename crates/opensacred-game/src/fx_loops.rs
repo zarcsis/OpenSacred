@@ -8,8 +8,8 @@
 //! and `element_stones`'.
 //!
 //! Not followed: the sound manager's list of the objects near the listener that they are taken
-//! from (`+0x1EB8`, its count `+0xAF38`), whose places and how an object comes into it are not
-//! read.
+//! from (`+0x1EB8`, its count `+0xAF38`; docs/decisions/sound.md, "Waterfalls' and effects'
+//! loops by distance alone").
 
 use bevy::prelude::*;
 

@@ -84,7 +84,7 @@ The client's console (`UI_WND_CONSOLE`) passes a line to two handlers.
 - `full` runs the hero's regeneration (`0x562730`) 30 times for 50 s each.
 - `killme` and `suicide` set the hero's health to 0, its AI's state 9 and its action 6.
 - `upgrade` teaches the hero each combat art of the runes 5375 to 5782 that its type may learn (`0x611510`).
-- `nq` and `hq` resolve a marker of the map (`sdk_MARKER_RESOLVE`; not followed).
+- `nq` and `hq` resolve a marker of the map (`sdk_MARKER_RESOLVE`; not followed: a cheat behind the developers' code, which no player meets).
 - `win` with `all`, `bronze`, `silver`, `gold`, `platin` or `niob` passes the difficulty to `0x425290` and `0x424CF0` (**hypothesis**: marks it won, which unlocks the next).
 
 ## The clock

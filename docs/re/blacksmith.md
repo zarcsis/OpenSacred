@@ -70,7 +70,7 @@ The Dwarf as the smith may work only an item and socket items that his check all
 - `f` 1, or `100 / (s + 79)` for the Dwarf as the smith of skill 33's value `s`: 1.27 at 0, 1 at 21, 0.5 at 121.
 
 The products by the hundredths are of whole numbers (`5·P` and `10·S` as 64-bit integers, times the single float 0.01, a little below a hundredth), then added to 500 and multiplied by `n` and `f`.
-At the x87 unit's 53 bits a price that comes to a whole number in real numbers falls just below it and is one less: an item worth 1,000 with a socket costs 549 (**hypothesis**: the window's draw runs in the render thread's frame, measured at 53 bits, #589, and its input there too; at the main thread's 24 bits it would cost 550; not yet measured in the running original).
+At the x87 unit's 53 bits a price that comes to a whole number in real numbers falls just below it and is one less: an item worth 1,000 with a socket costs 549 (**hypothesis**: the window's draw runs in the render thread's frame, measured at 53 bits, #589, and its input there too; at the main thread's 24 bits it would cost 550; not yet measured in the running original, #2844).
 
 ## A socket filled (`0x5BFF60`)
 
