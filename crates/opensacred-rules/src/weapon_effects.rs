@@ -193,6 +193,14 @@ impl MagicWhip {
         Self { points }
     }
 
+    /// Its points hanging from `place` as they hang from 0 as it is made.
+    pub fn hang_from(&mut self, place: [f32; 3]) {
+        let fresh = Self::new();
+        for ((point, _), (from, _)) in self.points.iter_mut().zip(&fresh.points) {
+            *point = std::array::from_fn(|i| place[i] + from[i]);
+        }
+    }
+
     /// A frame on, its first point at `place` (`0x787330`): each frame whatever its time.
     pub fn update(&mut self, place: [f32; 3]) {
         if let Some(first) = self.points.first_mut() {

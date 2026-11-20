@@ -97,6 +97,11 @@ fn the_whip_hangs_and_trails_after_its_place() {
     assert!(place[0] > 0.0 && place[1] < 0.0);
     assert!((velocity[0] - place[0] * 0.675).abs() < 1e-5);
     assert!((velocity[1] - (place[1] + 1.5) * 0.675).abs() < 1e-5);
+    // Hung from a place, as from 0.
+    let mut hung = MagicWhip::new();
+    hung.hang_from([3.0, 4.0, 5.0]);
+    assert_eq!(hung.points[2].0, [3.0, 1.0, 5.0]);
+    assert_eq!(hung.points[2].1, [0.0; 3]);
 }
 
 #[test]
