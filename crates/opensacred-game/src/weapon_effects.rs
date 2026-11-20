@@ -11,7 +11,8 @@
 //! - the sword 1771 sheds red sparks within 40 of its grip and a line of red glows from its grip
 //!   to its bone `weapon_fx01` (`MagicWorms`).
 //!
-//! All added and untinted by the night, just behind the holder's model in the order.
+//! All added and untinted by the night, just behind the holder's model in the order; the glow
+//! lights the night about it.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -266,6 +267,10 @@ fn seek(
                 }
             }
         });
+        // The glow lights the night about it (`+0x9C` 250).
+        if matches!(kind, Kind::Glow { .. }) {
+            shown.insert(crate::daynight::Light(rules::GLOW_LIGHT));
+        }
         shown.insert(Shown {
             model,
             kind,
