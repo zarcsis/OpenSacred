@@ -625,6 +625,7 @@ fn make(
             Option<&fight::Holding>,
             Option<&fight::Frenzy>,
             Option<&crate::riding::Seat>,
+            Option<&fight::Base>,
         ),
         (
             Without<Dies>,
@@ -663,8 +664,19 @@ fn make(
         return;
     };
     let by_day = clock.is_none_or(|clock| clock.phase() == crate::daynight::Phase::Day);
-    for (hero, mut transform, mut body, making, playing, combat, size, holding, frenzy, seat) in
-        &mut heroes
+    for (
+        hero,
+        mut transform,
+        mut body,
+        making,
+        playing,
+        combat,
+        size,
+        holding,
+        frenzy,
+        seat,
+        base,
+    ) in &mut heroes
     {
         // From the saddle its spells take the rider's clips, its `Hardhit` the rider's 194, and
         // it does not turn to its target (#2302).
@@ -1361,13 +1373,22 @@ fn make(
                 }
                 arts.start(making.art);
                 let multipliers = combat.map_or([1.0; 4], |combat| combat.spells);
+                // Its strikes' factor by his skills 2 and 26, his `a2` and the points spent on it
+                // (`0x5AC6E9`, #3135).
+                let trap = rules.trap_factor(
+                    &arts.skills,
+                    (
+                        combat.map_or(0.0, |combat| combat.attributes[2]),
+                        base.map_or(0, |base| base.extras[2]),
+                    ),
+                );
                 // From his right hand (the bone 2, `0x5A55B2`, #2112).
                 let hand = bone(hero, &[HAND_BONE], &children, (&bones, &worn)).unwrap_or(here);
                 crate::spells::throw_trap(
                     &mut commands,
                     hero,
                     (making.art, playing.level),
-                    multipliers,
+                    (multipliers, trap),
                     (hand, playing.point, body.level()),
                 );
                 end(&mut commands);

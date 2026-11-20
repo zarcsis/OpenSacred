@@ -302,7 +302,7 @@ fn act(
             &Transform,
             (&Mind, &InTheWay),
             Option<&crate::fight::Ranked>,
-            Option<&crate::fight::Combat>,
+            (Option<&crate::fight::Combat>, Option<&crate::npcs::Arms>),
             Option<&ScriptClip>,
         ),
         With<ClipActs>,
@@ -334,7 +334,7 @@ fn act(
         MessageWriter<crate::fx::SmallFire>,
     ),
 ) {
-    for (entity, cast, at, (mind, way), rank, combat, clip) in &acting {
+    for (entity, cast, at, (mind, way), rank, (combat, arms), clip) in &acting {
         commands.entity(entity).remove::<ClipActs>();
         if cast.spell == casts::FLOWER_LEAP {
             // The flowers' panther's leap (`0x506770` at `0x507DC9`; #2231): to the target's
@@ -401,11 +401,18 @@ fn act(
                 .map(|multiplier| scaled(multiplier, factor));
             let from = crate::making::bone(entity, &[BALL_HAND], &children, (&bones, &worn))
                 .unwrap_or(at.translation + Vec3::Y * crate::bolts::HEIGHT);
+            // Its strikes' factor by its skills and its third attribute, with no points spent
+            // (`0x5AC6E9`).
+            let skills = arms.map(|arms| arms.skills(mind.level)).unwrap_or_default();
+            let trap = rules.0.trap_factor(
+                &skills,
+                (combat.map_or(0.0, |combat| combat.attributes[2]), 0),
+            );
             crate::spells::throw_trap(
                 &mut commands,
                 entity,
                 (cast.spell, level),
-                multipliers,
+                (multipliers, trap),
                 (from, cast.point, way.level),
             );
             info!(

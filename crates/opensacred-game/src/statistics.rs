@@ -1103,7 +1103,7 @@ fn art_values(damage: [[f64; 2]; 4], sb: f64) -> ArtValues {
 /// without one.
 fn art_damage(
     (arts, selected): (&HeroArts, Option<u16>),
-    (combat, holding): (&Combat, Option<&Holding>),
+    (combat, holding, spent): (&Combat, Option<&Holding>, [u8; 6]),
     level: u32,
     rules: &Rules,
 ) -> Option<[[f64; 2]; 4]> {
@@ -1115,6 +1115,7 @@ fn art_damage(
         multipliers: combat.multipliers,
         spells: combat.spells,
         attributes: combat.attributes,
+        spent,
         skills: &arts.skills,
         ranged: holding.is_some_and(|holding| holding.0.ranged),
         day: true,
@@ -1466,7 +1467,7 @@ fn show(
                     let damage = arts.as_deref().and_then(|arts| {
                         art_damage(
                             (arts, selected.0),
-                            (combat, holding),
+                            (combat, holding, base.extras),
                             experience.0.level,
                             &rules,
                         )
