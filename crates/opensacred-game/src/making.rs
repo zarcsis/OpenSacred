@@ -310,6 +310,20 @@ pub fn may_make(
     Ok(())
 }
 
+/// Whether the mortar 1086 may be made at `point` on the level `on`, made from `here` on the level
+/// `level` (`0x51D840`, its case of 1086): the point on the maker's floor (`0x6354D0` against
+/// the maker's `+0x2C`, `0x449930`), and where the maker stands in a dungeon's sector (`dungeon`;
+/// `0x63D260`, `0x622E20`) a straight way of cells that `walkable` takes to it (`0x4FCC80`);
+/// outside one the shell flies over whatever lies between.
+pub(crate) fn mortar_reaches(
+    (here, level): (Vec3, crate::terrain::Level),
+    (point, on): (Vec3, crate::terrain::Level),
+    dungeon: bool,
+    walkable: impl Fn(crate::paths::Cell) -> bool,
+) -> bool {
+    level == on && (!dungeon || crate::paths::straight(here.xz(), point.xz(), walkable))
+}
+
 /// On a press of the right button on a hostile creature alive that the cursor picks
 /// (`under_cursor`), the hero makes the selected art on it (a launch on an enemy, the type 1), its attack ending; with the art not ready it walks
 /// to the creature's place instead, as the original's handler of the order takes it (about
@@ -620,7 +634,7 @@ fn make(
         Query<&crate::crowd::InTheWay>,
         MessageWriter<crate::sfx::PlayAt>,
     ),
-    (nearest, heights, mut fires, mut sparks, worn, mut rings, mut impacts): (
+    (nearest, heights, mut fires, mut sparks, worn, mut rings, mut impacts, dungeons): (
         Res<crate::crowd::Nearest>,
         Res<crate::terrain::Heights>,
         MessageWriter<crate::sfx::Gunfire>,
@@ -628,6 +642,7 @@ fn make(
         Worn,
         MessageWriter<crate::poison_rings::Made>,
         MessageWriter<crate::gun_fires::Impact>,
+        Option<Res<crate::daynight::Dungeons>>,
     ),
 ) {
     let (Some(clips), Some(arts)) = (clips, arts.as_mut()) else {
@@ -760,6 +775,34 @@ fn make(
                 });
                 if !takes {
                     info!("making: {} finds no dead creature to raise", making.art);
+                    end(&mut commands);
+                    continue;
+                }
+            }
+            // The mortar wants its target's place, else its point, on the hero's floor and in a
+            // dungeon a straight way to it, else it ends without its regeneration, the hero
+            // standing (`0x51D840`).
+            if arts::style(making.art) == Some(Style::Mortar) {
+                let level = body.level();
+                let aimed = creatures.get(making.target).ok().map(|(_, at, ..)| {
+                    let on = ways.get(making.target).map_or(level, |way| way.level);
+                    (at.translation(), on)
+                });
+                let point = aimed.or_else(|| making.point.map(|point| (point, level)));
+                let dungeon = dungeons
+                    .as_deref()
+                    .is_some_and(|dungeons| dungeons.holds(here.x, here.z));
+                let reaches = point.is_some_and(|point| {
+                    mortar_reaches((here, level), point, dungeon, |cell| {
+                        heights.walkable_on(cell, level)
+                    })
+                });
+                if !reaches {
+                    info!(
+                        "making: {}'s point is off the hero's floor or no straight way leads there",
+                        making.art
+                    );
+                    body.stop();
                     end(&mut commands);
                     continue;
                 }
@@ -3206,5 +3249,30 @@ mod tests {
             casts.iter().map(|c| c.style).collect::<Vec<_>>(),
             [Style::Cast(155), Style::Cast(161)]
         );
+    }
+
+    #[test]
+    fn the_mortar_wants_its_point_on_the_makers_floor_and_a_straight_way_in_a_dungeon() {
+        let cell = crate::iso::CELL;
+        let here = Vec3::new(0.5, 0.0, 0.5) * cell;
+        let point = Vec3::new(6.5, 0.0, 0.5) * cell;
+        // A wall across the line at the cell 3.
+        let walkable = |(x, _): crate::paths::Cell| x != 3;
+        let floor = Some((1, 2, 0));
+        // Outside a dungeon the shell flies over the wall.
+        assert!(mortar_reaches((here, None), (point, None), false, walkable));
+        // In one it wants a straight way.
+        assert!(!mortar_reaches((here, None), (point, None), true, walkable));
+        assert!(mortar_reaches((here, None), (point, None), true, |_| true));
+        // Its point on another floor than the maker's, never.
+        assert!(!mortar_reaches((here, None), (point, floor), false, |_| {
+            true
+        }));
+        assert!(!mortar_reaches((here, floor), (point, None), true, |_| {
+            true
+        }));
+        assert!(mortar_reaches((here, floor), (point, floor), true, |_| {
+            true
+        }));
     }
 }
