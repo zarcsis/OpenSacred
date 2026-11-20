@@ -108,6 +108,62 @@ fn a_ghost_steps_along_its_heading_every_half_second_and_turns_at_random() {
     assert_eq!(ghost.at, point(ORIGIN, 4.0, 3.5));
     assert_eq!(heading(1), (0, 1));
     assert_eq!(heading(2), (-1, 0));
+    // Off the grid's last row too.
+    let mut ghost = Ghost {
+        i: 4,
+        j: 19,
+        heading: 1,
+        step: 0.9,
+        at: point(ORIGIN, 4.0, 19.9),
+    };
+    let mut dice = Script::new(vec![3, 0]);
+    ghost.update(0.1, ORIGIN, |_| true, &mut dice);
+    assert_eq!((ghost.j, ghost.heading), (20, 3));
+}
+
+#[test]
+fn a_ghost_tests_the_point_a_step_on_from_its_place_along_each_heading() {
+    for heading_now in 0..4 {
+        let (dx, dy) = heading(heading_now);
+        let float = |n: i32| f32::from(i8::try_from(n).unwrap());
+        let (dx, dy) = (float(dx), float(dy));
+        let at = point(ORIGIN, 9.0 + 0.95 * dx, 9.0 + 0.95 * dy);
+        let next = [at[0] + STEP * dx, at[1] + STEP * dy];
+        let mut ghost = Ghost {
+            i: 9,
+            j: 9,
+            heading: heading_now,
+            step: 0.95,
+            at,
+        };
+        let mut dice = Script::new(vec![0, 1, 0]);
+        let walkable =
+            |point: [f32; 2]| (point[0] - next[0]).abs() < 0.5 && (point[1] - next[1]).abs() < 0.5;
+        ghost.update(0.1, ORIGIN, walkable, &mut dice);
+        assert_eq!(ghost.heading, heading_now, "heading {heading_now}");
+        assert_eq!(dice.taken(), 1);
+    }
+}
+
+#[test]
+fn a_pill_lies_within_reach_below_4000_squared() {
+    let mut field = Field::new(ORIGIN, |_| true, &mut Script::new(vec![0; 64]));
+    let at = point(ORIGIN, 6.0, 6.0);
+    // 52² + 36² is 4000: not near; a hair nearer is.
+    assert_eq!(field.touch([at[0] + 52.0, at[1] + 36.0]).pill, None);
+    // After six columns of pills, the twelve ghosts of the columns 4 and 5, and six pills.
+    assert_eq!(
+        field.touch([at[0] + 52.0, at[1] + 35.9]).pill,
+        Some(19 * 6 + 12 + 6)
+    );
+    // The glows' colours: the pills' yellow, the ghosts' blue.
+    let close = |got: [f32; 4], want: [f32; 4]| {
+        got.iter()
+            .zip(want)
+            .all(|(got, want)| (got - want).abs() < 1e-3)
+    };
+    assert!(close(PILL_COLOUR, [1.0, 0.922, 0.035, 1.0]));
+    assert!(close(GHOST_COLOUR, [0.059, 0.149, 1.0, 1.0]));
 }
 
 #[test]
@@ -167,6 +223,8 @@ fn a_fields_glows_beat_once_a_second() {
 
 #[test]
 fn the_fences_come_every_three_seconds_and_every_five_and_a_half() {
+    // A timer comes as it falls below 0, not at 0.
+    assert_eq!(Fences::default().update(0.0), [false, false]);
     let mut fences = Fences::default();
     assert_eq!(fences.update(0.1), [true, true]);
     assert_eq!(fences.update(2.9), [false, false]);
@@ -252,11 +310,12 @@ fn a_segment_flies_then_stops_fades_and_strikes_once_a_second() {
     let segment = fence(false, &mut dice)[0];
     let mut laser = Laser::new(segment);
     assert_eq!(laser.speed, 100.0);
-    assert!(laser.update(1.0, 0.5));
+    assert!(laser.update(0.5, 0.5));
     let [hx, hy] = laser.heading();
     assert!((hx - 0.672_673_6).abs() < 1e-6 && (hy - 0.739_940_9).abs() < 1e-6);
-    assert!((laser.place[0] - segment.start[0] - 100.0 * hx).abs() < 1e-3);
-    assert!((laser.place[1] - segment.start[1] - 100.0 * hy).abs() < 1e-3);
+    assert!((laser.place[0] - segment.start[0] - 50.0 * hx).abs() < 1e-3);
+    assert!((laser.place[1] - segment.start[1] - 50.0 * hy).abs() < 1e-3);
+    assert!(laser.update(0.5, 0.5));
     assert_eq!(laser.place[2], 40.0);
     assert_eq!(laser.glow, 20.0);
     assert_eq!(laser.light(), 100.0);

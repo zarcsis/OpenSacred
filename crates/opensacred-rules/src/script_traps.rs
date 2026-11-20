@@ -276,9 +276,9 @@ pub const LASER_GLOW_TEXTURE: &str = "PARTICLE_GLOW06";
 pub const LASER_HALF_WIDTH: f32 = 50.0;
 const FLAT_U: f32 = 300.0;
 const UPRIGHT_U: f32 = 50.0;
-/// A segment shorter than this is the fence's last, which shows a glow at its far end
-/// (`0x896B10`).
-const LAST_SHORTER: f32 = 29.0;
+/// A fence's segments, 230 in thirties; the last, the only one shorter than 29 (`0x896B10`),
+/// shows a glow at its far end.
+const SEGMENTS: u8 = 8;
 /// A segment's strike (`0x5ABD80`, the case `0x37F`): 200 physical and 100 magic, from nobody,
 /// to every living creature nearer its start than its size, 20, and the creature's, at most once
 /// a second for each segment.
@@ -350,14 +350,14 @@ pub fn fence(fast: bool, dice: &mut impl Dice) -> Vec<Segment> {
     ];
     let mut roll = || u8::try_from(dice.below(256)).unwrap_or(0);
     let mut joints = [roll(), roll()];
-    let mut left = FENCE_LENGTH;
     let mut segments = Vec::new();
     let sway = |at: f32| SWAY * (at * std::f32::consts::PI / FENCE_LENGTH).sin();
-    while left > 0.0 {
+    for index in 0..SEGMENTS {
+        let left = FENCE_LENGTH - SEGMENT * f32::from(index);
         segments.push(Segment {
             start,
             length: left.min(SEGMENT).floor(),
-            index: u8::try_from(segments.len()).unwrap_or(u8::MAX),
+            index,
             joints,
             sways: [sway(left), sway(left - SEGMENT)],
             fast,
@@ -365,7 +365,6 @@ pub fn fence(fast: bool, dice: &mut impl Dice) -> Vec<Segment> {
         start[0] -= SEGMENT * nx;
         start[1] -= SEGMENT * ny;
         joints = [joints[1], roll()];
-        left -= SEGMENT;
     }
     segments
 }
@@ -385,7 +384,7 @@ impl Segment {
     /// Whether it shows a glow at its start (the fence's far end) and at its own end (the
     /// maker's end of the fence).
     pub fn glows(&self) -> [bool; 2] {
-        [self.index == 0, self.length < LAST_SHORTER]
+        [self.index == 0, self.index + 1 == SEGMENTS]
     }
 
     /// The sway of its joints in a frame (`0x7A2CE0`): the offsets of its start and of its end
