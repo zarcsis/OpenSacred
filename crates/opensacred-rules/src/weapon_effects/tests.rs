@@ -97,6 +97,13 @@ fn the_whip_hangs_and_trails_after_its_place() {
     assert!(place[0] > 0.0 && place[1] < 0.0);
     assert!((velocity[0] - place[0] * 0.675).abs() < 1e-5);
     assert!((velocity[1] - (place[1] + 1.5) * 0.675).abs() < 1e-5);
+    // Its velocity carries on: the next link leans by its offset plus its velocity.
+    let (place, velocity) = whip.points[1];
+    whip.update([10.0, 0.0, 0.0]);
+    let way: [f32; 3] = std::array::from_fn(|i| place[i] - [10.0, 0.0, 0.0][i] + velocity[i]);
+    let length = way.iter().map(|v| v * v).sum::<f32>().sqrt();
+    let want: [f32; 3] = std::array::from_fn(|i| [10.0, 0.0, 0.0][i] + 1.5 * way[i] / length);
+    assert!((0..3).all(|i| (whip.points[1].0[i] - want[i]).abs() < 1e-5));
     // Points on one another stay so, with no velocity.
     let mut heap = MagicWhip::new();
     heap.points
