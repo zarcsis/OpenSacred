@@ -261,6 +261,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/killer_plants.rs`: The look of the thorns' plants
 - `crates/opensacred-game/src/knock_down.rs`: A player's hero knocked down by a heavy blow
 - `crates/opensacred-game/src/labels.rs`: The labels while Alt is held
+- `crates/opensacred-game/src/laser_fences.rs`: The scripts' fences of lightning
 - `crates/opensacred-game/src/lava_bursts.rs`: The lava bursts
 - `crates/opensacred-game/src/layer.wesl`: A band of the interface
 - `crates/opensacred-game/src/lens_creatures.rs`: The creatures in the lens of the world map and of the overview
@@ -306,6 +307,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/pick.rs`: The cell under a point of the screen
 - `crates/opensacred-game/src/pickup.rs`: The hero picks up the items on the ground
 - `crates/opensacred-game/src/pictures.rs`: The scripts' pictures
+- `crates/opensacred-game/src/pill_fields.rs`: The scripts' field of pills and ghosts
 - `crates/opensacred-game/src/place_names.rs`: The world map's places' names
 - `crates/opensacred-game/src/plant_cages.rs`: The plant cages' looks
 - `crates/opensacred-game/src/plant_healings.rs`: The Wood Elf's plants' healing's sight
@@ -451,6 +453,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-rules/src/quests.rs`: The scripts' state
 - `crates/opensacred-rules/src/regions.rs`: The regions' kills
 - `crates/opensacred-rules/src/rewards.rs`: A quest's reward
+- `crates/opensacred-rules/src/script_traps.rs`: The scripts' traps
 - `crates/opensacred-rules/src/set_bonuses.rs`: The sets' bonuses
 - `crates/opensacred-rules/src/sets.rs`: The weapon sets of the taskbar
 - `crates/opensacred-rules/src/smith.rs`: The blacksmith

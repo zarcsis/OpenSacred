@@ -149,6 +149,7 @@ mod journal;
 mod killer_plants;
 mod knock_down;
 mod labels;
+mod laser_fences;
 mod lava_bursts;
 mod lens_creatures;
 mod level_sparks;
@@ -188,6 +189,7 @@ mod pause;
 mod pick;
 mod pickup;
 mod pictures;
+mod pill_fields;
 mod place_names;
 mod plant_cages;
 mod plant_healings;
@@ -655,12 +657,13 @@ fn run(cli: Cli) -> Result<AppExit> {
         killer_plants::KillerPlantsPlugin,
         knock_down::KnockDownPlugin,
         labels::LabelsPlugin,
+        laser_fences::LaserFencesPlugin,
         lava_bursts::LavaBurstsPlugin,
         level_sparks::LevelSparksPlugin,
         light_blades::LightBladesPlugin,
-        light_strikes::LightStrikesPlugin,
     ))
     .add_plugins((
+        light_strikes::LightStrikesPlugin,
         lightning_strikes::LightningStrikesPlugin,
         lines::LinesPlugin,
         liquids::LiquidsPlugin,
@@ -692,6 +695,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         pause::PausePlugin,
         pickup::PickupPlugin,
         pictures::PicturesPlugin,
+        pill_fields::PillFieldsPlugin,
         plant_cages::PlantCagesPlugin,
         plant_healings::PlantHealingsPlugin,
     ))

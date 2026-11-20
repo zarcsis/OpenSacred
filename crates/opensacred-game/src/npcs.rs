@@ -85,7 +85,7 @@ use opensacred_data::world::SIDE;
 use opensacred_rules::equipment::Switched;
 use opensacred_rules::fight::Effect;
 use opensacred_rules::quests::DeathFunctions;
-use opensacred_rules::{equipment, minds, quests, ways};
+use opensacred_rules::{equipment, minds, quests, script_traps, ways};
 
 use crate::files;
 use crate::frame::{Step, WorldTick};
@@ -388,6 +388,10 @@ struct Placement {
     /// its variant, the type less 911, and its height in the models' units, the record's `0x7E`;
     /// it has no model of its item's.
     forge: Option<(u8, f32)>,
+    /// A trap of the scripts of the FX objects, the field of pills and ghosts (891,
+    /// `pill_fields`) or the maker of the fences of lightning (894, `laser_fences`; #2916): its
+    /// type and its height in the models' units, the record's `0x7E`; it has no model.
+    trap: Option<(u32, f32)>,
     /// An NPC's creature, its `Creature.pak` record's flags and the flags word its record's tags
     /// make (`crowd::flags_word`): how it stands in the others' way.
     creature: (u32, u8, u32),
@@ -1099,6 +1103,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         prison: None,
         dwarf_magic: None,
         forge: None,
+        trap: None,
         trigger: None,
         creature: (creature, kind.flags, 0),
         side: kind.class,
@@ -3699,6 +3704,17 @@ impl Makers {
             let variant = u8::try_from(creature - first).unwrap_or(0);
             (variant, height.unwrap_or(0.0))
         });
+        // A trap of the scripts of the FX objects, which has no model: its type and its height.
+        let trap = (record.kind == CREATE_OBJ
+            && category(item) == FX
+            && [script_traps::FIELD, script_traps::FENCES].contains(&creature))
+        .then(|| {
+            let height = ops.iter().find_map(|o| match (o.tag, &o.value) {
+                (FX_HEIGHT, Value::I32(h)) => i16::try_from(*h).ok().map(f32::from),
+                _ => None,
+            });
+            (creature, height.unwrap_or(0.0))
+        });
         // A piece of the scripts' Pong of the FX objects, which has no model: its height.
         let pong = (record.kind == CREATE_OBJ && category(item) == FX)
             .then(|| crate::pong::Piece::of(creature))
@@ -3720,6 +3736,7 @@ impl Makers {
                 || prison.is_some()
                 || dwarf_magic.is_some()
                 || forge.is_some()
+                || trap.is_some()
                 || pong.is_some())
             .then_some(&empty))
         else {
@@ -3840,6 +3857,7 @@ impl Makers {
             prison,
             dwarf_magic,
             forge,
+            trap,
             pong,
             trigger: (record.kind == CREATE_OBJ && [DOOR, CHEST].contains(&category(item)))
                 .then(|| {
@@ -7201,6 +7219,19 @@ fn spawn(
                 layered.visibility(states),
             ))
             .id();
+    }
+    if let Some((kind, height)) = placement.trap {
+        let mut made = commands.spawn((
+            Transform::from_translation(raised(spot, height)),
+            layered,
+            layered.visibility(states),
+        ));
+        if kind == script_traps::FIELD {
+            made.insert(crate::pill_fields::Field);
+        } else {
+            made.insert(crate::laser_fences::Maker);
+        }
+        return made.id();
     }
     if let Some((variant, height)) = placement.dwarf_magic {
         return commands

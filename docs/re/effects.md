@@ -4,7 +4,7 @@ Recovered from the GOG `Sacred.exe` 2.28 with Ghidra and scans of the executable
 Seen in the running original with the driver of #448 on 2026-10-27 (a Seraphim's new game: the braziers of 50,39 by noon and by night, the butterflies of 54,42 by noon and by night, a torch in the hero's hand by night; frames in the scratchpad only).
 Status: **confirmed** by code unless marked otherwise.
 Builds on docs/re/arts.md ("The spells' objects", "The objects' actions", "The objects' hits", "The objects' systems"), docs/re/weather.md ("The butterflies and the birds"), docs/re/daynight.md ("The light", "The glows") and docs/re/drawing.md (the draw lists, the engine's switch of render states `0x643430`/`0x643470`).
-Implemented in `opensacred-rules` (`particles`, `spells`, `casts`, `arrows`, `fight`, `ways`, `pong`) and `opensacred-game` (`fx`, `puffs`, `fx_lights`, `npcs`, `bolt_looks`, `torches`, `butterflies`, `hit_sparks`, `beams`, `marks`, `skins`, `item_glows`); a module of `opensacred-game` for each class of effects besides, which the class's section names.
+Implemented in `opensacred-rules` (`particles`, `spells`, `casts`, `arrows`, `fight`, `ways`, `pong`, `script_traps`) and `opensacred-game` (`fx`, `puffs`, `fx_lights`, `npcs`, `bolt_looks`, `torches`, `butterflies`, `hit_sparks`, `beams`, `marks`, `skins`, `item_glows`); a module of `opensacred-game` for each class of effects besides, which the class's section names.
 
 ## Summary
 
@@ -577,11 +577,11 @@ An **estimate**: a linear scan, which misses values computed at run time and may
 | transdim | 1 | 1004 | FX_NOISE, fx_transdim_sign |  | flat quad |  | 0x2200 |
 | trap01 | 1 | 890 | FX_RUNES01 |  | flat quad |  |  |
 | trap01_parent | 1 | 889 |  |  |  |  |  |
-| trap02_ghost | 1 | 893 | PARTICLE_FACE01 |  | chain, glow |  | 0x20000 |
-| trap02_parent | 1 | 891 |  |  |  |  |  |
-| trap02_pill | 1 | 892 | PARTICLE_BUBBLE01 |  | chain, glow |  |  |
-| trap03_laser | 1 | 895 | FX_LIGHTNING01 |  | glow, own geometry |  | 0x10 |
-| trap03_parent | 1 | 894 |  |  |  |  |  |
+| trap02_ghost | 1 | 893 | PARTICLE_FACE01 |  | glow |  | 0x20000 |
+| trap02_parent | 1 | 891 |  |  | none |  |  |
+| trap02_pill | 1 | 892 | PARTICLE_BUBBLE01 |  | glow |  |  |
+| trap03_laser | 1 | 895 | FX_LIGHTNING01, PARTICLE_GLOW06 |  | glow, own geometry |  | 0x10 |
+| trap03_parent | 1 | 894 |  |  | none |  |  |
 | twister | 250 | 826 | PARTICLE_CLOUD01 | PARTICLE_CLOUD01 `0x44/g1` |  |  | 0x600 |
 | uw_glyph | 1 | 1175, 1176, 1177, 1178 | FX_MULTITEXBASE06, fx_demonform_demon |  | glow, own geometry |  |  |
 | uw_glyph_fire | 300 | 1179 | FX_MULTITEXBASE03, FX_MULTITEXBASE06, PARTICLE_GLOW03 | PARTICLE_GLOW03 `0x19/g1` |  |  |  |
@@ -1797,6 +1797,59 @@ The scripts' `CreateObj` gives each its variant (827 → 1, 828 → 2, 829 → 3
 `opensacred-game` draws them since #2915 (`element_stones`, `opensacred_rules::particles::ElementStone`): each FX object of the seven types that `npcs` places takes its model, added whole in its veined texture as the original's, and its signs, beam and glows in quads of its own, in the object's order, the roll of each frame by the stones' dice.
 **Seen** 2026-11-19 beside the original at the water's stone (827, cell 204,3303): the floating veined element, the zigzags of its signs, the flickering beam and spark and the pale glow about it in both.
 
+## The scripts' traps
+
+Read 2026-11-19 for #2916 in Ghidra (**confirmed** by code unless marked) and seen in the running original under the driver of #448 (the Seraphim's new game, the god mode on).
+
+| Object | FX type | Class (virtual table) | Its constructor, start, run, draw |
+|---|---|---|---|
+| The field of pills and ghosts | 891 `FX_TRAP02_PARENT` | `cParticleSystem_trap02_parent` (`0x89872C`) | `0x7A1EB0`, `0x7A20C0`, `0x7A1EF0`, `0x7A1F10` |
+| A pill | 892 `FX_TRAP02_PILL` | `cParticleSystem_trap02_pill` (`0x89874C`) | `0x7A20E0`, `0x7A23D0`, `0x7A2170`, `0x7A21A0` |
+| A ghost | 893 `FX_TRAP02_GHOST` | `cParticleSystem_trap02_ghost` (`0x89876C`) | `0x7A23F0`, `0x7A26D0`, `0x7A2480`, `0x7A24A0` |
+| The maker of the fences of lightning | 894 `FX_TRAP03_PARENT` | `cParticleSystem_trap03_parent` (`0x89878C`) | `0x7A26F0`, `0x7A2900`, `0x7A2730`, `0x7A2750` |
+| A fence's segment | 895 `FX_TRAP03_LASER` | `cParticleSystem_trap03_laser` (`0x8987AC`) | `0x7A2920`, `0x7A3570`, `0x7A2C50`, `0x7A2CE0` |
+
+The scripts make the two parents alone, one record each in the `Enter` of their sectors, the same in every tree: 891 in 38,98, at the corner of the cell 2438,6286, in a cave that a teleport leads into; 894 in 69,9, at the cell 4463,593, by the door and the trigger of main quest 61.
+`CreateObj` gives both the same FX event: the kind `0x6C` or `0x6F`, no caster nor target, the record's point at the height of its tag `0x7E` (0 for both), `+0x38` and `+0x3C` 0, the flags `0x2C0`.
+The parents' systems count a clock, live for ever and draw nothing; all their play is their object's: their event's case in the handler (`0x5A40E2`, `0x5A45CC`), and a routine of each type (`0x5AA7E0`) that the object's update calls at each frame for an object of `+0x48` bit 8.
+None of the five starts a sound, and their sound profiles are 0.
+891, 892 and 893 are not persistent: the tick destroys them as their sector goes, and the sector's `Enter` makes the field anew at each coming, its pills all back (**seen**: a pill taken, the sector left and come back to, the pill there again).
+
+**The field (891).**
+- Its event: for each column `i` of 0 to 20 and, within it, each row `j` of 0 to 18, the world's point `(⌊x₀ + 107.33·i⌋, ⌊y₀ + 107.33·j⌋)`, `(x₀, y₀)` its own place and 107.33 twice a cell's side, so the grid runs from its place toward the world's +x and +y alone; where the point's cell may be walked on (`0x636890`), a pill at the point on the ground's height (`0x449950`), sent the event `0x6D`, and while fewer than twelve ghosts are made, where both `i` and `j` hold the bit 4, a ghost at the same point, sent the event `0x6E` with `i` and `j`; each pushed in the order made onto the field's list.
+  Its place truncated, the points lie a hair before the cells' corners, so each tests the cell before the corner along each axis.
+- Each frame, with the local hero there (`0x603E30`), it takes its list in order, each child that lives and lies within `dx² + dy² < 4000` of the hero (about 63 world units): a pill ends, and the hero gets the event `0x10D` of 10 experience, which ends the frame's test; a ghost, while the field's `+0x11C` is 0, sets it to 1 and sends the hero the event 5 from nobody (the attacker 0) of 200 of each of the four kinds, the factor 1.
+  The update counts `+0x11C` down by the time: the ghosts strike at most once a second for the whole field.
+  No other creature, nor a follower, takes a pill or a strike.
+  **Seen**: the hero's experience 30 to 40 at a step onto a pill, and a strike from nobody every second or so while a ghost touched it, the god mode sparing it; after the strikes the hero glowed green, poisoned.
+- A pill (892) stands at its point until it is taken (its update ends it at its word `+0x74` bit 8); its draw (`0x7A21A0`) a camera-facing glow 20 over its point of `PARTICLE_BUBBLE01`, `0x00FFEB09` (255, 235, 9), added whole, depth tested and not written, its half side beating once a second from 10 up to 13 over 0.3 s and back (`0x768790(t, 10, 3)`); no light.
+- A ghost (893) walks (its system's flag `0x20000`, `0x5A8C45` to `0x5A914E`): its step grows by twice the time, and at 1 its indices step along its heading (0 to 3: the world's +x, +y, −x, −y, its first `rand() % 4`); then, up to 50 tries, it keeps its heading where the point a grid's step on from its place lies on a cell that may be walked on, both indices stay within 0 to 20 and `rand() % 11` falls below 7, else it takes `rand() % 4`; its step 0.
+  Its place is `(⌊x₀ + 107.33·(i + s·dx)⌋, ⌊y₀ + 107.33·(j + s·dy)⌋)` on the plane of the height 0: a grid's step in 0.5 s, on along the corridors seven times in eleven where it can.
+  Its draw (`0x7A24A0`) a glow 20 over its place of `PARTICLE_FACE01`, `0xFF0F26FF` (15, 38, 255), added by its alpha, its half side beating from 15 to 18; no light; it strikes nothing itself.
+- So in a cave of corridors between stacks of crates a yellow ball lies every two cells, blue faces glide along the corridors, and the hero eats the balls for experience while the faces hurt it.
+  **Seen** 2026-11-19: some 230 balls and twelve faces on the corridors of the cave, the balls beating in step.
+
+**The fences of lightning (894).**
+- Each frame two timers of its object count down by the time, both 0 as it is made; as the first falls below 0 it is set to 3 and a slow fence is made, as the second falls below 0 it is set to 5.5 and a fast one (`0x5AA82C`).
+- A fence is eight segments 895 end to end along the line `n = (−1, 1.1)` normalised in the models' frame, from `230·n` to the maker's point, 40 over it: seven of 30 and one of 20, each made at its start, sent the event `0x70` with its length, its index `K` from the far end, two indices of joints `A` and `B` (`rand() & 0xFF`, a joint shared by the two segments it joins) and their sways `4 sin(π·L/230)`, `L` the joint's distance from the maker's end, and the direction `−n`; the fast fence moved by (800, 880).
+- A segment (`0x7A3570`): the slow fence's flies along (1, 1.1) normalised at 100 a second for 12 s, the fast one's back along (−1, −1.1) at 450 for 2.6 s, through walls (the flight's flag `0x10`, docs/re/effects.md, "Their flight"; a cell that stops it is not read); then it stops, its fade falls by twice the time, and it ends below 0 (`0x7A2C50`).
+  So both sweep one strip about 6 cells deep along the world's +y from the maker, about 32 cells along +x, the slow ones four or five at a time.
+- Its strike (`0x5ABD80`, the case `0x37F`): while it has targets and its `+0x11C` is 0, the cooldown 1 and to each target an event 5 from nobody of 200 physical and 100 magic, the factor 1; its targets every living creature on its floor nearer its start's point than its size, 20, and the creature's, the hero or another, hostile or not.
+  So each segment strikes at most once a second, and the hero in the strip takes the strikes of the two to four segments within its reach as a fence passes.
+  **Seen**: 296 and smaller numbers over the Seraphim at each pass.
+- Its draw (`0x7A2CE0`): a flat quad and an upright one from its start to its length, 50 to each side, of `FX_LIGHTNING01` (a bolt along its `u`), their colour grey of half `⌊255·fade⌋`, added whole, depth tested and not written, two-sided; their `u` from `30K/300` to `(V + 30K)/300` on the flat one and from `30K/50` to `(V + 30K)/50` on the upright one, `V` its length; each frame its start's vertices moved across and up by the entry `(A + frame) & 255` of the systems' manager's table of 256 random vectors times its sway and its end's by `B`'s, and its `u` by the first's x; a glow of `PARTICLE_GLOW06` of the half side `17 + 6·rand()/32767`, rolled each frame, at the fence's far end (`K` 0) and at the maker's end (the last segment, shorter than 29), its colour the fade's grey whole.
+- Its lights: a world light of `⌊150·fade⌋`, the first segment's `⌊100·fade⌋`, and the first segment's Direct3D light, (0.7, 0.7, 1.0) of the priority 2, at its place ("The systems' Direct3D lights").
+- So ribbons of blue-white lightning, a glow at each end, sweep slowly across the corridor away from the door and fast back, and whatever stands in their way takes their strikes.
+  **Seen** 2026-11-19: a fence crossing the hero at the door, its glows at both ends, another sweeping farther along the corridor.
+
+**889 and 890**, which no script makes: 889 lays a grid of 6 by 6 runes 890 at its place, and a cursor stepping over them every 0.5 s and turning at random every 1 to 3 s arms and disarms the rune under it; an armed rune bursts what touches it (`0x4E8DA0`, **hypothesis** for what that does).
+The game makes neither.
+
+`opensacred-game` makes the two traps since #2916 (`pill_fields`, `laser_fences`, `opensacred_rules::script_traps`): `npcs` places each parent at its record's point, the field lays its pieces once its sector is in, and the fences come from their maker as the original's, each strike through `fight::Burn`, which poisons by its poison as any strike.
+The fences' places in the models' frame go to the ground as the flight's do, and their ribbons join from segment to segment; the field's pills and ghosts and the fences' parts are drawn untinted by the night, each at its place in the original's order of drawing.
+**Seen** 2026-11-19 beside the original: the field's balls on the same points of the cave's corridors and its faces gliding along them, the balls eaten for 10 experience each, the faces' strikes; the fences' ribbons and glows crossing the hero at the door and striking it, the creatures that wandered into them killed.
+Not followed: the systems' saves and loads (a save keeps neither field nor fence; the sector's `Enter` makes them again).
+
 ## The stargates
 
 Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code unless marked).
@@ -2605,7 +2658,7 @@ Read 2026-11-02 for #1808 by code, **confirmed** unless marked otherwise.
 `opensacred-game` follows the steps' fire since #1808 (`fx`, `opensacred_rules::particles::{small_fire, ground_frame}`, `fight::small_fire_damages`): a fire at each footstep's moment of the hero's walk or run (`sound::HeroStep`) while his sets give it, drawn at every detail (the options' detail, a setting since #2352, stretches its emitters' intervals alone), its ground lifted a little (docs/decisions/drawing.md, "Small fire's burnt ground lifted"), its light, its loop and its strikes as above.
 **Seen** 2026-11-02 beside the original at the Seraphim's start with the six statues carried: a trail of flames over glowing cracks behind both heroes, the game's flames a little brighter at their cores; a goblin beside the trail lost 42 of its 52 health to the fires in a few seconds.
 
-Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing (of the scripts' objects the traps, #2916, the hell gates, #2917, and the underworld's glyphs with the other objects of its quests and of the last fight, #2918 to #2921, whose classes no section above reads); the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
+Since #1092 no stand-in is left: every spell's, art's and creature's object that the game makes looks as its system ("The bolts" to "The soulcatcher" and the sections after them), and those it does not draw yet, show nothing (of the scripts' objects the hell gates, #2917, and the underworld's glyphs with the other objects of its quests and of the last fight, #2918 to #2921, whose classes no section above reads); the torches give no world light of their own (#61), and the systems' Direct3D lights on the models follow since #2106 ("The systems' Direct3D lights").
 The order above is #1092's: the machinery with the world's fires first, then the torches' flames, the butterflies (#1073), the hit sparks and the spells' and arts' objects.
 
 ## Open questions

@@ -11,7 +11,8 @@
 //! casts ([`casts`]), the scripts' state: the quests, the variables and the dialogues
 //! ([`quests`]), the regions' kills ([`regions`]), a quest's reward ([`rewards`]), the weather
 //! ([`weather`]), the peace stream's music and the fights' ([`music`]), the undead that rise
-//! again ([`undead`]), the particle systems ([`particles`]), the scripts' Pong ([`pong`]), the
+//! again ([`undead`]), the particle systems ([`particles`]), the scripts' Pong ([`pong`]) and
+//! traps ([`script_traps`]), the
 //! backpack's grid ([`inventory`]), the equipment's slots and who may use an item
 //! ([`equipment`]), the land explored ([`explored`]), the potions and the belt ([`potions`]),
 //! the weapon sets ([`sets`]), the item sets' bonuses ([`set_bonuses`]), the prices and the
@@ -38,6 +39,7 @@ pub mod potions;
 pub mod quests;
 pub mod regions;
 pub mod rewards;
+pub mod script_traps;
 pub mod set_bonuses;
 pub mod sets;
 pub mod smith;
