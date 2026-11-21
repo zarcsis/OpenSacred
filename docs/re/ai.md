@@ -3,7 +3,7 @@
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra 12.1.4 on 2026-10-20 (#232; the townsfolk #241).
 Distances are in world units, 53.66563 a cell.
 Status: **confirmed** on the code unless marked otherwise.
-Implemented in `opensacred-rules` (`minds`, `casts`) and `opensacred-game` (`ai`, `followers`, `creature_casts`, `creature_arts`, `crowd`, `flight`, `mercenaries`, `npcs`, `lines`, `torches`).
+Implemented in `opensacred-rules` (`minds`, `casts`) and `opensacred-game` (`ai`, `fight`, `followers`, `creature_casts`, `creature_arts`, `crowd`, `flight`, `mercenaries`, `npcs`, `lines`, `torches`).
 
 ## Two states
 
@@ -362,7 +362,7 @@ Read 2026-10-26 (#657) by the static reading of `Sacred.exe`; **confirmed** by c
   Earlier in the same resolution a player's strike (its attacker's id 16 or below) clears the bit (`0x56B296` to `0x56B306`) where the creature has no dialogue (its `+0x245` 0 or past the dialogues' table), no event of the scripts bound to it but `Take:`, `See:` and `Use:` (`0x4A71F0` on the scripts' bindings at `0xAACF80`) and no player for its master, so that strike and those after it harm it; a creature's strike never clears it.
   A creature of the type 697 (Sharifa) takes the bit at every strike on it (`0x56B316`).
   Whether the damage that takes no strike's resolution (a poison's, a burning's) spares it is not read.
-  The game strikes such a creature as any other (#3294).
+  Since #3294 the game follows it (`fight::marked_after`): the strikes leave the health of a creature of the mark (`npcs::RisesAgain`) that follows no hero, a hero's strike clears the mark from one of no dialogue (`npcs::Talk`) and no function of the scripts but an item's and a sight's (`npcs::OnDeath`, `DeathFunctions::holds`), Sharifa takes it at every strike, and a save keeps the mark as the strikes left it; a burning's damage, which the game deals apart from the strikes (`fight::burn`), takes its health as before.
 - **The hero**:
   - dead, its count of hostiles is 0, so there is no danger, and the follower keeps to the corpse's place;
   - risen, the hero fills every listed creature's health (`0x53E460`'s loop);
@@ -590,7 +590,7 @@ Since #657 the scripts hire too (`followers::Hired`, `npcs::hire_of`): a `Create
 - `0x39` and `0x65` let it go: it leaves the hero's list and stops, its side and home kept.
 - Since #2459 a `CreateNPC`'s or `SetNPCState`'s `0x6B` above 0 gives its creature `+0x2B7` bit 8, and one of 0 takes it (`npcs::RisesAgain`, on its placement too): a dead follower of the hero with it keeps its entry in the column and rises 20 s after its death, its mind, its place in the way and its full health back, out of its fight (`followers::rise_again`, `npcs::Stashed`).
   Quest 59 hires its companion so, whom the quests to 74 need alive; **seen** in the game: she fell in the monastery's hall and stood again 20 s later, casting on.
-  Not followed: the stats' recomputation of `0x53E460` (the share it takes by the difficulty is of the gold, `+0x3EE` through `0x57FD80`, read again 2026-11-21 for #2844, as docs/re/fight.md reads it, so that a follower, of no gold, loses nothing), a follower without the bit dismissed at its death, which shows only where a script lifts such a body (no case known), and the strikes that leave a creature of the bit unharmed while no player is its master (#3294).
+  Not followed: the stats' recomputation of `0x53E460` (the share it takes by the difficulty is of the gold, `+0x3EE` through `0x57FD80`, read again 2026-11-21 for #2844, as docs/re/fight.md reads it, so that a follower, of no gold, loses nothing), a follower without the bit dismissed at its death, which shows only where a script lifts such a body (no case known).
   A save keeps the bit of each follower, and one that lies to rise with how long it has lain, which the load lays down again to rise once it has lain its whole time (`npcs::Following`, `npcs::Dies::lying`, #2947).
 - Since #1061 one of the flag 4 steps off from nearer than 150 to the first of ten points 220 from the hero at random that its way reaches, standing where it reaches none (`minds::escort_stepping_off`), and stands while the hero is in danger, a hostile of its look nearer than 300 or the hero fighting, where the hero is farther than 500 from it (`minds::escort_stands`).
 - In the game, `QIS_OnEnter15002` made quest 15002's escort and `Dialog:od_15002` hired it (`script`, the console): it followed the hero, and `btn_ok_dq_15002` let it go, where it stayed.

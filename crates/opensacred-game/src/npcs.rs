@@ -12531,7 +12531,9 @@ pub struct Corpse {
 }
 
 /// A creature whose `+0x2B7` bit 8 a script's `0x6B` above 0 set ([`RISES`]): a follower of the
-/// hero rises 20 s after its death (`0x53FB40`, `followers::rise_again`, #2459).
+/// hero rises 20 s after its death (`0x53FB40`, `followers::rise_again`, #2459), and the strikes
+/// leave one that follows no hero, but where a hero's strike clears the mark
+/// (`fight::marked_after`, #3294).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct RisesAgain;
 
