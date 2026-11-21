@@ -17,7 +17,8 @@
 //! frames, added to the frame) for 9 s, a light of 150, the fires' loop at 0.6, and once a second
 //! a strike at each living creature hostile to the hero within their reach of the hero's place at
 //! the step, of the hero's strength and dexterity (`opensacred_rules::fight::small_fire_damages`,
-//! no hit chance, through the resistances).
+//! no hit chance, through the resistances); and those that a Big Demon's steps leave, its strikes
+//! at the living hostile to it, the hero among them (#3028).
 //!
 //! The last burnings (#1262), the generic system's variants 7 and 8 that `undead` starts where a
 //! fire ghoul or a magic skeleton dies its last death: their flames, emitted for a second, over a
@@ -102,9 +103,10 @@ struct StepFires {
     ground: Material,
 }
 
-/// A small fire that a step of the hero leaves (#1808), or a creature's cast (#2898): its
-/// particles and dice, its layers' meshes and its ground's, the level of its place, whether it
-/// strikes, and how long until it may strike again.
+/// A small fire that a step of the hero leaves (#1808), a step of a Big Demon's (#3028), or a
+/// creature's cast (#2898): its particles and dice, its layers' meshes and its ground's, the level
+/// of its place, the creature whose strike its strikes are, and how long until it may strike
+/// again.
 #[derive(Component)]
 pub struct StepFire {
     system: System,
@@ -112,18 +114,20 @@ pub struct StepFire {
     meshes: Vec<Handle<Mesh>>,
     ground: Option<Handle<Mesh>>,
     level: crate::terrain::Level,
-    strikes: bool,
+    caster: Option<Entity>,
     cooldown: f32,
 }
 
-/// A small fire of the variant 2 that a big demon's fire, the spell 50, leaves at its feet
-/// (`0x527669`: 878 by the FX event `0x65`, the steps' fire's variant): its place and level. Its
-/// caster is its own id, for which its strikes gather no target, so that it never strikes
-/// (docs/re/arts.md, "The creatures' own spells"; #2898).
+/// A small fire of the variant 2 at `at` on `level`, of the caster `caster`, whose strike its
+/// strikes are: a Big Demon's at each of its steps (`0x639532`, the demon its caster; #3028), or
+/// the one that a big demon's fire, the spell 50, leaves at its feet (`0x527669`: 878 by the FX
+/// event `0x65`), whose caster is the object's own id, for which its strikes gather no target, so
+/// that it never strikes: none here (docs/re/arts.md, "The creatures' own spells"; #2898).
 #[derive(Message, Clone, Copy, Debug)]
 pub struct SmallFire {
     pub at: Vec3,
     pub level: crate::terrain::Level,
+    pub caster: Option<Entity>,
 }
 
 /// How far above the ground the burnt ground lies, in world units, so that the ground's mesh does
@@ -1258,14 +1262,15 @@ fn begin(
 }
 
 /// Leaves a small fire at each step of the hero that wears six pieces of set 23 (`0x63918C`,
-/// #1808), at its place on its level, untinted by the night as the fires; and one that strikes
-/// nothing where a creature's cast asks for one ([`SmallFire`], #2898).
+/// #1808), at its place on its level, untinted by the night as the fires; and one where a Big
+/// Demon's step or a creature's cast asks for one ([`SmallFire`], #2898, #3028).
 fn kindle(
     mut commands: Commands,
     mut steps: MessageReader<crate::sound::HeroStep>,
     mut cast: MessageReader<SmallFire>,
     step_fires: Option<Res<StepFires>>,
     heroes: Query<(
+        Entity,
         &crate::hero::Body,
         Option<&crate::fight::Holding>,
         Option<&crate::buildings::Layered>,
@@ -1277,15 +1282,15 @@ fn kindle(
         cast.clear();
         return;
     };
-    for &SmallFire { at, level } in cast.read() {
+    for &SmallFire { at, level, caster } in cast.read() {
         light_small_fire(
             &mut commands,
             (&step_fires, &mut meshes),
             (at, level, None),
-            false,
+            caster,
         );
     }
-    let Some((body, holding, layered)) = heroes.iter().next() else {
+    let Some((hero, body, holding, layered)) = heroes.iter().next() else {
         steps.clear();
         return;
     };
@@ -1298,13 +1303,13 @@ fn kindle(
             &mut commands,
             (&step_fires, &mut meshes),
             (at, body.level(), layered.copied()),
-            true,
+            Some(hero),
         );
     }
 }
 
-/// A small fire at `at` on `level`, in the layer of a building's of `layered`, which strikes as
-/// the hero's steps' do where `strikes`.
+/// A small fire at `at` on `level`, in the layer of a building's of `layered`, whose strikes are
+/// those of `caster`, none for none.
 fn light_small_fire(
     commands: &mut Commands,
     (step_fires, meshes): (&StepFires, &mut Assets<Mesh>),
@@ -1313,7 +1318,7 @@ fn light_small_fire(
         crate::terrain::Level,
         Option<crate::buildings::Layered>,
     ),
-    strikes: bool,
+    caster: Option<Entity>,
 ) {
     {
         let mut handles = Vec::new();
@@ -1359,7 +1364,7 @@ fn light_small_fire(
             meshes: handles,
             ground,
             level,
-            strikes,
+            caster,
             cooldown: 0.0,
         });
     }
@@ -1544,10 +1549,13 @@ fn scald(
     }
 }
 
-/// Strikes from each step's small fire, at most once a second, every living creature hostile to
-/// the hero on its level within [`opensacred_rules::fight::SMALL_FIRE_REACH`] and its size of it
-/// (`0x5AB490`, `0x5AE436`): the hero's strike of the fire's damages of his strength and dexterity,
-/// sure, through the resistances (`0x5AE44D`).
+/// Strikes from each small fire with a caster, at most once a second, every living creature
+/// hostile to its caster on its level within [`opensacred_rules::fight::SMALL_FIRE_REACH`] and its
+/// size of it (`0x5AB490`, `0x5AE436`): the caster's strike of the fire's damages of its strength
+/// and dexterity, sure, through the resistances (`0x5AE44D`). Of a hero's, the creatures hostile
+/// to the hero, never the hero; of a creature's, the living hostile to it (`0x548F60`): the hero
+/// where it is hostile to the hero, and the creatures hostile to it by their sides, its fellows
+/// left out (#3028).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -1556,7 +1564,17 @@ fn scorch(
     time: Res<Time>,
     mut hits: MessageWriter<crate::fight::Hit>,
     mut fires: Query<(&mut StepFire, &Transform)>,
-    heroes: Query<(Entity, &crate::fight::Combat), With<crate::hero::Body>>,
+    casters: Query<(&crate::fight::Combat, Option<&crate::ai::Mind>)>,
+    heroes: Query<
+        (
+            Entity,
+            &Transform,
+            &crate::hero::Body,
+            &crate::fight::Health,
+            Option<&crate::arrows::Size>,
+        ),
+        Without<crate::npcs::Dies>,
+    >,
     creatures: Query<
         (
             Entity,
@@ -1569,45 +1587,70 @@ fn scorch(
         (Without<crate::hero::Body>, Without<crate::npcs::Dies>),
     >,
 ) {
-    let Some((hero, combat)) = heroes.iter().next() else {
-        return;
-    };
-    let combat = &combat.0;
-    let damages = opensacred_rules::fight::small_fire_damages(
-        combat.attributes[0],
-        combat.attributes[2],
-        [combat.multipliers[0], combat.multipliers[1]],
-    );
     let dt = time.delta_secs();
     for (mut step, at) in &mut fires {
         step.cooldown = (step.cooldown - dt).max(0.0);
-        if step.cooldown > 0.0 || !step.strikes {
+        let Some(caster) = step.caster else {
+            continue;
+        };
+        if step.cooldown > 0.0 {
             continue;
         }
+        let Ok((combat, caster_mind)) = casters.get(caster) else {
+            continue;
+        };
+        let combat = &combat.0;
+        let damages = opensacred_rules::fight::small_fire_damages(
+            combat.attributes[0],
+            combat.attributes[2],
+            [combat.multipliers[0], combat.multipliers[1]],
+        );
         let here = at.translation.xz();
-        let mut struck = false;
-        for (target, place, way, mind, health, size) in &creatures {
+        let within = |place: &Transform, size: Option<&crate::arrows::Size>| {
             let reach = opensacred_rules::fight::SMALL_FIRE_REACH
                 + size.map_or(opensacred_rules::arrows::size(0), |size| size.0);
-            if way.creature
-                && way.level == step.level
-                && mind.hostile()
-                && health.current > 0
-                && (place.translation.xz() - here).length() < reach
-            {
-                hits.write(crate::fight::Hit {
-                    attacker: hero,
-                    target,
-                    share: 1.0,
-                    ranged: false,
-                    art: None,
-                    fixed: Some(damages),
-                    sure: true,
-                    poison: false,
-                    ward: false,
-                });
-                struck = true;
-            }
+            (place.translation.xz() - here).length() < reach
+        };
+        let hostile = |mind: &crate::ai::Mind| match caster_mind {
+            Some(caster) => caster.hostile_to(mind),
+            None => mind.hostile(),
+        };
+        let creatures = creatures
+            .iter()
+            .filter(|&(target, place, way, mind, health, size)| {
+                target != caster
+                    && way.creature
+                    && way.level == step.level
+                    && health.current > 0
+                    && hostile(mind)
+                    && within(place, size)
+            })
+            .map(|(target, ..)| target);
+        // A creature's fire takes the hero where the creature is hostile to the hero.
+        let heroes = heroes
+            .iter()
+            .filter(|&(target, place, body, health, size)| {
+                caster_mind.is_some_and(|caster| caster.hostile())
+                    && target != caster
+                    && body.level() == step.level
+                    && health.current > 0
+                    && within(place, size)
+            })
+            .map(|(target, ..)| target);
+        let mut struck = false;
+        for target in creatures.chain(heroes) {
+            hits.write(crate::fight::Hit {
+                attacker: caster,
+                target,
+                share: 1.0,
+                ranged: false,
+                art: None,
+                fixed: Some(damages),
+                sure: true,
+                poison: false,
+                ward: false,
+            });
+            struck = true;
         }
         if struck {
             step.cooldown = opensacred_rules::fight::SMALL_FIRE_PERIOD;
@@ -1904,6 +1947,91 @@ mod tests {
     use super::*;
     use crate::statics::tests::{ORDER, shader_constant};
 
+    /// The targets that a small fire of the caster `caster` of the world `world` strikes at its
+    /// first second.
+    fn struck_by(world: &mut World, caster: Option<Entity>) -> Vec<Entity> {
+        world.spawn((
+            StepFire {
+                system: System::new(1),
+                dice: Rng::of(1, 2, 3),
+                meshes: Vec::new(),
+                ground: None,
+                level: None,
+                caster,
+                cooldown: 0.0,
+            },
+            Transform::default(),
+        ));
+        world.run_system_cached(scorch).unwrap();
+        let mut hits = world.resource_mut::<Messages<crate::fight::Hit>>();
+        let mut struck: Vec<Entity> = hits.drain().map(|hit| hit.target).collect();
+        struck.sort();
+        struck
+    }
+
+    #[test]
+    fn a_creatures_small_fire_strikes_those_hostile_to_it() {
+        let combat = crate::fight::Combat(opensacred_rules::fight::Combat {
+            attack: 100.0,
+            defence: 10.0,
+            damage: [[10.0, 20.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+            resistance: [0.0; 4],
+            damping: [0; 4],
+            speed: 140.0,
+            pace: 130.0,
+            multipliers: [1.0; 4],
+            resistance_factors: [1.0; 4],
+            spells: [1.0; 4],
+            cast: opensacred_rules::fight::CAST_SPEED,
+            attributes: [100.0; 6],
+        });
+        let health = crate::fight::Health {
+            current: 50,
+            most: 50,
+            level: 1,
+        };
+        let mut world = World::new();
+        world.init_resource::<Time>();
+        world.init_resource::<Messages<crate::fight::Hit>>();
+        let creature = |world: &mut World, kind: u32, x: f32| {
+            let mind = crate::ai::Mind::new(
+                Vec3::ZERO,
+                opensacred_rules::ways::HOSTILE,
+                (false, true),
+                None,
+                [70.0, 180.0],
+                (kind, 1),
+            );
+            world
+                .spawn((
+                    Transform::from_xyz(x, 0.0, 0.0),
+                    health,
+                    mind,
+                    combat,
+                    crate::crowd::InTheWay::of(0, 0, None),
+                ))
+                .id()
+        };
+        // A Big Demon, a goblin beside it and the hero, all within the fire's reach.
+        let demon = creature(&mut world, 53, 0.0);
+        let goblin = creature(&mut world, 76, 10.0);
+        let hero = world
+            .spawn((
+                Transform::from_xyz(-10.0, 0.0, 0.0),
+                crate::hero::Body::standing(),
+                health,
+                combat,
+            ))
+            .id();
+        // The demon's strikes the hero alone, its fellow and itself spared; the hero's the goblin
+        // and the demon, never the hero; a fire of no caster strikes nothing.
+        assert_eq!(struck_by(&mut world, Some(demon)), vec![hero]);
+        let mut foes = vec![demon, goblin];
+        foes.sort();
+        assert_eq!(struck_by(&mut world, Some(hero)), foes);
+        assert!(struck_by(&mut world, None).is_empty());
+    }
+
     #[test]
     fn a_demons_small_fire_burns_where_it_is_asked_and_strikes_nothing() {
         let mut app = App::new();
@@ -1917,12 +2045,16 @@ mod tests {
             })
             .add_systems(Update, kindle);
         let at = Vec3::new(100.0, 0.0, 200.0);
-        app.world_mut().write_message(SmallFire { at, level: None });
+        app.world_mut().write_message(SmallFire {
+            at,
+            level: None,
+            caster: None,
+        });
         app.update();
         let mut fires = app.world_mut().query::<(&StepFire, &Transform)>();
         let (fire, place) = fires.single(app.world()).unwrap();
         assert_eq!(place.translation, at);
-        assert!(!fire.strikes && fire.level.is_none());
+        assert!(fire.caster.is_none() && fire.level.is_none());
         // No hero, no steps' fire.
         app.world_mut()
             .write_message(crate::sound::HeroStep(Vec3::ZERO));
