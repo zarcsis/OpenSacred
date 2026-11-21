@@ -2,8 +2,9 @@
 //! menu is the original's (docs/re/menus.md, #1118): its picture of 12 tiles over its moving water
 //! (`ripples`, #1127), the column of its items in Carolingia, gold, lit under the cursor with a
 //! glow and fading in as a menu replaces another, and the Multiplayer and Extras submenus, whose
-//! movies play (#1946); the items whose screens the game does not have yet stand greyed: the
-//! Multiplayer submenu's networks, which wait for M9, and the Extras' credits. The campaigns
+//! movies play (#1946) and whose credits roll (`credits`, #2929); the items whose screens the
+//! game does not have yet stand greyed: the Multiplayer submenu's networks, which wait for M9. The
+//! campaigns
 //! open their choices of the hero (`choice`), Load Game the saves' window (`saves_window`, #1990)
 //! and Options the options window (`options`, #2340); a paused game's menu is the original's Esc
 //! menu (`esc_menu`, #1410). The mouse chooses by pointing and clicking, the keyboard with the
@@ -39,6 +40,8 @@ pub enum Screen {
     Options,
     /// The Ancaria campaign's import of a saved hero (`choice`, #2552).
     Import,
+    /// The Extras' credits (`credits`, #2929).
+    Credits,
 }
 
 /// What an item of a menu does.
@@ -86,11 +89,11 @@ impl Item {
         }
     }
 
-    /// Whether it does anything yet: multiplayer waits for M9, and the credits have no screen.
+    /// Whether it does anything yet: multiplayer waits for M9.
     fn works(self) -> bool {
         !matches!(
             self,
-            Self::LocalNetwork | Self::ClosedInternet | Self::OpenInternet | Self::Credits
+            Self::LocalNetwork | Self::ClosedInternet | Self::OpenInternet
         )
     }
 
@@ -140,9 +143,12 @@ fn rows(screen: Screen, movies: &Movies) -> Vec<(Item, u8)> {
             rows.push((Item::Back, back));
             rows
         }
-        Screen::Heroes | Screen::Underworld | Screen::Import | Screen::Load | Screen::Options => {
-            Vec::new()
-        }
+        Screen::Heroes
+        | Screen::Underworld
+        | Screen::Import
+        | Screen::Load
+        | Screen::Options
+        | Screen::Credits => Vec::new(),
     }
 }
 
@@ -496,7 +502,7 @@ pub fn water(picture: &mut ChildSpawnerCommands, texture: Handle<Image>) {
 fn forget_first(screen: Res<State<Screen>>, mut first: ResMut<FirstShowing>) {
     if !matches!(
         screen.get(),
-        Screen::Main | Screen::Multiplayer | Screen::Extras
+        Screen::Main | Screen::Multiplayer | Screen::Extras | Screen::Credits
     ) {
         first.0 = false;
     }
@@ -528,13 +534,13 @@ fn act(
         Item::LoadGame => screen.set(Screen::Load),
         Item::Options => screen.set(Screen::Options),
         Item::Back => screen.set(Screen::Main),
+        Item::Credits => screen.set(Screen::Credits),
         Item::Quit => {
             exit.write(AppExit::Success);
         }
         Item::LocalNetwork
         | Item::ClosedInternet
         | Item::OpenInternet
-        | Item::Credits
         | Item::Intro
         | Item::Extro
         | Item::UnderworldIntro
@@ -543,7 +549,8 @@ fn act(
 }
 
 /// The arrows move the choice among the items that do anything, Enter does it, Esc goes back from
-/// a submenu or the heroes to the main menu, from the import to the classes.
+/// a submenu or the heroes to the main menu, from the import to the classes, from the credits to
+/// the Extras (`0x7125B0`, seen).
 fn keys(
     mut commands: Commands,
     keys: crate::controls::Keys,
@@ -555,10 +562,10 @@ fn keys(
     if keys.just_pressed(crate::controls::Action::Back)
         && let Some(screen) = screen.filter(|screen| *screen.get() != Screen::Main)
     {
-        next.set(if *screen.get() == Screen::Import {
-            Screen::Heroes
-        } else {
-            Screen::Main
+        next.set(match screen.get() {
+            Screen::Import => Screen::Heroes,
+            Screen::Credits => Screen::Extras,
+            _ => Screen::Main,
         });
         return;
     }
@@ -653,6 +660,7 @@ impl Plugin for MenuPlugin {
             .add_systems(OnEnter(Screen::Main), main_screen)
             .add_systems(OnEnter(Screen::Multiplayer), main_screen)
             .add_systems(OnEnter(Screen::Extras), main_screen)
+            .add_systems(OnEnter(Screen::Credits), main_screen)
             .add_systems(OnExit(AppState::Menu), forget_first_for_game)
             .add_systems(Update, forget_first.run_if(state_changed::<Screen>))
             .add_systems(
@@ -790,6 +798,37 @@ mod tests {
         assert_eq!(items(&mut app).last(), Some(&Item::Back));
         press(&mut app, KeyCode::Escape);
         assert_eq!(screen(&app), Screen::Main);
+    }
+
+    #[test]
+    fn the_credits_roll_from_the_extras_and_esc_or_their_end_brings_them_back() {
+        let mut app = menu_app();
+        app.add_plugins(crate::credits::CreditsPlugin);
+        app.world_mut()
+            .resource_mut::<NextState<Screen>>()
+            .set(Screen::Extras);
+        app.update();
+        assert_eq!(items(&mut app).first(), Some(&Item::Credits));
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(screen(&app), Screen::Credits);
+        assert!(items(&mut app).is_empty());
+        press(&mut app, KeyCode::Escape);
+        assert_eq!(screen(&app), Screen::Extras);
+        // With no lines they end once four lines' height has climbed past the screen's top, 868
+        // pixels at 50 a second.
+        press(&mut app, KeyCode::Enter);
+        assert_eq!(screen(&app), Screen::Credits);
+        app.insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_millis(250),
+        ));
+        for _ in 0..66 {
+            app.update();
+        }
+        assert_eq!(screen(&app), Screen::Credits);
+        for _ in 0..6 {
+            app.update();
+        }
+        assert_eq!(screen(&app), Screen::Extras);
     }
 
     #[test]
