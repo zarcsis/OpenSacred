@@ -1675,7 +1675,11 @@ fn act(
                         DespawnOnExit(AppState::InGame),
                     ));
                     // Its mark on the ground where it starts (779, `0x526B49`).
-                    crate::marks::lay(&mut commands, place, opensacred_rules::particles::SOUL_MARK);
+                    crate::marks::lay(
+                        &mut commands,
+                        (place, body.level()),
+                        opensacred_rules::particles::SOUL_MARK,
+                    );
                 }
             }
             spells::TELEPORT => {

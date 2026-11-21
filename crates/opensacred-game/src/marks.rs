@@ -8,6 +8,12 @@
 //! unturned, growing and fading by its own clock, and a blow's blood splashes (903,
 //! `opensacred_rules::particles::Splashes`, #2773), small blobs of the blood's colour that fall
 //! about a place for a second and lie twelve.
+//!
+//! On the ground they lie in list 0 (`fx::Orders::in_list_0`, in the blended layer of list 0's
+//! underlays), as the original's walk appends the FX objects of the flag `0x4` (#3285;
+//! docs/re/drawing.md, "The models"): under the statics' shadows, the underlays of list 2 and
+//! every sprite and model, whatever their rows; on a building's floor at their places in list 3's
+//! order, as the walk appends them there.
 
 use std::collections::HashMap;
 
@@ -15,25 +21,28 @@ use bevy::camera::visibility::NoFrustumCulling;
 use bevy::prelude::*;
 use opensacred_rules::particles::{Mark, Puddle, SPLASH_GRID, SPLASH_TEXTURE, Splashes};
 
+use crate::blended::Layer;
 use crate::frame::{Playing, Unpaused};
-use crate::fx::{Effect, Quads, empty, particle_material, particle_texture};
+use crate::fx::{Effect, Orders, Quads, empty, layered, particle_material, particle_texture};
 use crate::game::{AppState, Data};
 use crate::iso;
 use crate::spawning::Rng;
+use crate::terrain::Level;
 
-/// A mark to lay: its texture, and what is laid ([`Kind`]).
+/// A mark to lay: its texture, what is laid ([`Kind`]) and the level it lies on.
 #[derive(Component)]
 struct Unmade {
     texture: &'static str,
     kind: Kind,
+    on: Level,
 }
 
-/// What is laid: a mark of its seconds before it fades and its half side, a body's puddle, of
-/// its body, or a blow's splashes, of the blood's colour.
+/// What is laid: a mark of its seconds before it fades and its half side, a body's puddle, or a
+/// blow's splashes, of the blood's colour.
 #[derive(Clone, Copy, Debug)]
 enum Kind {
     Mark { hold: f32, half: f32 },
-    Puddle(Entity),
+    Puddle,
     Splashes([f32; 3]),
 }
 
@@ -78,14 +87,14 @@ struct Shown {
     look: Look,
     turn: f32,
     mesh: Handle<Mesh>,
-    /// A puddle's body, whose model it lies under while the body lies (#2586).
-    body: Option<Entity>,
+    /// The level it lies on: the ground in list 0, a building's floor in list 3's order.
+    on: Level,
 }
 
-/// The marks' materials by their textures, laid over by their alpha; none where the texture is
-/// missing.
+/// The marks' materials by their textures and whether they lie in list 0's layer, laid over by
+/// their alpha; none where the texture is missing.
 #[derive(Resource, Default)]
-struct Looks(HashMap<&'static str, Option<Handle<Effect>>>);
+struct Looks(HashMap<(&'static str, bool), Option<Handle<Effect>>>);
 
 /// The marks' dice (`rand()`).
 #[derive(Resource)]
@@ -97,45 +106,44 @@ impl Default for Dice {
     }
 }
 
-/// Lays the mark `(texture, hold, half)` on the ground at `place`.
+/// Lays the mark `(texture, hold, half)` at `place` on the level `on`.
 pub(crate) fn lay(
     commands: &mut Commands,
-    place: Vec3,
+    (place, on): (Vec3, Level),
     (texture, hold, half): (&'static str, f32, f32),
 ) {
     commands.spawn((
         Unmade {
             texture,
             kind: Kind::Mark { hold, half },
+            on,
         },
         Transform::from_translation(place),
         DespawnOnExit(AppState::InGame),
     ));
 }
 
-/// Lays the blood puddle of `body` of `texture` on the ground at `place` (907, `0x76E150`).
-pub(crate) fn puddle(
-    commands: &mut Commands,
-    (place, body): (Vec3, Entity),
-    texture: &'static str,
-) {
+/// Lays a body's blood puddle of `texture` on the ground at `place` (907, `0x76E150`).
+pub(crate) fn puddle(commands: &mut Commands, place: Vec3, texture: &'static str) {
     commands.spawn((
         Unmade {
             texture,
-            kind: Kind::Puddle(body),
+            kind: Kind::Puddle,
+            on: None,
         },
         Transform::from_translation(place),
         DespawnOnExit(AppState::InGame),
     ));
 }
 
-/// Lays a blow's blood splashes of the blood `colour` on the ground about `place` (903,
+/// Lays a blow's blood splashes of the blood `colour` about `place` on the level `on` (903,
 /// `0x7A5C30`).
-pub(crate) fn splashes(commands: &mut Commands, place: Vec3, colour: [f32; 3]) {
+pub(crate) fn splashes(commands: &mut Commands, (place, on): (Vec3, Level), colour: [f32; 3]) {
     commands.spawn((
         Unmade {
             texture: SPLASH_TEXTURE,
             kind: Kind::Splashes(colour),
+            on,
         },
         Transform::from_translation(place),
         DespawnOnExit(AppState::InGame),
@@ -143,7 +151,8 @@ pub(crate) fn splashes(commands: &mut Commands, place: Vec3, colour: [f32; 3]) {
 }
 
 /// Gives each new mark its look, its turn at random (`rand()/32767 · 2π`), its mesh and its
-/// material (`0x76DD40`); a puddle and a blow's splashes none (`0x76E150`, `0x7A5C30`).
+/// material (`0x76DD40`), in list 0's layer on the ground; a puddle and a blow's splashes no turn
+/// (`0x76E150`, `0x7A5C30`).
 fn make(
     mut commands: Commands,
     unmade: Query<(Entity, &Unmade)>,
@@ -156,9 +165,10 @@ fn make(
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
     for (entity, unmade) in &unmade {
+        let listed = unmade.on.is_none();
         let material = looks
             .0
-            .entry(unmade.texture)
+            .entry((unmade.texture, listed))
             .or_insert_with(|| {
                 let image = data
                     .as_ref()
@@ -169,7 +179,14 @@ fn make(
                         unmade.texture
                     );
                 }
-                image.map(|image| effects.add(particle_material(image, AlphaMode::Blend)))
+                image.map(|image| {
+                    let material = particle_material(image, AlphaMode::Blend);
+                    effects.add(if listed {
+                        layered(material, Layer::Underlays)
+                    } else {
+                        material
+                    })
+                })
             })
             .clone();
         let (look, turn) = match unmade.kind {
@@ -180,12 +197,8 @@ fn make(
                     roll * std::f32::consts::TAU,
                 )
             }
-            Kind::Puddle(_) => (Look::Puddle(Puddle::default()), 0.0),
+            Kind::Puddle => (Look::Puddle(Puddle::default()), 0.0),
             Kind::Splashes(colour) => (Look::Splashes(Box::new(Splashes::new(colour))), 0.0),
-        };
-        let body = match unmade.kind {
-            Kind::Puddle(body) => Some(body),
-            Kind::Mark { .. } | Kind::Splashes(_) => None,
         };
         let mesh = meshes.add(empty());
         let mut made = commands.entity(entity);
@@ -194,7 +207,7 @@ fn make(
                 look,
                 turn,
                 mesh: mesh.clone(),
-                body,
+                on: unmade.on,
             },
             Visibility::default(),
         ));
@@ -215,12 +228,13 @@ fn make(
 /// `0x76DF00`, the flat quad `0x7631E0`) unturned, its `u` and `v` running from 0 at `(−s, −s)`
 /// to 1 at `(s, s)`; a blow's splashes (`0x7A5970`, `0x7A59E0`) each blob a square of its half
 /// side flat on the ground about its place, turned by its angle, of its frame of the texture's
-/// 2 × 2, in its ramp's colour at its life; each goes once faded.
+/// 2 × 2, in its ramp's colour at its life; each goes once faded. Each lies in the original's
+/// order ([`in_order`]).
 fn run(
     mut commands: Commands,
     time: Res<Time>,
     mut marks: Query<(Entity, &mut Shown, &GlobalTransform)>,
-    (mut meshes, orders, mut dice): (ResMut<Assets<Mesh>>, crate::fx::Orders, ResMut<Dice>),
+    (mut meshes, orders, mut dice): (ResMut<Assets<Mesh>>, Orders, ResMut<Dice>),
 ) {
     let dt = time.delta_secs();
     let s = iso::MODEL_SCALE;
@@ -257,8 +271,7 @@ fn run(
                 );
             }
             if let Some(mut mesh) = meshes.get_mut(&mark.mesh) {
-                let origin = place.translation();
-                quads.in_order(orders.at(origin), origin);
+                in_order(&mut quads, &orders, place.translation(), mark.on);
                 quads.into_mesh(&mut mesh);
             }
             continue;
@@ -285,18 +298,22 @@ fn run(
             [1.0, 1.0, 1.0, alpha],
         );
         if let Some(mut mesh) = meshes.get_mut(&mark.mesh) {
-            // At its object's place in the order, as the original draws the system (#2188); a
-            // puddle just behind its body while the body lies, which covers it as the original's
-            // models of their true depths cover its flat quad, whatever cells the two take
-            // (#2586).
-            let origin = place.translation();
-            let order = mark
-                .body
-                .and_then(|body| orders.behind(body))
-                .or_else(|| orders.at(origin));
-            quads.in_order(order, origin);
+            in_order(&mut quads, &orders, place.translation(), mark.on);
             quads.into_mesh(&mut mesh);
         }
+    }
+}
+
+/// Lays a mark's `quads`, whose mesh's origin is `origin`, in the original's order (#3285): on
+/// the ground in list 0, all at one depth behind its cell's place ([`Orders::in_list_0`]), so
+/// that every sprite and model and the shadows of list 1 lie over it, a body over its puddle
+/// whatever cells the two take; on a building's floor `on` at its place in list 3's order, no
+/// nearer than it ([`Orders::at_level`]), as the walk appends it there while its floor byte is
+/// not 0 (`0x62C4E3`, `0x62C914`).
+fn in_order(quads: &mut Quads, orders: &Orders, origin: Vec3, on: Level) {
+    match on {
+        None => quads.at_order(orders.in_list_0(origin), origin),
+        Some(_) => quads.in_order(orders.at_level(origin, on), origin),
     }
 }
 

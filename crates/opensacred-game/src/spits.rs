@@ -330,7 +330,7 @@ fn fly(
             let texture = marks[usize::try_from(dice.0.below(6)).unwrap_or(0) % marks.len()];
             crate::marks::lay(
                 &mut commands,
-                at,
+                (at, *level),
                 (texture, SPIT_MARK_HOLDS, SPIT_MARK_HALF),
             );
             if let Some(sound) = spit_sound(SPIT_LANDS, dice.0.below(5)) {

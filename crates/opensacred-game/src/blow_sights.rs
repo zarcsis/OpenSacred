@@ -184,6 +184,27 @@ fn make(
     }
 }
 
+/// The level each creature stands or lies on: the hero's its body's, another's its place's in
+/// the others' way, a body's where it fell.
+#[derive(bevy::ecs::system::SystemParam)]
+struct Levels<'w, 's> {
+    heroes: Query<'w, 's, &'static crate::hero::Body>,
+    ways: Query<'w, 's, &'static crate::crowd::InTheWay>,
+    corpses: Query<'w, 's, &'static crate::npcs::Corpse>,
+}
+
+impl Levels<'_, '_> {
+    /// The level of `creature`, the ground's where it has none.
+    fn of(&self, creature: Entity) -> crate::terrain::Level {
+        self.heroes
+            .get(creature)
+            .map(crate::hero::Body::level)
+            .or_else(|_| self.ways.get(creature).map(|way| way.level))
+            .or_else(|_| self.corpses.get(creature).map(|corpse| corpse.level))
+            .unwrap_or(None)
+    }
+}
+
 /// Runs each bleed a frame on (`0x76AEF0`) and draws it (`0x76AFF0`): its droplets facing the
 /// camera, turned by their angles, in its blood at the alpha of their life, where they flew from
 /// its creature's neck; it goes with its last droplet, and then, with the violence on and but
@@ -200,6 +221,7 @@ fn bleed(
         Option<Res<crate::settings::Settings>>,
         Query<&GlobalTransform>,
     ),
+    levels: Levels,
 ) {
     let dt = time.delta_secs().min(0.1);
     let violence = settings.is_some_and(|settings| settings.gameplay.violence);
@@ -213,7 +235,8 @@ fn bleed(
                 let ground = places
                     .get(sight.target)
                     .map_or(at.translation, GlobalTransform::translation);
-                crate::marks::splashes(&mut commands, ground + Vec3::new(x, 0.0, y), sight.colour);
+                let at = (ground + Vec3::new(x, 0.0, y), levels.of(sight.target));
+                crate::marks::splashes(&mut commands, at, sight.colour);
             }
             continue;
         }
