@@ -169,6 +169,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/controls.rs`: The game's keys
 - `crates/opensacred-game/src/creature_arts.rs`: The heroes' weapon arts that the fight's specials order creatures to make
 - `crates/opensacred-game/src/creature_casts.rs`: The creatures' casts
+- `crates/opensacred-game/src/credits.rs`: The credits of the main menu's Extras
 - `crates/opensacred-game/src/crowd.rs`: The creatures in one another's way
 - `crates/opensacred-game/src/cursors.rs`: The cursor's looks over the world
 - `crates/opensacred-game/src/daemon.rs`: The Daemon's form of 1094 as its effect 50 holds it
