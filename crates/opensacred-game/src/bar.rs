@@ -83,6 +83,59 @@ pub(crate) const BUTTONS: [(u32, Vec2); 5] = [
     BOOK_BUTTON,
     COLLECT_BUTTON,
 ];
+/// Lays the damage icons of each weapon set's slot shown (`0x6E29E0` at `0x6E337C`, `0x6E28C0`;
+/// docs/re/interface.md, "Elements", #2925): of its two halves' kinds of damage
+/// (`opensacred_rules::fight::{damage_shares, set_shares}`), from the slot's corner and 4 along,
+/// 57 down, an icon for each kind of a share, white at that share's alpha, each next 4 pixels
+/// less than its width along, as the original lays them while `TASKBAR_ICONS` is 1, as the
+/// installation's is.
+fn damage_icons(
+    images: Res<UiImages>,
+    (shown, sets): (Res<Shown>, Option<Res<crate::sets::WeaponSets>>),
+    mut icons: Query<(&DamageIcon, &mut Node, &mut ImageNode, &mut Visibility)>,
+) {
+    let shares = |set: usize| {
+        let half = |half: usize| {
+            sets.as_deref()
+                .and_then(|sets| sets.halves.get(set)?.get(half)?.as_ref()?.values.as_ref())
+                .map_or([0; 4], |values| {
+                    opensacred_rules::fight::damage_shares(&values.damage)
+                })
+        };
+        opensacred_rules::fight::set_shares(half(0), half(1))
+    };
+    // Each set's icons' places along, by its kinds of a share.
+    let mut laid = [[None::<(f32, u8)>; 4]; crate::sets::SETS];
+    for (set, row) in laid.iter_mut().enumerate().take(shown.0) {
+        let alphas = shares(set);
+        let mut at = weapon_slot(set, shown.0).x + ICONS_FROM.x;
+        for (kind, (&alpha, place)) in alphas.iter().zip(row.iter_mut()).enumerate() {
+            if alpha == 0 {
+                continue;
+            }
+            *place = Some((at, alpha));
+            at += images.size(DAMAGE_ICONS[kind]).x - ICONS_OVERLAP;
+        }
+    }
+    for (icon, mut node, mut picture, mut visibility) in &mut icons {
+        let Some((x, alpha)) = laid.get(icon.set).and_then(|row| row[icon.kind]) else {
+            visibility.set_if_neq(Visibility::Hidden);
+            continue;
+        };
+        let left = Val::Px(x - BAR.min.x);
+        let top = Val::Px(SLOT_Y + ICONS_FROM.y - BAR.min.y);
+        if node.left != left || node.top != top {
+            node.left = left;
+            node.top = top;
+        }
+        let colour = Color::WHITE.with_alpha(f32::from(alpha) / 255.0);
+        if picture.color != colour {
+            picture.color = colour;
+        }
+        visibility.set_if_neq(Visibility::Inherited);
+    }
+}
+
 /// A button of the bar, its index in [`BUTTONS`] (#2924).
 #[derive(Component)]
 struct BarButton(usize);
@@ -368,6 +421,21 @@ struct SetOrb(usize);
 #[derive(Component)]
 struct SetRing(usize);
 
+/// A damage icon of a weapon set's slot: its set and its kind (#2925).
+#[derive(Component)]
+struct DamageIcon {
+    set: usize,
+    kind: usize,
+}
+
+/// The damage icons' images, the physical's, the fire's, the magic's and the poison's
+/// (`0x9E1A50`: 205 to 208), and their row's place below a slot's corner (`0x6E33C5`, `0x6E2978`:
+/// 4 along, 56 down and 1 more).
+const DAMAGE_ICONS: [u32; 4] = [205, 206, 207, 208];
+const ICONS_FROM: Vec2 = Vec2::new(4.0, 57.0);
+/// How much the next icon overlaps the one before, along (`0x6E299E`).
+const ICONS_OVERLAP: f32 = 4.0;
+
 /// The slots a side shown, 0 before the first are made.
 #[derive(Resource, Default)]
 pub(crate) struct Shown(pub usize);
@@ -522,6 +590,20 @@ pub(crate) fn spawn(
             ))
             .id();
         commands.entity(bar).add_child(child);
+    }
+    // The weapon sets' damage icons over their slots (#2925), laid by [`damage_icons`].
+    for set in 0..crate::sets::SETS {
+        for (kind, index) in DAMAGE_ICONS.into_iter().enumerate() {
+            let child = commands
+                .spawn((
+                    image(index, Vec2::ZERO, BAR.min),
+                    ZIndex(2),
+                    Visibility::Hidden,
+                    DamageIcon { set, kind },
+                ))
+                .id();
+            commands.entity(bar).add_child(child);
+        }
     }
     for (kind, at) in (1..).zip(BELT) {
         let child = commands
@@ -1411,6 +1493,7 @@ impl Plugin for BarPlugin {
                     art_icon,
                     entries,
                     entry_rings,
+                    damage_icons,
                     press,
                 )
                     .chain()
