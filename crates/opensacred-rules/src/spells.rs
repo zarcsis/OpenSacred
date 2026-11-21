@@ -932,10 +932,17 @@ pub fn turns(spell: u16) -> bool {
     spell == FIREBALL
 }
 
-/// The fireball's speed in units a second at its level `level` for a hero's cast (its particle
-/// system's start, `0x76BE80`): 150 + 10·L, at most 500.
-pub fn fireball_speed(level: u32) -> f32 {
-    (150.0 + 10.0 * to_f32(level)).min(500.0)
+/// The fireball's speed in units a second at its level `level` (its particle system's start,
+/// `0x76BE80`): 150 + 10·L for a `hero`'s cast (`+0xA9` 0, `0x76BEF0`), 130 + 8·L for any other
+/// caster's (`0x76BF05`, #3259), at most 500.
+pub fn fireball_speed(level: u32, hero: bool) -> f32 {
+    let level = to_f32(level);
+    let speed = if hero {
+        150.0 + 10.0 * level
+    } else {
+        130.0 + 8.0 * level
+    };
+    speed.min(500.0)
 }
 
 /// The fireball's most time in seconds at its level `level` (`0x76BE80`): 2 + 0.5·L.
@@ -1776,8 +1783,17 @@ mod tests {
         assert_eq!(share(FIREBALL), Some(0.66));
         assert_eq!(share(10), None);
         // At level 1, 160 a second for 2.5 s, some 400; held at 500 from level 35.
-        assert_eq!((fireball_speed(1), fireball_life(1)), (160.0, 2.5));
-        assert_eq!((fireball_speed(35), fireball_speed(60)), (500.0, 500.0));
+        assert_eq!((fireball_speed(1, true), fireball_life(1)), (160.0, 2.5));
+        assert_eq!(
+            (fireball_speed(35, true), fireball_speed(60, true)),
+            (500.0, 500.0)
+        );
+        // A creature's: the magic skeletons of level 10 cast it at 3, so at 154 (seen, #3259).
+        assert_eq!(fireball_speed(3, false), 154.0);
+        assert_eq!(
+            (fireball_speed(46, false), fireball_speed(47, false)),
+            (498.0, 500.0)
+        );
         assert!(made(FIREBALL) && made(REIKI) && !made(6));
     }
 
