@@ -9,15 +9,14 @@
 //! mouse event of the scripts (#1518, `stashes`; `mouse_action`), and over the teleports, the
 //! stairs and the cells before them that `bin/treppe.bin` sends a click on to them (`0x616AD0`,
 //! `0xAB4498`, #2508); else, over the interface and outside a game, the arrow (`MOUSE_MAIN`); and
-//! the pin while the world map's pin's mode holds (`MOUSE_PUSHPIN`, #1569). `hud` puts the picture
-//! on the window. Beside the hand over an item, the item's name, and over a stash its text.
+//! the pin while the world map's pin's mode holds (`MOUSE_PUSHPIN`, #1569), else at its screen's
+//! edges their arrows (`MOUSE_DIRN` …, #2933). `hud` puts the picture on the window. Beside the hand over an item, the item's name, and over a stash its text.
 //! The same choice tells the foe under the cursor, whose panel shows ([`Foe`], #1459), what the
 //! hover highlights ([`Highlit`], #1460) and whether the cursor glows, the right button's art
 //! ready for what lies under it ([`Glow`], #1461).
 //!
 //! Not followed yet: the glow over a friend or the dead for an art on one (the launch types 2 and
-//! 4), the horses' looks and the map's arrows; the name's red for some objects (`+0x14` bit
-//! `0x20`, not read).
+//! 4) and the horses' looks; the name's red for some objects (`+0x14` bit `0x20`, not read).
 
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;

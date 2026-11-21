@@ -25,6 +25,8 @@
 //! release off the bar places the pin there, its mark the pin's picture 64 × 64, its world
 //! point the compass's outer pin's target (`compass`); a right press on the mark takes it
 //! away, elsewhere it ends the mode; the edges do not scroll and the lens does not show in it.
+//! The pin's button shows its second image while the mode holds; both buttons glow under the
+//! pointer and show their tooltips, and the screen's edges their arrows (#2933, `cursors`).
 //!
 //! Under the hero and the quests (#1567): the people's icons of `bin/merc.bin` in the areas whose
 //! region has run its init, the portals of the sectors visited, the frontier of the land walked,
@@ -34,8 +36,7 @@
 //! `SetMapIcon`s whose sector has been seen, written on its arc in the ink of
 //! `ui_worldMapFontBg`.
 //!
-//! Not followed yet: the lens's party and its titles' layout apart; the buttons' pressed looks
-//! and tooltips, and the edges' cursors.
+//! Not followed yet: the lens's party and its titles' layout apart.
 
 use bevy::input::InputSystems;
 use bevy::input::mouse::AccumulatedMouseMotion;

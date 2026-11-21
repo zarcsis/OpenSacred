@@ -369,7 +369,7 @@ Since #1684 the belt's slots have theirs too, each its kind's text of its potion
 Since #1980 the key in the brackets of a button's or a slot's text is its action's of `controls.toml` (`controls::Controls::keyed`), the original's by default.
 Since #1595 the bar's five buttons, the belt's slots, the inventory's sort button and the statistics window's close button glow while the pointer is over them (`control_glow`, `low_health::Glow` at ⌊12.75 · 0.3⌋/255), of their pictures as they are; **measured** in the game: the Inventory button's mean red 44 → 61 and the belt's first slot's 64 → 94, without the cursor, beside the original's with it.
 Since #2340 the options window's ticks and round choices glow alike (`options`).
-The other controls of the flag are not followed yet (#3103; the world map's two, #2933).
+The other controls of the flag are not followed yet (#3103); the world map's two glow since #2933 (`world_map`).
 
 Since #1529 the art slots hold their arts (`art_slots`): a new game's first holds the hero's first art, the selected one's art is the right button's, a click selects a slot or, in the edit mode while the inventory shows, takes the art on the cursor or clears the slot, the keys 6 to 9 and 0 select the slots; each slot draws its art split by its regeneration, an empty one its orb (479 selected, 635 not, 533 while the cursor holds a spell or, in the edit mode, a weapon art), its ring 103 selected and 102 not; an art on the cursor shows its vivid picture there.
 **Seen** in the game beside the original's frames: 1070 taken from the spells page with every empty slot green, dropped on the second slot, which took the gold ring; the selected slot cleared to its pale blue orb; the key 6 selecting the first.
