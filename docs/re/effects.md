@@ -654,7 +654,8 @@ Other makers of these types, not read and not followed: 801 at `0x4D3FA8`; 778 a
 ### The fireball (778)
 
 - `PARTICLE_FIRE01`'s flames, 50 at most, left in the world along its way (no flag 2): one every 0.07 s (times 1.5 and 2.2 at the detail levels 1 and 0), each of a half side of 15 growing by 16 a second, turned at random, drifting by up to 4 a second along each axis, living 0.73 s (its layer's life −350 a second), drawn added and turned (the flags `0x15`), white, its frame of the 4 × 4 its age's (`⌊(255 − life) · 16 / 256⌋`: the flip-book once over its life).
-- Its life is `2 + 0.5 L` seconds and its speed `150 + 10 L` (for a hero, `+0xA9` 0; else `130 + 8 L`), at most 500, `L` the event's word `+0x40`; its start plays `MAGE_FEUERBALL_CAST` (2000).
+- Its life is `2 + 0.5 L` seconds and its speed `150 + 10 L` (for a hero, `+0xA9` 0; else `130 + 8 L`), at most 500, `L` the event's word `+0x40` (`0x76BE80`: `2·(5 L + 75)` at `0x76BEF0`, `8 L + 130` at `0x76BF05`); its start plays `MAGE_FEUERBALL_CAST` (2000).
+  **Seen** 2026-11-21 in the running original (#2902, a probe at `0x76BEA2`): the magic skeletons 48 and 80 of level 10 cast it at `L` 3, the event's variant 0 and `+0xA9` 2, so at 154 a second.
 - At its hit (`0x5AC015`) or a cell that stops it: `MAGE_FEUERBALL_HIT` (2001), its flight stopped, one flame more of its burst's block (a half side of 10, a drift of up to 20, within 15 of its place), and no more; at its time's end no more and no burst; the system ends with its last flame.
 - Its light is 200, and a Direct3D point light (`0x642B90`) of (1, 0.8, 0.4), a range of 200 and the attenuation (1, 0, 0.000125) follows it.
 - `PARTICLE_FIRE04` (a cyan green) takes the place of `FIRE01` where `+0xA9` is 1, its caster gone, and its variant not 1.
@@ -734,7 +735,7 @@ Their lights follow since #61 (`bolt_looks`): the railgun's 100, the BFG's 120 a
 Their height follows since #2018 (`bolts::leaving`): each leaves from its shooter's bone that its FX handler's case names (the railgun, the Daemon's bolt and the bubble the right hand, the fireball, the fire bolt and the splinters the left, the BFG the staff's `weapon_fx01`, the whirlwind the root `__Root`), at the moment it leaves, and flies level at that height, the fireball and the Daemon's bolt ending at once where the ground rises above them (the flag `0x01`), the BFG's ground glow on the ground under it (its place less `+0xA4`).
 **Seen** 2026-11-04 in the game: the Mage's fireball leaving her raised left hand at 90 over the ground and flying at her chest's height to the goblin it struck.
 A shooter of no such bone keeps its bolts 80 over the ground under them (`bolts::HEIGHT`, a stand-in).
-Not followed: the looks of a caster gone (`+0xA9` 1, #2902); the fireball's point light on the models follows since #2106 ("The systems' Direct3D lights").
+Not followed: the looks of a caster gone (`+0xA9` 1), which a creature's own cast does not come to, its caster there as its system starts (`+0xA9` 2, seen for the magic skeletons, #2902), and a creature's speed of `130 + 8 L` (#3259); the fireball's point light on the models follows since #2106 ("The systems' Direct3D lights").
 **Seen** 2026-11-04 beside the original's frames: the railgun's cyan streak and its haze alike in size and colour; the fireball's plume alike; the emperor's flare alike in size, its rays whiter than the original's violet white; the BFG's starburst and its ground glow of their quads' size, but only about half as wide to the eye, their dim middle tones lost, until #2017 ("In `opensacred-game`" below): since, alike.
 
 ## The breath of fire
