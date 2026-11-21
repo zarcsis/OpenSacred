@@ -2676,7 +2676,7 @@ Read 2026-11-06 for #2149 in Ghidra (**confirmed** by code unless marked).
 
 `opensacred-game` draws it since #2149 (`healings`, `opensacred_rules::particles::{HealingSight, healing_corners, ball_heal_level}`, `fx::Quads::push_facing_turned`): the hero's heal and a healer's, and the goblin mages' ball's heal of the creatures it lands among not hostile to its caster (`creature_casts::Ball`, by `spells::healing` with no magic lore, as a creature's heals are), the sparks left in the world where they were born.
 **Seen** 2026-11-06 beside the original: the Mage's heal as a white disk at his feet rising into a pink column and its sparks, alike in both.
-The heal's effect 30 is its event's (the creature's event 6 of the sub-kind 3, as a soul's, docs/re/arts.md, "The Dark Elf's"): of the values 0 keyed by 100, the adder's cure of every poison (docs/re/arts.md, "The effects", the row 30); `opensacred-game` cures so at each heal since #3139 (`effects::heal_cures`): the hero's healing and the plants', a healer's, the goblin mages' ball's and the souls'.
+The heal's effect 30 is its event's (the creature's event 6 of the sub-kind 3, as a soul's, docs/re/arts.md, "The Dark Elf's"): of the values 0 keyed by 100, the adder's cure of every poison (docs/re/arts.md, "The effects", the row 30); `opensacred-game` cures so at each heal since #3139 (`effects::heal_cures`): the hero's healing and the plants', a healer's, the goblin mages' ball's and the souls', and since #3213 the Vampiress's bite, whose drain comes to her by the same event (docs/re/arts.md, "The Vampiress's").
 
 ## The summoning
 
