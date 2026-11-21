@@ -16,7 +16,8 @@
 //! ready for what lies under it ([`Glow`], #1461).
 //!
 //! Not followed yet: the glow over a friend or the dead for an art on one (the launch types 2 and
-//! 4) and the horses' looks; the name's red for some objects (`+0x14` bit `0x20`, not read).
+//! 4) and the horses' looks. An item's name is never red: no code sets the bit `0x20` of an item's
+//! `+0x14` (#2937).
 
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
