@@ -201,12 +201,12 @@ impl Course {
         }
     }
 
-    /// The course of the Mage's fireball at the level `level` (the object 778, `0x76BE80`): every
-    /// creature of its first contact, once, and it goes (`0x5ABD80` at `0x5AC015`), with its
-    /// system's sounds ([`FIREBALL_SOUNDS`]).
-    pub fn fireball(level: u32) -> Self {
+    /// The course of the Mage's fireball at the level `level` (the object 778, `0x76BE80`), a
+    /// `hero`'s or a creature's, which is slower: every creature of its first contact, once, and
+    /// it goes (`0x5ABD80` at `0x5AC015`), with its system's sounds ([`FIREBALL_SOUNDS`]).
+    pub fn fireball(level: u32, hero: bool) -> Self {
         Self {
-            speed: opensacred_rules::spells::fireball_speed(level),
+            speed: opensacred_rules::spells::fireball_speed(level, hero),
             slows: 0.0,
             life: opensacred_rules::spells::fireball_life(level),
             strikes: Strikes::All,
