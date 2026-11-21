@@ -754,6 +754,9 @@ pub struct ScriptItem {
     pub index: usize,
     pub uses: Option<String>,
     pub take: Option<String>,
+    /// Its script name (its `CreateObj`'s first `0x01`), by which the test `0x3A` asks for it in
+    /// the hero's pack (#3147).
+    pub name: Option<String>,
 }
 
 /// A quest's item that a `CreateObj` of [`QUEST_ITEM`] lays in the world, which the hero picks up
@@ -5864,6 +5867,7 @@ fn place_index(
                 index,
                 uses: placement.uses.clone(),
                 take: placement.taking.clone(),
+                name: placement.key.clone(),
             },
             drops::Lying {
                 dropped: laid.clone(),
@@ -11702,6 +11706,13 @@ pub(crate) fn script_records(
         }
     }
     for change in npcs.regroup(&records, &born) {
+        // A `DelNPC` takes an item of its name out of the hero's slots too (`0x497F80`, #3147).
+        if let Regrouped::Removed(name) = &change {
+            let name = name.clone();
+            commands.queue(move |world: &mut bevy::prelude::World| {
+                crate::pickup::take_named(world, &name);
+            });
+        }
         for (entity, named, on_death, _, mind, way, health, ..) in &mut creatures {
             let member = match &change {
                 Regrouped::Group(state) => {
