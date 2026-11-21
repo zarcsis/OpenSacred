@@ -684,6 +684,7 @@ fn a_type_that_drops_nothing_is_drawn_again_and_a_missing_record_five_times() {
             named: None,
             socketed: Vec::new(),
             name_key: 0,
+            script: None,
         })
     );
 }
@@ -761,6 +762,7 @@ fn a_death_drops_the_dagger_where_no_weapon_is_found_and_gold_by_its_level() {
             named: None,
             socketed: Vec::new(),
             name_key: 0,
+            script: None,
         }]
     );
     // A failed chance drops nothing.
@@ -1773,6 +1775,7 @@ fn made_name(
         named: Some(coin),
         socketed: Vec::new(),
         name_key: 0,
+        script: None,
     };
     name(&dropped, tables, |key| texts.contains(&key))
 }
@@ -1818,6 +1821,7 @@ fn a_made_item_goes_by_the_words_of_its_element_and_its_class() {
         named: None,
         socketed: Vec::new(),
         name_key: 0,
+        script: None,
     };
     assert_eq!(name(&fixed, tables, |_| true), None);
     // The elements by their shares: fire above 50 per cent of the most damage, magic above 40,

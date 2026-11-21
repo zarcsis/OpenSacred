@@ -212,6 +212,7 @@ fn dropped(
             })
             .collect(),
         name_key,
+        script: None,
     }
 }
 

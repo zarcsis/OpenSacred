@@ -316,9 +316,8 @@ fn drop_held(
         "held: {} dropped at {cell:?} beside the hero at {hero_cell:?}, toward {toward:?}",
         held.dropped.item
     );
-    // Its `Use:` function goes with it (#3099), and its script name (#3147).
+    // Its `Use:` function goes with it (#3099), and its script name in it (#3147).
     let kept = pack.release_use(held.key);
-    let name = pack.release_name(held.key);
     let dropped = drops::drop_at(
         &mut commands,
         (&assets, &tables, &mut dice),
@@ -329,11 +328,6 @@ fn drop_held(
         commands
             .entity(dropped)
             .insert(crate::pickup::KeptUse(function));
-    }
-    if let Some(name) = name {
-        commands
-            .entity(dropped)
-            .insert(crate::pickup::KeptName(name));
     }
 }
 
@@ -385,9 +379,8 @@ fn drop_shifted(
     let Some(key) = pack.grid.at(cell).map(|placed| placed.key) else {
         return;
     };
-    // Its `Use:` function goes with it (#3099), and its script name (#3147).
+    // Its `Use:` function goes with it (#3099), and its script name in it (#3147).
     let kept = pack.release_use(key);
-    let name = pack.release_name(key);
     let Some((_, dropped)) = pack.take_out(key) else {
         return;
     };
@@ -420,11 +413,6 @@ fn drop_shifted(
         commands
             .entity(dropped)
             .insert(crate::pickup::KeptUse(function));
-    }
-    if let Some(name) = name {
-        commands
-            .entity(dropped)
-            .insert(crate::pickup::KeptName(name));
     }
 }
 

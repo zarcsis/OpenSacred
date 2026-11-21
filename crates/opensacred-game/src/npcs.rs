@@ -754,9 +754,6 @@ pub struct ScriptItem {
     pub index: usize,
     pub uses: Option<String>,
     pub take: Option<String>,
-    /// Its script name (its `CreateObj`'s first `0x01`), by which the test `0x3A` asks for it in
-    /// the hero's pack (#3147).
-    pub name: Option<String>,
 }
 
 /// A quest's item that a `CreateObj` of [`QUEST_ITEM`] lays in the world, which the hero picks up
@@ -5604,6 +5601,7 @@ fn plain_item(item: u32) -> opensacred_rules::drops::Dropped {
         named: None,
         socketed: Vec::new(),
         name_key: 0,
+        script: None,
     }
 }
 
@@ -5867,10 +5865,14 @@ fn place_index(
                 index,
                 uses: placement.uses.clone(),
                 take: placement.taking.clone(),
-                name: placement.key.clone(),
             },
+            // Its script name, by which the test `0x3A` and a `DelNPC` find it wherever the hero
+            // puts it (#3147, #3217).
             drops::Lying {
-                dropped: laid.clone(),
+                dropped: opensacred_rules::drops::Dropped {
+                    script: placement.key.as_ref().map(|key| key.to_lowercase()),
+                    ..laid.clone()
+                },
                 resting: true,
             },
         ));

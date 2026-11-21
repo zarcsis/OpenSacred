@@ -141,6 +141,11 @@ pub struct Dropped {
     /// 0 where it goes by the name that [`name`] composes for it, else by its type's.
     #[serde(default)]
     pub name_key: u32,
+    /// The script name of an item that the scripts laid (its `CreateObj`'s first `0x01`), lower
+    /// case, which it keeps wherever it goes, as the original's object keeps its key: the hero's
+    /// test `0x3A` and a `DelNPC` of the name find it in any of the hero's slots (#3147, #3217).
+    #[serde(default)]
+    pub script: Option<String>,
 }
 
 /// The difficulties, bronze to niobium (the int `0x182EE44`, 0 to 4).
@@ -1075,6 +1080,7 @@ pub fn gold_pile(amount: u32) -> Dropped {
         named: None,
         socketed: Vec::new(),
         name_key: 0,
+        script: None,
     }
 }
 
@@ -1717,6 +1723,7 @@ impl Dropping<'_> {
                 named: None,
                 socketed: Vec::new(),
                 name_key: 0,
+                script: None,
             };
             raised(
                 &mut drop,
@@ -1890,6 +1897,7 @@ impl Dropping<'_> {
             named: None,
             socketed: Vec::new(),
             name_key: 0,
+            script: None,
         };
         let dead = self.death.dead;
         if GOLD.contains(&item) {
@@ -2102,6 +2110,7 @@ impl Dropping<'_> {
             named: None,
             socketed: Vec::new(),
             name_key: 0,
+            script: None,
         };
         drop.values = made(
             (self.catalogue, self.templates),
@@ -2392,6 +2401,7 @@ pub fn thrown(
         named: None,
         socketed: Vec::new(),
         name_key: 0,
+        script: None,
     };
     match kind {
         Kind::Gold => drop.amount = amount.max(1),
@@ -2456,6 +2466,7 @@ pub fn scripted(
         named: None,
         socketed: Vec::new(),
         name_key: 0,
+        script: None,
     };
     let unique = templates
         .word_40(item)
@@ -2522,6 +2533,7 @@ pub fn contained(
             named: None,
             socketed: Vec::new(),
             name_key: 0,
+            script: None,
         };
         catalogue.category(item)?;
         raised(&mut drop, (catalogue, templates), (level, difficulty));
@@ -2579,6 +2591,7 @@ fn by_key(
         named: None,
         socketed: Vec::new(),
         name_key: 0,
+        script: None,
     };
     if GOLD.contains(&item) || UNMADE.contains(&category) {
         drop.quality = 0;

@@ -2909,12 +2909,17 @@ fn party(
 }
 
 /// Takes the script names of the items that the hero carries for the scripts' `0x3A` at each
-/// frame, before any of them runs (`pickup::Pack::carried_names`, #3147).
-fn carried(live: Option<NonSendMut<Live>>, pack: Option<Res<crate::pickup::Pack>>) {
+/// frame, before any of them runs, in the pack and in the weapon sets
+/// (`pickup::Pack::carried_names`, #3147, #3217).
+fn carried(
+    live: Option<NonSendMut<Live>>,
+    pack: Option<Res<crate::pickup::Pack>>,
+    sets: Option<Res<crate::sets::WeaponSets>>,
+) {
     let (Some(mut live), Some(pack)) = (live, pack) else {
         return;
     };
-    let carried = pack.carried_names();
+    let carried = pack.carried_names(sets.as_deref());
     if live.carried != carried {
         live.carried = carried;
     }
