@@ -6,7 +6,8 @@
 // the cursor (`LIT_BY_SLOT`, `hover`); its other passes lay its effect under its texels
 // (`EFFECT`, `HOLOGRAM`) or draw it in the water form's look or a vision's (`WATER`, `VISION`).
 // A particle's colour (`fx::Effect`, `PARTICLES`) is encoded before its alpha premultiplies an
-// added one. A model drawn apart from the world by a camera of its own, whose frame takes linear
+// added one; one of list 4 (`LIST_4`, `fx::over_all`) takes the samples over which no model's
+// texel lies nearer than its true point. A model drawn apart from the world by a camera of its own, whose frame takes linear
 // light (`model_effects::ApartMaterial`, `LINEAR`), keeps its colour linear, its effect laid
 // under it in sRGB values all the same.
 //
@@ -35,6 +36,9 @@ const OPAQUE: f32 = 254.5 / 255.0;
 /// The original's alpha test of a model's texels, which drops those of alpha 64 or less
 /// (`models::CUTOFF`).
 const CUTOFF: f32 = 64.5 / 255.0;
+/// How much nearer the camera a particle of list 4 is laid than its true point
+/// (`statics::LIST_4_FORWARD`, `fx::Quads::ahead`).
+const LIST_4_FORWARD: f32 = 1000.0;
 
 /// Each model's ambient share of its light while the cursor is over it, first, zero for none,
 /// then its share otherwise, 0.8 or a creature's 0.3 (`models::Anchors`, `hover`; #1460, #3108),
@@ -96,7 +100,11 @@ fn nearest_samples(position: vec2<f32>, world: vec3<f32>) -> u32 {
 fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
     var out: Output;
 @if(NEAREST && DEPTH_PREPASS) {
-    out.samples = nearest_samples(in.position.xy, in.world_position.xyz);
+    var world = in.world_position.xyz;
+@if(LIST_4) {
+    world = nearest::further(world, LIST_4_FORWARD);
+}
+    out.samples = nearest_samples(in.position.xy, world);
     if out.samples == 0u {
         discard;
     }
