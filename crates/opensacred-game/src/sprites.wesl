@@ -6,7 +6,8 @@
 // through the depth buffer, then the others (`FRINGE`) blended by their alpha over what lies behind
 // them, as the original blends them, a sprite's texels of alpha 64 or less dropped (`ALPHA_TEST`).
 // The sprites standing on an upper storey's floor stay in front of its plane (`fragment_on_floor`).
-// Those of a fading type that are drawn after the hero fade about it (`faded`). Where the screen
+// Those of a fading type fade about the points drawn before them, the hero's and the creatures'
+// about it (`faded`). Where the screen
 // shrinks the sprites, their pages' levels stand in for the image (`level_of`, #839).
 
 import bevy_pbr::render::mesh_view_bindings::view;
@@ -16,8 +17,9 @@ import package::{order, post::post_process};
 /// What the texels are multiplied by (`statics::SpriteMaterial::tint`): white, but for the
 /// statics' shadows, which fade by night.
 @group(constants::MATERIAL_BIND_GROUP) @binding(1) var<uniform> tint: vec4<f32>;
-/// What the sprites of the fading types fade about (`statics::Fade`): the hero's point on the
-/// original's screen, the radius and the alpha there; then its place in the order.
+/// What the sprites of the fading types fade about (`statics::Fade`): the radius, the alpha at a
+/// point and the count of the points; then each point on the original's screen and its place in
+/// the order, in their order of drawing (`fade_points`).
 @group(constants::MATERIAL_BIND_GROUP) @binding(2) var<storage, read> fade: array<vec4<f32>>;
 
 struct Vertex {
@@ -31,7 +33,7 @@ struct Vertex {
     @location(3) source: vec4<f32>,
     /// The vertex on the original's screen, in its pixels at zoom 1.
     @location(4) screen: vec2<f32>,
-    /// 1 for a sprite of a type that fades about the hero.
+    /// 1 for a sprite of a type that fades about the points.
     @location(5) fades: f32,
     /// For a sprite standing on an upper storey's floor, the place of the floor's plane at the
     /// vertex's point, a little in front of it; the anchor for any other.
@@ -47,12 +49,14 @@ struct VertexOutput {
     @location(1) @interpolate(flat) source: vec4<f32>,
     /// The point on the original's screen.
     @location(2) screen: vec2<f32>,
-    /// 1 where the sprite fades about the hero: of a fading type, drawn after the hero.
+    /// 1 where the sprite is of a fading type.
     @location(3) @interpolate(flat) fades: f32,
     /// The depth of the floor's plane brought forward, which the sprite lies no further back
     /// than over the floor's part (`fragment_on_floor`); a plane, linear across the screen.
     @location(4) floor: f32,
     @location(5) footprint: vec2<f32>,
+    /// The depth of the sprite's place in the order, which the points' places are tested against.
+    @location(6) @interpolate(flat) order: f32,
 };
 
 /// What `fragment_on_floor` writes: the colour and the depth.
@@ -104,9 +108,8 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     out.screen = vertex.screen;
     out.floor = order::depth(vertex.floor, 0.0);
     out.footprint = vertex.footprint;
-    // Drawn after the hero: nearer than its place in the reversed depth.
-    let after = order::depth(vertex.anchor, 0.0) > order::depth(fade[1], 0.0);
-    out.fades = select(0.0, 1.0, vertex.fades > 0.5 && after);
+    out.fades = vertex.fades;
+    out.order = order::depth(vertex.anchor, 0.0);
     return out;
 }
 
@@ -174,20 +177,31 @@ fn sampled(uv: vec2<f32>, source: vec4<i32>, alpha: f32, level: f32) -> vec4<f32
     return mix(near, filtered(uv, source, alpha, u32(low) + 1u), t);
 }
 
-/// The alpha out of 1 of a fading sprite's point at `screen` (`0x62FF60`): within the radius of
-/// the hero's point across and down, from the alpha at the point to 1 at the radius' distance;
+/// The alpha out of 1 of the point at `screen` of a fading sprite whose place lies at the depth
+/// `depth` in the order (`0x62FF60`): of the last point in the order drawn before the sprite whose
+/// radius holds it across and down, from the alpha at the point to 1 at the radius' distance;
 /// else 1. Per point here, where the original gives each corner of its sprites' pieces of 64
 /// pixels this alpha and lets the rasterizer blend it between them
-/// (docs/decisions/drawing.md, "Trees' fade per pixel"). The same as `statics::TreeFade::at`.
-fn faded(screen: vec2<f32>) -> f32 {
-    let point = fade[0].xy;
-    let radius = fade[0].z;
-    let offset = screen - point;
-    if radius <= 0.0 || abs(offset.x) >= radius || abs(offset.y) >= radius {
-        return 1.0;
+/// (docs/decisions/drawing.md, "Trees' fade per pixel"). The same as `statics::TreeFade::about`.
+fn faded(screen: vec2<f32>, depth: f32) -> f32 {
+    let radius = fade[0].x;
+    var alpha = 1.0;
+    if radius <= 0.0 {
+        return alpha;
     }
-    let t = min(length(offset) / radius, 1.0);
-    return (fade[0].w + (255.0 - fade[0].w) * t) / 255.0;
+    let count = u32(fade[0].z);
+    for (var i = 0u; i < count; i ++) {
+        // Drawn after the point: nearer than its place in the reversed depth.
+        if depth <= order::depth(fade[2u + 2u * i], 0.0) {
+            continue;
+        }
+        let offset = screen - fade[1u + 2u * i].xy;
+        if abs(offset.x) < radius && abs(offset.y) < radius {
+            let t = min(length(offset) / radius, 1.0);
+            alpha = (fade[0].y + (255.0 - fade[0].y) * t) / 255.0;
+        }
+    }
+    return alpha;
 }
 
 @fragment
@@ -213,7 +227,7 @@ fn fragment_on_floor(in: VertexOutput) -> OnFloor {
 fn shade(in: VertexOutput) -> vec4<f32> {
     // Before any branch, as a derivative must be.
     let level = level_of(in.uv);
-    let alpha = select(1.0, faded(in.screen), in.fades > 0.5);
+    let alpha = select(1.0, faded(in.screen, in.order), in.fades > 0.5);
     let weighted = sampled(in.uv, vec4<i32>(in.source), alpha, level);
     var colour = vec4(weighted.rgb / max(weighted.a, 0.0001), weighted.a) * tint;
 @if(FRINGE) {
