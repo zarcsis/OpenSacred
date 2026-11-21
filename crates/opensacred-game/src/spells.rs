@@ -3524,6 +3524,8 @@ fn change(world: &mut World, original: Entity, animal: u32, seconds: f32) {
         return;
     };
     info!("spells: {original} changes into {made}, a {animal}, for {seconds} s");
+    // Its items are destroyed, so that it comes back without them (`0x5848A8`, #3146).
+    crate::npcs::strip(world, original);
     // Its figure bursts into the changeling's sparks, falling (845, `change_sparks`).
     if let Err(e) = world.run_system_cached_with(crate::change_sparks::burst, (original, false)) {
         warn!("spells: no sparks of {original}'s change: {e}");
