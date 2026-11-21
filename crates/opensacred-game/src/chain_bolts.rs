@@ -7,11 +7,11 @@
 //! (`cParticleSystem_freeze_impact`, 872), blue sparks flying off and drawn back over a glow
 //! (`particles::ChainImpact`). All untinted by the night. Its first segment and its impact light
 //! the models about them too, their Direct3D point lights of (0.7, 0.7, 1.0) (`fx_lights`, #2106).
-//!
-//! Not followed: the bolt's end at the first cell it crosses that may not be walked on
-//! (`0x636A60`).
+//! A bolt that `spells` finds ending at a cell that may not be passed (`0x636A60`, #3158) is laid
+//! up to it alone, with no impact.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
+use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
 use opensacred_rules::particles::{self, ChainBolt, ChainImpact};
 
@@ -28,16 +28,43 @@ const HAND: [&str; 1] = ["Bip01 L Hand"];
 /// (**estimate**: a hand's height).
 const NO_HAND: f32 = 80.0;
 
-/// A bolt to make from the creature `from` to the creature `to`.
-#[derive(Component)]
-struct Unmade {
-    from: Entity,
-    to: Entity,
+/// What finds a bolt's end at a creature: its place, its children, its bones and its worn items.
+#[derive(SystemParam)]
+pub(crate) struct Hands<'w, 's> {
+    places: Query<'w, 's, &'static GlobalTransform>,
+    children: Query<'w, 's, &'static Children>,
+    bones: Query<'w, 's, (&'static Name, &'static GlobalTransform)>,
+    worn: crate::making::Worn<'w, 's>,
 }
 
-/// A chain lightning's bolt from `from` to `to`, and its impact at `to` (`spells`).
-pub(crate) fn bolt(commands: &mut Commands, from: Entity, to: Entity) {
-    commands.spawn((Unmade { from, to }, DespawnOnExit(AppState::InGame)));
+impl Hands<'_, '_> {
+    /// Where a bolt ends at `creature` (`0x44CBB0` of the bone 1, `0x44CA30`): its left hand,
+    /// else over its place where it has none.
+    pub(crate) fn of(&self, creature: Entity) -> Option<Vec3> {
+        crate::making::bone(creature, &HAND, &self.children, (&self.bones, &self.worn)).or_else(
+            || {
+                self.places
+                    .get(creature)
+                    .ok()
+                    .map(|at| at.translation() + Vec3::Y * NO_HAND)
+            },
+        )
+    }
+}
+
+/// A bolt to make from the world point `from` to `to`: whole with its impact, or its first
+/// `kept` segments alone where one ends it at a cell (`ChainBolt::laid`).
+#[derive(Component)]
+struct Unmade {
+    from: Vec3,
+    to: Vec3,
+    kept: Option<usize>,
+}
+
+/// A chain lightning's bolt from the world point `from` to `to` (`spells`, [`Hands::of`]): whole
+/// with its impact at `to` where `kept` is `None`, else its first `kept` segments alone.
+pub(crate) fn bolt(commands: &mut Commands, (from, to): (Vec3, Vec3), kept: Option<usize>) {
+    commands.spawn((Unmade { from, to, kept }, DespawnOnExit(AppState::InGame)));
 }
 
 /// A bolt: its segments and fade, its start, its frame (along it and across it, its `y` and
@@ -81,7 +108,8 @@ fn part(commands: &mut Commands, parent: Entity, mesh: &Handle<Mesh>, material: 
 }
 
 /// Makes each bolt asked for (`0x526CAA`, `0x77DE80`, `0x77E630`): from hand to hand, its
-/// segments laid along the line between, its impact at its end.
+/// segments laid along the line between, its impact at its end; one that a cell ends, its kept
+/// segments alone.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources as arguments"
@@ -89,12 +117,6 @@ fn part(commands: &mut Commands, parent: Entity, mesh: &Handle<Mesh>, material: 
 fn make(
     mut commands: Commands,
     unmade: Query<(Entity, &Unmade)>,
-    places: Query<&GlobalTransform>,
-    (children, bones, worn): (
-        Query<&Children>,
-        Query<(&Name, &GlobalTransform)>,
-        crate::making::Worn,
-    ),
     (data, assets, mut made, mut materials, mut meshes): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -105,20 +127,11 @@ fn make(
 ) {
     for (entity, unmade) in &unmade {
         commands.entity(entity).despawn();
-        let Some(data) = data.as_deref() else {
+        // A bolt whose hand's own cell fails lays no segment, nor its glow and its light.
+        let (Some(data), false) = (data.as_deref(), unmade.kept == Some(0)) else {
             continue;
         };
-        let hand = |of: Entity| {
-            crate::making::bone(of, &HAND, &children, (&bones, &worn)).or_else(|| {
-                places
-                    .get(of)
-                    .ok()
-                    .map(|at| at.translation() + Vec3::Y * NO_HAND)
-            })
-        };
-        let (Some(from), Some(to)) = (hand(unmade.from), hand(unmade.to)) else {
-            continue;
-        };
+        let (from, to) = (unmade.from, unmade.to);
         let [segments, glow, sparks] = made
             .0
             .get_or_insert_with(|| {
@@ -152,7 +165,10 @@ fn make(
         let turn = Quat::from_rotation_arc(Vec3::X, along);
         let index = usize::try_from(entity.index_u32()).unwrap_or(0);
         let mut dice = crate::seed::dice(SEED ^ index);
-        let chain = ChainBolt::new((to - from).length() / s, &mut dice);
+        let mut chain = ChainBolt::new((to - from).length() / s, &mut dice);
+        if let Some(kept) = unmade.kept {
+            chain.segments.truncate(kept);
+        }
         let lamps = chain
             .segments
             .iter()
@@ -196,6 +212,9 @@ fn make(
             lamps,
             parts,
         });
+        if unmade.kept.is_some() {
+            continue;
+        }
         let lamp = commands
             .spawn((
                 Transform::from_translation(to.with_y(0.0)),

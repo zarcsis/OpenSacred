@@ -4,7 +4,8 @@
 //! it burns draws its column of light of its vertices' colours alone, added by their alpha
 //! (`particles::hellfire_column`, `holy_lights::column_quads`), over a glow on the ground added
 //! whole; all untinted by the night, on the ground under its object, its light of 200 with it. Its
-//! object gone, its column and glow go and its flames burn out. A creature's is blue, its flames
+//! object gone, its column and glow go and its flames burn out; quenched at a cell that it may
+//! not pass, it goes at once with its flames (`+0x74` 2, #3158). A creature's is blue, its flames
 //! white of `PARTICLE_FIRE09` (`+0xA9`).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
@@ -25,6 +26,11 @@ use crate::{daynight, iso};
 /// How far over the ground the glow lies, in world units, so that the ground's own faces do not
 /// cut it.
 const GROUND_LIFT: f32 = 0.5;
+
+/// A purgatory's object that ended at a cell that it may not pass (`spells`, `0x5A7B7F`): its
+/// look goes at once, its flames with it (`0x7CBA10` of 2, the system's `+0x74` bit 1).
+#[derive(Message, Clone, Copy, Debug)]
+pub(crate) struct Quenched(pub Entity);
 
 /// A purgatory's object to give its look, a hero's or a creature's, on its level (`spells`).
 #[derive(Component)]
@@ -171,20 +177,34 @@ fn show(
 /// at its place, its column and its glow, all drawn at its object's place in the order of
 /// drawing, before a creature standing in its cell, as the original draws the system before the
 /// creature (`fx::Orders`, #2178), on an upper storey's floor no further back than its plane
-/// (#2220); then its flames burn out and it goes, its lamp with it.
+/// (#2220); then its flames burn out and it goes, its lamp with it; quenched ([`Quenched`]), it
+/// goes at once.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
 fn burn(
     mut commands: Commands,
     (time, looks, heights): (Res<Time>, Res<Looks>, Res<Heights>),
-    mut shown: Query<(Entity, &mut Shown)>,
-    objects: Query<&GlobalTransform, With<Look>>,
+    (mut shown, objects, mut quenched): (
+        Query<(Entity, &mut Shown)>,
+        Query<&GlobalTransform, With<Look>>,
+        MessageReader<Quenched>,
+    ),
     mut lamps: Query<&mut Transform, With<daynight::Light>>,
     mut meshes: ResMut<Assets<Mesh>>,
     orders: Orders,
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
+    let quenched: Vec<Entity> = quenched.read().map(|quenched| quenched.0).collect();
     for (entity, mut look) in &mut shown {
         let look = &mut *look;
+        if look.object.is_some_and(|object| quenched.contains(&object)) {
+            commands.entity(look.lamp).despawn();
+            commands.entity(entity).despawn();
+            continue;
+        }
         let fire = &looks.fires[look.kind];
         let burning = match look.object.map(|object| objects.get(object)) {
             Some(Ok(place)) => {
@@ -254,12 +274,14 @@ pub struct PurgatoriesPlugin;
 
 impl Plugin for PurgatoriesPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Looks>().add_systems(
-            Update,
-            (show, burn)
-                .chain()
-                .in_set(Playing)
-                .run_if(in_state(AppState::InGame)),
-        );
+        app.init_resource::<Looks>()
+            .add_message::<Quenched>()
+            .add_systems(
+                Update,
+                (show, burn)
+                    .chain()
+                    .in_set(Playing)
+                    .run_if(in_state(AppState::InGame)),
+            );
     }
 }

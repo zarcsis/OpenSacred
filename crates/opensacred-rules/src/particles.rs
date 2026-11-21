@@ -3243,6 +3243,24 @@ impl ChainBolt {
         }
     }
 
+    /// How many segments of a bolt over `total` are laid before the first whose start's cell
+    /// fails `passes`, which takes that start's distance along the bolt from its first end
+    /// (`0x526EC6`, `0x5B4B60`): `None` where every one's passes and the bolt is whole, its
+    /// impact made and its target struck; else the segments before it alone, the bolt ending
+    /// there with no impact, no strike and no leap on (`0x5B4DC5`).
+    pub fn laid(total: f32, mut passes: impl FnMut(f32) -> bool) -> Option<usize> {
+        let mut left = total;
+        let mut index = 0;
+        while left > 0.0 && index < CHAIN_SEGMENTS {
+            if !passes(CHAIN_STEP * f32::from(index)) {
+                return Some(usize::from(index));
+            }
+            left -= CHAIN_STEP;
+            index += 1;
+        }
+        None
+    }
+
     /// A run of `dt` seconds (`0x77DAC0`).
     pub fn update(&mut self, dt: f32) {
         self.clock += dt;
@@ -17920,6 +17938,25 @@ mod tests {
             ChainImpact::ramp().at(255.0),
             [127.0 / 255.0, 127.0 / 255.0, 1.0, 0.0]
         );
+    }
+
+    #[test]
+    fn a_chain_lightnings_bolt_is_laid_up_to_the_first_segment_whose_cell_fails() {
+        // Each segment's start tested, from the hand on by 30, while any of the bolt is left.
+        let mut tested = Vec::new();
+        let whole = ChainBolt::laid(100.0, |at| {
+            tested.push(at);
+            true
+        });
+        assert_eq!((whole, tested), (None, vec![0.0, 30.0, 60.0, 90.0]));
+        // The first that fails ends it with the segments before it alone, the first too.
+        assert_eq!(ChainBolt::laid(100.0, |at| at < 60.0), Some(2));
+        assert_eq!(ChainBolt::laid(100.0, |_| false), Some(0));
+        assert_eq!(ChainBolt::laid(45.0, |at| at < 60.0), None);
+        // None to lay, none tested; at most 19, the 20th's start never tested.
+        assert_eq!(ChainBolt::laid(0.0, |_| false), None);
+        assert_eq!(ChainBolt::laid(1_000.0, |at| at < 570.0), None);
+        assert_eq!(ChainBolt::laid(1_000.0, |at| at < 540.0), Some(18));
     }
 
     #[test]

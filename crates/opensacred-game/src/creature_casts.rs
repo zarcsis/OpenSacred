@@ -702,23 +702,12 @@ fn act(
                     .and_modify(move |mut effects| effects.add(effect, seconds));
             }
             casts::CHAIN => {
-                // Its first strike on its target at once, its bolt to it, and its leaps on to the
-                // creatures hostile to the caster and back to the hero (`0x526CAA`, `0x5B46CA`;
-                // #2900), `min(2 + L, 8)` strikes in all.
+                // Its first strike on its target at once where its bolt reaches it, and its leaps
+                // on to the creatures hostile to the caster and back to the hero (`0x526CAA`,
+                // `0x5B46CA`; #2900, #3158), `min(2 + L, 8)` strikes in all.
                 if target.is_err() {
                     continue;
                 }
-                hits.write(crate::fight::Hit {
-                    attacker: entity,
-                    target: cast.target,
-                    share: 1.0,
-                    ranged: false,
-                    art: None,
-                    fixed: Some(damages),
-                    sure: true,
-                    poison: false,
-                    ward: true,
-                });
                 crate::spells::chain_lightning(
                     &mut commands,
                     (entity, cast.target),
