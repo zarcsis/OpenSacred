@@ -11,6 +11,8 @@ The talk that opens the traders' windows is docs/re/arts.md, "The combat master"
 
 - Its constructor `0x6DB9B0`: at (0, 0), 640 × 336, the window `UI_WND_MERCHANT`; its layout `0x6DC010`, its draw `0x6DBAC0`, its input `0x6DBF50`, its show `0x6DBB70`.
 - A panel `UI_STATIC_BG` at (512, 16), 128 wide and 12 less than the window high, tinted `0x9F000000`, with pieces of a frame along its edges and the window's top.
+  The pieces (read 2026-11-21 for #2940, **confirmed** by code and **seen**; `0x6DC010`, each placed by its image's anchors `x0`, `y0`, `x1`, `y1` as the converted table holds them): down the panel's left ten of the image 34 at `510 + x1` from 22 down, and down its right nine more at `640 − x1` from 20 down and the corner 57 last at (607, 308), each the next lower by the right one's height; along its top from 511 the images 54, 21, 21 and 55 at `18 − y0`; along the window's foot from 0 ten images of 15 to 19 at `340 − y0`, each `15 + ⌊5·r⌋` rolled as the window is made, once a run; and over the tabs from 0 sixteen of the image 21 at `48 − y0`, 47.
+  The combat master's window lays the same pieces (`0x6D1460`).
 - The merchant's portrait (`+0x158`) at the panel's top, by its type's portrait (`0x4345C0`, the table of 84 bytes at `0x9ECED8`), else the default; the text 1197 in the font 1 in `0xFF0050FF` below it (**seen** at (540, 212)).
 - The tab sheet `UI_TABSHEET_MERCHANT` at (0, 52), 640 × 256, of three pages (`cUI_Merchandise`, below) `UI_TABPAGE_WEAPONS`, `UI_TABPAGE_ARMORS` and `UI_TABPAGE_VARIOUS`, their tabs the texts 1057, 1058 and 1059 (**seen** in a row at the window's top).
 - Its input: a press within it goes to the tab sheet; the event `0x2E` 8 of another merchant than its own (`+0x1D8`) keeps the merchant's id and level (`+0x1D8`, `+0x1D4`), takes its portrait and sends the tab sheet the event 8 again with the fifth word 1 (`0x6DBD20`); any other event goes to the tab sheet as it is.
@@ -81,7 +83,8 @@ The purchase (`0x6D9840`): with the hero's gold at least the price as bought and
 
 - `UI_WND_PURCHASE` (`0x6DCDD0`), shown by the UI event `0x11` with its owner's kind (1 the merchant, 2 the blacksmith, 3 the master), its own kind and a price; it takes the interface's input to itself while it shows (`0x6DD450`).
 - Its draw (`0x6DCED0`): the kinds 1, 3, 5 and 6 two lines, the text 1000, 1001, 1003 or 1005, then the text 1055, the price and the text 1004 (`%s\n%s: %d %s`), and the buttons 1034 and 1035 (Yes, No) at its left and right; the kinds 2 and 4 the text 1002 or 1190 alone and the button 1028 in the middle; at the screen's `(320 − w/2, 114)`, as wide as the text `w` plus 32 and 92 high, with a frame of `UI_STATIC_BORDER` pieces (**seen**: 147 × 92 at (263, 114) for a price of 810).
-- A press on the first button answers 1, on the second (or the one) 0, each with the click `0x7325C0(5)`, to the owner's window (`0x6DD4A0`, `0x6DD700`).
+- A press on the first button answers 1, on the second (or the one) 0, to the owner's window (`0x6DD4A0`, `0x6DD700`); `0x7325C0(5)` clears the control's flags and plays nothing.
+- The buttons are their words alone, white, and yellow (`0xFFFFFF00`) under the pointer (**seen** 2026-11-21 for #2940: Yes, No and Continue at the merchant of 50,40); a trace of the sounds while each was pressed found no sound of the interface (docs/re/sound.md, "The interface"), only the world's.
 
 ## In OpenSacred
 
@@ -93,6 +96,6 @@ While the purchase window shows, the world's clicks are held back and the backpa
 **Seen** in the game: the small healing potion sold for 125 and bought for 585, as the original's prices of it (#1273), the gold short of a ring told.
 Since #1660 a merchant's item rolls its sockets with the merchant's bonus on the first chance (`drops::keyed`, `opensacred_rules::drops::Sockets::roll`); since #1722 the window plays the trader's sound (14, 2, `0x1F`) as it shows; since #1959 a save keeps the stock (docs/re/saves.md).
 The merchant's own items are none in the release (read 2026-11-21 for #2939, **confirmed** by code and on the trees): of the 20 trees' `EquipNPC`s one names a creature that a tree makes a merchant, quest 2502's `res:17298`, which the quest's entry makes anew without the merchant's tag before the record equips it for its fight, so that it wears the weapon and the list stays empty (docs/re/netscript.md, "`EquipNPC`"); the game keeps no such list.
-Not followed yet: the frame's pieces (the panel's edges a grey line) and the purchase window's buttons' sound and looks (#2940).
+Since #2940 the frame's pieces stand in the merchant's and the combat master's windows (`trade_frame`, the foot rolled once a game of its seed), and the purchase window's buttons light yellow under the pointer (`purchase`); **seen** beside the original's frames at the merchant of 50,40: the panel's sides, its top's ornaments, the foot's bar and the bars over the tabs in their places, and Continue yellow under the pointer.
 The trade's sounds are made: the window's as it shows (#1722, above), and a purchase's and a sale's through the gold's handler (`pickup::Pack::add_gold`, #1792; docs/re/sound.md, "The gold's handler").
 The page's switch of the items to the hero's class's variants is left out: by docs/re/items.md the switch (`0x43CA20`) gives no variant for a hero's type, so that it changes nothing for the local hero.

@@ -23,9 +23,10 @@
 //! A save keeps the stock (#1959), its merchant known by its placement (`npcs::PlacementIndex`),
 //! which a load makes again, rather than by its entity, which a load does not keep.
 //!
-//! Not followed yet: the pieces of the frame (its panel's edges drawn as the master's), the
-//! switch of each item to the hero's class's variant as a page shows (`0x5C7370`), and the
-//! trade's sounds.
+//! The frame's pieces about its panel and along the window are `trade_frame`'s (#2940).
+//!
+//! Not followed yet: the switch of each item to the hero's class's variant as a page shows
+//! (`0x5C7370`), which gives no variant for a hero's type (docs/re/trade.md).
 
 use bevy::prelude::*;
 use opensacred_rules::drops::Dropped;

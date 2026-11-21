@@ -2,7 +2,7 @@
 //! `+0x200` bit `0x4000` (`quests::WIZARD`) without a dialogue shows, as the hero speaks to it
 //! (`talk`, `0x52AB70`), the inventory and the master's window (`cUI_Master`, `UI_WND_MASTER`) at
 //! the screen's top left, 640 × 336, its left panel overhanging it to 342: its two panels tinted
-//! `0x9F000000`, the master's portrait
+//! `0x9F000000` in the trade windows' frame (`trade_frame`, #2940), the master's portrait
 //! and title (the text 1198), and its tab sheet's tabs COMBO and EXCHANGE over its COMBO page
 //! (`cUI_MasterCombo`, `0x6D1DA0`), the inventory's combos page selected; the inventory's hide
 //! hides it.
