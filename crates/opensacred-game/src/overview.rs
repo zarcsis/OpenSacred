@@ -60,10 +60,16 @@ const DIFFICULTIES: [&str; 5] = [
 ];
 /// The markers' arrows (`GUI_main_07`): the top's, the bottom's, the left's and the right's
 /// images, the markers' colours (`0x9E124C`: the main quest's, the side quest's and the world
-/// map's pin's), and their place within the view's edge.
+/// map's pin's), the rectangle their points stand on, the view's shrunk by 8 on each side
+/// (`0x6CFADC`), and the half side of the square each picture is squeezed into about its point
+/// (`0x890954`, #3245).
 const ARROWS: [u32; 4] = [234, 235, 236, 237];
 const ARROW_COLOURS: [u32; 3] = [0xFFFF_FF00, 0xFF00_00FF, 0xFFFF_0000];
-const ARROW_INSET: f32 = 3.0;
+const ARROWS_RECT: Rect = Rect {
+    min: Vec2::new(170.0, 128.0),
+    max: Vec2::new(854.0, 637.0),
+};
+const ARROW_HALF: f32 = 6.0;
 
 /// Whether the overview shows, and the iso point and sector its lens was laid out for.
 #[derive(Resource, Debug, Default)]
@@ -83,47 +89,38 @@ struct Arrow(usize);
 #[derive(Component)]
 struct RegionLine;
 
-/// The edge that a ray from the view's middle along `direction` leaves it by, 0 the top, 1 the
-/// bottom, 2 the left and 3 the right, and where on the view's edge.
+/// The edge of [`ARROWS_RECT`] that a ray from its middle along `direction` leaves it by, 0 the
+/// top, 1 the bottom, 2 the left and 3 the right, and where (`0x6CFB56` to `0x6CFDE7`): the
+/// middle at the rectangle's corner and its whole half sides, the place along the edge at the
+/// direction's slope times the half side as it is.
 fn edge_of(direction: Vec2) -> Option<(usize, Vec2)> {
     if direction == Vec2::ZERO {
         return None;
     }
-    let middle = VIEW.center();
-    let half = VIEW.half_size();
-    let across = if direction.x == 0.0 {
-        f32::INFINITY
+    let size = ARROWS_RECT.size();
+    let middle = ARROWS_RECT.min + (size / 2.0).floor();
+    let half = size / 2.0;
+    if direction.x.abs() * size.y <= direction.y.abs() * size.x {
+        let x = middle.x + direction.x / direction.y.abs() * half.y;
+        Some(if direction.y < 0.0 {
+            (0, Vec2::new(x, ARROWS_RECT.min.y))
+        } else {
+            (1, Vec2::new(x, ARROWS_RECT.max.y))
+        })
     } else {
-        half.x / direction.x.abs()
-    };
-    let down = if direction.y == 0.0 {
-        f32::INFINITY
-    } else {
-        half.y / direction.y.abs()
-    };
-    let at = middle + direction * across.min(down);
-    let edge = if down <= across {
-        usize::from(direction.y > 0.0)
-    } else if direction.x < 0.0 {
-        2
-    } else {
-        3
-    };
-    Some((edge, at))
+        let y = middle.y + direction.y / direction.x.abs() * half.x;
+        Some(if direction.x < 0.0 {
+            (2, Vec2::new(ARROWS_RECT.min.x, y))
+        } else {
+            (3, Vec2::new(ARROWS_RECT.max.x, y))
+        })
+    }
 }
 
-/// The corner of an arrow of `size` on the edge `edge` at `at`, within the view's edge.
-fn arrow_corner(edge: usize, at: Vec2, size: Vec2) -> Vec2 {
-    let corner = match edge {
-        0 => Vec2::new(at.x - size.x / 2.0, VIEW.min.y + ARROW_INSET),
-        1 => Vec2::new(at.x - size.x / 2.0, VIEW.max.y - ARROW_INSET - size.y),
-        2 => Vec2::new(VIEW.min.x + ARROW_INSET, at.y - size.y / 2.0),
-        _ => Vec2::new(VIEW.max.x - ARROW_INSET - size.x, at.y - size.y / 2.0),
-    };
-    corner.clamp(
-        VIEW.min + Vec2::splat(ARROW_INSET),
-        VIEW.max - Vec2::splat(ARROW_INSET) - size,
-    )
+/// The top left corner of the square an arrow's picture is squeezed into about its point `at`,
+/// in whole pixels as the original truncates it.
+fn arrow_corner(at: Vec2) -> Vec2 {
+    (at - Vec2::splat(ARROW_HALF)).trunc()
 }
 
 /// Tab or the middle button held shows the overview, unless the world map shows, the game is
@@ -329,8 +326,10 @@ fn show(
     }
 }
 
-/// Puts each marker's arrow on the view's edge where the ray from its middle toward the marker
-/// leaves it (`0x6CCBD0`'s end): the main quest's, the side quest's and the world map's pin's.
+/// Puts each marker's arrow where the ray toward the marker leaves the view shrunk by 8, its
+/// picture squeezed into the 12 × 12 square about that point (`0x6CCBD0`'s end): the main
+/// quest's, the side quest's and the world map's pin's, the direction the compass's
+/// ([`crate::compass::direction`], #3244).
 fn arrows(
     overview: Res<Overview>,
     (images, assets): (Res<UiImages>, Res<AssetServer>),
@@ -339,7 +338,8 @@ fn arrows(
     (live, seek): (Option<NonSend<crate::scripts::Live>>, crate::compass::Seek),
     mut arrows: Query<(&Arrow, &mut ImageNode, &mut Node, &mut Visibility)>,
 ) {
-    let Some(hero) = hero_point(&heroes).filter(|_| overview.shown) else {
+    let hero = heroes.iter().next().map(|hero| hero.translation().xz());
+    let Some(hero) = hero.filter(|_| overview.shown) else {
         return;
     };
     for (arrow, mut picture, mut node, mut visibility) in &mut arrows {
@@ -354,19 +354,20 @@ fn arrows(
             }),
             _ => map.pin_target(),
         };
-        let place = target.and_then(|target| edge_of(crate::minimap::iso(target) - hero));
+        let place = target.and_then(|target| edge_of(crate::compass::direction(hero, target)));
         let Some((edge, at)) = place else {
             visibility.set_if_neq(Visibility::Hidden);
             continue;
         };
         let index = ARROWS[edge];
         let (image, piece) = bar::piece(&images, &assets, index, Vec2::ZERO, Vec2::ZERO);
-        let size = images.size(index);
-        let corner = arrow_corner(edge, at, size);
+        let corner = arrow_corner(at);
         *picture = image.with_color(argb(ARROW_COLOURS[arrow.0]));
         *node = piece;
         node.left = Val::Px(corner.x);
         node.top = Val::Px(corner.y);
+        node.width = Val::Px(2.0 * ARROW_HALF);
+        node.height = Val::Px(2.0 * ARROW_HALF);
         visibility.set_if_neq(Visibility::Inherited);
     }
 }
@@ -471,18 +472,22 @@ mod tests {
     }
 
     #[test]
-    fn a_markers_arrow_stands_where_its_ray_leaves_the_view() {
-        // Straight left: the left edge, at the view's middle's height.
+    fn a_markers_arrow_stands_where_its_ray_leaves_the_view_shrunk_by_8() {
+        assert_eq!(ARROWS_RECT.min, VIEW.min + 8.0);
+        assert_eq!(ARROWS_RECT.max, VIEW.max - 8.0);
+        // Straight left: the left edge, at the middle's height.
         let (edge, at) = edge_of(Vec2::new(-10.0, 0.0)).unwrap_or_default();
         assert_eq!(edge, 2);
-        assert_eq!(at, Vec2::new(162.0, VIEW.center().y));
-        // Down and a little right: the bottom.
-        let (edge, at) = edge_of(Vec2::new(1.0, 5.0)).unwrap_or_default();
+        assert_eq!(at, Vec2::new(170.0, 382.0));
+        // The Seraphim's start's novice, (−188, 341) of `0x4A5980`: the bottom edge, the square
+        // from (365, 631) to (377, 643), where the original's 11 × 11 texels show at (366, 632).
+        let (edge, at) = edge_of(Vec2::new(-188.0, 341.0)).unwrap_or_default();
         assert_eq!(edge, 1);
-        assert_eq!(at.y, VIEW.max.y);
+        assert_eq!(at.y, 637.0);
+        assert_eq!(arrow_corner(at), Vec2::new(365.0, 631.0));
+        // Up and right, steeper than the corner: the top; flatter: the right.
+        assert_eq!(edge_of(Vec2::new(600.0, -509.0)).map(|(e, _)| e), Some(0));
+        assert_eq!(edge_of(Vec2::new(700.0, -509.0)).map(|(e, _)| e), Some(3));
         assert!(edge_of(Vec2::ZERO).is_none());
-        // Its picture within the edge, inset.
-        let corner = arrow_corner(2, Vec2::new(162.0, 518.0), Vec2::new(11.0, 11.0));
-        assert_eq!(corner, Vec2::new(165.0, 512.5));
     }
 }
