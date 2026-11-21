@@ -3,7 +3,7 @@
 Recovered from the GOG `Sacred.exe` 2.28 with Ghidra 12.1.4 on 2026-10-18.
 The draw lists and the cells' chains are in [docs/02 §6.1](../02-data-formats.md#61-itemspak-itm-v5-the-object-template-database) and [§5.5](../02-data-formats.md#55-staticpak-floorpak-triggerspak); the depth formula is in [§5.3](../02-data-formats.md#53-heights-and-the-render-contract).
 Status: **confirmed** on the code unless marked otherwise.
-Implemented in `opensacred-game` (`statics`, `models`, `blended`, `buildings`, `shadows`, `shadow_dots`, `fx`, `model_effects`, `skins`, `terrain`, `iso`, `srgb`, `sprites.wesl`, `models.wesl`, `order.wesl`, `standard.wesl`, `prepass.wesl`, `nearest.wesl`, `shadows.wesl`), `opensacred-rules` (`spells`), `opensacred-convert` (`world`, `model_scales`), `opensacred-data` (`world`, `tables`) and `opensacred-formats` (`world`, `items`).
+Implemented in `opensacred-game` (`statics`, `fade_points`, `models`, `blended`, `buildings`, `shadows`, `shadow_dots`, `fx`, `model_effects`, `skins`, `terrain`, `iso`, `srgb`, `sprites.wesl`, `models.wesl`, `order.wesl`, `standard.wesl`, `prepass.wesl`, `nearest.wesl`, `shadows.wesl`), `opensacred-rules` (`spells`), `opensacred-convert` (`world`, `model_scales`), `opensacred-data` (`world`, `tables`) and `opensacred-formats` (`world`, `items`).
 
 ## The rows
 
@@ -133,10 +133,22 @@ Read 2026-10-18.
 As `0x62FF60` draws a sprite whose type has bit `0x10` (4,544 types: the 4,533 of type 25, the trees, and 11 floors of type 29), it fades the vertices of each piece that lie near the points of a list at `+0x96B3C` of the renderer (`+0x96FEC` of them, records of 12 bytes: the point's x and y on the screen as two i16, a counter that each faded vertex raises, and a float `k`).
 For a vertex within `R / zoom` of a point across and down, `d` is its distance to the point (an integer square root of `dx² + dy²`), `t = min(d · zoom / R, 1)`, and the vertex's alpha becomes `G · (1 − k) + (255 − G) · t`: `G · (1 − k)` at the point, 255 at `R` and beyond, so a tree goes transparent about the point and stays whole away from it.
 `R` and `G` are the floats at `0xAD4DF0` and `0xAD4DF4`, the balance keys `TransSize` and `TransValu`: `Balance.bin` holds them, 190.0 and 50.0 (docs/02 §6.3), so a tree is at an alpha of 50 out of 255 at the hero and whole 190 pixels from it at zoom 1.
-The list is emptied before the rows (`0x6325C8`) and filled as `0x62E410` and `0x62FF60` pass the creatures, up to 100: the local player's hero (an object of id up to 16 that is the local player's, `0x7D84A0`), the creatures it owns (the owner at `+0x1EC`) and its companions (`+0x251` the player's, flag `0x104` at `+0x1F4`), each at the centre of its bounds on the screen, with `k` 0.
-So a tree fades about the creatures drawn before it in the frame, not about one drawn after it.
+The list is emptied before the rows (`0x6325C8`) and filled as `0x62E410` and `0x62FF60` pass the creatures on the screen, up to 100, each at the middle of its rectangle there (`0x44CF20`, the chooser's, docs/re/cursor.md), with `k` 0 and its counter 0.
+Read again 2026-11-21 for #2942 (`0x631485` to `0x6315EA`, **confirmed** by code), a creature adds a point where it is:
 
-`opensacred-game` fades them so (#122): the sprites of a type of bit `0x10` that its order puts after the hero's place take that alpha by their distance to the hero's point, 60 pixels above its feet, per point rather than per corner of their pieces (docs/decisions/drawing.md, "Trees' fade per pixel"), before the sprites' alpha test, which drops the faded texels within 13 pixels of the point (`statics::Fade`, `sprites.wesl`).
+- the local player's hero (an object of id up to 16 that is the local player's, `0x7D84A0`);
+- a horse (`0x4266F0`: its creature's record's class 4) whose `+0x1EC`, its rider, is the local player;
+- a creature whose master (`+0x251`) is the local player, of the flags `0x104` of `+0x1F4`, found in the list of 9-byte records at `+0x39C` of `0x603E30`'s object (**hypothesis**: the hero's followers, its portraits' column);
+- a creature hostile to the local player (`0x549000`: the player's AI state not 9 and its action not 6, its `+0x4D8` not 0, and the sides' hostility) that holds a ranged weapon in a hand (`0x54A2A0`);
+- or a creature that fights: the AI's state 4 or 8 with a target at `+0x104`, or the action 3 or 5 or the AI's state 11 or 6 with one at `+0x158`, the test of a fight that the followers' dismissal makes (docs/re/ai.md).
+
+So a tree fades about the creatures drawn before it in the frame, not about one drawn after it, and a vertex within the boxes of two points takes the alpha of the later one in the list, the points' order of drawing.
+`k` is not 0 for long (read 2026-11-21 for #2942, **confirmed** by code): each vertex that a fading sprite fades about a point raises the point's counter (`0x6307BB`), and after each such sprite every point whose counter is not 0 takes `k += counter / (4 × the sprite's pieces)`, at most 0.8 (`0x6309B5` onward), its counter never cleared in the frame; so the trees drawn after the first that fades about a point fade deeper there, to `0.2 · G`, 10 out of 255, at the point.
+
+`opensacred-game` fades them so (#122): the sprites of a type of bit `0x10` that its order puts after a point's place take that alpha by their distance to the point, per point rather than per corner of their pieces (docs/decisions/drawing.md, "Trees' fade per pixel"), before the sprites' alpha test, which drops the faded texels within 13 pixels of the point (`statics::Fade`, `sprites.wesl`).
+Since #2942 the points are the original's (`fade_points`): the hero, the horse it rides, its followers (`followers::Follower`), the creatures hostile to it with a ranged weapon in hand while it lives (`npcs::Arms::ranged`) and the creatures that fight (`minds::Mind::fighting`), each at the middle of its rectangle (`pick::creature_rect`), a hero's 60.8 pixels above its feet where an estimate took 60 before; of them the 100 nearest the hero, in their order of drawing, the last whose box holds a pixel setting its alpha; before, the hero's alone.
+**Seen** 2026-11-21: a wolf hired behind the tree west of the statue at 3236,2532 of 50,39, the tree's crown faded about it, where before it hid the wolf.
+Not followed: `k`, every tree fading to `G` at a point (#3292).
 Type 25 holds the walls of the buildings' shells too (`KLOSTER_KAPELLE01_0U1_*`), which fade the same way.
 For a hero behind the other sprites the client does nothing (read 2026-10-19, #69, **confirmed** by code): the sprites' path of `0x62FF60` (and of `0x62E410`, the same code) tests the hero's place nowhere else, and reads the points at `+0x96B3C` only for a type of bit `0x10`.
 A sprite of any other type, a building's part of type 9 such as the chapel's tower, is neither faded nor skipped nor moved in the order for the hero: drawn after the hero, it hides it.
@@ -423,4 +435,4 @@ The waters' crabs and fish, the items lying on the ground, at rest and not in th
 The game's arrows never sink: the original keeps one out while its `+0x1E4` bit 1 holds (the query `0x2A`), a bit whose meaning is not read (**hypothesis**: while it flies, the game's arrows living only in their flight); an FX object never sinks, as the walk takes it in a pass of its own (#2941), and none of the 210 FX types passes the game's test either (no `Weapon.pak` index, counted 2026-11-21).
 Before, they were drawn in list 3, over the surfaces, so that a shoal showed whole and opaque on top of the water with its shadow on the bed under it.
 
-Not followed yet: the exception of liquid material 13 (sectors 29,72, 30,72 and 55,20; the building at (3563, 1336) lies in 55,20, and main quest 65 gives it the state 2, which `buildings::Buildings` keeps since #2888; #3021), and the trees' fade about the creatures other than the hero, its followers among them (#2942).
+Not followed yet: the exception of liquid material 13 (sectors 29,72, 30,72 and 55,20; the building at (3563, 1336) lies in 55,20, and main quest 65 gives it the state 2, which `buildings::Buildings` keeps since #2888; #3021).

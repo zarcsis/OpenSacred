@@ -200,6 +200,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/explored.rs`: The land explored
 - `crates/opensacred-game/src/explosions.rs`: The blasts
 - `crates/opensacred-game/src/exports.rs`: The heroes' exports
+- `crates/opensacred-game/src/fade_points.rs`: The points that the trees and the walls fade about
 - `crates/opensacred-game/src/fades.rs`: The scripts' fades
 - `crates/opensacred-game/src/fight.rs`: The fight as the game plays it
 - `crates/opensacred-game/src/figures.wesl`: The heroes' figures of the choice of the hero and the interface's pictures of the items' models

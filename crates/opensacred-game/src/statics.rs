@@ -29,7 +29,8 @@
 //! statics' shadows"): blended, through the materials of [`StaticShadows`], which the night fades.
 //!
 //! The trees and the walls of type 25, the sprites of a type of bit [`FADES`], fade about the
-//! hero when they are drawn after it, as the original's do ([`Fade`], `sprites.wesl`).
+//! hero and the creatures about it when they are drawn after them, as the original's do
+//! ([`Fade`], `fade_points`, `sprites.wesl`).
 
 use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
@@ -43,9 +44,9 @@ use bevy::mesh::{
 };
 use bevy::pbr::{Material, MaterialPipeline, MaterialPipelineKey, MaterialPlugin};
 use bevy::prelude::{
-    AlphaMode, App, Asset, AssetServer, Assets, Commands, Entity, FromWorld, Handle, Image,
-    IntoScheduleConfigs, Mesh, Mesh3d, MeshMaterial3d, Plugin, Query, Res, ResMut, Resource,
-    Startup, Transform, TypePath, Update, Vec2, Vec3, Vec4, Visibility, With,
+    AlphaMode, App, Asset, AssetServer, Assets, Commands, Entity, FromWorld, Handle, Image, Mesh,
+    Mesh3d, MeshMaterial3d, Plugin, Res, ResMut, Resource, Startup, TypePath, Vec2, Vec3, Vec4,
+    Visibility,
 };
 use bevy::render::render_resource::{
     AsBindGroup, CompareFunction, Extent3d, RenderPipelineDescriptor, SpecializedMeshPipelineError,
@@ -60,7 +61,6 @@ use opensacred_data::world::{
 };
 
 use crate::blended::{self, Layer};
-use crate::frame::Step;
 use crate::parallel::{self, Spread};
 use crate::sectors::Staged;
 use crate::{buildings, files, iso, liquids};
@@ -287,8 +287,7 @@ impl Plugin for StaticsPlugin {
         embedded_asset!(app, "sprites.wesl");
         app.add_plugins(MaterialPlugin::<SpriteMaterial>::default())
             .init_resource::<Fade>()
-            .add_systems(Startup, make_shadows)
-            .add_systems(Update, fade.in_set(Step::Models));
+            .add_systems(Startup, make_shadows);
     }
 }
 
@@ -434,7 +433,7 @@ const CHAIN: f64 = 0.0045;
 /// How near the camera the place `anchor` lies in the order, as the sprites' shader puts it up to
 /// a constant (`order.wesl`): a batch's quads go far to near, so that each one's blended texels
 /// lie over those behind them.
-fn nearness(anchor: [f32; 4]) -> f64 {
+pub(crate) fn nearness(anchor: [f32; 4]) -> f64 {
     let [x, y, z, chain] = anchor.map(f64::from);
     let at = DVec3::new(x, y, z);
     at.dot(-iso::forward().as_dvec3()) + ACROSS * at.dot(iso::right().as_dvec3()) + CHAIN * chain
@@ -1387,60 +1386,78 @@ impl TreeFade {
         let t = (offset.length() / self.radius).min(1.0);
         (self.alpha + (255.0 - self.alpha) * t) / 255.0
     }
+    /// The alpha out of 1 that a sprite drawn at the place `order` takes at `at` from `points`,
+    /// each a point and its place, in their order of drawing: that of the last point drawn before
+    /// the sprite whose radius holds `at` across and down, else 1 (`0x62FF60`). As `sprites.wesl`
+    /// has it, for the tests.
+    #[cfg(test)]
+    fn about(&self, points: &[(Vec2, f64)], order: f64, at: Vec2) -> f32 {
+        let mut alpha = 1.0;
+        for &(point, place) in points {
+            let offset = at - point;
+            if order > place && offset.x.abs() < self.radius && offset.y.abs() < self.radius {
+                alpha = self.at(offset);
+            }
+        }
+        alpha
+    }
 }
 
-/// What the sprites fade about, for the sprites' shader (`sprites.wesl`): the hero's point on the
-/// original's screen, the centre of its figure, with [`TreeFade`]'s radius and alpha, and its
-/// place in the order of drawing, which only the sprites drawn after it fade about. One buffer
-/// that every sprite material shares.
+/// How many points the sprites fade about at most (`0x62FF60`'s list at `+0x96B3C`).
+pub const FADE_POINTS: usize = 100;
+
+/// What the sprites fade about, for the sprites' shader (`sprites.wesl`): [`TreeFade`]'s radius
+/// and alpha and the count of the points, then each point on the original's screen and its place
+/// in the order of drawing, which only the sprites drawn after it fade about, in their order of
+/// drawing (`fade_points`). One buffer that every sprite material shares.
 #[derive(Resource)]
 pub struct Fade {
     pub buffer: Handle<ShaderBuffer>,
-    last: [[f32; 4]; 2],
+    last: Vec<[f32; 4]>,
 }
 
 impl FromWorld for Fade {
     fn from_world(world: &mut bevy::prelude::World) -> Self {
-        let last = [[0.0; 4]; 2];
+        let last = vec![[0.0; 4]];
         let buffer = world
             .resource_mut::<Assets<ShaderBuffer>>()
             .add(ShaderBuffer::new(
-                last.to_vec(),
+                last.clone(),
                 RenderAssetUsages::default(),
             ));
         Self { buffer, last }
     }
 }
 
-/// How high above the hero's feet the centre of its figure stands, in the original's pixels at
-/// zoom 1: half its height, about 120 pixels (`iso::MODEL_SCALE`). The client takes the centre
-/// of the hero's bounds on the screen (**hypothesis**: the model's).
-const HERO_MIDDLE: f32 = 60.0;
-
-/// Keeps the hero's point and place in the fade's buffer.
-fn fade(
-    heroes: Query<&Transform, With<crate::hero::Body>>,
-    size: Option<Res<TreeFade>>,
-    mut fade: ResMut<Fade>,
-    mut buffers: ResMut<Assets<ShaderBuffer>>,
-) {
-    let (Some(hero), Some(size)) = (heroes.iter().next(), size) else {
-        return;
-    };
-    let at = hero.translation;
-    let point = Vec2::new(at.dot(iso::right()), -at.dot(iso::up())) * iso::PIXELS_PER_UNIT
-        - Vec2::new(0.0, HERO_MIDDLE);
-    let place = crate::models::place_of(at);
-    let data = [
-        [point.x, point.y, size.radius, size.alpha],
-        place.to_array(),
-    ];
-    if data == fade.last {
-        return;
+impl Fade {
+    /// The buffer's data of `size` and `points`, each a point on the original's screen and its
+    /// place, up to [`FADE_POINTS`] of them.
+    fn data(size: TreeFade, points: &[(Vec2, Vec4)]) -> Vec<[f32; 4]> {
+        let points = &points[..points.len().min(FADE_POINTS)];
+        let count = u16::try_from(points.len()).map_or(0.0, f32::from);
+        let mut data = vec![[size.radius, size.alpha, count, 0.0]];
+        for (point, place) in points {
+            data.push([point.x, point.y, 0.0, 0.0]);
+            data.push(place.to_array());
+        }
+        data
     }
-    fade.last = data;
-    if let Some(mut buffer) = buffers.get_mut(&fade.buffer) {
-        *buffer = ShaderBuffer::new(data.to_vec(), RenderAssetUsages::default());
+
+    /// Keeps `points` and `size` in the buffer, where they changed.
+    pub fn keep(
+        &mut self,
+        size: TreeFade,
+        points: &[(Vec2, Vec4)],
+        buffers: &mut Assets<ShaderBuffer>,
+    ) {
+        let data = Self::data(size, points);
+        if data == self.last {
+            return;
+        }
+        self.last.clone_from(&data);
+        if let Some(mut buffer) = buffers.get_mut(&self.buffer) {
+            *buffer = ShaderBuffer::new(data, RenderAssetUsages::default());
+        }
     }
 }
 
@@ -2456,6 +2473,38 @@ pub(crate) mod tests {
         // So the original's alpha test drops the faded texels within 13 pixels of the hero.
         assert!(size.at(Vec2::new(13.0, 0.0)) * 255.0 < 64.5);
         assert!(size.at(Vec2::new(14.0, 0.0)) * 255.0 > 64.5);
+    }
+
+    #[test]
+    fn a_sprite_fades_about_the_last_point_drawn_before_it() {
+        let size = TreeFade {
+            radius: 190.0,
+            alpha: 50.0,
+        };
+        let a = (Vec2::ZERO, 1.0);
+        let b = (Vec2::new(100.0, 0.0), 2.0);
+        let alpha = |order: f64, at: Vec2| (size.about(&[a, b], order, at) * 255.0).round();
+        // Drawn before both points, it stays whole; after the first, it fades about it alone.
+        assert_eq!(alpha(0.5, Vec2::ZERO), 255.0);
+        assert_eq!(alpha(1.5, Vec2::ZERO), 50.0);
+        // After both, the later point's alpha holds within its radius, even where the first's is
+        // lower; beyond it, the first's.
+        assert_eq!(alpha(2.5, Vec2::ZERO), 158.0);
+        assert_eq!(alpha(2.5, Vec2::new(150.0, 0.0)), 104.0);
+        assert_eq!(alpha(2.5, Vec2::new(-120.0, 0.0)), 179.0);
+        // The buffer's layout: the radius, the alpha and the count, then each point and place.
+        let place = Vec4::new(1.0, 2.0, 3.0, 4.0);
+        let data = Fade::data(size, &[(Vec2::new(5.0, 6.0), place)]);
+        assert_eq!(
+            data,
+            vec![
+                [190.0, 50.0, 1.0, 0.0],
+                [5.0, 6.0, 0.0, 0.0],
+                [1.0, 2.0, 3.0, 4.0]
+            ]
+        );
+        let many = vec![(Vec2::ZERO, place); FADE_POINTS + 5];
+        assert_eq!(Fade::data(size, &many).len(), 1 + 2 * FADE_POINTS);
     }
 
     #[test]
