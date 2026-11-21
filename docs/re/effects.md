@@ -942,7 +942,8 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` draws it since #1092 (`battle_fogs`, `opensacred_rules::particles::battle_fog`): the four fogs of the trap 1053 and the dryad druid's and the minimummies' blinks' puffs, drawn with the world under the night's pass.
 **Seen** 2026-11-04 beside the original's frames at the Dark Elf's start: grey fog billowing up over the trap's cells, alike in size and colour.
-Not followed: its layer's wind (as the world's smokes', #3154), and its variants 1 and 2, the minimummies' blink's, whose two fogs the game makes of the variant 0 (#3157).
+The variant is the FX event's 16th argument (`cEventFX`'s maker `0x41E1D0` keeps it at `+0x3C`): the minimummies' blink makes its fog where it leaves of the variant 1 and the one where it lands of the variant 2 (`0x4D9166`, `0x4D929A`), and so does the dryad druid's blink (`0x4D6533`, `0x4D6663`), a fog trap's sights of none (read 2026-11-20 for #3157, **confirmed** by code); `opensacred-game` makes them so since #3157 (`battle_fogs::Variant`).
+Not followed: its layer's wind (as the world's smokes', #3154).
 
 ## The banishing circle's runes
 
