@@ -183,6 +183,14 @@ The Ghidra project, the decompilation and anything exported from it stay on the 
 Size rule: one task is one finished result, verifiable by a test, of 1–4 agent-hours.
 Large systems are cut into such tasks in the milestone plan.
 
+The research and the code run on two models (the maintainer's choice of 2026-11-21, #3310).
+A session runs on Claude Opus 5.5 at the effort `xhigh`, which `.claude/settings.json` sets (`model`, `effortLevel`), and writes the code; the built-in subagents on its model take its effort.
+The reading of the original goes to the project's subagent `researcher` (`.claude/agents/researcher.md`), on Claude Mythos 5.2 at `xhigh` (its `model` and `effort`): it reads the Ghidra project, the running original and the data, writes what it finds into `docs/re/`, `docs/02-data-formats.md` and draft rows of `docs/decisions/`, and answers with what it wrote and what it left open, so that the note in a file is the hand-over between the two.
+An issue labeled `research` or `docs` goes to it whole; the session keeps the commits, the issue and the pull request.
+The session starts it with no model and no effort of its own: a model or an effort passed when a subagent starts outranks its definition's, and `CLAUDE_CODE_EFFORT_LEVEL` outranks both, so it is not set (code.claude.com/docs/en/sub-agents.md, 2026-11-21).
+Claude Mythos 5.2 is open only to verified organizations (platform.claude.com/docs/en/models/mythos-5-2/overview, 2026-11-21): a contributor without it changes the subagent's `model` in a checkout of their own.
+`tools/usage/pr_usage.py` counts the subagents' transcripts with the session's, each model at its own prices (docs/usage.md).
+
 Order (since 2026-10-17): the known problems and bugs first, then the dependency upgrades, then new features; the queue is the open issues (§3.6).
 Once a day the Dependencies workflow (`.github/workflows/deps.yml`, #1550) runs `tools/deps/daily.py`: `cargo update` and `uv lock --upgrade` in a pull request of their own, which merges itself once its checks are green, and a `deps` issue for each newer incompatible release of a direct dependency, of a Python package, of Rust or of Python (`CLAUDE.md`, "Work order"), and for each newer release of a source of the release's FFmpeg, which `tools/ffmpeg/outdated.py` lists (#1499; `tools/README.md`, "The release's FFmpeg").
   Until 2026-10-30 the maintainer's first session of the day did it; its 11 pull requests, from #139 to #1501, each merged with the one commit it was opened with, and the steps needed no judgment that CI could not give.
