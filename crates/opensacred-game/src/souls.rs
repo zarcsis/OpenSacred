@@ -13,7 +13,6 @@
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{SOUL_REACH, SOUL_SIZE, SOULCATCHER, soul_heals, soul_speed};
-use opensacred_rules::fight::Effect;
 
 use crate::arts::HeroArts;
 use crate::effects::Effects;
@@ -136,17 +135,9 @@ fn home(
         // He reaches it within his size and its own (the heroes' 50).
         if offset.length() < arrows::size(0) + SOUL_SIZE {
             health.current = (health.current + soul.heals).min(health.most);
+            // Its effect 30 of the values 0 keyed by 100, a cure, adds nothing (#3139).
             if let Some(mut effects) = effects {
-                effects.add(
-                    Effect {
-                        id: 30,
-                        whole: 0,
-                        value: 0.0,
-                        art: 100,
-                        level: 0,
-                    },
-                    1.0,
-                );
+                effects.cure(crate::effects::HEAL_CURES);
             }
             debug!(
                 "souls: {entity} heals {} by {}, health {}/{}",
