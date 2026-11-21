@@ -25,6 +25,12 @@ fn depth(world: vec3<f32>) -> f32 {
     return PART * position_world_to_clip(world).z;
 }
 
+/// The point `by` units of the world further from the camera along its line of sight than
+/// `world`: the true point of a vertex brought that much nearer (`fx::Quads::ahead`).
+fn further(world: vec3<f32>, by: f32) -> vec3<f32> {
+    return world - view.world_from_view[2].xyz * by;
+}
+
 /// [`TOLERANCE`] in the prepass's depth.
 fn tolerance() -> f32 {
     return TOLERANCE * PART * abs(view.clip_from_view[2][2]);

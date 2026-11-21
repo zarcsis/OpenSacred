@@ -64,6 +64,9 @@ pub enum Layer {
     Objects,
     /// The lamps' glows, which the original draws over their lamps (`0x62FF60`).
     Glows,
+    /// The FX objects of list 4, the chimneys' smokes, which the original draws last, over every
+    /// sprite (`0x62AE90`, `fx::Particles`, #3286).
+    Overlays,
 }
 
 impl Layer {
@@ -80,6 +83,7 @@ impl Layer {
             Layer::Shadows => 5.0,
             Layer::Objects => 6.0,
             Layer::Glows => 7.0,
+            Layer::Overlays => 8.0,
         }
     }
 }
@@ -154,6 +158,7 @@ mod tests {
             Layer::Shadows,
             Layer::Objects,
             Layer::Glows,
+            Layer::Overlays,
         ];
         for pair in layers.windows(2) {
             // Every mesh of a layer after every mesh of the one before, wherever in the world
