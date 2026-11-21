@@ -358,7 +358,11 @@ Read 2026-10-26 (#657) by the static reading of `Sacred.exe`; **confirmed** by c
   Struck, it does not answer.
 - **Its death**: at the death's step (`0x53FB40`) its master dismisses it (`0x54D380`: master −1, `+0x1F4 &= 0xDFFFFEFB`, record removed, worn items put back), so a dead hired follower leaves the hero's list.
   With `+0x2B7` bit 8 (`SetNPCState`'s `0x6B` above 0) and a player for its master, it stays and rises 20 s after its death (`0x53E460` at `0x53FBDC`).
-  With that bit and no player for its master, the strike's resolution skips its health's update (`0x56F859`; **hypothesis**: unharmed).
+  With that bit and no player for its master, the strike's resolution skips the fall of its health (`0x56F859` to `0x56F9B0`), which stays as it was: the strikes leave it unharmed (read 2026-11-21 for #2946, **confirmed** by code; not seen, the driver down that day).
+  Earlier in the same resolution a player's strike (its attacker's id 16 or below) clears the bit (`0x56B296` to `0x56B306`) where the creature has no dialogue (its `+0x245` 0 or past the dialogues' table), no event of the scripts bound to it but `Take:`, `See:` and `Use:` (`0x4A71F0` on the scripts' bindings at `0xAACF80`) and no player for its master, so that strike and those after it harm it; a creature's strike never clears it.
+  A creature of the type 697 (Sharifa) takes the bit at every strike on it (`0x56B316`).
+  Whether the damage that takes no strike's resolution (a poison's, a burning's) spares it is not read.
+  The game strikes such a creature as any other (#3294).
 - **The hero**:
   - dead, its count of hostiles is 0, so there is no danger, and the follower keeps to the corpse's place;
   - risen, the hero fills every listed creature's health (`0x53E460`'s loop);
@@ -372,7 +376,7 @@ Read 2026-10-26 (#657) by the static reading of `Sacred.exe`; **confirmed** by c
   5. its side, level and home stay (the home is moved by a teleport of the hero), and so does the word that the hire stripped: it stands idle unless a mode in the same record (applied before) or the scripts move it.
 - **A quest's release** (`0x471790` mode 1, `0x472300` to `0x47245E`): in a quest of the type 2 (`+9` 1, state bit 2) with enough of its creatures in the hero's list, each record of the flags 4 or `0x10` is let go: flag 4 cleared, master −1, removed from the list, `+0x200` bit `0x200` cleared, and an order (the event 4) to walk to the hook's creature's place (**hypothesis**: the quest's giver at its solution).
 
-Not read: what `0x182EE3C` bit `0x10000` is; what reads a record's kind (0, 1 or 100); `0x6B`'s clearing in the strike's resolution at `0x56B296`; the quests' hook beyond the branches above.
+Not read: what `0x182EE3C` bit `0x10000` is; what reads a record's kind (0, 1 or 100); the quests' hook beyond the branches above.
 
 ### A hireling's hands
 
@@ -586,7 +590,7 @@ Since #657 the scripts hire too (`followers::Hired`, `npcs::hire_of`): a `Create
 - `0x39` and `0x65` let it go: it leaves the hero's list and stops, its side and home kept.
 - Since #2459 a `CreateNPC`'s or `SetNPCState`'s `0x6B` above 0 gives its creature `+0x2B7` bit 8, and one of 0 takes it (`npcs::RisesAgain`, on its placement too): a dead follower of the hero with it keeps its entry in the column and rises 20 s after its death, its mind, its place in the way and its full health back, out of its fight (`followers::rise_again`, `npcs::Stashed`).
   Quest 59 hires its companion so, whom the quests to 74 need alive; **seen** in the game: she fell in the monastery's hall and stood again 20 s later, casting on.
-  Not followed: the stats' recomputation of `0x53E460` (the share it takes by the difficulty is of the gold, `+0x3EE` through `0x57FD80`, read again 2026-11-21 for #2844, as docs/re/fight.md reads it, so that a follower, of no gold, loses nothing), a follower without the bit dismissed at its death, which shows only where a script lifts such a body (#2946), and the strike's resolution that spares one of a creature's (not read, #2946).
+  Not followed: the stats' recomputation of `0x53E460` (the share it takes by the difficulty is of the gold, `+0x3EE` through `0x57FD80`, read again 2026-11-21 for #2844, as docs/re/fight.md reads it, so that a follower, of no gold, loses nothing), a follower without the bit dismissed at its death, which shows only where a script lifts such a body (no case known), and the strikes that leave a creature of the bit unharmed while no player is its master (#3294).
   A save keeps the bit of each follower, and one that lies to rise with how long it has lain, which the load lays down again to rise once it has lain its whole time (`npcs::Following`, `npcs::Dies::lying`, #2947).
 - Since #1061 one of the flag 4 steps off from nearer than 150 to the first of ten points 220 from the hero at random that its way reaches, standing where it reaches none (`minds::escort_stepping_off`), and stands while the hero is in danger, a hostile of its look nearer than 300 or the hero fighting, where the hero is farther than 500 from it (`minds::escort_stands`).
 - In the game, `QIS_OnEnter15002` made quest 15002's escort and `Dialog:od_15002` hired it (`script`, the console): it followed the hero, and `btn_ok_dq_15002` let it go, where it stayed.
