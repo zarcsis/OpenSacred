@@ -957,6 +957,19 @@ fn a_boss_of_a_type_adds_its_calls_its_treasure_and_its_own_drops() {
     let mut rng = Rng::of(1, 2, 3);
     let made = dropping.treasure([0, 12, 14, 2], &mut rng);
     assert!(made.len() >= 8 && made.iter().all(|drop| drop.item == TREASURE_GOLD));
+    // A round's item made by the maker's own key, its pass's key `16 − key`, of no script's
+    // name; none of a type that the table does not hold.
+    let unlisted = unlisted();
+    let mut dropping = Dropping {
+        catalogue: &unlisted,
+        ..dropping
+    };
+    let item = dropping.keyed(DAGGER, (7, 3), &mut rng).unwrap();
+    assert_eq!(
+        (item.item, item.level, item.key, item.quality, item.script),
+        (DAGGER, 7, 13, 3, None)
+    );
+    assert!(dropping.keyed(9_999, (7, 3), &mut rng).is_none());
 }
 
 #[test]
