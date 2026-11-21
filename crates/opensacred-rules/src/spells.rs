@@ -1490,6 +1490,10 @@ mod tests {
         // (5.2, truncated 5) passes, of 5 (6.5) not; another spell always.
         assert!(level_admits(CAGE, (5, false), (1, 1)) && !level_admits(CAGE, (6, false), (1, 1)));
         assert!(level_admits(STONE, (4, true), (1, 1)) && !level_admits(STONE, (5, true), (1, 1)));
+        // A boss of 20 is 25 (25.999…, the float 1.3 a little short of it), above 2 + 20.
+        assert!(
+            !level_admits(STONE, (20, true), (5, 4)) && level_admits(STONE, (20, false), (5, 4))
+        );
         assert!(level_admits(19, (14, false), (10, 2)) && !level_admits(36, (15, false), (10, 2)));
         assert!(level_admits(FIREBALL, (99, true), (1, 1)));
         // The spells that last refuse a cast while their effects hold.
