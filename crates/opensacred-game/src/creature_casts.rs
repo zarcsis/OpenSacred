@@ -1374,11 +1374,11 @@ const BALL_SOUND: u32 = 2057;
 
 /// A goblin mage's ball (the spell 53's `FX_BALL`, 867; docs/re/arts.md, "The creatures' own
 /// spells"): it flies the traps' arc from its caster to its point over 2/3 s, and landing strikes
-/// once the hero within its size 20 and the hero's, on its level, with its damages, its impact
-/// cracking the ground under her (786, `0x5AED3E`), and heals each creature there not hostile to
-/// its caster by the spell 7 at a quarter of its caster's level (784, `0x5A7336`); landing on no
-/// creature, it traces its ring there and summons its caster's creature (`0x5A7531`,
-/// `goblin_impacts`).
+/// once each within its size 20 and theirs, on its level, hostile to its caster, the hero and her
+/// followers (#3167), with its damages, its impact cracking the ground under each (786,
+/// `0x5AED3E`), and heals each creature there not hostile to its caster by the spell 7 at a
+/// quarter of its caster's level (784, `0x5A7336`); landing on no creature, it traces its ring
+/// there and summons its caster's creature (`0x5A7531`, `goblin_impacts`).
 #[derive(Component, Debug)]
 pub struct Ball {
     caster: Entity,
@@ -1426,8 +1426,10 @@ fn throw(
         if s < 1.0 {
             continue;
         }
+        let caster = minds.get(ball.caster).ok().cloned();
         let mut gathered = false;
         for (hero, at, body, health) in &heroes {
+            // The hero gathered, struck where its caster is hostile to her, or gone.
             if body.level() == ball.level
                 && health.current > 0
                 && (at.translation().xz() - ball.to.xz()).length()
@@ -1438,6 +1440,9 @@ fn throw(
                     ball.caster
                 );
                 gathered = true;
+                if caster.as_ref().is_some_and(|caster| !caster.hostile()) {
+                    continue;
+                }
                 crate::goblin_impacts::spawn(&mut commands, at.translation(), GoblinLanding::Hit);
                 hits.write(crate::fight::Hit {
                     attacker: ball.caster,
@@ -1452,11 +1457,11 @@ fn throw(
                 });
             }
         }
-        // Each creature alive within its size and the creature's (`0x5AB8E0`) not hostile to its
-        // caster healed by the spell 7 at a quarter of the caster's level, no magic lore
-        // (`0x5A7336`); landing on none, its ring at its place and its caster's creature
-        // summoned there once the ring's turn passes π (`0x5A7531`, `0x774730`).
-        let caster = minds.get(ball.caster).ok().cloned();
+        // Each creature alive within its size and the creature's (`0x5AB8E0`) hostile to its
+        // caster struck, its impact under it (`0x5AED3E`), and each not hostile healed by the
+        // spell 7 at a quarter of the caster's level, no magic lore (`0x5A7336`); landing on
+        // none, its ring at its place and its caster's creature summoned there once the ring's
+        // turn passes π (`0x5A7531`, `0x774730`).
         for (creature, at, mut health, mind) in &mut creatures {
             let size = sizes
                 .get(creature)
@@ -1467,12 +1472,31 @@ fn throw(
                 continue;
             }
             gathered = true;
-            let (Some(caster), Some(record)) = (caster.as_ref(), ball.heal.as_ref()) else {
+            let Some(caster) = caster.as_ref() else {
                 continue;
             };
             if caster.hostile_to(mind) {
+                debug!(
+                    "creature_casts: the ball of {} lands on {creature}",
+                    ball.caster
+                );
+                crate::goblin_impacts::spawn(&mut commands, at.translation(), GoblinLanding::Hit);
+                hits.write(crate::fight::Hit {
+                    attacker: ball.caster,
+                    target: creature,
+                    share: 1.0,
+                    ranged: false,
+                    art: None,
+                    fixed: Some(ball.damages),
+                    sure: true,
+                    poison: false,
+                    ward: true,
+                });
                 continue;
             }
+            let Some(record) = ball.heal.as_ref() else {
+                continue;
+            };
             let level = opensacred_rules::particles::ball_heal_level(caster.level);
             let heals = spells::healing(record, level, 0.0);
             health.current = health.current.saturating_add(heals).min(health.most);
@@ -1770,5 +1794,66 @@ mod tests {
             let played = clip.and_then(ScriptClip::rate).unwrap_or_default();
             assert!((played - rate).abs() < 1e-3, "{played} for {rate}");
         }
+    }
+
+    #[derive(Resource, Default)]
+    struct Struck(Vec<Entity>);
+
+    fn collect(mut hits: MessageReader<crate::fight::Hit>, mut struck: ResMut<Struck>) {
+        struck.0.extend(hits.read().map(|hit| hit.target));
+    }
+
+    #[test]
+    fn a_goblin_mages_ball_strikes_the_hero_and_her_follower_not_its_friends() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .init_resource::<Struck>()
+            .add_message::<crate::fight::Hit>()
+            .add_systems(Update, (throw, collect).chain());
+        let health = crate::fight::Health {
+            current: 50,
+            most: 50,
+            level: 1,
+        };
+        let mind = |creature, side| {
+            let mut mind = Mind::new(
+                Vec3::ZERO,
+                0x1,
+                (false, false),
+                None,
+                [10.0, 20.0],
+                (creature, 10),
+            );
+            mind.side = side;
+            mind
+        };
+        let at = |x: f32| GlobalTransform::from_translation(Vec3::new(x, 0.0, 0.0));
+        // A goblin mage of the monsters' side, the hero, a follower of hers of the townsfolk's and
+        // a goblin by her, all where its ball lands, and another follower beyond its size.
+        let caster = app
+            .world_mut()
+            .spawn((at(300.0), mind(127, 2), health))
+            .id();
+        let hero = app
+            .world_mut()
+            .spawn((at(0.0), crate::hero::Body::standing(), health))
+            .id();
+        let follower = app.world_mut().spawn((at(10.0), mind(679, 3), health)).id();
+        app.world_mut().spawn((at(-10.0), mind(76, 2), health));
+        app.world_mut().spawn((at(100.0), mind(679, 3), health));
+        app.world_mut().spawn((
+            Ball {
+                caster,
+                from: Vec3::new(300.0, 0.0, 0.0),
+                to: Vec3::ZERO,
+                flown: 1.0,
+                damages: [1.0; 4],
+                level: None,
+                heal: None,
+            },
+            Transform::default(),
+        ));
+        app.update();
+        assert_eq!(app.world().resource::<Struck>().0, vec![hero, follower]);
     }
 }
