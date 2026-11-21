@@ -1586,13 +1586,23 @@ fn pursue(
                     .insert(Rearms::to_melee(weapon));
             }
             // The terror sprinter mage's aura while its key holds it, refused (`0x51D840`).
-            // On itself, a spell refused while its key holds the caster (`0x51D840`).
+            // On itself, a spell refused while its key holds the caster (`0x51D840`); the stone
+            // and the cage at a hero above their bound of levels (`0x51D90D`, #3239).
             Pursues::Casts { spell, .. }
                 if !crate::creature_casts::follows(spell)
                     || ((spell == opensacred_rules::casts::SPRINTERS_AURA
                         || opensacred_rules::casts::on_itself(spell))
                         && opensacred_rules::casts::refused_while_keyed(spell)
-                        && effects.is_some_and(|effects| effects.holds_any(&[spell]))) =>
+                        && effects.is_some_and(|effects| effects.holds_any(&[spell])))
+                    || rules.as_deref().is_some_and(|rules| {
+                        let rank = rank.map_or(crate::fight::Rank::Common, |rank| rank.0);
+                        let level = rules.creature_spell_level(mind.level, rank);
+                        !opensacred_rules::spells::level_admits(
+                            spell,
+                            (hero_level, false),
+                            (mind.level, level),
+                        )
+                    }) =>
             {
                 // A spell refused, or one the game does not follow yet: it stands facing its
                 // target.

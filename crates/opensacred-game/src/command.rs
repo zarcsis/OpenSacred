@@ -662,6 +662,30 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
         .map(|(entity, place, ..)| (entity, (place.translation() - at).xz().length()))
         .min_by(|a, b| a.1.total_cmp(&b.1))
         .ok_or("no hostile creature is about")?;
+    // The stone, the cage, 19 and 36 are refused at a creature above their bound of levels
+    // (`0x51D840` at `0x51D90D`, #3239), as the right button's.
+    if launch == Some(1) && art < 1000 {
+        let hero_level = world
+            .get_resource::<fight::Experience>()
+            .map_or(1, |experience| experience.level);
+        let boss = world
+            .get::<fight::Ranked>(target)
+            .is_some_and(|rank| rank.0 == fight::Rank::Boss);
+        let arts = world.resource::<crate::arts::HeroArts>();
+        let level = arts.arts.level_in_play(
+            art,
+            opensacred_rules::arts::Creature {
+                kind: arts.kind,
+                level: hero_level,
+                player: true,
+            },
+        );
+        if let (Some(mind), Some(level)) = (world.get::<ai::Mind>(target), level)
+            && !opensacred_rules::spells::level_admits(art, (mind.level, boss), (hero_level, level))
+        {
+            return Err(format!("{art} is refused at {target}, of a level too high"));
+        }
+    }
     // An art aimed at a point takes the creature's place (the launch type 3, and the dash).
     let aimed = launch == Some(3)
         || opensacred_rules::arts::style(art) == Some(opensacred_rules::arts::Style::Dash);

@@ -362,9 +362,11 @@ pub(crate) fn aim(
         Option<Res<crate::pickup::Pack>>,
         MessageWriter<crate::trample::Start>,
     ),
-    (creatures, corpses): (
+    (creatures, corpses, ranks, experience): (
         Query<(Entity, &GlobalTransform, &Mind, &Health), Without<Dies>>,
         Query<(Entity, &GlobalTransform), With<crate::npcs::Corpse>>,
+        Query<&fight::Ranked>,
+        Option<Res<fight::Experience>>,
     ),
     mut heroes: Query<
         (
@@ -475,6 +477,33 @@ pub(crate) fn aim(
         {
             tramples.write(crate::trample::Start);
             continue;
+        }
+        // The stone, the cage, 19 and 36 are refused at a creature above their bound of levels
+        // (`0x51D840` at `0x51D90D`, #3239).
+        let hero_level = experience
+            .as_deref()
+            .map_or(1, |experience| experience.level);
+        if spell
+            && launch == Some(1)
+            && target != hero
+            && let Ok((_, _, mind, _)) = creatures.get(target)
+            && let Some(level) = arts.arts.level_in_play(
+                art,
+                Creature {
+                    kind: arts.kind,
+                    level: hero_level,
+                    player: true,
+                },
+            )
+        {
+            let boss = ranks
+                .get(target)
+                .is_ok_and(|rank| rank.0 == fight::Rank::Boss);
+            if !opensacred_rules::spells::level_admits(art, (mind.level, boss), (hero_level, level))
+            {
+                info!("making: {art} refused at {target}, of a level too high");
+                continue;
+            }
         }
         match may_make(&arts, art, (effects, pack.as_deref(), riding)) {
             Ok(()) => {
