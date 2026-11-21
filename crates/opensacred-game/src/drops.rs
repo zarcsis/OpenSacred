@@ -2,9 +2,10 @@
 //! killed by the living hero asks the rules for its drops (`opensacred_rules::drops`), and each
 //! drop becomes its item's model with its texture (`items.pak +0x70`, `+0x08`), thrown from the
 //! creature's place at the height 60 and flying by the rules (`opensacred_rules::drops::Flight`)
-//! until it lies on the ground, where it stays until the hero picks it up (`pickup`, #911) or the
-//! game ends (docs/decisions/items.md, "Drops lie until the game ends"), and its saves keep it
-//! (#1959); the labels on Alt are `labels`'. The `state` command lists the nearest drops, the
+//! until it lies on the ground, where it stays until the hero picks it up (`pickup`, #911),
+//! wherever the hero goes, as the original's (#2871; one in flight out of the loaded sectors
+//! lands at the height 0, docs/decisions/items.md, "A drop's flight out of the loaded
+//! sectors"), and its saves keep it (#1959); the labels on Alt are `labels`'. The `state` command lists the nearest drops, the
 //! command `drop` makes the nearest hostile creature drop, and the command `item` throws an item.
 //!
 //! The module makes and lays the world's other items too: a container's contents ([`contained`],
