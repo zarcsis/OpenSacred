@@ -8,8 +8,10 @@
 //! the world's clicks are held back, and the windows' clicks wait for its answer, which goes to the
 //! window that asked (`0x6DD4A0`, `0x6DD700`).
 //!
-//! Not followed: the buttons' click sound (`0x7325C0(5)`) and their looks under the pointer, and
-//! the blacksmith's and the master's questions.
+//! The buttons are their words alone, white, yellow (`0xFFFFFF00`) under the pointer, and play no
+//! click of their own (seen, #2940).
+//!
+//! Not followed: the blacksmith's and the master's questions.
 
 use bevy::prelude::*;
 
@@ -19,6 +21,9 @@ use crate::game::{AppState, FONT};
 use crate::hud::Pointer;
 use crate::lines::Texts;
 use crate::tooltip::{PANEL, WHITE, argb};
+
+/// A button's words under the pointer (seen, #2940).
+const LIT: u32 = 0xFFFF_FF00;
 
 /// The window's centre along the screen, its top, its height, and the room about its text
 /// (`0x6DD0F8`).
@@ -256,6 +261,29 @@ fn press(
     commands.remove_resource::<Asking>();
 }
 
+/// Each button's words yellow while the pointer is over it, else white.
+fn light(
+    (pointer, windows): (Res<Pointer>, Query<&Window>),
+    nodes: Query<(&ComputedNode, &UiGlobalTransform, &Children), With<Button>>,
+    mut words: Query<&mut TextColor>,
+) {
+    let point = pointer
+        .0
+        .zip(windows.single().ok())
+        .map(|(at, window)| at * window.scale_factor());
+    for (node, transform, children) in &nodes {
+        let over = point.is_some_and(|point| node.contains_point(*transform, point));
+        let colour = argb(if over { LIT } else { WHITE });
+        for &child in children {
+            if let Ok(mut word) = words.get_mut(child)
+                && word.0 != colour
+            {
+                word.0 = colour;
+            }
+        }
+    }
+}
+
 /// Whether no question waits, so that the player's keys and mouse go to the world.
 fn answered(asking: Option<Res<Asking>>) -> bool {
     asking.is_none()
@@ -276,7 +304,7 @@ impl Plugin for PurchasePlugin {
             .add_systems(OnExit(AppState::InGame), forget)
             .add_systems(
                 Update,
-                (press, show)
+                (press, show, light)
                     .chain()
                     .before(crate::inventory::Opened)
                     .run_if(in_state(AppState::InGame)),

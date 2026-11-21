@@ -268,6 +268,7 @@ mod terror_sprinters;
 mod tooltip;
 mod torches;
 mod town_stash;
+mod trade_frame;
 mod trample;
 mod trap_balls;
 mod trap_landings;
@@ -788,6 +789,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         tooltip::TooltipPlugin,
         torches::TorchesPlugin,
         town_stash::TownStashPlugin,
+        trade_frame::TradeFramePlugin,
         trample::TramplePlugin,
         trap_balls::TrapBallsPlugin,
         trap_landings::TrapLandingsPlugin,
