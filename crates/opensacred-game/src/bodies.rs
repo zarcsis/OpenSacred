@@ -256,9 +256,8 @@ fn vanish(
 /// Lays each new puddle (`0x53FCA4`–`0x53FE25`): over its body's bone that its fountain spurted
 /// from, else `Bip01 Spine2` (`opensacred_rules::undead::PUDDLE_BONE`), on the ground there
 /// (`0x636520` of 0), of one of its gib set's eight textures (`0x4273C0`); none where the bone or
-/// the ground is not found. A body on a building's floor lays none: the original lays it on the
-/// ground under the floor, in the list 0 under the floor's sprites, where it does not show
-/// (docs/decisions/drawing.md, "No puddle on a building's floor").
+/// the ground is not found. A body on a building's floor lays it on the ground under the floor
+/// too, in list 0 under the floor's sprites, where it does not show (#3285).
 fn puddle(
     mut commands: Commands,
     puddles: Query<(Entity, &Corpse, Option<&crate::blood_fountains::Bled>), Added<Puddles>>,
@@ -275,9 +274,6 @@ fn puddle(
 ) {
     for (entity, corpse, bled) in &puddles {
         commands.entity(entity).remove::<Puddles>();
-        if corpse.level.is_some() {
-            continue;
-        }
         let name = bled.map_or(undead::PUDDLE_BONE, |bled| bled.0);
         let at = crate::making::bone_entity(entity, &[name], &children, (&bones, &worn))
             .and_then(|bone| bones.get(bone).ok())
@@ -297,7 +293,7 @@ fn puddle(
             "bodies: {entity}, a {}, lays a puddle of {texture} under its {name}",
             corpse.creature
         );
-        crate::marks::puddle(&mut commands, (place, entity), texture);
+        crate::marks::puddle(&mut commands, place, texture);
     }
 }
 
