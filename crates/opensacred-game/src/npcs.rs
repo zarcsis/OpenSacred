@@ -4545,6 +4545,19 @@ impl Npcs {
             .script_level(hero, self.values.get(&sector_of(at)))
     }
 
+    /// The level that a quest's reward makes its item at for the hero of level `hero` standing at
+    /// `at`, by the levels of the sector there (`opensacred_rules::fight::Rules::reward_level`,
+    /// #2872).
+    pub(crate) fn reward_level(
+        &self,
+        hero: u32,
+        at: Vec3,
+        dice: &mut impl opensacred_rules::spawning::Dice,
+    ) -> u32 {
+        self.fight
+            .reward_level(hero, self.values.get(&sector_of(at)), dice)
+    }
+
     /// The levels of the sector at the place `at`, none for a sector without them, and the fight's
     /// rules that raise them by the difficulty, by which a container there holds its items' levels
     /// (`opensacred_rules::fight::Rules::contained_level`, #2858).
