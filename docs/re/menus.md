@@ -2,7 +2,7 @@
 
 Seen in the GOG `Sacred.exe` 2.28 with the driver of #448 on 2026-10-26 (#1114), in its window of 1024 × 768, and read in its strings, its text keys and the menus' textures.
 Status: **confirmed** by sight unless marked otherwise; the code that lays the screens out is not read.
-Implemented in `opensacred-game` (`menu`, `choice`, `ripples`, `menu_sound`, `esc_menu`, `busy_dialog`, `pause`, `saves_window`, `options`, `follow_foe`, `control_glow`).
+Implemented in `opensacred-game` (`menu`, `choice`, `ripples`, `menu_sound`, `esc_menu`, `busy_dialog`, `pause`, `saves_window`, `options`, `follow_foe`, `control_glow`, `credits`).
 
 The places below are the window's pixels, as the driver's clicks name them (`tools/original/host.py`).
 The interface's classes are `cUI_MainMenu` (the main menu and its submenus), `cUI_Character` (the choice of the hero) and `cUI_Manager`, which loads their textures (the names of their RTTI and logs).
@@ -47,6 +47,19 @@ What each item does:
 - Quit: the game ends (`UI_BUSY_REALLY_QUIT%d` names a question, not seen: the driver's `quit` closes the window).
 
 The main menu takes no click for a few seconds after it first shows (the driver waits 200 frames and 2 seconds).
+
+## The credits
+
+Read 2026-11-21 for #2929 (**confirmed** by code, **seen** in the original under its driver).
+The Extras' Credits put the main menu into its state 3 (`cUI_MainMenu +0x154`, `0x7125B0`, `0x711DA0`): its picture and water stay, its items are not drawn, and the lines of `credits2.txt` climb over the picture from the screen's foot.
+- The file (`0x715F10`): its words read in turn, `//` taking the rest of its line away (the file's comments, and the notes after some keys); `TYPE = KEY` makes a heading of the text `KEY` names, `SUB = KEY` a name, `NEWLINE` an empty line, and any other word is passed over.
+  The file's keys name the game's texts (`global.res`, docs/02 §8): 497 lines, four of whose keys have no text, which their lines show empty (the text's lookup answers none, `0x7128D0`).
+- The lines (`0x7128D0`): in the font 3, each centred across the screen, a heading white (-1) and a name `0xFFFFFF80`, one under the other at the font's height of `A`, 25 pixels.
+  Their top starts at 768 as the screen shows (`+0x17C`) and climbs by the frame's seconds times 50, 50 pixels a second (seen: the title's line from 612 to 232 in about seven seconds and a half).
+  The lines are drawn over the picture and its water.
+- The end: once the top is above minus the lines' height and four lines' more, 25 times the count and 4, the menu goes back to the Extras (its state 2), about 266 seconds after the start.
+- The Cancel button at the bottom right (`+0x18C`, made at `0x715DFA`): the images 280 to 282, its middle's corner at (844, 704), image 281's width twice wide and its height high, its word `UI_CANCEL` white, `0xFFFFFF80` under the cursor; a click brings the Extras back at once, as Esc does (seen, the Credits then the first of the Extras' items).
+- The sound: the show posts the sound event (14, 1, 1) and each end (14, 1, 0), which the sound manager's handler passes over (`0x67A7A0`: its kind 14 acts on the sub-kind 2 alone), so the menus' music plays on and nothing else sounds (no music of the credits is in the manifest).
 
 ## The choice of the hero
 
@@ -427,7 +440,8 @@ Every place above is **confirmed** in `0x718CA0` and agrees with the frame (the 
 ## In `opensacred-game`
 
 The main menu, its submenus and the choices of the hero follow the sections above (`menu`, `choice`, #1118, #1119).
-Not followed: the Multiplayer submenu's three items, which wait for the multiplayer (M9), and the Extras' Credits stand grey and do nothing (`menu::Item::works`; #2929).
+Not followed: the Multiplayer submenu's three items, which wait for the multiplayer (M9), stand grey and do nothing (`menu::Item::works`).
+Since #2929 the Extras' Credits roll as "The credits" tells (`credits`): the main menu's picture and water, the lines of the converted `credits2.txt` with the game's texts they name, the Cancel button, Esc and the end back to the Extras (**seen** beside the original's frames: the title, a heading and its names in their colours, 25 pixels apart, and the button lit under the cursor).
 Since #2490 a choice's screen shows whole: black covers it (`choice::Veil`) until its pictures and fonts are there, every figure's scene and items are in place and its meshes have their own materials, and for three frames more, which let the figures' pipelines compile, five seconds at the most; where it filled piece by piece over some twelve frames before, its picture's tiles, then the figures, then their items, the original loads the screen before it shows it.
 The figures' scenes and items take the figures' layer from their first frame (`Propagate` of `RenderLayers`), so that the world's camera never draws one over the black.
 Since #1676 the Underworld campaign's choice stands the installation's two heroes on their pedestals in their summaries' items, labelled as the original labels them, chooses one of level 25 or more by a click, its name in the field and the difficulties it is offered in the list, and lights Start Game, which since #2360 starts the Underworld's game (docs/re/underworld.md); the choice is of a pedestal in both campaigns.

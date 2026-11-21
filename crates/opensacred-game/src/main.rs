@@ -62,6 +62,7 @@ mod control_glow;
 mod controls;
 mod creature_arts;
 mod creature_casts;
+mod credits;
 mod crowd;
 mod cursors;
 mod daemon;
@@ -568,10 +569,11 @@ fn run(cli: Cli) -> Result<AppExit> {
         controls::ControlsPlugin,
         creature_arts::CreatureArtsPlugin,
         creature_casts::CreatureCastsPlugin,
+        credits::CreditsPlugin,
         crowd::CrowdPlugin,
-        cursors::CursorsPlugin,
     ))
     .add_plugins((
+        cursors::CursorsPlugin,
         daemon::DaemonPlugin,
         dark_helices::DarkHelicesPlugin,
         dark_sights::DarkSightsPlugin,
