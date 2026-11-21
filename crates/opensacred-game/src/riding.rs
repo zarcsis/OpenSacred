@@ -259,6 +259,63 @@ impl HorseSheet<'_, '_> {
 /// The riding skill.
 const RIDING_SKILL: u8 = 22;
 
+/// Who owns a horse, as the cursor tells it (`0x55C630`, the creature of the id `+0x570`): no one,
+/// the hero, a horse trader (`+0x200` bit `0x4000000`) or another NPC.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Owner {
+    None,
+    Hero,
+    Trader,
+    Another,
+}
+
+/// What the cursor asks of a horse (#2936): its owner, its stable's trader where it has one
+/// (`stables::Stabled`), and whether the hero may ride it (`0x4267D0`).
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct HorseOwners<'w, 's> {
+    horses: Query<'w, 's, (&'static Horse, Option<&'static crate::stables::Stabled>)>,
+    names: Query<
+        'w,
+        's,
+        (
+            &'static crate::npcs::ScriptName,
+            Option<&'static crate::npcs::Trades>,
+        ),
+    >,
+    owned: Res<'w, Owned>,
+    hero: Option<Res<'w, Hero>>,
+    arts: Option<Res<'w, crate::arts::HeroArts>>,
+    npcs: Option<Res<'w, Npcs>>,
+}
+
+impl HorseOwners<'_, '_> {
+    /// The owner of the horse `horse` and whether the hero may ride it; none for no horse.
+    pub(crate) fn of(&self, horse: Entity) -> Option<(Owner, bool)> {
+        let (kind, stabled) = self.horses.get(horse).ok()?;
+        let owner = if self.owned.0 == Some(horse) {
+            Owner::Hero
+        } else if let Some(stabled) = stabled {
+            let trader = self
+                .names
+                .iter()
+                .find(|(name, _)| name.0.eq_ignore_ascii_case(&stabled.trader))
+                .and_then(|(_, trades)| trades)
+                .is_some_and(|trades| trades.0 & opensacred_rules::quests::TRADER != 0);
+            if trader {
+                Owner::Trader
+            } else {
+                Owner::Another
+            }
+        } else {
+            Owner::None
+        };
+        let hero = self.hero.as_deref()?;
+        let (kind_of_hero, riding) = rider(hero, self.arts.as_deref());
+        let row = self.npcs.as_deref()?.horse_row(kind.class);
+        Some((owner, horses::rides(kind_of_hero, riding, &row)))
+    }
+}
+
 /// The description's texts: the class's label and the class names from `9069 + 1`, the price's,
 /// the level's, the pace's and the riding's labels (`0x236D`, `0x236B`, `0x42E`, `0x44A`,
 /// `0x24CD`).
