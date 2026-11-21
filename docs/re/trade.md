@@ -33,7 +33,7 @@ The talk that opens the traders' windows is docs/re/arts.md, "The combat master"
 One stock serves every merchant: the pages' items are the last merchant's, and a merchant spoken to again finds them as they were left, or thinned and refilled.
 A page receives the event `0x2E` 8 (`0x6DAD90`) with the merchant's level `ℓ` (kept at `+0x3E4`) and its id:
 
-- another merchant than the page's last (`+0x3E8`): the page is emptied (`0x6D9B90(1)`), the merchant's own items given by the scripts are added (`0x6DA1A0`, not read further), it is filled (`0x6DA320(0)`), and its potions topped up;
+- another merchant than the page's last (`+0x3E8`): the page is emptied (`0x6D9B90(1)`), the merchant's own items given by the scripts are added (`0x6DA1A0`: the types that the interpreter's list `+0x7650` pairs with the merchant's id, which `EquipNPC` keeps for a creature that is a merchant as it runs, `0x4A67A0`; each placed where the page has room and made by the item maker as the fill's are, `0x6D9DE0`), it is filled (`0x6DA320(0)`), and its potions topped up;
 - the same merchant: in one case of two (`rand() & 1`), up to `⌊5·r⌋` cells are emptied at random (`0x6D9B90(0)`: each a column `⌊r·16⌋` and a row `⌊r·9⌋`, the item over it destroyed), and where `k` items left, the page is filled with `R(1, 2k)` tries; then its potions are topped up.
 
 Here `r` is `rand()` times the float `0x890718`, a little below 1/32767, and `R(a, b)` the game's roll between two bounds.
@@ -92,6 +92,7 @@ Since #1619 the hero trades in it (`merchant`, the purchase window `purchase`): 
 While the purchase window shows, the world's clicks are held back and the backpack's and the merchant's wait for its answer.
 **Seen** in the game: the small healing potion sold for 125 and bought for 585, as the original's prices of it (#1273), the gold short of a ring told.
 Since #1660 a merchant's item rolls its sockets with the merchant's bonus on the first chance (`drops::keyed`, `opensacred_rules::drops::Sockets::roll`); since #1722 the window plays the trader's sound (14, 2, `0x1F`) as it shows; since #1959 a save keeps the stock (docs/re/saves.md).
-Not followed yet: the merchant's own items that the scripts give it (`0x6DA1A0`, not read further, #2939), the frame's pieces (the panel's edges a grey line) and the purchase window's buttons' sound and looks (#2940).
+The merchant's own items are none in the release (read 2026-11-21 for #2939, **confirmed** by code and on the trees): of the 20 trees' `EquipNPC`s one names a creature that a tree makes a merchant, quest 2502's `res:17298`, which the quest's entry makes anew without the merchant's tag before the record equips it for its fight, so that it wears the weapon and the list stays empty (docs/re/netscript.md, "`EquipNPC`"); the game keeps no such list.
+Not followed yet: the frame's pieces (the panel's edges a grey line) and the purchase window's buttons' sound and looks (#2940).
 The trade's sounds are made: the window's as it shows (#1722, above), and a purchase's and a sale's through the gold's handler (`pickup::Pack::add_gold`, #1792; docs/re/sound.md, "The gold's handler").
 The page's switch of the items to the hero's class's variants is left out: by docs/re/items.md the switch (`0x43CA20`) gives no variant for a hero's type, so that it changes nothing for the local hero.
