@@ -4466,6 +4466,25 @@ pub enum Side {
     Defender,
 }
 
+/// The shares of an item's kinds of damage `damage` that the bar's icons take (`0x5C8D70`):
+/// each kind's least and most, whole, over all the kinds', times 255 and truncated; none of a
+/// damage of nothing (all of it below the float epsilon). The physical, the fire, the magic and
+/// the poison (#2925).
+pub fn damage_shares(damage: &[[f32; 2]; KINDS]) -> [u8; KINDS] {
+    let sums = damage.map(|[least, most]| f64::from(least).trunc() + f64::from(most).trunc());
+    let total: f64 = sums.iter().sum();
+    if total <= f64::from(f32::EPSILON) {
+        return [0; KINDS];
+    }
+    sums.map(|sum| u8::try_from(truncated(sum / total * 255.0).clamp(0, 255)).unwrap_or(0))
+}
+
+/// The alphas of a weapon set's damage icons on the bar, of its two halves' shares `left` and
+/// `right` ([`damage_shares`]): their sums as bytes, which wrap past 255 (`0x6E338A`, #2925).
+pub fn set_shares(left: [u8; KINDS], right: [u8; KINDS]) -> [u8; KINDS] {
+    std::array::from_fn(|kind| left[kind].wrapping_add(right[kind]))
+}
+
 /// Each kind's damage of a strike (`0x568D70`, as the attack record rolls it; #620): while the
 /// physical most is below 100 the ends times 100 on the x87 unit, truncated toward 0, a whole
 /// number `n` between them (a least below 0 taken as 0, a most below 0 as 1) and the damage `n`
@@ -6983,6 +7002,20 @@ mod tests {
         assert_eq!(health_of([16, 20, 22, 10, 0, 8], 0, None, 1.0, 1.0), 58);
         assert_eq!(health_of([28, 35, 19, 25, 5, 14], 0, None, 1.0, 1.0), 123);
         assert_eq!(health_of([15, 20, 21, 10, 0, 8], 1, None, 1.0, 1.0), 63);
+    }
+
+    #[test]
+    fn the_bars_damage_icons_take_each_kinds_share_of_255() {
+        // Least and most, whole: 6 physical and 2 fire of 8, so 191 and 63, truncated.
+        let damage = [[2.0, 4.9], [1.0, 1.0], [0.0, 0.0], [0.0, 0.0]];
+        assert_eq!(damage_shares(&damage), [191, 63, 0, 0]);
+        assert_eq!(damage_shares(&[[0.0; 2]; KINDS]), [0; KINDS]);
+        assert_eq!(damage_shares(&[[0.0, 3.0]; KINDS]), [63; KINDS]);
+        // Two halves' shares summed as bytes, wrapping past 255.
+        assert_eq!(
+            set_shares([200, 0, 9, 0], [100, 0, 1, 255]),
+            [44, 0, 10, 255]
+        );
     }
 
     #[test]
