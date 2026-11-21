@@ -229,14 +229,49 @@ fn ordered(
     }
 }
 
+/// How far a flower leaps at most, the eiterblume's and the spinneling's panther's leap
+/// (`0x509F0F`): its reach at the creature's level of the art, by the art's record where the
+/// tables hold it.
+fn flower_reach(
+    arts: Option<&crate::arts::HeroArts>,
+    rules: &crate::fight::Rules,
+    (level, rank): (u32, Option<&crate::fight::Ranked>),
+) -> u32 {
+    let rank = rank.map_or(crate::fight::Rank::Common, |rank| rank.0);
+    let level = rules.0.creature_spell_level(level, rank);
+    arts.and_then(|arts| {
+        arts.tables
+            .weapon_arts
+            .iter()
+            .find(|art| art.id == casts::FLOWER_LEAP)
+    })
+    .map_or(400 + 50 * level, |record| {
+        opensacred_rules::arts::panther_reach(record, level)
+    })
+}
+
 /// Begins each cast's clip: its slot by spell and type, its spell acting at the spell's share
-/// (`0x521D60`).
+/// (`0x521D60`); a flower's leap's at the panther's rate by its reach (`0x50A02D`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
 fn begin(
     mut commands: Commands,
-    mut casting: Query<(Entity, &mut Casting, &Mind, Option<&crate::fight::Combat>), Without<Dies>>,
+    mut casting: Query<
+        (
+            Entity,
+            &mut Casting,
+            &Mind,
+            Option<&crate::fight::Combat>,
+            Option<&crate::fight::Ranked>,
+        ),
+        Without<Dies>,
+    >,
+    (arts, rules): (Option<Res<crate::arts::HeroArts>>, Res<crate::fight::Rules>),
     mut sights: MessageWriter<crate::cast_sights::CreatureCast>,
 ) {
-    for (entity, mut cast, mind, combat) in &mut casting {
+    for (entity, mut cast, mind, combat, rank) in &mut casting {
         if cast.begun {
             continue;
         }
@@ -276,9 +311,15 @@ fn begin(
             "creature_casts: {entity} casts {} (variant {}) by its clip {slot}",
             cast.spell, cast.variant
         );
-        commands
-            .entity(entity)
-            .insert(ScriptClip::casting(slot, share));
+        let clip = if cast.spell == casts::FLOWER_LEAP {
+            // The flowers' clip 144 at the panther's rate by its reach, as the hero's 182
+            // (`0x509FF5`, `0x50A02D`; #3160).
+            let reach = flower_reach(arts.as_deref(), &rules, (mind.level, rank));
+            ScriptClip::leap(slot, opensacred_rules::arts::panther_rate(reach), share)
+        } else {
+            ScriptClip::casting(slot, share)
+        };
+        commands.entity(entity).insert(clip);
     }
 }
 
@@ -339,24 +380,13 @@ fn act(
         if cast.spell == casts::FLOWER_LEAP {
             // The flowers' panther's leap (`0x506770` at `0x507DC9`; #2231): to the target's
             // place, held to its reach at the creature's level of the art, where it may stand,
-            // three times as high as the hero's, in half its clip's time; its sound.
+            // three times as high as the hero's, in half its clip's time at its rate by the
+            // reach (#3160); its sound.
             let here = at.translation;
             let toward = places
                 .get(cast.target)
                 .map_or(cast.point, GlobalTransform::translation);
-            let rank = rank.map_or(crate::fight::Rank::Common, |rank| rank.0);
-            let level = rules.0.creature_spell_level(mind.level, rank);
-            let reach = arts
-                .as_ref()
-                .and_then(|arts| {
-                    arts.tables
-                        .weapon_arts
-                        .iter()
-                        .find(|art| art.id == casts::FLOWER_LEAP)
-                })
-                .map_or(400 + 50 * level, |record| {
-                    opensacred_rules::arts::panther_reach(record, level)
-                });
+            let reach = flower_reach(arts.as_deref(), &rules, (mind.level, rank));
             let [x, z] = opensacred_rules::arts::panther_point(
                 here.xz().into(),
                 toward.xz().into(),
@@ -370,7 +400,8 @@ fn act(
             }
             let seconds = clip
                 .and_then(|clip| clip.length(&animations))
-                .unwrap_or(1.0);
+                .unwrap_or(1.0)
+                / opensacred_rules::arts::panther_rate(reach);
             let distance = (to - here).xz().length();
             commands.entity(entity).insert(crate::making::Leap {
                 from: here,
@@ -1712,5 +1743,43 @@ impl Plugin for CreatureCastsPlugin {
             )
                 .in_set(Playing),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_flowers_leap_plays_its_clip_at_the_panthers_rate_by_its_reach() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(crate::fight::Rules::default())
+            .add_message::<crate::cast_sights::CreatureCast>()
+            .add_systems(Update, begin);
+        // An eiterblume's reach is 400 + 50·L at its level of the art, ⌊level/5⌋ + 1: 450 below
+        // the level 5, 500 from 5, 550 from 10, beyond the rate's 500.
+        let flowers: Vec<(Entity, f32)> = [(1, 1.4545), (5, 0.95), (10, 1.0)]
+            .into_iter()
+            .map(|(level, rate)| {
+                let mut mind = Mind::new(
+                    Vec3::ZERO,
+                    0x1,
+                    (true, false),
+                    None,
+                    [10.0, 20.0],
+                    (186, 10),
+                );
+                mind.thinks.level = level;
+                let cast = Casting::new(casts::FLOWER_LEAP, 0, Entity::PLACEHOLDER, Vec3::ZERO);
+                (app.world_mut().spawn((cast, mind)).id(), rate)
+            })
+            .collect();
+        app.update();
+        for (flower, rate) in flowers {
+            let clip = app.world().get::<ScriptClip>(flower);
+            let played = clip.and_then(ScriptClip::rate).unwrap_or_default();
+            assert!((played - rate).abs() < 1e-3, "{played} for {rate}");
+        }
     }
 }
