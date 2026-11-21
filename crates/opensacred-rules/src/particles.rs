@@ -17675,6 +17675,48 @@ mod tests {
     }
 
     #[test]
+    fn the_knockouts_rolls_and_bounds() {
+        // The effect 31's blue, `0xFF6060FF`.
+        assert_eq!(
+            KNOCKOUT_COLOUR.map(|c| (c * 255.0).round()),
+            [96.0, 96.0, 255.0, 255.0]
+        );
+        // Each butterfly's rolls: its size, its direction's `y` and `x`, its distance, its height
+        // and its turn; `y` the most, `x` the least: toward (−1, 1) along the ground.
+        let mut rolls = Vec::new();
+        for _ in 0..KNOCKOUT_COUNT {
+            rolls.extend([0, 32_767, 0, 0, 0, 0]);
+        }
+        let mut dice = crate::spawning::Script::new(rolls);
+        let mut knockout = Knockout::new(0.5);
+        // A run of no time leaves a life of 0 at 0, the last frame.
+        knockout.update(0.0, &mut dice);
+        let butterfly = knockout.butterflies()[0];
+        assert!((butterfly.size - 3.0).abs() < 1e-6);
+        let half = std::f32::consts::FRAC_1_SQRT_2 * 7.0;
+        assert!(
+            (butterfly.offset[0] + half).abs() < 1e-4,
+            "{:?}",
+            butterfly.offset
+        );
+        assert!(
+            (butterfly.offset[1] - half).abs() < 1e-4,
+            "{:?}",
+            butterfly.offset
+        );
+        assert!((butterfly.offset[2] - 10.0).abs() < 1e-6);
+        assert_eq!(butterfly.life, 0.0);
+        assert_eq!(butterfly.frame(), 63);
+        // Its 0.5 s end once its age has passed them, not as it reaches them.
+        for _ in 0..3 {
+            knockout.update(0.25, &mut dice);
+        }
+        assert!(!knockout.done());
+        knockout.update(0.25, &mut dice);
+        assert!(knockout.done());
+    }
+
+    #[test]
     fn a_mark_holds_its_seconds_and_fades_over_four() {
         let (_, hold, _) = SOUL_MARK;
         let mut mark = Mark::new(hold);
