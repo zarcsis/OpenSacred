@@ -227,6 +227,66 @@ impl Stream {
     }
 }
 
+/// How many tracks keep their places (`+0x8B4`, 32 records of 12 bytes).
+pub const PLACES: usize = 32;
+
+/// A track's place: its sound id, 0 in a free record, where it was left and its length, in
+/// seconds (the original's milliseconds).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Place {
+    track: u32,
+    at: f64,
+    length: f64,
+}
+
+/// Where the peace stream's tracks were left in calm (`+0x8B4`, docs/re/sound.md, "The tracks'
+/// places"; #3067): the region's music, the ambient loops, a fight's and the scripts' tracks
+/// alike, by their sound ids, in [`PLACES`] records that only a new game, a load or the menus
+/// free ([`Self::default`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Places {
+    records: [Place; PLACES],
+}
+
+impl Places {
+    /// The track `track` left, by a crossfade or a cut (`playMusic`, `0x69498E`): in `calm`
+    /// ([`Fight::calm`]), its record, else the first free one, takes the place and the length
+    /// that its stream had `heard` as its fade-out began, the id alone where the stream was not
+    /// open; with all records taken by other tracks, or without the calm, nothing is kept.
+    pub fn keep(&mut self, track: u32, heard: Option<(f64, f64)>, calm: bool) {
+        if track == 0 || !calm {
+            return;
+        }
+        let record = match self.records.iter().position(|place| place.track == track) {
+            Some(index) => index,
+            None => match self.records.iter().position(|place| place.track == 0) {
+                Some(index) => index,
+                None => return,
+            },
+        };
+        let place = &mut self.records[record];
+        if let Some((at, length)) = heard {
+            place.at = at;
+            place.length = length;
+        }
+        place.track = track;
+    }
+
+    /// Where a crossfade opens the track `track` (`0x694F28`): its kept place, above 0 and
+    /// within its length, else none, from its beginning. A cut takes none.
+    pub fn place(&self, track: u32) -> Option<f64> {
+        self.records
+            .iter()
+            .find(|place| track != 0 && place.track == track)
+            .filter(|place| place.at > 0.0 && place.at < place.length)
+            .map(|place| place.at)
+    }
+}
+
+/// How long the engine's mark of the strikes holds after the last strike or the last look of
+/// the hero's fight stance, in seconds (the engine's `+0x154`, `0x613210`, `0x613290`).
+pub const MARKED: f64 = 5.0;
+
 /// The fights' jingles, the `music` profile's groups 3, 4, 5 and 7.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Jingle {
@@ -305,13 +365,17 @@ const WEIGHED_WITHIN: i32 = 700;
 const CUTS_IN_WITHIN: i32 = 500;
 
 /// The fights' music and jingles (`0x68BEA0`, docs/re/sound.md, "The fights' music and
-/// jingles"): whether the hero has stood out of a fight since the last fade (`+0xAF24`), whether
-/// a fight's music plays (`+0xAF4A`), the jingles' timers (the danger's and the easy fight's,
-/// the normal fight's, the hard fight's), the fight's music held off, the watch after a danger's
-/// jingle, the quiet without foes, and the clock of the weighing.
+/// jingles"): the calm, whether the hero has stood out of a fight since the first strike after
+/// the strikes' mark fell (`+0xAF24`, "The calm"), the engine's mark of the strikes (bit
+/// `0x40000000` of its `+0x54`) and what is left of it (`+0x154`), whether a fight's music
+/// plays (`+0xAF4A`), the jingles' timers (the danger's and the easy fight's, the normal
+/// fight's, the hard fight's), the fight's music held off, the watch after a danger's jingle,
+/// the quiet without foes, and the clock of the weighing.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Fight {
     calm: bool,
+    marked: bool,
+    mark: f64,
     playing: bool,
     danger: f64,
     normal: f64,
@@ -326,6 +390,8 @@ impl Default for Fight {
     fn default() -> Self {
         Self {
             calm: true,
+            marked: false,
+            mark: 0.0,
             playing: false,
             danger: 0.0,
             normal: 0.0,
@@ -344,9 +410,28 @@ impl Fight {
         self.playing
     }
 
-    /// The fade of the screen (the sound event (1, 2), `0x613210`): no longer calm.
-    pub fn faded(&mut self) {
-        self.calm = false;
+    /// Whether the calm holds, by which a track left keeps its place ([`Places::keep`]).
+    pub fn calm(&self) -> bool {
+        self.calm
+    }
+
+    /// A strike or a shot that reaches a creature alive from a creature hostile to it, whoever
+    /// the two are (the creatures' event 5, `0x531EE6`; the engine's event (`0x20`, 16, 1),
+    /// `0x613210`): with the strikes' mark clear, the sound event (1, 2) takes the calm; the mark
+    /// set, for [`MARKED`] from now.
+    pub fn struck(&mut self) {
+        if !self.marked {
+            self.calm = false;
+            self.marked = true;
+        }
+        self.mark = MARKED;
+    }
+
+    /// A look of the hero's fight stance with a hostile listed, every 0.3 s while it holds (the
+    /// engine's event (`0x20`, 16, 2, 1), `0x613290`): the mark's time from now again, the mark
+    /// itself left as it is.
+    pub fn stance(&mut self) {
+        self.mark = MARKED;
     }
 
     /// The end of its music that the scripts ask (`0x697710`: a `SetScriptSoundControle` of 1 and a
@@ -368,10 +453,11 @@ impl Fight {
         self.held <= 0.0 && !scene.once
     }
 
-    /// An update of `seconds` (`0x69BC16`, `0x68BEA0`): the timers fall, the jingles and the
-    /// fight's music that the scene asks for, the watch, and out of the fight the end of its
-    /// music. `refused` tells whether a fight's music would be refused where the hero stands
-    /// (the indoor arena, the scripts' control); `dice` rolls `rand()`.
+    /// An update of `seconds` (`0x69BC16`, `0x68BEA0`): the timers fall, the strikes' mark with
+    /// its own (`0x60DF00`), the jingles and the fight's music that the scene asks for, the
+    /// watch, and out of the fight the calm again and the end of its music. `refused` tells
+    /// whether a fight's music would be refused where the hero stands (the indoor arena, the
+    /// scripts' control); `dice` rolls `rand()`.
     pub fn update(
         &mut self,
         seconds: f64,
@@ -379,6 +465,10 @@ impl Fight {
         refused: bool,
         dice: &mut impl Dice,
     ) -> Vec<Cue> {
+        self.mark = (self.mark - seconds).max(0.0);
+        if self.mark <= 0.0 {
+            self.marked = false;
+        }
         for timer in [
             &mut self.danger,
             &mut self.normal,
@@ -1062,14 +1152,92 @@ mod tests {
         for _ in 0..30 {
             assert!(second(&mut fight, &scene(&foes, 1, Phase::Ambient), &mut dice).is_empty());
         }
-        // After a fade, the easy fight's.
+        // After a strike, the easy fight's.
         let mut fight = Fight::default();
-        fight.faded();
+        fight.struck();
         let cues = second(&mut fight, &scene(&foes, 1, Phase::Ambient), &mut dice);
         assert_eq!(cues, [Cue::Jingle(Jingle::Easy, 1)]);
         // In the music's phase, nothing.
         let mut fight = Fight::default();
         assert!(second(&mut fight, &scene(&foes, 1, Phase::Music), &mut dice).is_empty());
+    }
+
+    #[test]
+    fn a_strike_takes_the_calm_only_once_the_strikes_mark_has_fallen() {
+        let mut dice = Script::new(Vec::new());
+        let mut calm = scene(&[], 0, Phase::Music);
+        calm.calm = true;
+        let fighting = scene(&[], 0, Phase::Music);
+        let mut fight = Fight::default();
+        assert!(fight.calm());
+        // The first strike takes it, and the hero out of the fight gives it back.
+        fight.struck();
+        assert!(!fight.calm());
+        fight.update(1.0, &calm, false, &mut dice);
+        assert!(fight.calm());
+        // A strike under the mark leaves it.
+        fight.struck();
+        assert!(fight.calm());
+        // The hero's stance holds the mark past its 5 s, a strike after it leaving the calm.
+        for _ in 0..8 {
+            fight.update(1.0, &fighting, false, &mut dice);
+            fight.stance();
+        }
+        fight.struck();
+        assert!(fight.calm());
+        // 5 s without a strike nor the stance: the mark falls, and the next strike takes it.
+        fight.update(4.9, &fighting, false, &mut dice);
+        fight.struck();
+        assert!(fight.calm());
+        fight.update(MARKED, &fighting, false, &mut dice);
+        fight.struck();
+        assert!(!fight.calm());
+    }
+
+    #[test]
+    fn a_track_left_in_calm_comes_back_where_it_was_left() {
+        let mut places = Places::default();
+        // Never left: from its beginning.
+        assert_eq!(places.place(6560), None);
+        places.keep(6560, Some((42.5, 240.0)), true);
+        assert_eq!(places.place(6560), Some(42.5));
+        // Left again in calm: the new place; out of calm: the place before stays.
+        places.keep(6560, Some((100.0, 240.0)), true);
+        places.keep(6560, Some((200.0, 240.0)), false);
+        assert_eq!(places.place(6560), Some(100.0));
+        // A stream that was not open: the id alone, the place before kept.
+        places.keep(6560, None, true);
+        assert_eq!(places.place(6560), Some(100.0));
+        // A place of 0, or one that is not within the track, opens it from its beginning.
+        places.keep(6561, Some((0.0, 240.0)), true);
+        assert_eq!(places.place(6561), None);
+        places.keep(6562, Some((250.0, 240.0)), true);
+        assert_eq!(places.place(6562), None);
+        places.keep(6562, Some((240.0, 240.0)), true);
+        assert_eq!(places.place(6562), None);
+        // Track 0 is none.
+        places.keep(0, Some((10.0, 20.0)), true);
+        assert_eq!(places.place(0), None);
+        // An id without a stream that never was heard keeps none.
+        places.keep(6563, None, true);
+        assert_eq!(places.place(6563), None);
+    }
+
+    #[test]
+    fn the_first_32_tracks_keep_their_places_and_the_others_none() {
+        let mut places = Places::default();
+        for track in 1..=33 {
+            places.keep(track, Some((f64::from(track), 1000.0)), true);
+        }
+        assert_eq!(places.place(1), Some(1.0));
+        assert_eq!(places.place(32), Some(32.0));
+        assert_eq!(places.place(33), None);
+        // A track that holds a record keeps its place still.
+        places.keep(5, Some((55.0, 1000.0)), true);
+        assert_eq!(places.place(5), Some(55.0));
+        // The reset frees them all.
+        places = Places::default();
+        assert_eq!(places.place(1), None);
     }
 
     #[test]

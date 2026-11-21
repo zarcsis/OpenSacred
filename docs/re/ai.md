@@ -47,6 +47,10 @@ Awake (`0x542B20`), a creature farther from the hero than 1,500 along the grid's
 A peaceful one whose flags match `0x1006DCF8` takes its behaviour (AI 2, below).
 A hostile one, in one case of six and where its home's cell lacks bit 2 of its flags, walks home when it is more than 200 from it along an axis, else stops; then it weighs its level against the hero's (by the balance's `BaseOffLevel`, `OffLevelProz` and `UnterExpAnteil`, 0.85; a monster far below the hero's level fights only when the hero comes within its reach, docs/re/fight.md): when that test fails and the hero is out of its reach (the mean of two sizes of the types, 70 to 480, 130 by default, `0x4DBC60`), it goes dormant again and in one case of three takes the idle action; otherwise it attacks, the hero its target (`+0x104`), from up to 800.
 
+**Seen** 2026-11-21 (#3303, the driver of #448 probing `0x542B20`, `sdk_WAKE`, `0x547070`, `0x4E0300` and `0x4DBFC0`): a creature whose shot has ended stands dormant (the AI's state 0, its sub-state 0) until the hero's next look wakes it, none to two ticks later; its idle handler then takes its target up within a tick, and it shoots again one to three ticks after its wake (docs/re/fight.md, "At range: the AI's state 8").
+The chain of a soldier and of three ice druids within 6 cells of the hero never rose through some 440 shots (docs/re/fight.md, "At range: the AI's state 8"), so that no look sent them to their fight while a shot was in flight.
+One of those druids, its blades of light cast and its run about the hero over, stood 5 cells from the standing hero for some 150 s, awake and dormant by turns where it was polled and traced, and took its fight up as the hero walked two cells nearer (not read: which test of the idle handler held it).
+
 ## The idle action
 
 `0x54EA30` acts only on a creature that stands (AI 0, action 0, `+0x152` below 100), that no one owns and whose `REFKEY` is its type; when its group fights it alerts the group instead ("Groups" below).

@@ -55,7 +55,7 @@ use bevy_kira_audio::prelude::{
 };
 use opensacred_data::sound::Sound;
 use opensacred_data::world::{SIDE, World};
-use opensacred_rules::music::{CROSSFADE, Cue, Fight, Foe, Phase, SILENT, Scene, Stream};
+use opensacred_rules::music::{CROSSFADE, Cue, Fight, Foe, Phase, Places, SILENT, Scene, Stream};
 use opensacred_rules::spawning::Rng;
 
 use crate::daynight::{self, Clock};
@@ -110,6 +110,9 @@ pub struct Music {
     factors: HashMap<u32, f32>,
     /// The peace stream's phase and timer.
     stream: Stream,
+    /// Where the stream's tracks, the music's channel's and the ambient loops', were left in
+    /// calm, made anew with the game (#3067).
+    places: Places,
     /// Until when the stream's crossfade runs, in the game's time.
     fading: Duration,
     /// Whether the last frame was of the dusk or the night.
@@ -147,8 +150,8 @@ pub struct Music {
 struct Playing {
     /// Its sound's id.
     id: u32,
-    /// Held while the track plays, so that it stays loaded.
-    _track: Handle<AudioSource>,
+    /// Held while the track plays, so that it stays loaded, and its length read.
+    track: Handle<AudioSource>,
     instance: Handle<AudioInstance>,
     /// The track, relative to the asset directory.
     file: String,
@@ -197,6 +200,7 @@ impl Music {
             atmo,
             factors,
             stream: Stream::default(),
+            places: Places::default(),
             fading: Duration::ZERO,
             dark: false,
             spot: false,
@@ -219,6 +223,28 @@ impl Music {
             level: None,
             silent: false,
         }
+    }
+
+    /// The track `id` of the stream left as its fade-out begins (`0x69498E`): the place of its
+    /// `instance` and its length, from its `source`, kept while the fights' calm holds
+    /// ([`Places::keep`]).
+    pub fn leave(
+        &mut self,
+        id: u32,
+        (instance, source): (Option<&AudioInstance>, Option<&AudioSource>),
+    ) {
+        let heard = instance
+            .and_then(|instance| instance.state().position())
+            .zip(source.map(|source| source.sound.duration().as_secs_f64()));
+        let calm = self.fight.calm();
+        self.places.keep(id, heard, calm);
+        debug!("music: {id} left at {heard:?}, calm {calm}");
+    }
+
+    /// Where a crossfade opens the track `id`: where it was left in calm, else none, from its
+    /// beginning ([`Places::place`]).
+    pub fn place(&self, id: u32) -> Option<f64> {
+        self.places.place(id)
     }
 
     /// The factor of the stream `id`'s volume (`+0x6B4`, `opensacred_rules::music::factor`).
@@ -585,12 +611,15 @@ pub fn alternate(
 
 /// Plays on the music's channel what the stream asks of it ([`wanted`]): a track that changes
 /// crossfades over 7 s, the one before falling as the new one rises, both linear, but a fight's
-/// music, which cuts in at once; the tracks loop. While the scripts hold the stream, only their
-/// music and the spot loops change it.
+/// music, which cuts in at once; the tracks loop. The track left keeps its place in calm, and a
+/// crossfade opens the new one where it was so left (`0x69498E`, `0x694F28`; #3067); a cut opens
+/// it at its beginning. While the scripts hold the stream, only their music and the spot loops
+/// change it.
 pub fn play(
     mut music: ResMut<Music>,
     audio: Res<AudioChannel<Channel>>,
     mut instances: ResMut<Assets<AudioInstance>>,
+    sources: Res<Assets<AudioSource>>,
     assets: Res<AssetServer>,
     time: Res<Time>,
     bodies: Query<(), With<hero::Body>>,
@@ -617,10 +646,17 @@ pub fn play(
     } else {
         AudioTween::linear(Duration::from_secs_f32(CROSSFADE))
     };
-    if let Some(playing) = music.playing.take()
-        && let Some(mut instance) = instances.get_mut(&playing.instance)
-    {
-        instance.stop(fade);
+    if let Some(playing) = music.playing.take() {
+        music.leave(
+            playing.id,
+            (
+                instances.get(&playing.instance),
+                sources.get(&playing.track),
+            ),
+        );
+        if let Some(mut instance) = instances.get_mut(&playing.instance) {
+            instance.stop(fade);
+        }
     }
     let Some(file) = file else {
         return;
@@ -630,17 +666,22 @@ pub fn play(
     // At its factor; an `ATMO` name, a spot loop or the scripts' loop, at the effects' volume as
     // the ambient loops, the others at the music's (`volumes`, `0x694510`).
     let id = want.unwrap_or_default();
+    let place = music.place(id).filter(|_| !cut);
     let mut playing = audio.play(track.clone());
     playing
         .looped()
         .with_volume(crate::sfx::decibels(music.factor(id)));
+    if let Some(place) = place {
+        debug!("music: {id} opens at {place:.1} s");
+        playing.start_from(place);
+    }
     if !cut {
         playing.fade_in(fade);
     }
     let instance = playing.handle();
     music.playing = Some(Playing {
         id,
-        _track: track,
+        track,
         instance,
         file,
     });
@@ -660,6 +701,13 @@ const FIGHT_OVER: u8 = 6;
 /// end's jingle half of the time (**hypothesis**: the profile 0 that the other half rolls names
 /// none). The hostile creatures alive within the first list's reach are the foes, their levels
 /// and motions as `voices` keeps them, the foes engaged its count.
+///
+/// The fights' calm, by which a track left keeps its place (#3067; docs/re/sound.md, "The
+/// calm"): each hit sent, a strike or a shot reaching its target (the creatures' event 5,
+/// `0x531EE6`), marks the strikes for 5 s and takes the calm where the mark was clear, and each
+/// look of the hero's fight stance with a hostile listed holds the mark (`0x613290`); the
+/// hits' senders send them only at foes within their reach, so that the original's tests of the
+/// attacker's hostility and of 1,500 units ask nothing more.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, its queries with their \
@@ -673,7 +721,14 @@ pub fn fight(
         Option<Res<crate::game::Difficulty>>,
         Option<Res<crate::voices::Engaged>>,
     ),
-    heroes: Query<(&GlobalTransform, &crate::fight::Health), With<hero::Body>>,
+    heroes: Query<
+        (
+            &GlobalTransform,
+            &crate::fight::Health,
+            Option<&crate::fight::Holding>,
+        ),
+        With<hero::Body>,
+    >,
     creatures: Query<
         (
             &GlobalTransform,
@@ -684,10 +739,27 @@ pub fn fight(
         (Without<hero::Body>, Without<Dies>),
     >,
     (once, assets): (Res<AudioChannel<Once>>, Res<AssetServer>),
+    (mut hits, nearest): (
+        MessageReader<crate::fight::Hit>,
+        Option<Res<crate::crowd::Nearest>>,
+    ),
 ) {
-    let Ok((at, health)) = heroes.single() else {
+    if hits.read().count() > 0 {
+        music.fight.struck();
+    }
+    let Ok((at, health, holding)) = heroes.single() else {
         return;
     };
+    // The hero's look in its fight stance (the client's bit `0x8000`, `0x547070`, as `hero`
+    // stands it so).
+    let ranged = holding.is_some_and(|holding| holding.0.ranged);
+    if let Some(nearest) = nearest.as_deref()
+        && nearest.looked
+        && nearest.found
+        && nearest.distance < opensacred_rules::fight::in_fight_within(ranged)
+    {
+        music.fight.stance();
+    }
     let Some(phase) = music.stream.phase() else {
         return;
     };
