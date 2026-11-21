@@ -3045,10 +3045,16 @@ pub struct Leap {
     pub stops: bool,
 }
 
+/// The art whose hit sparks a flight that a cell stops makes at its flier, the Dark Elf's
+/// `Hardhit` (the event's `+0x3C` `0x42A`, `0x44E68D`).
+const FLIGHT_STOP_SPARKS: u16 = 1066;
+
 /// Flies each hero and each creature in its jump (`0x44DFE0`): along the line to its landing in
 /// its flight's time, on its arc, and lands it there; one that stops ends its flight at the first
 /// of the parts of its way that it tests each step (`arts::flight_samples`) whose cell it may not
-/// pass (`terrain::Heights::passes`, `0x636A60`), on the ground where the last it passed put it.
+/// pass (`terrain::Heights::passes`, `0x636A60`), on the ground where the last it passed put it,
+/// with the Dark Elf's yellow hit sparks at its neck whatever its class (864 by the FX event
+/// `0x59` of the bone 3 and the art 1066, `0x44E662`; #3203).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their components"
@@ -3064,6 +3070,7 @@ pub(crate) fn leap(
         Option<&crate::crowd::InTheWay>,
         &mut Leap,
     )>,
+    mut sparks: MessageWriter<crate::hit_sparks::Spark>,
 ) {
     for (hero, mut transform, body, way, mut leap) in &mut leapers {
         let level = body.map_or_else(|| way.and_then(|way| way.level), Body::level);
@@ -3088,6 +3095,11 @@ pub(crate) fn leap(
                 let y = heights.standing(at.x, at.z, level).unwrap_or(at.y);
                 transform.translation = Vec3::new(at.x, y, at.z);
                 commands.entity(hero).remove::<Leap>();
+                sparks.write(crate::hit_sparks::Spark {
+                    art: FLIGHT_STOP_SPARKS,
+                    by: hero,
+                    on: hero,
+                });
                 debug!("making: {hero}'s flight ends at a cell it may not pass");
                 continue;
             }
@@ -3296,6 +3308,88 @@ impl Plugin for MakingPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_flight_that_a_wall_stops_sparks_at_its_flier() {
+        use opensacred_data::world::{Cell, SIDE, Sector};
+        use std::time::Duration;
+        #[derive(Resource, Default)]
+        struct Seen(Vec<crate::hit_sparks::Spark>);
+        fn seen(mut sparks: MessageReader<crate::hit_sparks::Spark>, mut seen: ResMut<Seen>) {
+            seen.0.extend(sparks.read().copied());
+        }
+        // The ground of sector (0, 0) walked on, but for the column of cells 3.
+        let cell = |ground| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground,
+        };
+        let cells = (0..SIDE * SIDE)
+            .map(|k| cell(if k % SIDE == 3 { 0x41 } else { 0x40 }))
+            .collect();
+        let mut heights = crate::terrain::Heights::default();
+        heights.add(&Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells,
+            statics: Vec::new(),
+            layers: Vec::new(),
+            buildings: Vec::new(),
+        });
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(bevy::time::TimeUpdateStrategy::ManualDuration(
+                Duration::from_millis(50),
+            ))
+            .insert_resource(heights)
+            .init_resource::<Seen>()
+            .add_message::<crate::hit_sparks::Spark>()
+            .add_systems(Update, (leap, seen).chain());
+        let at = |cells: f32| Vec3::new(cells * crate::iso::CELL, 0.0, 30.0);
+        // A hero's flight from the column 1 to the 5, over the wall, stops there with the sparks;
+        // one within the open ground lands with none.
+        for (to, sparked) in [(5.5, true), (2.5, false)] {
+            app.world_mut().resource_mut::<Seen>().0.clear();
+            let flier = app
+                .world_mut()
+                .spawn((
+                    Transform::from_translation(at(1.5)),
+                    Leap {
+                        from: at(1.5),
+                        to: at(to),
+                        time: 0.5,
+                        flown: 0.0,
+                        peak: 0.0,
+                        stops: true,
+                    },
+                ))
+                .id();
+            for _ in 0..15 {
+                app.update();
+            }
+            let expected = if sparked {
+                vec![crate::hit_sparks::Spark {
+                    art: FLIGHT_STOP_SPARKS,
+                    by: flier,
+                    on: flier,
+                }]
+            } else {
+                Vec::new()
+            };
+            assert_eq!(app.world().resource::<Seen>().0, expected);
+            // Stopped short of the wall, or landed on its point.
+            let x = app.world().get::<Transform>(flier).map(|t| t.translation.x);
+            let landed = |x: f32| (x - to * crate::iso::CELL).abs() < 1.0;
+            assert!(x.is_some_and(|x| x < 3.0 * crate::iso::CELL && landed(x) != sparked));
+        }
+    }
 
     #[test]
     fn a_wearers_bone_is_its_own_not_its_worn_items() {
