@@ -4462,6 +4462,18 @@ pub fn strike_gives_way(
     struck >= hits && left <= STRIKE_TURN / speed
 }
 
+/// The slots whose clips stand in for the slot `slot` where a model lacks it, the first of them
+/// that the model has (the models' clip getter `0x4118B0`, docs/re/motions.md, "Where the model
+/// lacks the slot"): the slot 89, else 84, else 79 for a slot of 79 to 153; none outside them,
+/// where nothing plays and the clip in play goes on.
+pub fn stand_ins(slot: u16) -> &'static [u16] {
+    if (79..=153).contains(&slot) {
+        &[89, 84, 79]
+    } else {
+        &[]
+    }
+}
+
 /// Whether a shot's arrow leaves, `done` of its clip played, `a` the clip's first fraction
 /// (`MotionDesc +0xA0`, `0x4DD90E`): once what is left of the clip is at most `1 − a` of it, at
 /// once for an `a` of 0, at the half for one of 1 or more.
@@ -7352,6 +7364,16 @@ mod tests {
         assert!(looses(0.0, 0.0));
         assert!(!looses(0.4, 0.39) && looses(0.4, 0.4));
         assert!(!looses(1.2, 0.49) && looses(1.2, 0.5));
+    }
+
+    #[test]
+    fn a_slot_of_79_to_153_takes_a_stand_in_and_another_none() {
+        for slot in [79, 145, 153] {
+            assert_eq!(stand_ins(slot), [89, 84, 79]);
+        }
+        for slot in [0, 78, 154, 164] {
+            assert!(stand_ins(slot).is_empty());
+        }
     }
 
     #[test]
