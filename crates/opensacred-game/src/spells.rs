@@ -31,7 +31,7 @@
 use bevy::prelude::*;
 use opensacred_rules::arts::bolt_damages;
 use opensacred_rules::fight::Effect;
-use opensacred_rules::particles::{Regen, StrikeKind};
+use opensacred_rules::particles::{ChainBolt, Regen, StrikeKind};
 use opensacred_rules::spells::{
     self, BEAT, BORNE, CONVERSION, CRUSADERS_STRENGTH, FIRE_SKIN, FIREBALL, HEALING, HOLY_SHIELD,
     IRRITATION, LIGHTNING, QUICKENING, REIKI, SHIELD_TIME, SHIELD_WALL, SPRING, STONE_SKIN,
@@ -979,12 +979,14 @@ struct Meteor {
     lands: f32,
 }
 
-/// A chain lightning, the Mage's or a creature's: its caster, the one it struck last, the strikes
-/// left, its damages, its level, and how long until it leaps on.
+/// A chain lightning, the Mage's or a creature's: its caster, the one it struck last (its caster
+/// before its first strike), the target of its first strike until it is made, the strikes left,
+/// its damages, its level, and how long until it leaps on.
 #[derive(Component, Debug, Clone)]
 struct Chain {
     caster: Entity,
     last: Entity,
+    first: Option<Entity>,
     left: u32,
     damages: [f32; 4],
     level: Level,
@@ -1910,23 +1912,12 @@ fn act(
                 );
             }
             spells::CHAIN => {
-                // Its first strike on its target at once, then its leaps (`0x526CAA`).
+                // Its first strike on its target at once where its bolt reaches it, then its
+                // leaps (`0x526CAA`).
                 if act.target == act.caster || places.get(act.target).is_err() {
                     continue;
                 }
                 let damages = bolt_damages(record, level, multipliers);
-                hits.write(fight::Hit {
-                    attacker: act.caster,
-                    target: act.target,
-                    share: 1.0,
-                    ranged: false,
-                    art: None,
-                    fixed: Some(damages),
-                    sure: true,
-                    poison: false,
-                    ward: true,
-                });
-                // Its bolt from his hand to the target's, as its system's (`chain_bolts`).
                 chain_lightning(
                     &mut commands,
                     (act.caster, act.target),
@@ -3133,6 +3124,28 @@ fn disk(
     }
 }
 
+/// Ends each purgatory at once at a cell that it may not pass, after its move and its strikes,
+/// the hero's and a creature's (`0x5A7B7F`, `0x636D20`): its look goes with it, its flames too
+/// (`purgatories::Quenched`).
+fn quench(
+    mut commands: Commands,
+    heights: Res<crate::terrain::Heights>,
+    disks: Query<(Entity, &Disk, &Transform)>,
+    mut quenched: MessageWriter<crate::purgatories::Quenched>,
+) {
+    for (entity, disk, transform) in &disks {
+        let at = transform.translation;
+        if disk.flight == Flight::Homes
+            && disk.left > 0.0
+            && !heights.passes(crate::paths::cell_of(at.x, at.z), disk.level)
+        {
+            debug!("spells: the purgatory {entity} ends at a cell that it may not pass");
+            quenched.write(crate::purgatories::Quenched(entity));
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
 /// A meteor's sounds as it starts to fall (`cParticleSystem_meteor`, 823, `0x7866C0`'s state 0):
 /// `MAGE_METEOREINSCHLAG02` where a coin is even, else `01`, at a rate's factor of
 /// `0.4 + (rand() % 10) / 45`, rolled first.
@@ -3231,9 +3244,9 @@ fn meteor(
     }
 }
 
-/// Starts the chain lightning of `caster`, the hero's or a creature's (#2900), whose first strike
-/// has struck `target`: its bolt from the caster to the target (`chain_bolts`), and its leaps
-/// after it, `strikes` in all with the first, of `damages`, on the level `level` (`0x526CAA`).
+/// Starts the chain lightning of `caster`, the hero's or a creature's (#2900), at `target`: its
+/// first strike as its bolt reaches it ([`chain`]), and its leaps after it, `strikes` in all with
+/// the first, of `damages`, on the level `level` (`0x526CAA`).
 pub(crate) fn chain_lightning(
     commands: &mut Commands,
     (caster, target): (Entity, Entity),
@@ -3241,39 +3254,47 @@ pub(crate) fn chain_lightning(
     damages: [f32; 4],
     level: Level,
 ) {
-    crate::chain_bolts::bolt(commands, caster, target);
     commands.spawn((
         Chain {
             caster,
-            last: target,
-            left: strikes.saturating_sub(1),
+            last: caster,
+            first: Some(target),
+            left: strikes,
             damages,
             level,
-            leaps: spells::CHAIN_LEAPS,
+            leaps: 0.0,
         },
         DespawnOnExit(AppState::InGame),
     ));
 }
 
-/// Leaps each chain lightning on, after its wait, to the nearest of its caster's foes within its
-/// look of the last it struck, the last aside, striking it, while strikes are left (`0x5B46CA`):
-/// the hero's, the creatures hostile to the hero; a creature's, the creatures hostile to it and
-/// the hero where it is hostile to the hero (`0x548F30`, #2900), so that it may come back to the
-/// hero from a follower of hers; a creature's whose caster is gone ends.
+/// Strikes each chain lightning's target, its first at once and then, after each wait, the
+/// nearest of its caster's foes within its look of the last it struck, the last aside, while
+/// strikes are left (`0x526CAA`, `0x5B46CA`): the hero's, the creatures hostile to the hero; a
+/// creature's, the creatures hostile to it and the hero where it is hostile to the hero
+/// (`0x548F30`, #2900), so that it may come back to the hero from a follower of hers; a
+/// creature's whose caster is gone ends. Each strike's bolt (`chain_bolts`) runs from the last's
+/// hand to the target's, each of its segments' starts tested on the chain's level
+/// (`particles::ChainBolt::laid`, `0x636A60`): at the first that may not be passed it ends, laid
+/// up to there, with no strike and no leap on (#3158).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their filters"
 )]
 fn chain(
     mut commands: Commands,
-    time: Res<Time>,
+    (time, heights): (Res<Time>, Res<crate::terrain::Heights>),
     mut chains: Query<(Entity, &mut Chain)>,
     creatures: Query<
         (Entity, &GlobalTransform, &InTheWay, &ai::Mind, &Health),
         (Without<Body>, Without<Dies>),
     >,
     heroes: Query<(Entity, &GlobalTransform, &Body, &Health)>,
-    (minds, places): (Query<&ai::Mind>, Query<&GlobalTransform>),
+    (minds, places, hands): (
+        Query<&ai::Mind>,
+        Query<&GlobalTransform>,
+        crate::chain_bolts::Hands,
+    ),
     mut hits: MessageWriter<fight::Hit>,
 ) {
     let dt = time.delta_secs();
@@ -3282,6 +3303,7 @@ fn chain(
         if chain.leaps > 0.0 {
             continue;
         }
+        let first = chain.first.take();
         let Ok(from) = places.get(chain.last).map(GlobalTransform::translation) else {
             commands.entity(entity).despawn();
             continue;
@@ -3316,12 +3338,34 @@ fn chain(
                     && health.current > 0
             })
             .filter_map(|(hero, at, ..)| Some((hero, near(at)?)));
-        let next = foes.chain(hero).min_by(|a, b| a.1.total_cmp(&b.1));
-        let Some((target, _)) = (chain.left > 0).then_some(next).flatten() else {
+        let next = match first {
+            Some(first) => places.contains(first).then_some(first),
+            None => foes
+                .chain(hero)
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+                .map(|(target, _)| target),
+        };
+        let Some(target) = (chain.left > 0).then_some(next).flatten() else {
             commands.entity(entity).despawn();
             continue;
         };
-        debug!("spells: the chain lightning leaps to {target}");
+        let (Some(start), Some(end)) = (hands.of(chain.last), hands.of(target)) else {
+            commands.entity(entity).despawn();
+            continue;
+        };
+        let s = crate::iso::MODEL_SCALE;
+        let along = (end - start).normalize_or(Vec3::X);
+        let laid = ChainBolt::laid((end - start).length() / s, |at| {
+            let at = start + along * at * s;
+            heights.passes(crate::paths::cell_of(at.x, at.z), chain.level)
+        });
+        crate::chain_bolts::bolt(&mut commands, (start, end), laid);
+        if let Some(kept) = laid {
+            debug!("spells: the chain lightning to {target} ends at a cell after {kept} segments");
+            commands.entity(entity).despawn();
+            continue;
+        }
+        debug!("spells: the chain lightning strikes {target}");
         hits.write(fight::Hit {
             attacker: chain.caster,
             target,
@@ -3333,7 +3377,6 @@ fn chain(
             poison: false,
             ward: true,
         });
-        crate::chain_bolts::bolt(&mut commands, chain.last, target);
         chain.last = target;
         chain.left -= 1;
         chain.leaps = spells::CHAIN_LEAPS;
@@ -3829,7 +3872,7 @@ impl Plugin for SpellsPlugin {
                     shield,
                     strike,
                     mine,
-                    disk,
+                    (disk, quench).chain(),
                     meteor,
                     chain,
                     spiral,
@@ -3865,16 +3908,170 @@ mod tests {
         struck.0.extend(hits.read().map(|hit| hit.target));
     }
 
-    #[test]
-    fn a_creatures_chain_lightning_leaps_between_the_hero_and_her_follower() {
+    /// The ground of sector (0, 0) walked on, but for the cells of the column `wall` where one is.
+    fn ground(wall: Option<i32>) -> crate::terrain::Heights {
+        use opensacred_data::world::{Cell, SIDE, Sector};
+        let cell = |ground| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground,
+        };
+        let cells = (0..SIDE * SIDE)
+            .map(|k| {
+                let x = i32::try_from(k % SIDE).unwrap_or(0);
+                cell(if Some(x) == wall { 0x41 } else { 0x40 })
+            })
+            .collect();
+        let mut heights = crate::terrain::Heights::default();
+        heights.add(&Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells,
+            statics: Vec::new(),
+            layers: Vec::new(),
+            buildings: Vec::new(),
+        });
+        heights
+    }
+
+    /// An app that runs the chain lightnings on `heights`, collecting their strikes.
+    fn chains(heights: crate::terrain::Heights) -> App {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
                 50,
             )))
+            .insert_resource(heights)
             .init_resource::<Struck>()
             .add_message::<fight::Hit>()
             .add_systems(Update, (chain, collect).chain());
+        app
+    }
+
+    #[test]
+    fn a_purgatory_is_quenched_at_a_cell_that_it_may_not_pass() {
+        #[derive(Resource, Default)]
+        struct Seen(Vec<Entity>);
+        fn seen(mut quenched: MessageReader<crate::purgatories::Quenched>, mut seen: ResMut<Seen>) {
+            seen.0.extend(quenched.read().map(|quenched| quenched.0));
+        }
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(ground(Some(3)))
+            .init_resource::<Seen>()
+            .add_message::<crate::purgatories::Quenched>()
+            .add_systems(Update, (quench, seen).chain());
+        let disk = |flight, left| Disk {
+            caster: Entity::PLACEHOLDER,
+            target: None,
+            last: None,
+            damages: [1.0; 4],
+            level: None,
+            left,
+            cooldown: 0.0,
+            speed: spells::PURGATORY_SPEED,
+            reach: spells::DISK_REACH,
+            all: true,
+            flight,
+        };
+        let at = |cell: f32| Transform::from_xyz((cell + 0.5) * crate::iso::CELL, 0.0, 30.0);
+        let walled = app
+            .world_mut()
+            .spawn((disk(Flight::Homes, 5.0), at(3.0)))
+            .id();
+        let open = app
+            .world_mut()
+            .spawn((disk(Flight::Homes, 5.0), at(2.0)))
+            .id();
+        // A hell disk flies over it; one whose time ran out goes by its own system.
+        let hell = app
+            .world_mut()
+            .spawn((disk(Flight::HellDisk { heading: Vec3::Y }, 5.0), at(3.0)))
+            .id();
+        let over = app
+            .world_mut()
+            .spawn((disk(Flight::Homes, 0.0), at(3.0)))
+            .id();
+        app.update();
+        assert_eq!(app.world().resource::<Seen>().0, vec![walled]);
+        let world = app.world();
+        assert!(world.get_entity(walled).is_err());
+        assert!(
+            [open, hell, over]
+                .iter()
+                .all(|e| world.get_entity(*e).is_ok())
+        );
+    }
+
+    #[test]
+    fn a_heros_chain_lightning_ends_at_a_cell_that_may_not_be_passed() {
+        let health = Health {
+            current: 50,
+            most: 50,
+            level: 1,
+        };
+        let way = InTheWay {
+            stands: ways::InTheWay {
+                stops: true,
+                hostile: true,
+                creature: true,
+            },
+            level: None,
+        };
+        let goblin = || ai::Mind::new(Vec3::ZERO, 0x1, (true, false), None, [10.0, 20.0], (1, 10));
+        let at = |x: f32| GlobalTransform::from_translation(Vec3::new(x, 0.0, 0.0));
+        let chain = |caster, first| Chain {
+            caster,
+            last: caster,
+            first: Some(first),
+            left: 2,
+            damages: [1.0; 4],
+            level: None,
+            leaps: 0.0,
+        };
+        // The Mage, a goblin 100 before her and another 300 off, with or without a wall of the
+        // cells of the column 3 between them: with none, her chain strikes the far one and leaps
+        // to the near one; with it, her first strike at the far one stops at the wall, none
+        // struck, and from the near one her leap to the far one stops there too.
+        for (wall, near_first, struck) in [
+            (None, false, vec![1, 0]),
+            (Some(3), false, vec![]),
+            (Some(3), true, vec![0]),
+        ] {
+            let mut app = chains(ground(wall));
+            let hero = app
+                .world_mut()
+                .spawn((at(0.0), crate::hero::Body::standing(), health))
+                .id();
+            let goblins =
+                [100.0, 300.0].map(|x| app.world_mut().spawn((at(x), goblin(), way, health)).id());
+            let first = goblins[if near_first { 0 } else { 1 }];
+            app.world_mut().spawn(chain(hero, first));
+            for _ in 0..20 {
+                app.update();
+            }
+            let expected: Vec<Entity> = struck.iter().map(|&k| goblins[k]).collect();
+            assert_eq!(app.world().resource::<Struck>().0, expected, "{wall:?}");
+            assert!(
+                app.world_mut()
+                    .query::<&Chain>()
+                    .iter(app.world())
+                    .next()
+                    .is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn a_creatures_chain_lightning_leaps_between_the_hero_and_her_follower() {
+        let mut app = chains(ground(None));
         let health = Health {
             current: 50,
             most: 50,
@@ -3917,21 +4114,22 @@ mod tests {
             .id();
         app.world_mut()
             .spawn((at(-50.0), mind(145, 2), way, health));
-        // Its first strike on the hero, four left to leap.
+        // Its first strike on the hero, four to leap after.
         app.world_mut().spawn(Chain {
             caster,
-            last: hero,
-            left: 4,
+            last: caster,
+            first: Some(hero),
+            left: 5,
             damages: [1.0; 4],
             level: None,
-            leaps: spells::CHAIN_LEAPS,
+            leaps: 0.0,
         });
         for _ in 0..30 {
             app.update();
         }
         assert_eq!(
             app.world().resource::<Struck>().0,
-            vec![follower, hero, follower, hero]
+            vec![hero, follower, hero, follower, hero]
         );
         // Its caster gone, a chain ends.
         app.world_mut().resource_mut::<Struck>().0.clear();
@@ -3939,6 +4137,7 @@ mod tests {
         app.world_mut().spawn(Chain {
             caster,
             last: hero,
+            first: None,
             left: 4,
             damages: [1.0; 4],
             level: None,
