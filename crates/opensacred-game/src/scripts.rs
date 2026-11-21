@@ -844,6 +844,11 @@ impl Live {
         &self.state.map_names.0
     }
 
+    /// The places that the maps' lens draws (`SetMapIcon` of a kind, #2932).
+    pub fn map_places(&self) -> &[quests::MapPlace] {
+        &self.state.map_places.0
+    }
+
     /// The mouse events with uses left: the hidden stashes not searched yet (`MachVersteck`,
     /// #1518) and the `MouseEvent` records' (#1584).
     pub fn stashes(&self) -> &[quests::Stash] {
@@ -1701,13 +1706,16 @@ impl Host for Recorder<'_> {
                 }
                 Handled::Done
             }
-            // A place's name on the world map (`SetMapIcon`, 97, `0x4A81F0`; #1577): a text and
-            // four numbers; the lens's places of three numbers and no text not followed.
+            // A place's name on the world map of a text and four numbers (#1577), or a place
+            // of the maps' lens of three (`SetMapIcon`, 97, `0x4A81F0`; #2932).
             "set_map_icon" => {
-                if let (Some(text), &[x, y, curvature, angle]) =
-                    (tags.texts("_01").first(), tags.numbers("_0B").as_slice())
-                {
-                    self.state.map_names.add(text, [x, y, curvature, angle]);
+                let texts = tags.texts("_01");
+                match quests::map_icon(texts.first().copied(), &tags.numbers("_0B")) {
+                    Some(quests::MapIcon::Name(text, numbers)) => {
+                        self.state.map_names.add(text, numbers);
+                    }
+                    Some(quests::MapIcon::Place(place)) => self.state.map_places.0.push(place),
+                    None => {}
                 }
                 Handled::Done
             }

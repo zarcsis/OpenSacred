@@ -17,8 +17,9 @@
 //! The left button held off the bar shows the lens (#1568, `0x6CCBD0`): over 0.2 s a view of
 //! 700 × 525 at the screen's middle of the minimap's ground about the point under the pointer
 //! (`minimap`), its fog of war over the land explored (`explored`), the quests' icons with
-//! their titles beside them and the creatures' marks (#1571, `lens_creatures`); the map's
-//! tooltip hides under it.
+//! their titles beside them, the creatures' marks (#1571, `lens_creatures`), the places of
+//! the start scripts' `SetMapIcon`s of a kind whose cells are explored and the pin (#2932); the
+//! map's tooltip hides under it.
 //!
 //! The pin's button starts the pin's mode, its cursor the pin (#1569, `0x6C8140`): a left
 //! release off the bar places the pin there, its mark the pin's picture 64 × 64, its world
@@ -33,9 +34,8 @@
 //! `SetMapIcon`s whose sector has been seen, written on its arc in the ink of
 //! `ui_worldMapFontBg`.
 //!
-//! Not followed yet: the lens's party, its places and
-//! pin, and its titles' layout apart; the buttons' pressed looks and tooltips, and the edges'
-//! cursors.
+//! Not followed yet: the lens's party and its titles' layout apart; the buttons' pressed looks
+//! and tooltips, and the edges' cursors.
 
 use bevy::input::InputSystems;
 use bevy::input::mouse::AccumulatedMouseMotion;
@@ -728,6 +728,13 @@ fn show_lens(
                     (live, &seek),
                     point,
                 );
+                places_in_lens(
+                    &mut commands,
+                    plane,
+                    (&images, &assets),
+                    (live.map_places(), &land, map.pin_world),
+                    point,
+                );
             }
             lens.laid = Some((point, sector));
             (view, Some(plane))
@@ -750,6 +757,82 @@ fn show_lens(
             }
         }
     }
+}
+
+/// The lens's places (`0x6CCBD0` at `0x6CF4E9`): the images of the kinds 1 to 4, the last two
+/// green (`0xFF00FF00`), the others as they are, and how far about the lens's sector, in sectors,
+/// it takes them (its 5 × 5 sectors).
+const PLACE_IMAGES: [(u32, u32); 4] = [
+    (125, 0xFFFF_FFFF),
+    (126, 0xFFFF_FFFF),
+    (139, 0xFF00_FF00),
+    (138, 0xFF00_FF00),
+];
+const PLACES_REACH: i32 = 2;
+
+/// The image and the colour of a lens's place of the kind `kind`, none but of 1 to 4.
+fn place_image(kind: u8) -> Option<(u32, u32)> {
+    PLACE_IMAGES.get(usize::from(kind).checked_sub(1)?).copied()
+}
+
+/// Whether the lens of the iso plane's point `point` takes a place at the cell `cell`: within its
+/// sector's 5 × 5 sectors.
+fn place_within(cell: (i32, i32), point: Vec2) -> bool {
+    let world = crate::minimap::world(point);
+    let sector = |x: f32| (x / (64.0 * crate::iso::CELL)).floor();
+    let (x, y) = (sector(world.x), sector(world.y));
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "a cell of the world, within its 8,192"
+    )]
+    let within =
+        |cell: i32, of: f32| ((cell.div_euclid(64)) as f32 - of).abs() <= PLACES_REACH as f32;
+    within(cell.0, x) && within(cell.1, y)
+}
+
+/// The places of `SetMapIcon` in the lens about the iso plane's point `point` (`0x6CCBD0`, #2932):
+/// each whose cell the hero has explored (`0x638E60`), its kind's image at its own size about the
+/// cell's middle, in its colour; then the pin, its picture 64 × 64 about its world point, explored
+/// or not.
+pub(crate) fn places_in_lens(
+    commands: &mut Commands,
+    plane: Entity,
+    (images, assets): (&UiImages, &AssetServer),
+    (places, land, pin): (
+        &[opensacred_rules::quests::MapPlace],
+        &crate::explored::Land,
+        Option<Vec2>,
+    ),
+    point: Vec2,
+) {
+    let screen_of = |world: Vec2| (crate::minimap::iso(world) - point) / 12.0 + bar::SCREEN / 2.0;
+    for place in places {
+        let Some((image, colour)) = place_image(place.kind) else {
+            continue;
+        };
+        if !place_within(place.cell, point) || !land.0.explored(place.cell) {
+            continue;
+        }
+        let screen = screen_of(crate::paths::centre(place.cell));
+        let size = images.size(image);
+        let (mut picture, node) =
+            bar::piece(images, assets, image, screen - size / 2.0, Vec2::ZERO);
+        picture.color = argb(colour);
+        let child = commands.spawn((picture, node, Pickable::IGNORE)).id();
+        commands.entity(plane).add_child(child);
+    }
+    let (Some(pin), Some(file)) = (pin, images.file(PUSHPIN)) else {
+        return;
+    };
+    let screen = screen_of(pin);
+    let mark = commands
+        .spawn((
+            ImageNode::new(crate::hud::image(assets, file.to_owned())),
+            bar::placed(screen - Vec2::splat(PIN_MARK / 2.0), Vec2::splat(PIN_MARK)),
+            Pickable::IGNORE,
+        ))
+        .id();
+    commands.entity(plane).add_child(mark);
 }
 
 /// The quests' icons and titles in the lens about the iso plane's point `point`, at their
