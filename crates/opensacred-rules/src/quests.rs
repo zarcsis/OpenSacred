@@ -1534,6 +1534,9 @@ pub struct Scripts {
     /// The places' names that the world map writes (`SetMapIcon` with a text, #1577).
     #[serde(default)]
     pub map_names: MapNames,
+    /// The places that the maps' lens draws (`SetMapIcon` of a kind, #2932).
+    #[serde(default)]
+    pub map_places: MapPlaces,
 }
 
 /// The scripts' pools of places (`AddPoolPos`, 108; the interpreter's list at `+0x334`, entries
@@ -1787,9 +1790,80 @@ impl MapNames {
     }
 }
 
+/// A place that the maps' lens draws (`SetMapIcon`'s entry of no text, `0x4A81F0`; docs/re/maps.md,
+/// "The places, the people, the portals, the frontier and the pacified areas"): its cell and its
+/// kind, the entry's byte `+0x10`, 1 to 4 drawn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MapPlace {
+    pub cell: (i32, i32),
+    pub kind: u8,
+}
+
+/// The lens's places in the order the scripts set them (the script manager's vector `+0x430`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MapPlaces(pub Vec<MapPlace>);
+
+/// What a `SetMapIcon` (97, `0x4A81F0`) makes of its text `text` and its numbers `numbers`: none
+/// without a cell of two numbers of 0 and above and a third; a place's name of a text and four
+/// numbers, the curvature and the angle the third and the fourth; else, of three numbers, a lens's
+/// place of the kind the third's low byte, whatever text it has (an entry of four numbers and no
+/// text keeps a text that names nothing, and is neither).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MapIcon<'a> {
+    Name(&'a str, [i32; 4]),
+    Place(MapPlace),
+}
+
+pub fn map_icon<'a>(text: Option<&'a str>, numbers: &[i32]) -> Option<MapIcon<'a>> {
+    let &[x, y, third, ref rest @ ..] = numbers else {
+        return None;
+    };
+    if x < 0 || y < 0 {
+        return None;
+    }
+    match (text, rest.first()) {
+        (Some(text), Some(&fourth)) => Some(MapIcon::Name(text, [x, y, third, fourth])),
+        (None, Some(_)) => None,
+        (_, None) => Some(MapIcon::Place(MapPlace {
+            cell: (x, y),
+            kind: third.to_le_bytes()[0],
+        })),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_map_icon_is_a_name_of_four_numbers_and_a_text_else_a_place_of_three() {
+        assert_eq!(
+            map_icon(Some("NAME"), &[100, 200, 5, -10]),
+            Some(MapIcon::Name("NAME", [100, 200, 5, -10]))
+        );
+        let place = |kind| {
+            Some(MapIcon::Place(MapPlace {
+                cell: (100, 200),
+                kind,
+            }))
+        };
+        assert_eq!(map_icon(None, &[100, 200, 2]), place(2));
+        // A text of three numbers is a place too; the third's low byte its kind.
+        assert_eq!(map_icon(Some("NAME"), &[100, 200, 0x101]), place(1));
+        // Four numbers and no text, a cell below 0 or no third: nothing.
+        assert_eq!(map_icon(None, &[100, 200, 2, 3]), None);
+        assert_eq!(map_icon(None, &[-1, 200, 2]), None);
+        assert_eq!(map_icon(None, &[100, -1, 2]), None);
+        assert_eq!(map_icon(Some("NAME"), &[100, 200]), None);
+        // The cell's 0 is a cell.
+        assert_eq!(
+            map_icon(None, &[0, 0, 1]),
+            Some(MapIcon::Place(MapPlace {
+                cell: (0, 0),
+                kind: 1
+            }))
+        );
+    }
 
     #[test]
     fn a_places_third_number_spreads_its_cells_and_its_fourth_is_the_level() {
