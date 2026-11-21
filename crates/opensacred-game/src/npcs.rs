@@ -3505,7 +3505,8 @@ fn set_states(
 }
 
 /// Where the records' `NPC_Goto`s send the NPCs they name, by name: the global cell and the
-/// layer of the last that names each (`0x49E210`, which orders the creature to walk there).
+/// layer of the last that names each (`0x49E210`, which orders the creature to walk there), the
+/// creature of a record's last name ([`mover`], #3240).
 fn goto_targets(records: &[&Record]) -> HashMap<String, (i32, i32, i32)> {
     records
         .iter()
@@ -3518,7 +3519,7 @@ fn goto_targets(records: &[&Record]) -> HashMap<String, (i32, i32, i32)> {
                 (0x04, Value::I32x3([x, y, layer])) => Some((*x, *y, *layer)),
                 _ => None,
             })?;
-            Some((name_of(ops)?, target))
+            Some((mover(NPC_GOTO, ops, true)?, target))
         })
         .collect()
 }
@@ -17113,6 +17114,29 @@ mod tests {
         assert_eq!(position(ops, &named), Some(((3370, 2524, 0), 0)));
         let targets = goto_targets(&records);
         assert_eq!(targets["res:17095"], (3237, 2514, 0));
+        // A record of two names sends the creature of its last (`0x49E210`, #3240).
+        let twice = Record {
+            kind: NPC_GOTO,
+            body: Body::Operands(vec![
+                Operand {
+                    tag: 0x01,
+                    value: Value::Str("HERO".into()),
+                },
+                Operand {
+                    tag: 0x01,
+                    value: Value::Str("Anducar".into()),
+                },
+                Operand {
+                    tag: 0x04,
+                    value: Value::I32x3([10, 20, 0]),
+                },
+            ]),
+        };
+        let targets = goto_targets(&[&twice]);
+        assert_eq!(
+            (targets.get("anducar"), targets.get("hero")),
+            (Some(&(10, 20, 0)), None)
+        );
     }
 
     #[test]

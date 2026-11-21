@@ -439,8 +439,9 @@ fn meets(wearer: &Wearer, asks: &Asks) -> bool {
 
 /// Whether a creature of the type `creature` may use an item that `asks` so by its classes and
 /// its weapon's kind alone (`0x54ABE0` with its second argument 1, the item's virtual `+0x38`):
-/// its classes (no bit or every bit any class; the bit 6, which the types 1800 to 1804 take,
-/// none below the type 32 and the classes' bits cleared above it; else the creature's own, a
+/// its classes (no bit or every bit any class; the bit 6 none below the type 32, and the types
+/// 1800 to 1804 take it with their classes' bits cleared, so that any of the type 32 and above
+/// takes them (`0x5BF810` at `0x5BF8D5`); else the creature's own, a
 /// hero's or that of a type of [`taker_bit`], none for another; `0x5BF810`), the weapons' kinds
 /// (the Dwarf not the kinds 4, 7 and 12 nor the bridles 29, the Daemon not 7, the kind 3 the
 /// Gladiator's and the Dwarf's alone). An item of some classes but not all that has a group of
