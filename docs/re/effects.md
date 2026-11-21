@@ -162,7 +162,7 @@ The smoke class writes the renderer's vector (`+0x68` … `+0x70` times `+0x74`,
 
 `0x764760` (the class's clock, its emission blocks, its layers, a point, the count of layers `n`): the particles leave the system's position (or one of its three points; the origin 0 with the system flag `2`).
 
-**An emission block**, 100 bytes per layer, side by side as the layers are: `+0x00` `g` and `+0x04` its spread, `+0x08` the size and `+0x0C` its spread, `+0x10` the angle and `+0x14` its spread, `+0x18` the angle's speed and `+0x1C` its spread, `+0x20` … `+0x28` the velocity and `+0x2C` … `+0x34` its spreads, `+0x38` … `+0x40` an offset of the position and `+0x44` … `+0x4C` its spreads, `+0x50` a colour and `+0x54` its spread (a random colour about it where `+0x54` is not 0), `+0x58` the interval between two particles in seconds, `+0x5C` the count of a burst, `+0x60` a byte, the frame: 0 the first, `0xFF` the layer's index, another `m` a frame at random below `m`.
+**An emission block**, 100 bytes per layer, side by side as the layers are: `+0x00` `g` and `+0x04` its spread, `+0x08` the size and `+0x0C` its spread, `+0x10` the angle and `+0x14` its spread, `+0x18` the angle's speed and `+0x1C` its spread, `+0x20` … `+0x28` the velocity and `+0x2C` … `+0x34` its spreads, `+0x38` … `+0x40` an offset of the position and `+0x44` … `+0x4C` its spreads, `+0x50` a colour and `+0x54` its spread (a random colour about it where `+0x54` is not 0: each byte, the alpha, red, green and blue in turn, its value less its spread plus twice its spread by a roll, truncated and ORed unclamped into the colour's word shifted a byte on, `0x765209`; `opensacred_rules::particles::rolled_colour` since #3155), `+0x58` the interval between two particles in seconds, `+0x5C` the count of a burst, `+0x60` a byte, the frame: 0 the first, `0xFF` the layer's index, another `m` a frame at random below `m`.
 A spread `s` adds a uniform `[−s, s]`.
 
 - With the first block's interval 0 the emission is a burst: up to `+0x5C` particles into dead slots at once (the classes call it at their clock's 0).
@@ -821,7 +821,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` draws it since #1092 (`holy_lights`, `opensacred_rules::particles::{HolyLight, HOLY_COLUMN, holy_pulse}`): the object that `spells` stands at the point gets its look for its seconds, its column of its vertices' colours alone (`fx::plain_material`) with its bands across the screen's horizontal, its symbol and glow on the ground and its sparks added whole, untinted by the night, and its light of 200 at it.
 **Seen** 2026-11-04 beside the original's frames in the chapel of 50,39: a soft white column rising out of the frame with sparks climbing it, over a cyan glow and the turning symbol, alike in breadth, both narrowing as they fade.
-Not followed: the sparks' colours' spread (#3155); its Direct3D point light on the models follows since #2106.
+Each spark takes its own colour about the block's by its spread since #3155 (`HOLY_SPARK_SPREAD`); its Direct3D point light on the models follows since #2106.
 
 ## The blades of light
 
@@ -1738,7 +1738,8 @@ Their FX events take the event's direction and the flag `0x40`, so each flies le
 
 `opensacred-game` draws them since #1092 (`bolt_trails`, `opensacred_rules::particles::{BoltTrail, TrailKind}`), in place of their stand-in balls: the whirlwind leaves its caster's `__Root` and flies level at its height, its dust left along its way in the colour of the ground where it leaves (`terrain::Heights::nature`, `GROUND_COLOURS`), at the alpha of its life, laid over and tinted by the light; the fire bolt leaves its caster's left hand, its smoke riding with it, added and untinted by the night.
 **Seen** 2026-11-05 beside the original: the Mage's whirlwinds' dark green dust about her and along their way, gone where a tree stops them; the fire bolt's teal and white glow at the caster's hand and at its target alike in size and colour (Sharifo's in the game, the Mage's taught the spell 52 in the original).
-Not followed: the dust's colour spread (#3155) and the fire bolt's one puff at its end (its Direct3D light follows since #2106) (**hypothesis**: drawn from a stale origin, far off; #3163).
+Each puff of the dust takes its own colour about the ground's by 16 since #3155 (`BoltTrail::with_ground`, `WINDSTRIKE_SPREAD`).
+Not followed: the fire bolt's one puff at its end (its Direct3D light follows since #2106) (**hypothesis**: drawn from a stale origin, far off; #3163).
 
 ## The ice splinters
 
