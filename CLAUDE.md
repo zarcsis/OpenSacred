@@ -34,6 +34,7 @@ An open-source engine for Sacred Gold 2.28 (GOG), written in Rust: an offline co
 | `pyproject.toml`, `uv.lock`, `.python-version` | the repository's Python, through uv (docs/03 §2): uv's own Python 3.15, never the system's, and the packages of `tools/` at the versions of `uv.lock`, in `.venv/` (ignored by Git); every script runs as `uv run python -I <script>`, the hooks and CI's usage badge as `uv run --no-project python -I`, which need no package |
 | `.claude/skills/game/` | the project skill `game`: how to run the game and drive it (scripts, remote control) |
 | `.claude/skills/original/` | the project skill `original`: how to run the original `Sacred.exe` in the background and drive it |
+| `.claude/agents/researcher.md` | the project's subagent `researcher`, on Claude Mythos 5.2 at the effort `xhigh`: it reads the original and writes what it finds into the documents, while the sessions themselves run on Claude Opus 5.5 at `xhigh` (`.claude/settings.json`) and write the code (#3310) |
 
 ## Commands
 
@@ -82,6 +83,7 @@ uv run python -I tools/analysis/formats/<script>.py   # Python prototypes, on Or
 ## Work order
 
 - The queue is the open issues (PLAN.md §10.1). Priorities: first the bugs (`bug`), then the dependency upgrades (`deps`), then new features (`feature`, `research`), the earliest milestone first. A problem found along the way becomes an issue of its own.
+- The research is the subagent `researcher`'s, the code the session's (#3310; docs/03 §3.3): a session runs on Claude Opus 5.5 at the effort `xhigh` (`.claude/settings.json`), hands every reading of the original (the Ghidra project, the running original, the data) and the writing of what it finds into `docs/re/`, `docs/02-data-formats.md` and `docs/decisions/` to `researcher` (Claude Mythos 5.2 at `xhigh`), and an issue labeled `research` or `docs` whole, then writes the code from its notes, commits, and keeps the issue and its pull request. It starts `researcher` with no model and no effort of its own, since either would outrank the definition's.
 - The dependencies are updated every day without a session: the Dependencies workflow (`.github/workflows/deps.yml` running `tools/deps/daily.py`, #1550) works as the maintainer's GitHub App `opensacred-deps`. A contributor's change leaves `Cargo.lock` and `uv.lock` alone unless the task is about dependencies.
   1. `cargo update --verbose` and `uv lock --upgrade` move every package to its newest compatible version, within the bounds of `Cargo.toml` and `pyproject.toml`, and the holds of `tools/deps/holds.toml` are put back.
   2. If `Cargo.lock` or `uv.lock` changed: a pull request `Dependencies: cargo update` from the branch `deps/cargo-update-<date>`, label `deps`, no issue, the changes in its body, merged with `--squash --auto` once CI is green. CI has no game files, so it merges without `--run-ignored all` (the maintainer's decision of 2026-10-30): a patch release of `png`, `miniz_oxide`, `ron` or `postcard` that changes the converter's output, or one of a Python package that changes the research scripts' output, shows in the tests on the game files of the next task that touches them.
