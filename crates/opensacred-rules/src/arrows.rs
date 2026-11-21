@@ -207,6 +207,14 @@ pub fn passes(projectile: u32, ghost: bool, pierces: bool) -> bool {
     matches!(projectile, ARROW | MULTI_ARROW | ZEAL_ARROW) && (ghost || pierces)
 }
 
+/// Whether an arrow of the type `projectile` that hits a creature plays its own hit, the `HIT` of
+/// its shooter's weapon, before the strike's resolution sounds at the target (`0x5BB010`'s case
+/// `0xBFE`, `0x5BBE00`): the plain arrow 3070 alone, where it ends there rather than passing
+/// through (`passes`).
+pub fn sounds_its_hit(projectile: u32, passes: bool) -> bool {
+    projectile == ARROW && !passes
+}
+
 /// How long an arrow stays stuck in a creature after its hit, in seconds, and the size above
 /// which a creature takes it (`0x5BAB40`).
 pub const STICKS_FOR: f32 = 5.0;
@@ -710,6 +718,9 @@ mod tests {
         // Not a living creature for a shooter without the flag, nor the other arrows.
         assert!(!passes(ARROW, false, false));
         assert!(!passes(HARD_ARROW, true, true) && !passes(3077, true, false));
+        // The plain arrow alone sounds its own hit, where it ends in what it hits.
+        assert!(sounds_its_hit(ARROW, false));
+        assert!(!sounds_its_hit(ARROW, true) && !sounds_its_hit(MULTI_ARROW, false));
     }
 
     #[test]

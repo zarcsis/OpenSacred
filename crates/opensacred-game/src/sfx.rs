@@ -5,7 +5,8 @@
 //! air; at the target, the striker's weapon's `HIT` when the hit did damage, else its `PARADE`,
 //! by the item's sound profile (`items.pak +0x24`), the fist's for bare hands, an animal that
 //! takes no damage hearing a sword's, a mace's, an axe's or a dagger's miss instead and nothing
-//! of another weapon ([`Missing`], #1168); a shot's `SHOOT` by the bow's profile; and a gun's
+//! of another weapon ([`Missing`], #1168); a shot's `SHOOT` by the bow's profile, and a plain
+//! arrow's own `HIT` by it where the arrow ends in what it hits (#3208); and a gun's
 //! fire at each of its shots ([`Gunfire`], #1963). The world's and the interface's other sounds
 //! that the modules ask for, at an entity or in the middle ([`Play`]) or at a point ([`PlayAt`],
 //! #1173): the doors', the items' taken and the level-up's among them (#1166, #1167;
@@ -424,7 +425,8 @@ impl Armed {
 }
 
 /// A weapon's sound: a strike's swing by its striker, the sound at a hit's target by its
-/// striker's weapon (`landed` whether the hit did damage), or a shot by its shooter's.
+/// striker's weapon (`landed` whether the hit did damage), a shot by its shooter's, or a plain
+/// arrow's own hit by its shooter's at the creature it ends in.
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Blow {
     Swing {
@@ -437,6 +439,10 @@ pub enum Blow {
     },
     Shot {
         shooter: Entity,
+    },
+    Arrow {
+        shooter: Entity,
+        struck: Entity,
     },
 }
 
@@ -571,6 +577,14 @@ fn blows(
                     continue;
                 };
                 (shooter, profile, SHOOT, 0.5)
+            }
+            // The plain arrow's own hit, by the weapon's type that its shot gave it, its `HIT`
+            // as the shot's `SHOOT` (`0x5BB010`'s case `0xBFE`, `0x5BBE00`).
+            Blow::Arrow { shooter, struck } => {
+                let Some(profile) = armed(shooter).weapon else {
+                    continue;
+                };
+                (struck, profile, HIT, 0.5)
             }
         };
         let Ok(place) = places.get(at) else {
