@@ -1224,6 +1224,20 @@ fn a_drop_rises_and_falls_in_place_after_about_1_6_s() {
 }
 
 #[test]
+fn a_rewards_item_lies_at_its_point_from_its_first_step() {
+    // Made at rest with no flight (#2872): on the ground there at once, unturned, whatever the
+    // frame's time.
+    for dt in [1.0 / 60.0, 0.0] {
+        let mut laid = Flight::laid([4.0, 5.0]);
+        assert!(!laid.resting);
+        laid.step(dt, |x, y| x + y);
+        assert!(laid.resting);
+        assert_eq!(laid.at, [4.0, 5.0, 9.0]);
+        assert_eq!(laid.angles, [0.0; 3]);
+    }
+}
+
+#[test]
 fn a_part_thrown_off_flies_faster_and_spins_more() {
     // The draws of `R(−100, 100)` twice and `R(−15, 15)` three times.
     let flung = Flight::flung(4.0, 5.0, &mut script(&[200, 0, 30, 15, 0]));

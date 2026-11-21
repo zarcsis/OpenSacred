@@ -12,8 +12,9 @@
 //!
 //! The types' sounds are the original's cascade worked out over its types' names
 //! (`0x8EC328`): the two tables of name prefixes that `0x697860` fills, the lists of types, and the
-//! names' parts. The fliers are the types of the `Creature.pak` flag 1 that it sends through its
-//! wings while in the air (`+0x1F4` bit `0x200000`; **hypothesis**: always in the air).
+//! names' parts. A flyer aloft (`flight::Aloft`, the original's `+0x1F4` bit `0x200000`) and the
+//! type 54 step with the wings by the type's name; on the ground the cascade gives the flying
+//! types no step (#3247).
 
 use std::collections::HashMap;
 
@@ -42,6 +43,8 @@ const SPIDERS: u32 = 114;
 const SMALL_WINGS: [u32; 2] = [1194, 1199];
 const BIG_WINGS: [u32; 2] = [1197, 1198];
 const WINGS: [u32; 2] = [1195, 1196];
+/// The type whose steps are the big wings' wherever it is (`0x68EB90`).
+const BIG_WINGED: u32 = 54;
 /// The Big Demon, whose steps jolt the screen, and the giant spiders, whose steps are slower.
 const BIG_DEMON: u32 = 53;
 const GIANT_SPIDERS: [u32; 2] = [55, 237];
@@ -70,9 +73,13 @@ pub enum Ground {
     Only(u8),
 }
 
-/// The sound of the steps of the creature type `kind` (`0x68EB90`), none for a type that makes
-/// none (the heroes' types among them, as other creatures).
-pub fn sound(kind: u32) -> Option<Sound> {
+/// The sound of the steps of a creature of the type `kind`, `aloft` or on the ground
+/// (`0x68EB90`): the wings aloft and for the type 54, else the cascade's, none for a type that
+/// makes none (the heroes' types and the flying types on the ground among them).
+pub fn sound(kind: u32, aloft: bool) -> Option<Sound> {
+    if aloft || kind == BIG_WINGED {
+        return Some(Sound::Wings(wings(kind)));
+    }
     let ground = |profile| Some(Sound::Ground(profile, Ground::Only(1)));
     match kind {
         4..=5
@@ -171,10 +178,17 @@ pub fn sound(kind: u32) -> Option<Sound> {
         52..=53 | 74 | 88 | 94 | 100..=103 => ground(BIGGER),
         55..=56 | 194 | 209 | 237 | 246 | 347..=348 => ground(TATZEL),
         71 | 75 | 99 | 109 | 234..=236 | 601 => ground(SPIDERS),
-        54 => Some(Sound::Wings(BIG_WINGS)),
-        190 | 193 | 335..=336 => Some(Sound::Wings(WINGS)),
-        513 | 589..=590 => Some(Sound::Wings(SMALL_WINGS)),
         _ => None,
+    }
+}
+
+/// The wings of the type `kind`, by its name: the crows' small, the type 54's big, the others'
+/// (the giant fly's and the hornets').
+fn wings(kind: u32) -> [u32; 2] {
+    match kind {
+        BIG_WINGED => BIG_WINGS,
+        513 | 589..=590 => SMALL_WINGS,
+        _ => WINGS,
     }
 }
 
@@ -245,7 +259,7 @@ fn step(
             &Npc,
             (Option<&Walk>, Option<&crate::npcs::Steered>),
             &GlobalTransform,
-            &crate::ai::Mind,
+            (&crate::ai::Mind, Has<crate::flight::Aloft>),
             Option<&Stepped>,
         ),
         Without<Dies>,
@@ -259,7 +273,7 @@ fn step(
         Option<ResMut<crate::weather::Weather>>,
     ),
 ) {
-    for (entity, npc, (walk, steered), at, mind, stepped) in &walkers {
+    for (entity, npc, (walk, steered), at, (mind, aloft), stepped) in &walkers {
         let moving = match (walk, steered) {
             (Some(walk), _) => npc.walking(walk),
             (None, Some(steered)) => npc.steered(steered),
@@ -303,7 +317,7 @@ fn step(
             {
                 weather.set(Event::Jolt(JOLT));
             }
-            let Some(sound) = sound(kind) else {
+            let Some(sound) = sound(kind, aloft) else {
                 continue;
             };
             let base = if GIANT_SPIDERS.contains(&kind) {
@@ -349,13 +363,27 @@ mod tests {
 
     #[test]
     fn a_type_steps_by_its_sound() {
-        assert_eq!(sound(300), Some(Sound::Ground(HUMAN, Ground::Hero)));
-        assert_eq!(sound(53), Some(Sound::Ground(BIGGER, Ground::Only(1))));
-        assert_eq!(sound(54), Some(Sound::Wings(BIG_WINGS)));
-        assert_eq!(sound(551), Some(Sound::Ground(HORSE, Ground::Horse)));
-        assert_eq!(sound(1), None);
+        assert_eq!(sound(300, false), Some(Sound::Ground(HUMAN, Ground::Hero)));
+        assert_eq!(
+            sound(53, false),
+            Some(Sound::Ground(BIGGER, Ground::Only(1)))
+        );
+        assert_eq!(sound(54, false), Some(Sound::Wings(BIG_WINGS)));
+        assert_eq!(sound(551, false), Some(Sound::Ground(HORSE, Ground::Horse)));
+        assert_eq!(sound(1, false), None);
         assert_eq!(group(Ground::Horse, 0xC), 5);
         assert_eq!(group(Ground::Big, 0x5), 2);
+    }
+
+    #[test]
+    fn a_flyer_flaps_its_wings_aloft_alone() {
+        // Aloft, by its type's name; on the ground, the cascade gives it no step.
+        assert_eq!(sound(513, true), Some(Sound::Wings(SMALL_WINGS)));
+        assert_eq!(sound(190, true), Some(Sound::Wings(WINGS)));
+        assert_eq!(sound(54, true), Some(Sound::Wings(BIG_WINGS)));
+        for kind in [190, 193, 335, 336, 513, 589, 590] {
+            assert_eq!(sound(kind, false), None, "{kind}");
+        }
     }
 
     #[test]

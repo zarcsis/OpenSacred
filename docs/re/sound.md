@@ -706,7 +706,7 @@ Read further 2026-10-27 for #1171 (**confirmed** by code unless marked otherwise
 - **The lists** are the idle noises': every animation step posts the event (6), and a creature within 1,200 pixels enters the first list (hostile, at most 32) or the second (at most 256); a step is heard within the hearing distance, 900 pixels at zoom 1.
 - **The play**: `playSFX` at the creature at a rate's factor of 0.4 + 0.2·`rand()`/32767 (0.3 less for the giant spiders 55 and 237), the volume and pan of its place, no waits; the wings 1194/1199, 1195/1196 or 1197/1198 at even odds.
 - **The Big Demon** (53, not 94): each of its steps makes an `FX_SMALLFIRE` (878) at its place and sends the weather's jolt of 18, then its sound 113.
-- `opensacred-game` plays them (`steps`, #1171): the types' sounds as the cascade gives them, the steps at the clip's moments of the walk or the run that plays, at the creature, the fliers of the flag 1 taking the wings always, as if never on the ground, where the original's take them only while aloft and step silently on the ground (docs/re/ai.md, "The flyers"; #3247); the Big Demon's jolt with them, not its fire.
+- `opensacred-game` plays them (`steps`, #1171): the types' sounds as the cascade gives them, the steps at the clip's moments of the walk or the run that plays, at the creature, a flyer aloft (`flight::Aloft`) and the type 54 taking the wings, a flyer on the ground no step, as the original's (docs/re/ai.md, "The flyers"; since #3247); the Big Demon's jolt with them, not its fire.
 
 #### Ambience
 

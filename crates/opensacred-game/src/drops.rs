@@ -1022,7 +1022,7 @@ pub(crate) fn scripted(
 }
 
 /// Lays a quest's reward, an item of type `item`, at `at` on `level` (`0x4AC940`, `0x45FC60`:
-/// made beside the hero), rising from 60 over the ground as a dropped item ([`Flight::dropped`]),
+/// made before the hero), at rest on the ground there with no flight ([`Flight::laid`], #2872),
 /// its values made at `made_at` of the item maker's key `quality` (`16 − key`, 0 for none) on
 /// `difficulty`; the line of what it laid, none for a type the table does not hold.
 pub(crate) fn lay_reward(
@@ -1042,7 +1042,7 @@ pub(crate) fn lay_reward(
         &mut dice.0,
     )?;
     let line = listed(std::slice::from_ref(&dropped));
-    let flight = Flight::dropped(at.x, at.z, &mut dice.0);
+    let flight = Flight::laid([at.x, at.z]);
     lay(commands, (assets, tables), (flight, level, false), dropped);
     Some(line)
 }
