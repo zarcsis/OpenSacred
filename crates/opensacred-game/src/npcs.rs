@@ -13670,6 +13670,50 @@ pub(crate) fn disarm(world: &mut bevy::prelude::World, entity: Entity) {
     }
 }
 
+/// Destroys every item that `entity` holds and wears, as the changeling's effect 20 does as it
+/// changes the creature (`0x5848A8`, #3146): their models gone, out of its [`Arms`] and its
+/// [`Equipment`], nothing thrown down; its values made anew without them once it has a mind again
+/// ([`Rearms`] of both hands, which waits for it).
+pub(crate) fn strip(world: &mut bevy::prelude::World, entity: Entity) {
+    let mut wielded = world.query::<(Entity, &Wielded, &models::OrderedWith)>();
+    let mut pieces = world.query::<(Entity, &WornBy, &Piece)>();
+    let models: Vec<Entity> = wielded
+        .iter(world)
+        .filter(|(_, _, by)| by.0 == entity)
+        .map(|(model, ..)| model)
+        .chain(
+            pieces
+                .iter(world)
+                .filter(|(_, by, _)| by.0 == entity)
+                .map(|(model, ..)| model),
+        )
+        .collect();
+    for model in models {
+        world.despawn(model);
+    }
+    if let Some(mut arms) = world.get_mut::<Arms>(entity) {
+        bevy::log::debug!(
+            "npcs: {entity}'s items go: {:?} held, {:?} worn",
+            arms.holding
+                .iter()
+                .map(|(held, _)| held.item)
+                .collect::<Vec<_>>(),
+            arms.worn.iter().map(|&(item, ..)| item).collect::<Vec<_>>()
+        );
+        arms.holding.clear();
+        arms.worn.clear();
+    }
+    if let Some(mut equipment) = world.get_mut::<Equipment>(entity) {
+        equipment.0.clear();
+    }
+    world.entity_mut(entity).insert(Rearms {
+        away: vec![Hand::Left, Hand::Right],
+        takes: Vec::new(),
+        disarmed: false,
+        wears: Vec::new(),
+    });
+}
+
 /// The equipment's slots whose worn item the disarming takes off where the hands are empty, in
 /// turn: the armour's and the helmet's (`0x4E9900`).
 const DISARMED_WORN: [u8; 2] = [1, 0];
