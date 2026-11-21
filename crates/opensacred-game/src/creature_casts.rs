@@ -1647,13 +1647,16 @@ fn druid_thorns(
 ) {
     for (entity, blink, way, combat) in &druids {
         commands.entity(entity).remove::<DruidThorns>();
-        for at in [blink.from, blink.to] {
+        for (at, variant) in [
+            (blink.from, crate::battle_fogs::Variant::Leaves),
+            (blink.to, crate::battle_fogs::Variant::Lands),
+        ] {
             points.write(crate::sfx::PlayAt {
                 sound: crate::sfx::Of::Id(BLINK_SOUND),
                 point: at,
                 rate: (0.5, crate::sfx::Roll::None),
             });
-            crate::battle_fogs::rise(&mut commands, at, BLINK_PUFF);
+            crate::battle_fogs::rise(&mut commands, at, BLINK_PUFF, variant);
         }
         let Some(record) = arts
             .as_ref()

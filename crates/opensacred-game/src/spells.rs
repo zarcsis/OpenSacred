@@ -495,7 +495,12 @@ fn balls(
                 }
                 // Its four fogs look as their system (`battle_fogs`).
                 for (x, z) in [(from, from), (from, -from), (-from, from), (-from, -from)] {
-                    crate::battle_fogs::rise(&mut commands, here + Vec3::new(x, 0.0, z), seconds);
+                    crate::battle_fogs::rise(
+                        &mut commands,
+                        here + Vec3::new(x, 0.0, z),
+                        seconds,
+                        crate::battle_fogs::Variant::Plain,
+                    );
                 }
             }
         }

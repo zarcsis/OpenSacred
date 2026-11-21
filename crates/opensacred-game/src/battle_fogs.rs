@@ -2,7 +2,9 @@
 //! lies (`spells`), where a dryad druid blinks (`creature_casts`) and where a minimummy blinks
 //! from and to (`ai`, #2565), `cParticleSystem_battlefog` (868, `0x7707D0`) puffs
 //! `PARTICLE_SMOKE03` for its seconds, laid over by its alpha and tinted by the light at it
-//! (`opensacred_rules::particles::battle_fog`), its puffs living out after.
+//! (`opensacred_rules::particles::battle_fog`), its puffs living out after; a blink's two of their
+//! variants, the warm one where it leaves and the cool one where it lands (the FX event `0x5C`'s
+//! `+0x3C`, #3157), a fog trap's of none.
 //!
 //! Not followed: the renderer's vector in its layer's wind, as the world's smokes'.
 
@@ -16,34 +18,53 @@ use crate::fx::{Effect, Quads, empty, particle_material, particle_texture};
 use crate::game::{AppState, Data};
 use crate::iso;
 
-/// A fog to make at the place `at` for `seconds`.
+/// A fog to make at the place `at` for `seconds`, of its variant.
 #[derive(Component)]
 struct Unmade {
     at: Vec3,
     seconds: f32,
+    variant: Variant,
 }
 
-/// A fog: its puffs, their dice, its seconds, and its mesh.
+/// A fog: its puffs, their dice, its seconds, its variant, and its mesh.
 #[derive(Component)]
 struct Fog {
     puffs: System,
     dice: Rng,
     seconds: f32,
+    variant: Variant,
     mesh: Handle<Mesh>,
 }
 
-/// The fogs' system and material, made as the first fog rises; no material where its texture
-/// is missing.
+/// A battle fog's variant, its event's `+0x3C` (`0x7709F0`): a fog trap's of none, a blink's warm
+/// one where it leaves (1) and its cool one where it lands (2) (`0x4D9166`, `0x4D929A`; the dryad
+/// druid's `0x4D6533`, `0x4D6663`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Variant {
+    Plain = 0,
+    Leaves = 1,
+    Lands = 2,
+}
+
+/// The fogs' systems by their variants and their material, made as the first fog rises; no
+/// material where its texture is missing.
 #[derive(Resource)]
 struct Looks {
-    fog: opensacred_rules::particles::Fire,
+    fogs: [opensacred_rules::particles::Fire; 3],
     material: Option<Option<Handle<Effect>>>,
+}
+
+impl Looks {
+    /// The system of the variant `variant`.
+    fn fog(&self, variant: Variant) -> &opensacred_rules::particles::Fire {
+        &self.fogs[variant as usize]
+    }
 }
 
 impl Default for Looks {
     fn default() -> Self {
         Self {
-            fog: battle_fog(0),
+            fogs: [battle_fog(0), battle_fog(1), battle_fog(2)],
             material: None,
         }
     }
@@ -52,10 +73,17 @@ impl Default for Looks {
 /// The seed of the fogs' `rand()` (**estimate**: any).
 const SEED: usize = 0x364;
 
-/// A battle fog rising at the place `at` on the ground for `seconds` (`spells`, `creature_casts`,
-/// `ai`).
-pub(crate) fn rise(commands: &mut Commands, at: Vec3, seconds: f32) {
-    commands.spawn((Unmade { at, seconds }, DespawnOnExit(AppState::InGame)));
+/// A battle fog of `variant` rising at the place `at` on the ground for `seconds` (`spells`,
+/// `creature_casts`, `ai`).
+pub(crate) fn rise(commands: &mut Commands, at: Vec3, seconds: f32, variant: Variant) {
+    commands.spawn((
+        Unmade {
+            at,
+            seconds,
+            variant,
+        },
+        DespawnOnExit(AppState::InGame),
+    ));
 }
 
 /// Makes each fog asked for (`0x7709F0`).
@@ -74,8 +102,16 @@ fn make(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (entity, &Unmade { at, seconds }) in &unmade {
-        let texture = looks.fog.texture;
+    for (
+        entity,
+        &Unmade {
+            at,
+            seconds,
+            variant,
+        },
+    ) in &unmade
+    {
+        let texture = looks.fog(variant).texture;
         let material = looks
             .material
             .get_or_insert_with(|| {
@@ -93,9 +129,10 @@ fn make(
         let index = usize::try_from(entity.index_u32()).unwrap_or(0);
         let mut fog = commands.spawn((
             Fog {
-                puffs: System::new(looks.fog.count),
+                puffs: System::new(looks.fog(variant).count),
                 dice: crate::seed::dice(SEED ^ index),
                 seconds,
+                variant,
                 mesh: mesh.clone(),
             },
             Transform::from_translation(at),
@@ -124,9 +161,9 @@ fn drift(
     (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
-    let fog = &looks.fog;
     for (entity, mut puffs, place) in &mut fogs {
         let puffs = &mut *puffs;
+        let fog = looks.fog(puffs.variant);
         puffs.puffs.update(dt, &fog.layers);
         if puffs.puffs.clock < puffs.seconds {
             puffs
