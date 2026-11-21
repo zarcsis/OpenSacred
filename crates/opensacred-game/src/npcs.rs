@@ -85,6 +85,7 @@ use opensacred_data::world::SIDE;
 use opensacred_rules::equipment::Switched;
 use opensacred_rules::fight::Effect;
 use opensacred_rules::quests::DeathFunctions;
+use opensacred_rules::shaddar::SHADDAR;
 use opensacred_rules::{equipment, minds, quests, script_traps, ways};
 
 use crate::files;
@@ -10142,6 +10143,12 @@ fn hear_again(gone: On<Remove<ScriptQueue>>, mut minds: Query<&mut ai::Mind>) {
     }
 }
 
+/// Whether a creature of the type `creature` takes a `PlayAnim` outside the anim mode: its
+/// receive takes the event `0x108` for the type 700 alone, Shaddar (`0x52E8AB`, #3252).
+fn clip_outside_the_mode(creature: u32) -> bool {
+    creature == SHADDAR
+}
+
 /// Lifts the dead creature `entity` out of its death (`0x59E151`'s `PlayAnim` over the dying
 /// action, `0x48E280`'s stop `0x54E6D0`; #2477): its mind, out of its fight, and its place in the
 /// way back from what it kept aside as it died ([`Stashed`]), its dying and its body's mark gone.
@@ -11499,6 +11506,7 @@ pub(crate) fn script_records(
                 Option<&crowd::InTheWay>,
                 Option<&Talk>,
                 Option<&Corpse>,
+                Option<&Stashed>,
             ),
             With<Dies>,
         >,
@@ -11645,7 +11653,7 @@ pub(crate) fn script_records(
         // A dead creature takes its dialogue too, which holds its body to be spoken to (the dying
         // action's hold, `0x53ECA0`; #2444): Wilbur's of quest 45, given by his death's function.
         if state.talk.is_some() {
-            for (entity, .., talk, _) in dying.iter().filter(|(_, named, ..)| named.0 == name) {
+            for (entity, .., talk, _, _) in dying.iter().filter(|(_, named, ..)| named.0 == name) {
                 let talk = state.talk_of(talk.map(|talk| talk.0.clone()));
                 talk_to(&mut commands, entity, talk);
                 bevy::log::info!("npcs: the scripts set {name}'s dialogue as it lies dead");
@@ -11657,7 +11665,7 @@ pub(crate) fn script_records(
             for (entity, corpse) in dying
                 .iter()
                 .filter(|(_, named, ..)| named.0 == name)
-                .filter_map(|(entity, .., corpse)| Some((entity, corpse?)))
+                .filter_map(|(entity, .., corpse, _)| Some((entity, corpse?)))
             {
                 envision(commands.entity(entity), corpse.creature);
             }
@@ -11851,28 +11859,47 @@ pub(crate) fn script_records(
                 continue;
             }
             Act::Clip { slot, loops } => {
+                if !moved.queued {
+                    // Outside the mode, the event `0x108`, which the creature's receive takes
+                    // for the type 700 alone, Shaddar, dead or alive: the clip and its loops
+                    // (`0x52E8AB`, #3252); a dead one is lifted to play it, as a queued clip
+                    // lifts it.
+                    for (entity, ..) in creatures.iter().filter(|(_, named, _, _, mind, ..)| {
+                        named.is_some_and(|named| named.0 == moved.name)
+                            && mind
+                                .as_ref()
+                                .is_some_and(|mind| clip_outside_the_mode(mind.thinks.creature))
+                    }) {
+                        commands
+                            .entity(entity)
+                            .remove::<Walk>()
+                            .insert(ScriptClip::new(slot, loops));
+                    }
+                    for (entity, stashed) in
+                        dying.iter().filter_map(|(entity, named, .., stashed)| {
+                            let stashed = stashed?;
+                            (named.0 == moved.name
+                                && clip_outside_the_mode(stashed.mind.thinks.creature))
+                            .then_some((entity, stashed))
+                        })
+                    {
+                        lift(&mut commands, entity, stashed);
+                        commands.entity(entity).insert(ScriptClip::new(slot, loops));
+                    }
+                    bevy::log::info!("npcs: the scripts play the slot {slot} of {}", moved.name);
+                    continue;
+                }
                 let mut bearers: Vec<Entity> = creatures
                     .iter()
                     .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
                     .map(|(entity, ..)| entity)
                     .collect();
-                if moved.queued {
-                    bearers.extend(dead_of(&moved.name));
-                }
+                bearers.extend(dead_of(&moved.name));
                 for entity in bearers {
-                    if moved.queued {
-                        let step = Queued::Clip { slot };
-                        match queues.get_mut(entity) {
-                            Ok(mut queue) => queue.0.push_back(step),
-                            Err(_) => queued.entry(entity).or_default().push(step),
-                        }
-                    } else {
-                        // Outside the mode, the event `0x108` (**hypothesis**: the same clip, its
-                        // count its loops).
-                        commands
-                            .entity(entity)
-                            .remove::<Walk>()
-                            .insert(ScriptClip::new(slot, loops));
+                    let step = Queued::Clip { slot };
+                    match queues.get_mut(entity) {
+                        Ok(mut queue) => queue.0.push_back(step),
+                        Err(_) => queued.entry(entity).or_default().push(step),
                     }
                 }
                 bevy::log::info!(
@@ -16607,6 +16634,13 @@ mod tests {
         app.update();
         assert!(!thinks(&app).deaf());
         assert!(app.world().get::<ScriptQueue>(waiter).is_none());
+    }
+
+    #[test]
+    fn a_clip_outside_the_mode_moves_shaddar_alone() {
+        assert!(clip_outside_the_mode(SHADDAR));
+        assert!(!clip_outside_the_mode(76));
+        assert!(!clip_outside_the_mode(183));
     }
 
     /// Anducar dead, his queue of `QIS_OnEnter56` (#2477): the dead one's walk goes nowhere, its
