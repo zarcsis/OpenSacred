@@ -1746,11 +1746,13 @@ impl QuestItems {
         true
     }
 
-    /// Whether the list holds the key `name`, case aside, or any entry of the key 0 (`0x4987B0`'s
-    /// `0x3A` on the list, `0x4988B4`).
+    /// Whether the list holds the key `name`, case aside (`0x4987B0`'s `0x3A` on the list). The
+    /// original's branch of an existing object whose type is in the list, or of any entry of the
+    /// key 0 (`0x498860`, `0x4988B4`), is repaired away (docs/decisions/netscript.md, "Only a held
+    /// item answers 0x3A", #3147).
     pub fn holds(&self, name: &str) -> bool {
         let name = name.to_ascii_lowercase();
-        self.0.iter().any(|(_, key)| *key == name || key.is_empty())
+        self.0.iter().any(|(_, key)| *key == name)
     }
 }
 
@@ -1859,10 +1861,12 @@ mod tests {
         // A second item of a type held already is refused (quest 154's).
         assert!(!items.add(1741, "res:17630"));
         assert!(!items.holds("res:17630"));
-        // An entry of the key 0 refuses every later one, and answers every name.
+        // An entry of the key 0 refuses every later one, and answers no name but its own (the
+        // repair of #3147).
         assert!(items.add(4609, ""));
         assert!(!items.add(6029, "res:6029"));
-        assert!(items.holds("res:17630"));
+        assert!(!items.holds("res:17630"));
+        assert!(items.holds(""));
     }
 
     /// A runtime that records the functions it ran and answers `through` for each.

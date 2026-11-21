@@ -698,6 +698,9 @@ pub struct Live {
     /// The scripts' names of the creatures that follow the hero and of its own horse, by which
     /// `0x40` answers ([`party`]), taken at each frame.
     party: HashSet<String>,
+    /// The script names of the items that the hero carries, by which `0x3A` answers besides the
+    /// list of the main quest's items ([`carried`], #3147), taken at each frame.
+    carried: HashSet<String>,
     /// Whether a talk's dialogue function runs ([`Self::talk`]).
     talking: bool,
     /// The scripts' modes as the last run left them, which the next begins in ([`Mode`], #1892).
@@ -740,6 +743,7 @@ impl Live {
             creatures: started.creatures,
             living: HashSet::new(),
             party: HashSet::new(),
+            carried: HashSet::new(),
             talking: false,
             mode: started.mode,
             flags: Vec::new(),
@@ -976,6 +980,7 @@ impl Live {
         );
         recorder.living = Some(&self.living);
         recorder.party = Some(&self.party);
+        recorder.carried = Some(&self.carried);
         recorder.quest = quest;
         recorder.talking = self.talking;
         recorder.mode = self.mode;
@@ -1179,6 +1184,8 @@ struct Recorder<'a> {
     /// The scripts' names of the hero's followers and its horse, in the play; at the start, none
     /// known.
     party: Option<&'a HashSet<String>>,
+    /// The script names of the items that the hero carries, in the play; at the start, none.
+    carried: Option<&'a HashSet<String>>,
     window: Window,
     infos: Vec<(i32, String)>,
     popups: Vec<Begins>,
@@ -1250,6 +1257,7 @@ impl<'a> Recorder<'a> {
             home: None,
             living: None,
             party: None,
+            carried: None,
             window: Window::default(),
             infos: Vec::new(),
             popups: Vec::new(),
@@ -1447,7 +1455,7 @@ impl Host for Recorder<'_> {
         self.mode = self.mode.after(name, &tags);
         // A condition: every test of an `IF` holds (`0x4987B0`).
         if name == "test" {
-            return tags.test(self.tree, self.state, self.party);
+            return tags.test(self.tree, self.state, (self.party, self.carried));
         }
         // A guard: whether no creature of the group lives, wherever it stands (`0x48C860`); a
         // group never made is dead. At the start, before the world, not known.
@@ -2291,7 +2299,8 @@ impl Tags<'_> {
     /// a missing variable; `0x52` the hero's tree, `tree`, named (**hypothesis**: the hero's
     /// type, by the name of its script, `TYPE_NPC_GLADIATOR`, which the quests' `OnEnter` ask
     /// before they place a class's own NPCs); `0x3A` the hero holding the named object in its
-    /// list of the main quest's items (#1257), never another creature; `0x96` to `0x9A` the game
+    /// list of the main quest's items (#1257) or among the items it carries, `carried` (#3147),
+    /// never another creature; `0x96` to `0x9A` the game
     /// on bronze to niobium, and `0x9B` and `0x9C` the hero's quest bit of the number set and
     /// clear, the variable `HeroQBit` that `HeroQBit`'s records set and clear (the original keeps
     /// it per difficulty with the hero, of which a game plays one; #1125); `0x40` the named
@@ -2302,7 +2311,7 @@ impl Tags<'_> {
         &self,
         tree: &str,
         state: &quests::Scripts,
-        party: Option<&HashSet<String>>,
+        (party, carried): (Option<&HashSet<String>>, Option<&HashSet<String>>),
     ) -> Handled {
         let Some(tags) = self.0 else {
             return Handled::Unknown;
@@ -2323,8 +2332,8 @@ impl Tags<'_> {
                 continue;
             }
             // `0x3A`: the creature holds the named object, the hero by its list of the main
-            // quest's items (#1257); another creature never (its 256 slots, which no creature of
-            // the game fills).
+            // quest's items (#1257) or its 256 slots, the items it carries (#3147); another
+            // creature never (its slots, which no creature of the game fills).
             if key == "_3A" {
                 let Operand::List(pair) = operand else {
                     return Handled::Unknown;
@@ -2332,7 +2341,9 @@ impl Tags<'_> {
                 let [Operand::Text(creature), Operand::Text(name)] = pair.as_slice() else {
                     return Handled::Unknown;
                 };
-                let holds = creature.eq_ignore_ascii_case("hero") && state.items.holds(name);
+                let holds = creature.eq_ignore_ascii_case("hero")
+                    && (state.items.holds(name)
+                        || carried.is_some_and(|carried| carried.contains(&name.to_lowercase())));
                 bevy::log::debug!("scripts: {creature} holds {name}: {holds}");
                 if !holds {
                     return Handled::Answer(false);
@@ -2897,6 +2908,18 @@ fn party(
     }
 }
 
+/// Takes the script names of the items that the hero carries for the scripts' `0x3A` at each
+/// frame, before any of them runs (`pickup::Pack::carried_names`, #3147).
+fn carried(live: Option<NonSendMut<Live>>, pack: Option<Res<crate::pickup::Pack>>) {
+    let (Some(mut live), Some(pack)) = (live, pack) else {
+        return;
+    };
+    let carried = pack.carried_names();
+    if live.carried != carried {
+        live.carried = carried;
+    }
+}
+
 /// Runs the death's function of each creature that dies (the AI's state 9, `0x53E7C0`, and the
 /// death's event at `0x52F769`; #656): the first of its list's that is no item's, the others of
 /// its kind taken out ([`quests::DeathFunctions::take`]), by its name ([`Live::run_named`]),
@@ -3181,7 +3204,7 @@ impl Plugin for ScriptsPlugin {
             .add_message::<CinemaFlag>()
             .configure_sets(Update, crate::frame::OnWorld.run_if(no_cinema))
             .add_systems(PostUpdate, hold_mode)
-            .add_systems(PreUpdate, party)
+            .add_systems(PreUpdate, (party, carried))
             .add_systems(
                 Update,
                 run_due
