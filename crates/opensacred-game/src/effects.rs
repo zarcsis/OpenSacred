@@ -254,6 +254,20 @@ impl Effects {
 /// the next tick.
 const CURED_LEFT: f32 = 0.001;
 
+/// The key of the effect 30 that a heal gives its target with its health, the creature's event 6
+/// of the sub-kind 3 (the healing's action 3, `0x5B53A3`; a soul's, `0x5ABD80`'s case `0x30C`):
+/// of the whole value and the value 0 for 1 s, a cure of its key's per cent, so every poison's
+/// value 0, its key of 90 and above (the adder's row 30, #3139).
+pub(crate) const HEAL_CURES: u32 = 100;
+
+/// Cures the poisons of `target` as a heal's effect 30 does ([`HEAL_CURES`]).
+pub(crate) fn heal_cures(commands: &mut Commands, target: Entity) {
+    commands
+        .entity(target)
+        .entry::<Effects>()
+        .and_modify(|mut effects| effects.cure(HEAL_CURES));
+}
+
 /// The effect whose going kills an NPC: the raised dead's and the spiders' time (`0x586D80`).
 pub const LIFETIME: u32 = 29;
 

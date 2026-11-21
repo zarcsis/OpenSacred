@@ -585,6 +585,7 @@ fn act(
                         cast.target, friend.current
                     );
                     crate::healings::heal(&mut commands, cast.target, false);
+                    crate::effects::heal_cures(&mut commands, cast.target);
                 }
             }
             casts::FIRE_SKIN | casts::STONE_SKIN => {
@@ -1460,6 +1461,7 @@ fn throw(
                 ball.caster
             );
             crate::healings::heal(&mut commands, creature, false);
+            crate::effects::heal_cures(&mut commands, creature);
         }
         if !gathered && let Some(mind) = caster.as_ref() {
             let landing = GoblinLanding::missed_by(mind.creature);
