@@ -327,7 +327,8 @@ pub(crate) fn mortar_reaches(
 /// Whether an art of the launch type 3 may be made at `point` on the level `on`, made from `here`
 /// on the level `level` (`0x51D840`, its case 3): the point on the maker's floor (`0x6354D0`
 /// against `0x449930`, asked where either stands above the ground), a straight way of cells that
-/// `walkable` takes to it (`0x4FCC80`) and a cell there that it takes (`0x636890`).
+/// `walkable` takes to it (`0x4FCC80`) and a cell there that it takes (`0x636890`); a jump's and
+/// the Daemon's charge's start too, on the maker's own floor (`0x505B6E`, `0x51B65D`).
 pub(crate) fn point_reached(
     (here, level): (Vec3, crate::terrain::Level),
     (point, on): (Vec3, crate::terrain::Level),
@@ -1119,17 +1120,20 @@ fn make(
                 };
                 point = reached;
             }
-            if style == Style::Jump {
-                // A jump wants a straight way to its point and a place to stand there, and plays
-                // at a rate by its length (`0x5038F0` at `0x505B6E`).
+            if matches!(style, Style::Jump | Style::Charge) {
+                // A jump, and the Daemon's charge, want a straight way to their point and a place
+                // to stand there, else end at once (`0x5038F0` at `0x505B6E`; `0x5192E0` at
+                // `0x51B65D`, #3173).
                 let level = body.level();
                 let walkable = |cell| heights.walkable_on(cell, level);
-                let to = crate::paths::cell_of(point.x, point.z);
-                if !crate::paths::straight(here.xz(), point.xz(), walkable) || !walkable(to) {
-                    info!("making: no straight way for the jump to its target");
+                if !point_reached((here, level), (point, level), walkable) {
+                    info!("making: no straight way for the jump or the charge to its target");
                     end(&mut commands);
                     continue;
                 }
+            }
+            if style == Style::Jump {
+                // A jump plays at a rate by its length (`0x5038F0` at `0x505B6E`).
                 rate = if arts.kind == arts::VAMPIRESS_BY_NIGHT {
                     arts::CLAW_JUMP_RATE
                 } else {
