@@ -469,3 +469,42 @@ fn set_42_raises_the_bites_by_day_and_every_art_by_night() {
         told(42, &wearing(42, 4), Difficulty::Gold, true).contains(&Told::Bonus(Bonus::AllArts(5)))
     );
 }
+
+/// An item whose most damages are `most` and whose resistances are `resistance`.
+fn item(most: [f32; KINDS], resistance: [f32; KINDS]) -> ItemValues {
+    ItemValues {
+        damage: most.map(|most| [most / 2.0, most]),
+        resistance,
+        ..ItemValues::default()
+    }
+}
+
+#[test]
+fn a_kind_dominates_past_its_count_of_items_strictly_above_the_others() {
+    let physical = item([10.0, 2.0, 0.0, 0.0], [0.0; KINDS]);
+    // Eight items of the physical, seven not.
+    assert_eq!(dominance(&vec![physical; 8]), [true, false, false, false]);
+    assert_eq!(dominance(&vec![physical; 7]), [false; KINDS]);
+    // An item counts its damage and its resistances, each once: four such make eight.
+    let both = item([10.0, 0.0, 0.0, 0.0], [5.0, 1.0, 1.0, 1.0]);
+    assert_eq!(dominance(&vec![both; 4]), [true, false, false, false]);
+    // The fire, the magic and the poison past five, six of each.
+    let fire = item([0.0, 7.0, 3.0, 0.0], [0.0; KINDS]);
+    let magic = item([0.0; KINDS], [0.0, 0.0, 9.0, 8.0]);
+    let poison = item([0.0, 0.0, 0.0, 1.0], [0.0; KINDS]);
+    let mut items = vec![fire; 6];
+    items.extend([magic; 6]);
+    items.extend([poison; 5]);
+    assert_eq!(dominance(&items), [false, true, true, false]);
+    items.push(poison);
+    assert_eq!(dominance(&items), [false, true, true, true]);
+    // A tie counts for none, nor does a kind of 0 above negative others; a kind below 0 does
+    // above lower others, as the original compares the words signed (`0x57A1A7`).
+    let tie = item([6.0, 6.0, 0.0, 0.0], [0.0, 0.0, 4.0, 4.0]);
+    assert_eq!(dominance(&vec![tie; 12]), [false; KINDS]);
+    let negative = item([0.0, -1.0, -1.0, -1.0], [-2.0, -5.0, -5.0, -5.0]);
+    assert_eq!(dominance(&vec![negative; 8]), [true, false, false, false]);
+    // A kind strictly above the others only once it is above each: the poison's 3 over 2, 1, 2.
+    let last = item([2.0, 1.0, 2.0, 3.0], [0.0; KINDS]);
+    assert_eq!(dominance(&vec![last; 6]), [false, false, false, true]);
+}

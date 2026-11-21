@@ -1,9 +1,8 @@
 //! The equipment window's set icon (#1670; docs/re/inventory.md, §4): while the hero wears a
-//! piece of a set (its `+0x1F4` bit 31, which `0x5711F0` sets for every piece counted), the
-//! window shows the image 167 (`gui_main_04`, 45 × 45) at the screen's (678, 400), the image 168
-//! while the pointer is over it, whose hover lists the sets worn (`0x6B7F0F`; `tooltip`).
-//!
-//! Not followed: the dominance bonus, which sets the bit too (docs/re/sets.md §1).
+//! piece of a set or reaches a kind's dominance bonus (its `+0x1F4` bit 31, which `0x5711F0` sets
+//! for every piece counted and every kind reached, #2931), the window shows the image 167
+//! (`gui_main_04`, 45 × 45) at the screen's (678, 400), the image 168 while the pointer is over
+//! it, whose hover lists them (`0x6B7F0F`; `tooltip`).
 
 use bevy::prelude::*;
 
@@ -30,9 +29,10 @@ pub(crate) fn over(at: Vec2) -> bool {
     Rect::from_corners(AT, AT + Vec2::splat(SIDE)).contains(at)
 }
 
-/// Whether `holding` holds a set's piece, which the icon shows for.
+/// Whether `holding` holds a set's piece or reaches a dominance bonus, which the icon shows for.
 pub(crate) fn shows(holding: &Holding) -> bool {
-    holding.0.sets.worn.sets().next().is_some()
+    let sets = &holding.0.sets;
+    sets.worn.sets().next().is_some() || sets.dominance.contains(&true)
 }
 
 /// Puts the icon into the equipment window while the hero wears a set's piece, lit under the
