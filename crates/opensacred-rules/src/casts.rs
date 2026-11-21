@@ -113,11 +113,13 @@ pub fn approaches(distance: f32, roll: u32) -> bool {
 /// What a creature of type `creature` makes as it comes on (`0x4E1FC4`, the melee's state 9 at
 /// `0x4E3464`): the medium spider (75, `med_spider.grn`), of the mark 4, shoots the railgun's bolt
 /// at its target ([`SPIDER_SHOT`], #2067), a dragon breathes its fire ([`DRAGON_FIRE`], #1964),
-/// and the giant spider (55) and the killer crab queen (348) spit ([`SPIT`], #2099); the fire
-/// ghoul (73) takes the state too, its own not followed.
+/// the giant spider (55) and the killer crab queen (348) spit ([`SPIT`], #2099), and the fire
+/// ghoul (73) shoots a fireball ([`GHOUL_FIREBALL`], #3262).
 pub fn coming_on(creature: u32) -> Option<u16> {
     if creature == 75 {
         Some(SPIDER_SHOT)
+    } else if creature == FIRE_GHOUL {
+        Some(GHOUL_FIREBALL)
     } else if matches!(creature, GIANT_SPIDER | CRAB_QUEEN) {
         Some(SPIT)
     } else if dragon(creature) {
@@ -133,6 +135,20 @@ pub fn coming_on(creature: u32) -> Option<u16> {
 /// 0.5 as it is made (`0x4E3DB9`), and again from its start (`0x77AF2D`).
 pub const DRAGON_FIRE: u16 = 852;
 pub const FLAME_BREATH: u32 = 11122;
+
+/// The fire ghoul's fireball as it comes on, a pseudo-spell of the fireball's FX type (778,
+/// `0x4E3A84`), and the ghoul's clip (`0x593320(0x50, …)` at `0x4E3493`): its system starts with
+/// the variant 1 and the level of [`ghoul_fireball_level`], a creature's (#3262).
+pub const GHOUL_FIREBALL: u16 = 778;
+pub const FIRE_GHOUL: u32 = 73;
+pub const GHOUL_CLIP: u16 = 0x50;
+
+/// The level of the fire ghoul's fireball, of the ghoul's level `level`: a fifth of it, truncated,
+/// none at 0 (**seen** in the running original for #3262: the ghouls of the levels 10, 30 and 60
+/// shot it at 2, 6 and 12, and one of the level 1 shot none).
+pub fn ghoul_fireball_level(level: u32) -> Option<u32> {
+    Some(level / 5).filter(|&level| level > 0)
+}
 
 /// The spider's shot, a pseudo-spell of the railgun's FX type (`FX_RAILGUN`, 801), the clip's slot
 /// it plays (`0x593320(0x4F, …)`, the dragons' fire's too), and its sounds as it shoots
@@ -329,6 +345,9 @@ pub fn clip(spell: u16, creature: u32, dragon: bool) -> u16 {
     }
     if throws_trap(spell) {
         return TRAP_CLIP;
+    }
+    if spell == GHOUL_FIREBALL {
+        return GHOUL_CLIP;
     }
     if matches!(spell, SPIDER_SHOT | DRAGON_FIRE | SPIT) {
         return SPIDER_SHOT_CLIP;
@@ -1614,8 +1633,14 @@ mod tests {
     #[test]
     fn the_medium_spider_shoots_and_the_dragons_breathe_fire_as_they_come_on() {
         assert_eq!(coming_on(75), Some(SPIDER_SHOT));
+        assert_eq!(coming_on(FIRE_GHOUL), Some(GHOUL_FIREBALL));
+        assert_eq!(clip(GHOUL_FIREBALL, FIRE_GHOUL, false), GHOUL_CLIP);
+        assert_eq!(
+            [1, 4, 5, 10, 30, 60].map(ghoul_fireball_level),
+            [None, None, Some(1), Some(2), Some(6), Some(12)]
+        );
         assert_eq!(coming_on(88), Some(DRAGON_FIRE));
-        assert_eq!((coming_on(73), coming_on(76)), (None, None));
+        assert_eq!(coming_on(76), None);
         // The dragons breathe by the clip of the state 9, not their casts' 81.
         assert_eq!(clip(DRAGON_FIRE, 88, true), SPIDER_SHOT_CLIP);
         assert_eq!(clip(METEORS, 88, true), 81);

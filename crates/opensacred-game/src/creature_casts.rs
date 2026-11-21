@@ -39,9 +39,11 @@ use crate::npcs::{ClipActs, Dies, ScriptClip};
 use crate::terrain::{Heights, Level};
 
 /// The spells of the casts that the game follows: the mark 1's, the magicians', the creatures'
-/// own and their pseudo-spells (the shot, the spit, the leap, the traps, the dragons' fire).
-const FOLLOWED: [u16; 33] = [
+/// own and their pseudo-spells (the shot, the spit, the leap, the traps, the dragons' fire, the
+/// ghoul's fireball).
+const FOLLOWED: [u16; 34] = [
     casts::SPIDER_SHOT,
+    casts::GHOUL_FIREBALL,
     casts::SPIT,
     casts::FLOWER_LEAP,
     casts::VENOM,
@@ -295,9 +297,13 @@ fn begin(
             spell: cast.spell,
             rate: combat.map_or(1.2, |combat| combat.cast / 100.0),
         });
-        // The spider shoots and the dragon breathes as its clip starts (`0x4E3464`); the giant
-        // spider and the crab queen spit at its share (`0x4E4CF0`'s sub-state 5).
-        let share = if matches!(cast.spell, casts::SPIDER_SHOT | casts::DRAGON_FIRE) {
+        // The spider and the fire ghoul shoot and the dragon breathes as its clip starts
+        // (`0x4E3464`); the giant spider and the crab queen spit at its share (`0x4E4CF0`'s
+        // sub-state 5).
+        let share = if matches!(
+            cast.spell,
+            casts::SPIDER_SHOT | casts::DRAGON_FIRE | casts::GHOUL_FIREBALL
+        ) {
             0.0
         } else if cast.spell == casts::SPIT {
             casts::spit_at(mind.creature)
@@ -501,14 +507,28 @@ fn act(
             info!("creature_casts: {entity} breathes fire");
             continue;
         }
+        // The fire ghoul's fireball strikes as the spell's (`0x5ABD80`'s hit `0x5AC015`).
+        let spell = if cast.spell == casts::GHOUL_FIREBALL {
+            spells::FIREBALL
+        } else {
+            cast.spell
+        };
         let Some(record) = arts
             .as_ref()
-            .and_then(|arts| arts.tables.spells.iter().find(|s| s.id == cast.spell))
+            .and_then(|arts| arts.tables.spells.iter().find(|s| s.id == spell))
         else {
             continue;
         };
         let rank = rank.map_or(crate::fight::Rank::Common, |rank| rank.0);
-        let level = rules.0.creature_spell_level(mind.level, rank);
+        // The fire ghoul's fireball at a fifth of its level, none below 5 (`0x4E3A84`, #3262).
+        let level = if cast.spell == casts::GHOUL_FIREBALL {
+            let Some(level) = casts::ghoul_fireball_level(mind.level) else {
+                continue;
+            };
+            level
+        } else {
+            rules.0.creature_spell_level(mind.level, rank)
+        };
         let factor = rules.0.creature_spell_damage(level);
         let multipliers = combat.map_or([1.0; 4], |combat| combat.spells);
         let damages = bolt_damages(record, i32::try_from(level).unwrap_or(1), multipliers)
@@ -524,7 +544,7 @@ fn act(
             "creature_casts: {entity} casts {} at {toward} with {damages:?}",
             cast.spell
         );
-        match cast.spell {
+        match spell {
             spells::FIREBALL => {
                 launches.write(crate::bolts::Launch {
                     shooter: entity,
