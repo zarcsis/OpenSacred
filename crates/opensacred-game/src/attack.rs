@@ -525,7 +525,6 @@ fn engage(
                         minds::BIND_CAGES,
                         (true, seconds),
                     );
-                    crate::plant_cages::hold(&mut commands, entity, seconds);
                 }
             }
             attack.phase = Phase::Deciding;

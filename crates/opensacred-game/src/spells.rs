@@ -1728,26 +1728,27 @@ fn act(
                     continue;
                 }
                 let seconds = fight_seconds(spells::value(record, 0, act.level));
-                let effect = Effect {
-                    id: spells::HELD,
-                    whole: 0,
-                    value: 0.0,
-                    art: u32::from(act.spell),
-                    level: 0,
-                };
-                given.push((effect, seconds));
-                // The stone's sight and skin as long (822, `stones`), or the cages about it
-                // (849, `plant_cages`).
                 if act.spell == spells::STONE {
+                    let effect = Effect {
+                        id: spells::HELD,
+                        whole: 0,
+                        value: 0.0,
+                        art: u32::from(act.spell),
+                        level: 0,
+                    };
+                    given.push((effect, seconds));
+                    // The stone's sight and skin as long (822, `stones`).
                     crate::stones::stone(&mut commands, act.target, seconds);
+                    let mut held = commands.entity(act.target);
+                    held.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
+                    held.entry::<ai::Mind>()
+                        .and_modify(move |mut mind| mind.stunned(seconds));
                 } else {
+                    // The cages about it (849, `plant_cages`), which hold it as they have grown
+                    // (#3166).
                     let cages = spells::count(record, act.level);
                     crate::plant_cages::cage(&mut commands, act.target, cages, (true, seconds));
                 }
-                let mut held = commands.entity(act.target);
-                held.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
-                held.entry::<ai::Mind>()
-                    .and_modify(move |mut mind| mind.stunned(seconds));
             }
             spells::CHANGELING => {
                 // The first 20 hostile creatures within about 179 of her that it may change, the
