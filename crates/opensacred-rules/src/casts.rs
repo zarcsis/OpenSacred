@@ -43,6 +43,26 @@ pub fn dragon(creature: u32) -> bool {
     matches!(creature, 52 | 74 | 88 | 100..=103)
 }
 
+/// How much farther than the two creatures' reach a creature of the mark 4 takes its special
+/// standing (`0x4D5C9B`).
+pub const SPECIAL_BAND: f32 = 400.0;
+
+/// Whether a creature of the mark 4 standing `distance` from its target, of the two creatures'
+/// reach `reach`, is within its special's band (`0x4D5C8F`): beyond the reach and nearer than
+/// [`SPECIAL_BAND`] more.
+pub fn in_special_band(distance: f32, reach: f32) -> bool {
+    distance > reach && distance < reach + SPECIAL_BAND
+}
+
+/// Whether a creature of the mark 4 within its special's band ([`in_special_band`]) takes its
+/// special, the melee's sub-state 9 (`0x4D5CA5`…`0x4D5CC7`): in two decisions of three
+/// (`rand() % 3`, `roll`, not 0), and in the third where its target holds a ranged weapon or is
+/// the Mage (`ranged_target`); else it fights hand to hand, too near for a dragon's meteors.
+/// **Seen** for #2903: a dragon with the hero 9 cells off breathed again and again (#3263).
+pub fn mark_4_special(roll: u32, ranged_target: bool) -> bool {
+    !roll.is_multiple_of(3) || ranged_target
+}
+
 /// How much farther than its reach a dragon casts its meteors from.
 pub const DRAGON_BEYOND: f32 = 500.0;
 
@@ -1607,6 +1627,12 @@ mod tests {
     #[test]
     fn a_dragon_casts_its_meteors_from_beyond_its_reach_and_500_in_one_decision_of_two() {
         assert!(dragon(52) && dragon(101) && !dragon(53) && !dragon(94));
+        // Its special's band (#3263): beyond its reach and nearer than 400 more.
+        assert!(!in_special_band(250.0, 250.0) && in_special_band(251.0, 250.0));
+        assert!(in_special_band(649.0, 250.0) && !in_special_band(650.0, 250.0));
+        assert!(mark_4_special(1, false) && mark_4_special(5, false));
+        assert!(!mark_4_special(0, false) && !mark_4_special(3, false));
+        assert!(mark_4_special(0, true));
         assert!(dragon_casts(800.0, 250.0, 0));
         assert!(!dragon_casts(800.0, 250.0, 1));
         assert!(!dragon_casts(750.0, 250.0, 0));

@@ -1684,7 +1684,7 @@ impl Mind {
             if comes_on && casts::approaches(d, rng.below(101)) {
                 return Some(Pursues::Casts { spell, variant: 0 });
             }
-            if !dragon {
+            if !dragon && self.creature != casts::FIRE_GHOUL {
                 return None;
             }
         }
@@ -1724,6 +1724,15 @@ impl Mind {
             }
             let spell = casts::big_demon_casts(roll, way, rng.below(3))?;
             return Some(Pursues::Casts { spell, variant: 0 });
+        }
+        // A dragon's and the fire ghoul's special standing off its target, its breath or its
+        // fireball (`0x4D5C8F`…`0x4D5CC7`, #3263).
+        if let Some(spell) = shot.filter(|_| dragon || self.creature == casts::FIRE_GHOUL) {
+            let reach = reach_f32(self.size(), sight.hero_size);
+            if casts::in_special_band(d, reach) {
+                let special = casts::mark_4_special(rng.below(3), cast.ranged_target);
+                return special.then_some(Pursues::Casts { spell, variant: 0 });
+            }
         }
         if dragon {
             let reach = reach_f32(self.size(), sight.hero_size);
@@ -3239,6 +3248,10 @@ pub struct CastSight {
     /// lives there ([`casts::HORNETS`], `0x4DABB0`).
     pub hornets: (u32, bool),
     pub hornet_lives: bool,
+    /// Whether its target holds a ranged weapon in a hand (`0x54A2A0`) or is the Mage (the type 3),
+    /// by which a creature of the mark 4 takes its special in the third decision too
+    /// ([`casts::mark_4_special`], #3263).
+    pub ranged_target: bool,
     /// How many the hero's list of hostiles holds (`0xAD3BC8`), which a boss's keep-back weighs
     /// ([`Mind::keeps_back`]).
     pub listed: u32,
@@ -4708,6 +4721,7 @@ mod tests {
             strikes_down: false,
         };
         let cast = CastSight {
+            ranged_target: false,
             now: 100.4,
             at_hero: true,
             hero_level: 3,
@@ -4822,6 +4836,7 @@ mod tests {
             strikes_down: false,
         };
         let cast = CastSight {
+            ranged_target: false,
             now: 0.0,
             at_hero: true,
             hero_level: 3,
@@ -4869,6 +4884,46 @@ mod tests {
             dragon.cast(&sight(far - 2.0), &cast, || true, &mut rolls),
             None
         );
+        // Standing off its target within its reach and 400 more, it breathes in two decisions of
+        // three, and in the third at a ranged target (#3263); the fire ghoul shoots so.
+        let reach = reach_f32(dragon.size(), SIZE);
+        for (roll, ranged, breathes) in [
+            (1, false, true),
+            (2, false, true),
+            (0, false, false),
+            (0, true, true),
+        ] {
+            let mut rolls = Script::new(vec![roll]);
+            let sighted = CastSight {
+                ranged_target: ranged,
+                ..cast
+            };
+            let decided = dragon.cast(&sight(reach + 200.0), &sighted, || true, &mut rolls);
+            let breath = Pursues::Casts {
+                spell: casts::DRAGON_FIRE,
+                variant: 0,
+            };
+            assert_eq!(decided, breathes.then_some(breath), "{roll} {ranged}");
+        }
+        let mut none = Script::new(Vec::new());
+        assert_eq!(dragon.cast(&sight(reach), &cast, || true, &mut none), None);
+        let mut ghoul = Mind::new(at(0.0, 0.0), 0x1, (true, false), None, SPEEDS, (73, 2));
+        ghoul.level = 10;
+        assert!(ghoul.sent_at());
+        let reach = reach_f32(ghoul.size(), SIZE);
+        let mut rolls = Script::new(vec![1]);
+        assert_eq!(
+            ghoul.cast(&sight(reach + 100.0), &cast, || true, &mut rolls),
+            Some(Pursues::Casts {
+                spell: casts::GHOUL_FIREBALL,
+                variant: 0
+            })
+        );
+        let mut rolls = Script::new(vec![0]);
+        assert_eq!(
+            ghoul.cast(&sight(reach + 100.0), &cast, || true, &mut rolls),
+            None
+        );
     }
 
     #[test]
@@ -4895,6 +4950,7 @@ mod tests {
             strikes_down: false,
         };
         let cast = CastSight {
+            ranged_target: false,
             now: 0.0,
             at_hero: true,
             hero_level: 3,
@@ -4978,6 +5034,7 @@ mod tests {
 
     fn hornets_cast(id: u32, hornets: (u32, bool), hornet_lives: bool) -> CastSight {
         CastSight {
+            ranged_target: false,
             now: 50.0,
             at_hero: true,
             hero_level: 3,
@@ -5020,6 +5077,7 @@ mod tests {
     fn the_ice_druid_keeps_its_band_orders_itself_and_strolls_about_its_target() {
         use crate::spawning::Script;
         let cast = CastSight {
+            ranged_target: false,
             at_hero: false,
             ..hornets_cast(0, (0, false), false)
         };
@@ -5353,6 +5411,7 @@ mod tests {
             ..hornets_sight(distance, false)
         };
         let boss = |listed: u32| CastSight {
+            ranged_target: false,
             elite: true,
             listed,
             ..hornets_cast(0, (0, false), false)
@@ -5365,6 +5424,7 @@ mod tests {
         // one, or one the hero attacks: the melee decides.
         let mut goblin = fighting(76);
         let common = CastSight {
+            ranged_target: false,
             elite: false,
             ..boss(3)
         };
@@ -5375,6 +5435,7 @@ mod tests {
         );
         assert_eq!(goblin.stands, 0);
         let first = CastSight {
+            ranged_target: false,
             nearest: true,
             ..boss(3)
         };
@@ -5556,6 +5617,7 @@ mod tests {
         assert_eq!(decide(&mut fighting(350), &near, &cast, vec![2]), None);
         // A queen of 0x217 by 50 p, 65 on niobium.
         let niobium = CastSight {
+            ranged_target: false,
             difficulty: Difficulty::Niobium,
             ..cast
         };
@@ -5586,6 +5648,7 @@ mod tests {
     fn a_fetzer_chooses_its_phase_once_and_makes_its_art_by_it() {
         use crate::spawning::Script;
         let cast = |fetzer| CastSight {
+            ranged_target: false,
             fetzer,
             difficulty: Difficulty::Niobium,
             ..hornets_cast(0, (0, false), false)
@@ -5644,6 +5707,7 @@ mod tests {
     fn a_brain_footer_stares_by_its_roll_its_deadline_and_its_strength() {
         use crate::spawning::Script;
         let cast = |stare| CastSight {
+            ranged_target: false,
             stare,
             ..hornets_cast(0, (0, false), false)
         };
@@ -5729,6 +5793,7 @@ mod tests {
         };
         let to = at(400.0, 0.0);
         let found = CastSight {
+            ranged_target: false,
             leap: Some(to),
             ..hornets_cast(0, (0, false), false)
         };
@@ -5819,6 +5884,7 @@ mod tests {
     fn a_minimummy_blinks_throws_runs_or_strikes() {
         use crate::spawning::Script;
         let cast = |elite, group_strike| CastSight {
+            ranged_target: false,
             elite,
             group_strike,
             ..hornets_cast(0, (0, false), false)
@@ -5867,6 +5933,7 @@ mod tests {
             Some(Pursues::TakesDagger)
         );
         let armed = CastSight {
+            ranged_target: false,
             armed: true,
             ..boss
         };
@@ -5952,6 +6019,7 @@ mod tests {
             strikes_down: false,
         };
         let cast = CastSight {
+            ranged_target: false,
             now: 50.0,
             at_hero: true,
             hero_level: 3,
