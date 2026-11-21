@@ -232,6 +232,7 @@ fn rune_item(rune: u32) -> Dropped {
         named: None,
         socketed: Vec::new(),
         name_key: 0,
+        script: None,
     }
 }
 

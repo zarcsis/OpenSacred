@@ -840,6 +840,7 @@ mod tests {
             named: None,
             socketed: Vec::new(),
             name_key: 0,
+            script: None,
         };
         let mut sets = crate::sets::WeaponSets::default();
         sets.halves[1][0] = Some(torch);

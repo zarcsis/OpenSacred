@@ -1320,6 +1320,7 @@ mod tests {
             named: None,
             socketed: Vec::new(),
             name_key: 0,
+            script: None,
         };
         let let_go = |helmet: bool| {
             let mut world = World::new();

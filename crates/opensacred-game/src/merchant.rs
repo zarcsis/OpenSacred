@@ -508,7 +508,7 @@ enum Pending {
     Buy { page: Page, key: u32, price: i64 },
     /// The item taken off the cursor, of `size`, at `price`.
     Sell {
-        dropped: Dropped,
+        dropped: Box<Dropped>,
         size: (u8, u8),
         price: i64,
     },
@@ -653,7 +653,7 @@ fn press_page(
         pack.held = None;
         let price = trading.fetches(&held.dropped);
         commands.insert_resource(Pending::Sell {
-            dropped: held.dropped,
+            dropped: Box::new(held.dropped),
             size: held.size,
             price,
         });
@@ -721,10 +721,10 @@ fn answer(
                 true,
             ) => {
                 let page = trading.page_of(&dropped);
-                sell(&mut wares, &mut pack, (dropped, size, price, page));
+                sell(&mut wares, &mut pack, (*dropped, size, price, page));
             }
             (Pending::Sell { dropped, size, .. }, false) => {
-                pack.hold(dropped, size);
+                pack.hold(*dropped, size);
             }
             (Pending::Buy { .. }, false) => {}
         }

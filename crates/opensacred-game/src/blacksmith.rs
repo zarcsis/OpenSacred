@@ -138,7 +138,7 @@ const ITEMS: usize = 18;
 /// What waits for an empty socket: an item from the cursor, or an upgrade of a type.
 #[derive(Clone, Debug, PartialEq)]
 enum Wait {
-    Item(Held),
+    Item(Box<Held>),
     Upgrade(u32),
 }
 
@@ -250,7 +250,7 @@ impl Blacksmith {
             .iter_mut()
             .filter_map(Option::take)
             .filter_map(|wait| match wait {
-                Wait::Item(held) => Some(held),
+                Wait::Item(held) => Some(*held),
                 Wait::Upgrade(_) => None,
             })
             .collect()
@@ -273,6 +273,7 @@ fn upgrade_item(kind: u32) -> Dropped {
         named: None,
         socketed: Vec::new(),
         name_key: 0,
+        script: None,
     }
 }
 
@@ -668,7 +669,7 @@ fn press_socket(smith: &mut Blacksmith, pack: &mut Pack, tables: &Tables, k: usi
             Some(if category == smith::UPGRADES {
                 Wait::Upgrade(held.dropped.item)
             } else {
-                Wait::Item(held)
+                Wait::Item(Box::new(held))
             })
         }
         None => None,
@@ -676,7 +677,7 @@ fn press_socket(smith: &mut Blacksmith, pack: &mut Pack, tables: &Tables, k: usi
     let out = std::mem::replace(&mut smith.waiting[k], into);
     pack.held = None;
     match out {
-        Some(Wait::Item(held)) => pack.held = Some(held),
+        Some(Wait::Item(held)) => pack.held = Some(*held),
         Some(Wait::Upgrade(kind)) => {
             pack.hold(upgrade_item(kind), tables.size(kind));
         }
@@ -1279,11 +1280,11 @@ mod tests {
             grid: Grid::new(COLUMNS, ROWS),
             waiting: [
                 Some(Wait::Upgrade(8000)),
-                Some(Wait::Item(Held {
+                Some(Wait::Item(Box::new(Held {
                     key: 1,
                     dropped: item(waiting),
                     size: (1, 1),
-                })),
+                }))),
                 None,
                 None,
             ],

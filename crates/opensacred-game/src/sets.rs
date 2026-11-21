@@ -111,6 +111,7 @@ fn start(mut commands: Commands, starting: Option<Res<Starting>>, tables: Option
             named: None,
             socketed: Vec::new(),
             name_key: 0,
+            script: None,
         });
     }
     commands.insert_resource(sets);
@@ -774,6 +775,7 @@ mod tests {
             named: None,
             socketed: Vec::new(),
             name_key: 0,
+            script: None,
         };
         let halves = [None, Some(item(7901))];
         let sword = rule::Piece::weapon(1, 1, 7901);

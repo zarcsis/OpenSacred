@@ -172,10 +172,6 @@ pub struct Pack {
     /// The `Use:` functions of the items that the scripts laid, by their keys (`CreateObj`'s
     /// `0x83`, the script manager's list at `+0x358`; #1272).
     pub uses: Vec<(u32, String)>,
-    /// The script names of the items that the scripts laid (their `CreateObj`'s first `0x01`, the
-    /// object's key `+0x3C`), by their keys, lower-cased, by which the test `0x3A` finds them
-    /// among the hero's 256 slots and a `DelNPC` takes them out (`0x4987B0`, `0x497F80`; #3147).
-    pub names: Vec<(u32, String)>,
     /// The items used up since `sparkles` last looked, their places in the grid and their types,
     /// each of which sparkles (`0x5D8000`, #1272).
     pub used: Vec<(Placed, u32)>,
@@ -196,7 +192,6 @@ pub struct Kept {
     worn: [Option<(u32, Dropped)>; opensacred_rules::equipment::SLOTS as usize],
     books: Vec<u32>,
     uses: Vec<(u32, String)>,
-    names: Vec<(u32, String)>,
 }
 
 impl Kept {
@@ -223,7 +218,6 @@ impl Pack {
             worn: self.worn.clone(),
             books: self.books.clone(),
             uses: self.uses.clone(),
-            names: self.names.clone(),
         }
     }
 
@@ -238,7 +232,6 @@ impl Pack {
         self.worn = kept.worn;
         self.books = kept.books;
         self.uses = kept.uses;
-        self.names = kept.names;
         self.used.clear();
     }
 }
@@ -355,19 +348,35 @@ pub struct TakenToRun(pub String);
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct KeptUse(pub String);
 
-/// A drop that keeps the script name of the pack's item that it was, which it gives the pack again
-/// as the hero takes it, as [`KeptUse`] its function (#3147): the original's object keeps its key.
-#[derive(Component, Clone, Debug, PartialEq, Eq)]
-pub struct KeptName(pub String);
-
-/// Takes the item of the script name `name` out of the hero's pack, as a `DelNPC` of the name does
-/// (`0x497F80`, [`Pack::take_named`], #3147).
+/// Takes the item of the script name `name` out of the hero's slots, as a `DelNPC` of the name
+/// does (`0x497F80`, #3147): out of its pack ([`Pack::take_named`]), else out of its weapon sets
+/// (#3217).
 pub(crate) fn take_named(world: &mut World, name: &str) {
+    let name = name.to_lowercase();
     if let Some(mut pack) = world.get_resource_mut::<Pack>()
-        && let Some(item) = pack.take_named(name)
+        && let Some(item) = pack.take_named(&name)
     {
         info!("pickup: the scripts take {name}, a {item}, out of the hero's pack");
+        return;
     }
+    if let Some(mut sets) = world.get_resource_mut::<crate::sets::WeaponSets>()
+        && let Some(half) = sets
+            .halves
+            .iter_mut()
+            .flatten()
+            .find(|half| half.as_ref().is_some_and(|item| named(item, &name)))
+        && let Some(item) = half.take()
+    {
+        info!(
+            "pickup: the scripts take {name}, a {}, out of the hero's weapon sets",
+            item.item
+        );
+    }
+}
+
+/// Whether `item` is of the script name `name`, lower case.
+fn named(item: &Dropped, name: &str) -> bool {
+    item.script.as_deref() == Some(name)
 }
 
 /// An item that the scripts give the hero straight among the main quest's items, its type
@@ -425,52 +434,42 @@ impl Pack {
         let index = self.items.iter().position(|(k, _)| *k == key)?;
         let placed = self.grid.remove(key)?;
         self.uses.retain(|(k, _)| *k != key);
-        self.names.retain(|(k, _)| *k != key);
         Some((placed, self.items.remove(index).1))
     }
 
-    /// Lets go the script name of the item of the key `key` as the item leaves the pack for the
-    /// world, the name itself, which its drop keeps ([`KeptName`], #3147).
-    pub fn release_name(&mut self, key: u32) -> Option<String> {
-        let index = self.names.iter().position(|(k, _)| *k == key)?;
-        Some(self.names.remove(index).1)
-    }
-
-    /// Gives the item of the key `key` the script name `name` (#3147).
-    pub fn bind_name(&mut self, key: u32, name: &str) {
-        self.names.retain(|(k, _)| *k != key);
-        self.names.push((key, name.to_lowercase()));
-    }
-
-    /// Whether the item of the key `key` is still in the pack: in the grid, worn, or on the
-    /// cursor.
-    fn carries(&self, key: u32) -> bool {
-        self.items.iter().any(|(k, _)| *k == key)
-            || self.worn.iter().flatten().any(|(k, _)| *k == key)
-            || self.held.as_ref().is_some_and(|held| held.key == key)
-    }
-
-    /// The script names of the items that the hero carries, by which the test `0x3A` answers
-    /// (#3147).
-    pub fn carried_names(&self) -> std::collections::HashSet<String> {
-        self.names
+    /// The items that the pack holds: in the grid, worn, or on the cursor.
+    fn carried(&self) -> impl Iterator<Item = (u32, &Dropped)> {
+        self.items
             .iter()
-            .filter(|&&(key, _)| self.carries(key))
-            .map(|(_, name)| name.clone())
+            .chain(self.worn.iter().flatten())
+            .map(|(key, item)| (*key, item))
+            .chain(self.held.iter().map(|held| (held.key, &held.dropped)))
+    }
+
+    /// The script names of the items that the hero carries, in the pack and in `sets`, by which
+    /// the test `0x3A` answers (#3147, #3217): each item keeps its own wherever it goes.
+    pub fn carried_names(
+        &self,
+        sets: Option<&crate::sets::WeaponSets>,
+    ) -> std::collections::HashSet<String> {
+        let in_sets = sets
+            .into_iter()
+            .flat_map(|sets| sets.halves.iter().flatten().flatten());
+        self.carried()
+            .map(|(_, item)| item)
+            .chain(in_sets)
+            .filter_map(|item| item.script.clone())
             .collect()
     }
 
-    /// Takes the item of the script name `name` out of the pack for good, as a `DelNPC` of the
-    /// name takes it out of the hero's slots (`0x497F80`, #3147): from the grid, a worn slot or
-    /// the cursor; its type, none where the hero carries none of the name.
+    /// Takes the item of the script name `name`, lower case, out of the pack for good, as a
+    /// `DelNPC` of the name takes it out of the hero's slots (`0x497F80`, #3147): from the grid, a
+    /// worn slot or the cursor; its type, none where the pack holds none of the name.
     pub fn take_named(&mut self, name: &str) -> Option<u32> {
-        let name = name.to_lowercase();
         let key = self
-            .names
-            .iter()
-            .find(|(key, named)| *named == name && self.carries(*key))
-            .map(|&(key, _)| key)?;
-        self.names.retain(|(k, _)| *k != key);
+            .carried()
+            .find(|(_, item)| named(item, name))
+            .map(|(key, _)| key)?;
         self.uses.retain(|(k, _)| *k != key);
         if let Some((_, dropped)) = self.take_out(key) {
             return Some(dropped.item);
@@ -737,7 +736,7 @@ type LyingItem<'a> = (
     &'a Lying,
     Option<&'a QuestItem>,
     Option<&'a crate::npcs::ScriptItem>,
-    (Option<&'a KeptUse>, Option<&'a KeptName>),
+    Option<&'a KeptUse>,
 );
 
 /// What takes an item off the ground into the hero's purse, pack or hand.
@@ -837,11 +836,9 @@ impl Taking<'_, '_> {
     /// `UI_QUESTBOOK_WRITING` (the event `(9, 0x81)`), and the scripts run its taking's function
     /// (`Take:`, `0x4A71F0`; #1256).
     fn take(&mut self, item: Entity) {
-        let Ok((lying, quest, script_item, (kept, kept_name))) = self.items.get(item) else {
+        let Ok((lying, quest, script_item, kept)) = self.items.get(item) else {
             return;
         };
-        // The key that the item takes in the pack, if it takes one there.
-        let first = self.pack.next;
         info!(
             "pickup: the hero takes {:?} {} x{}",
             lying.dropped.kind, lying.dropped.item, lying.dropped.amount
@@ -911,17 +908,6 @@ impl Taking<'_, '_> {
                     self.pack.bind_use(function);
                 }
             }
-        }
-        // A `CreateObj`'s item keeps its script name in the pack, and one dropped and taken again
-        // its own (#3147).
-        let name = script_item
-            .and_then(|item| item.name.clone())
-            .or_else(|| kept_name.map(|kept| kept.0.clone()));
-        if let Some(name) = name
-            && self.pack.next > first
-        {
-            let key = self.pack.next - 1;
-            self.pack.bind_name(key, &name);
         }
         // A `CreateObj`'s item taken is not laid again as its sector comes back (#1296), and its
         // taking's function runs (#2891).
@@ -1540,6 +1526,7 @@ fn start(
             named: None,
             socketed: Vec::new(),
             name_key: 0,
+            script: None,
         };
         if !pack.put(dropped, carried.at, carried.size) {
             warn!(
@@ -1566,6 +1553,7 @@ fn receive(mut given: MessageReader<Given>, mut pack: ResMut<Pack>) {
             named: None,
             socketed: Vec::new(),
             name_key: 0,
+            script: None,
         });
     }
 }
@@ -1623,6 +1611,7 @@ mod tests {
             named: None,
             socketed: Vec::new(),
             name_key: 0,
+            script: None,
         }
     }
 
@@ -1763,6 +1752,7 @@ mod tests {
             named: None,
             socketed: Vec::new(),
             name_key: 0,
+            script: None,
         };
         assert_eq!(into_hands(&[Some(held), None], &seraphim, &sword), None);
         // A level above the hero's keeps it out, and a skill it lacks (#2410).
@@ -1856,30 +1846,51 @@ mod tests {
 
     #[test]
     fn a_scripts_item_is_carried_by_its_name_until_it_leaves_or_a_del_npc_takes_it() {
+        let named = |item, name: &str| Dropped {
+            script: Some(name.to_owned()),
+            ..dropped(Kind::Other, item, 1)
+        };
         let mut pack = Pack::default();
-        assert!(pack.take(dropped(Kind::Other, 6080, 1), (1, 1)));
-        let key = pack.items[0].0;
-        pack.bind_name(key, "Res:17580");
-        assert!(pack.carried_names().contains("res:17580"));
+        assert!(pack.take(named(6080, "res:17580"), (1, 1)));
+        assert!(pack.carried_names(None).contains("res:17580"));
         // On the cursor it is carried still.
         assert!(pack.lift((0, 0)));
-        assert!(pack.carried_names().contains("res:17580"));
+        assert!(pack.carried_names(None).contains("res:17580"));
         assert_eq!(pack.put_held((0, 0)), Put::Placed);
-        // Dropped, its name goes with it, and the hero carries it no more.
-        assert_eq!(pack.release_name(key).as_deref(), Some("res:17580"));
-        assert!(pack.carried_names().is_empty());
-        pack.bind_name(key, "res:17580");
-        // A `DelNPC` of its name takes it out of the pack, whatever the case.
-        assert_eq!(pack.take_named("RES:17580"), Some(6080));
-        assert!(pack.items.is_empty() && pack.carried_names().is_empty());
+        // Taken out, its name goes with it, and the hero carries it no more.
+        let key = pack.items[0].0;
+        let (_, out) = pack.take_out(key).unwrap();
+        assert_eq!(out.script.as_deref(), Some("res:17580"));
+        assert!(pack.carried_names(None).is_empty());
+        assert!(pack.take(out, (1, 1)));
+        // A `DelNPC` of its name takes it out of the pack.
+        assert_eq!(pack.take_named("res:17580"), Some(6080));
+        assert!(pack.items.is_empty() && pack.carried_names(None).is_empty());
         assert_eq!(pack.take_named("res:17580"), None);
         // Worn, it is carried and taken alike.
-        assert!(pack.wear_picked(dropped(Kind::Other, 6081, 1), 3));
-        let worn = pack.next - 1;
-        pack.bind_name(worn, "res:17562");
-        assert!(pack.carried_names().contains("res:17562"));
+        assert!(pack.wear_picked(named(6081, "res:17562"), 3));
+        assert!(pack.carried_names(None).contains("res:17562"));
         assert_eq!(pack.take_named("res:17562"), Some(6081));
         assert!(pack.worn.iter().all(Option::is_none));
+        // In a weapon set's half it is carried too (#3217).
+        let mut sets = crate::sets::WeaponSets::default();
+        sets.halves[0][1] = Some(named(1724, "res:17599"));
+        assert!(pack.carried_names(Some(&sets)).contains("res:17599"));
+    }
+
+    #[test]
+    fn a_del_npc_takes_a_scripts_weapon_out_of_the_weapon_sets() {
+        let mut world = World::new();
+        world.init_resource::<Pack>();
+        let mut sets = crate::sets::WeaponSets::default();
+        sets.halves[2][0] = Some(Dropped {
+            script: Some("res:17599".into()),
+            ..dropped(Kind::Weapon, 1724, 1)
+        });
+        world.insert_resource(sets);
+        take_named(&mut world, "RES:17599");
+        let sets = world.resource::<crate::sets::WeaponSets>();
+        assert!(sets.halves.iter().flatten().all(Option::is_none));
     }
 
     #[test]

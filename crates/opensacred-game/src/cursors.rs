@@ -616,6 +616,7 @@ mod tests {
                 named: None,
                 socketed: Vec::new(),
                 name_key,
+                script: None,
             };
             Named(Some((Some(dropped), text.map(str::to_owned))))
         };

@@ -465,6 +465,7 @@ impl Tables {
             named: None,
             socketed: Vec::new(),
             name_key: 0,
+            script: None,
         }
     }
 
@@ -1390,8 +1391,6 @@ pub struct Laid {
     flight: Option<(Flight, u8, bool)>,
     /// The `Use:` function that it keeps from the pack (`pickup::KeptUse`, #3099).
     kept_use: Option<String>,
-    /// The script name that it keeps from the pack (`pickup::KeptName`, #3147).
-    kept_name: Option<String>,
 }
 
 /// The drops as a save keeps them ([`Laid`]), but the scripts' items, which their placements lay
@@ -1401,18 +1400,14 @@ pub fn laid(world: &mut World) -> Vec<Laid> {
         &Transform,
         &Lying,
         Option<&Flying>,
-        (
-            Option<&crate::pickup::KeptUse>,
-            Option<&crate::pickup::KeptName>,
-        ),
+        Option<&crate::pickup::KeptUse>,
     ), (Without<npcs::QuestItem>, Without<npcs::ScriptItem>)>();
     let world = &*world;
     let heights = world.get_resource::<Heights>();
     drops
         .iter(world)
-        .map(|(transform, lying, flying, (kept, name))| Laid {
+        .map(|(transform, lying, flying, kept)| Laid {
             kept_use: kept.map(|kept| kept.0.clone()),
-            kept_name: name.map(|name| name.0.clone()),
             dropped: lying.dropped.clone(),
             at: transform.translation,
             turn: transform.rotation,
@@ -1458,11 +1453,6 @@ fn lay_again(
             commands
                 .entity(entity)
                 .insert(crate::pickup::KeptUse(function.clone()));
-        }
-        if let Some(name) = &laid.kept_name {
-            commands
-                .entity(entity)
-                .insert(crate::pickup::KeptName(name.clone()));
         }
         if let Some((flight, floor, marked)) = laid.flight {
             let level = heights
@@ -2167,7 +2157,6 @@ mod tests {
             turn: Quat::from_rotation_y(1.0),
             flight: None,
             kept_use: Some("Fass_gesoffen".into()),
-            kept_name: Some("res:17562".into()),
         };
         let flight = Flight::dropped(100.0, 30.0, &mut Rng::of(1, 2, 3));
         let flying = Laid {
@@ -2239,6 +2228,7 @@ mod tests {
                 named: None,
                 socketed: Vec::new(),
                 name_key: 0,
+                script: None,
             },
             resting: true,
         };

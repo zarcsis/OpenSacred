@@ -470,6 +470,7 @@ mod tests {
                 named: None,
                 socketed: Vec::new(),
                 name_key: 0,
+                script: None,
             },
         ));
         app.world_mut()
