@@ -12,7 +12,8 @@
 //! The region's line under the difficulty's name: the region of the hero's area, the kills that
 //! remain in it and its total (#1574, `regions`).
 //!
-//! The creatures' marks as the lens draws them (#1571, `lens_creatures`).
+//! The creatures' marks as the lens draws them (#1571, `lens_creatures`), and the scripts'
+//! places and the pin as the world map's lens draws them (#2932, `world_map::places_in_lens`).
 //!
 //! Not followed yet: the scripts' boxes' tooltip, which no box of the release has.
 
@@ -172,7 +173,11 @@ fn show(
     roots: Query<Entity, With<OverviewRoot>>,
     mut planes: Query<&mut Node, With<Plane>>,
     heroes: Query<&GlobalTransform, With<crate::hero::Body>>,
-    (live, seek): (Option<NonSend<crate::scripts::Live>>, crate::compass::Seek),
+    (live, seek, map): (
+        Option<NonSend<crate::scripts::Live>>,
+        crate::compass::Seek,
+        Option<Res<crate::world_map::Map>>,
+    ),
 ) {
     let point = hero_point(&heroes).filter(|_| overview.shown);
     let Some(point) = point else {
@@ -243,6 +248,17 @@ fn show(
             plane,
             (&images, &assets, texts.as_deref()),
             (live, &seek),
+            point,
+        );
+        crate::world_map::places_in_lens(
+            &mut commands,
+            plane,
+            (&images, &assets),
+            (
+                live.map_places(),
+                &land,
+                map.as_deref().and_then(crate::world_map::Map::pin_target),
+            ),
             point,
         );
     }
