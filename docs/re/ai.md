@@ -656,7 +656,7 @@ The creatures cast (#1852, "The creatures' spells" above): the mark 1's casters 
   Seen in the game on the same setup: each whirlwind's eight bolts knocked her back 80 at once, about 1.5 cells, where the original's struck her again about 1 s later as they flew on, 3 to 4 cells a whirlwind; why is not read yet (#3034).
 - Not followed yet: the fireball's variant (`+0x13C`, whose sense is not read, #2902).
   Since #2944 the hero's hostiles of the marks 8 and `0x200` that fight hand to hand count in the deadline and the holds' roll (`ai`, "The creatures' spells" above).
-  Not followed: the test of the stone's target's level against `0.4·L + 5L'` (docs/re/arts.md, "The spells' lock and their objects' tables"), which a caster at least of the hero's level always passes (#3239).
+  The test of the stone's target's level against `0.4·L + 5L'` (docs/re/arts.md, "The spells' lock and their objects' tables"), which a caster at least of the hero's level always passes, is followed since #3239 (`opensacred_rules::spells::level_admits`, `ai`).
   The spells' sights are made since #1092, the fireball's burst on its hit among them (docs/re/effects.md).
 - In the game, a magic skeleton (48) of level 10 by the Seraphim's start cast its fireball every 5 to 20 s, some 11 s on average, from beside her and from its band, and each struck her; the original's, at the same place, every 8 to 25 s, some 16 s, from beside her as well.
   A mummy (44), the mummy 03 (66) and the orc shaman (67) of level 10 there struck her with the whirlwind's seven bolts, the lightning and the meteors.
