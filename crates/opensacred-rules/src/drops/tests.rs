@@ -960,7 +960,7 @@ fn a_boss_of_a_type_adds_its_calls_its_treasure_and_its_own_drops() {
     // A round's item made by the maker's own key, its pass's key `16 − key`, of no script's
     // name; none of a type that the table does not hold.
     let unlisted = unlisted();
-    let mut dropping = Dropping {
+    let dropping = Dropping {
         catalogue: &unlisted,
         ..dropping
     };
