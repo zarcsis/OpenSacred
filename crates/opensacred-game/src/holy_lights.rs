@@ -6,7 +6,8 @@
 //! (`opensacred_rules::particles::HolyLight`); all untinted by the night, its light of 200 at it,
 //! and its Direct3D point light on the models about it (`fx_lights`, #2106).
 //!
-//! Not followed: the sparks' colours' spread (±15 each, `+0x2138`).
+//! Each spark is drawn in its own colour, rolled about the block's by ±15 each (`+0x2138`,
+//! #3155).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -178,13 +179,15 @@ fn run(
         );
         let glow = flat(particles::HOLY_GLOW_HALF, 0.0, particles::HOLY_GLOW_COLOUR);
         let mut sparks = Quads::default();
+        // Each spark in its own colour, rolled about the block's (#3155).
         for spark in &shown.light.system.particles {
+            let [r, g, b] = spark.colour;
             sparks.push(
                 world(spark.place),
                 spark.size * s,
                 0.0,
                 (Vec2::ZERO, 1.0),
-                particles::HOLY_SPARK_COLOUR,
+                [r, g, b, particles::HOLY_SPARK_COLOUR[3]],
             );
         }
         // At its object's place in the order, as the original draws the system (#2188).

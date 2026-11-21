@@ -199,6 +199,26 @@ fn spread_3(value: Spread<[f32; 3]>, dice: &mut impl Dice) -> [f32; 3] {
     std::array::from_fn(|k| value.value[k] + value.spread[k] * signed(dice))
 }
 
+/// A particle's own colour, of 1, rolled about `colour` by `spread`, both of 1, as the emission
+/// rolls it (`0x764760` at `0x765209`, #3155): each byte of the colour's word, the alpha (opaque,
+/// with no spread), red, green and blue in turn, its value less its spread plus twice its spread
+/// by a roll, truncated and ORed unclamped into the word shifted a byte on, so that a byte above
+/// 255 sets the lowest bit of the byte above it and one below 0 every bit above it.
+pub fn rolled_colour(colour: [f32; 3], spread: [f32; 3], dice: &mut impl Dice) -> [f32; 3] {
+    let [r, g, b] = colour.map(|c| c * 255.0);
+    let [sr, sg, sb] = spread.map(|s| s * 255.0);
+    let word = [(255.0, 0.0), (r, sr), (g, sg), (b, sb)].into_iter().fold(
+        0_u32,
+        |word, (value, spread)| {
+            let unit = f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
+            let byte = crate::fight::truncated(f64::from(value - spread + 2.0 * spread * unit));
+            let byte = i32::try_from(byte).unwrap_or(0).cast_unsigned();
+            (word << 8) | byte
+        },
+    );
+    [16, 8, 0].map(|shift| f32::from(u8::try_from((word >> shift) & 0xFF).unwrap_or(0)) / 255.0)
+}
+
 /// A system's particles, its clock, when it last emitted, and the detail's factor of its
 /// intervals ([`interval_factor`]).
 #[derive(Clone, Debug, PartialEq)]
@@ -415,7 +435,7 @@ fn born(block: &Block, layer: usize, dice: &mut impl Dice) -> Particle {
         colour: if block.colour.spread == [0.0; 3] {
             [1.0; 3]
         } else {
-            spread_3(block.colour, dice).map(|c| c.clamp(0.0, 1.0))
+            rolled_colour(block.colour.value, block.colour.spread, dice)
         },
     }
 }
@@ -2872,8 +2892,10 @@ pub const HOLY_SYMBOL_TURN: f32 = 0.5;
 pub const HOLY_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
 pub const HOLY_GLOW_HALF: f32 = 100.0;
 pub const HOLY_GLOW_COLOUR: [f32; 4] = [75.0 / 255.0, 233.0 / 255.0, 247.0 / 255.0, 1.0];
-/// The sparks' colour (`+0x2134`, `0x708080F0`), added whole (the flags `0x31`).
+/// The sparks' colour (`+0x2134`, `0x708080F0`), added whole (the flags `0x31`), each spark's own
+/// rolled about it by [`HOLY_SPARK_SPREAD`] (`+0x2138`, `0x0F` in each byte; #3155).
 pub const HOLY_SPARK_COLOUR: [f32; 4] = [128.0 / 255.0, 128.0 / 255.0, 240.0 / 255.0, 1.0];
+pub const HOLY_SPARK_SPREAD: f32 = 15.0 / 255.0;
 
 /// A column of light's measures, the holy light's ([`HOLY_COLUMN`]) and the purgatory's
 /// ([`hellfire_column`]): a cylinder of its segments of its radius and height, and two bands
@@ -2933,11 +2955,13 @@ impl HolyLight {
     /// both times its fade; its fade down by `dt / seconds`.
     pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
         let breadth = 7.0 * self.fade;
+        let [r, g, b, _] = HOLY_SPARK_COLOUR;
         let block = Block {
             buoyancy: spread(-1_500.0, 0.0),
             size: spread(breadth * 0.5, breadth * 0.25),
             offset: spread([0.0; 3], [breadth, breadth, 0.0]),
             interval: 0.03,
+            colour: spread([r, g, b], [HOLY_SPARK_SPREAD; 3]),
             ..Block::default()
         };
         let layers = [Self::layer()];
@@ -9301,17 +9325,15 @@ impl Spit {
     /// below 0 (about one spider's blob in a hundred) sets the whole red byte, a yellow blob.
     pub fn colour(crab: bool, dice: &mut impl Dice) -> [f32; 3] {
         let (base, spread) = if crab {
-            ([255.0, 224.0, 112.0, 112.0], [0.0, 30.0, 32.0, 32.0])
+            ([224.0, 112.0, 112.0], [30.0, 32.0, 32.0])
         } else {
-            ([255.0, 46.0, 133.0, 0.0], [0.0, 48.0, 32.0, 0.0])
+            ([46.0, 133.0, 0.0], [48.0, 32.0, 0.0])
         };
-        let bytes: [f32; 4] = std::array::from_fn(|k| {
-            let unit = f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0;
-            let value = (base[k] - spread[k] + 2.0 * spread[k] * unit).trunc();
-            // A byte below 0 sets the bits of its own and those above it.
-            if value < 0.0 { value + 256.0 } else { value }
-        });
-        [bytes[1], bytes[2], bytes[3]].map(|byte| byte / 255.0)
+        rolled_colour(
+            base.map(|byte: f32| byte / 255.0),
+            spread.map(|byte: f32| byte / 255.0),
+            dice,
+        )
     }
 
     /// Its model's place in its frame, where it flies or where it landed.
@@ -13945,7 +13967,14 @@ pub struct BoltTrail {
     pub system: System,
     pub kind: TrailKind,
     out: bool,
+    /// The colour of the ground where the whirlwind leaves, of 1, about which each puff's own is
+    /// rolled ([`WINDSTRIKE_SPREAD`]); white for the fire bolt.
+    ground: [f32; 3],
 }
+
+/// The spread of each whirlwind's puff's own colour about the ground's (`0x78A170`, 16 in each
+/// byte; #3155).
+pub const WINDSTRIKE_SPREAD: f32 = 16.0 / 255.0;
 
 impl BoltTrail {
     /// A trail of `kind` as its bolt starts.
@@ -13958,7 +13987,13 @@ impl BoltTrail {
             system: System::new(count),
             kind,
             out: false,
+            ground: [1.0; 3],
         }
+    }
+
+    /// The whirlwind's trail of the ground's colour `ground`, of 1, where it leaves.
+    pub fn with_ground(self, ground: [f32; 3]) -> Self {
+        Self { ground, ..self }
     }
 
     fn layer(&self) -> Layer {
@@ -13985,6 +14020,7 @@ impl BoltTrail {
                 velocity: spread([0.0, 0.0, 350.0], [0.0, 0.0, 50.0]),
                 offset: spread([0.0; 3], [15.0, 15.0, 0.0]),
                 interval: 0.01,
+                colour: spread(self.ground, [WINDSTRIKE_SPREAD; 3]),
                 ..Block::default()
             },
             TrailKind::Shaddar => Block {
@@ -16559,6 +16595,57 @@ impl DemonDeath {
 mod tests {
     use super::*;
 
+    /// Dice that roll `0` alone, or the highest roll of 0 to 0x7FFF.
+    struct Ends(bool);
+
+    impl Dice for Ends {
+        fn below(&mut self, n: u32) -> u32 {
+            if self.0 { n.saturating_sub(1) } else { 0 }
+        }
+    }
+
+    #[test]
+    fn a_particles_colour_rolls_each_byte_and_ors_it_into_the_word() {
+        let byte = |b: f32| b / 255.0;
+        let colour = |c: [f32; 3]| c.map(byte);
+        // No spread: the colour itself, truncated to its bytes.
+        let mut low = Ends(false);
+        assert_eq!(
+            rolled_colour(colour([100.0, 128.0, 240.0]), [0.0; 3], &mut low),
+            colour([100.0, 128.0, 240.0])
+        );
+        // At the highest roll each byte its value plus its spread.
+        let mut high = Ends(true);
+        assert_eq!(
+            rolled_colour(colour([128.0, 128.0, 240.0]), [byte(15.0); 3], &mut high),
+            colour([143.0, 143.0, 255.0])
+        );
+        // A green above 255 sets the lowest bit of the red above it.
+        assert_eq!(
+            rolled_colour(
+                colour([100.0, 250.0, 0.0]),
+                [0.0, byte(16.0), 0.0],
+                &mut high
+            ),
+            colour([101.0, 10.0, 0.0])
+        );
+        // A blue below 0 sets every byte above it.
+        assert_eq!(
+            rolled_colour(colour([10.0, 20.0, 0.0]), [0.0, 0.0, byte(16.0)], &mut low),
+            colour([255.0, 255.0, 240.0])
+        );
+        // A block's spread of colour gives each particle its own.
+        let block = Block {
+            colour: spread(colour([128.0, 128.0, 240.0]), [byte(15.0); 3]),
+            ..Block::default()
+        };
+        assert_eq!(
+            born(&block, 0, &mut high).colour,
+            colour([143.0, 143.0, 255.0])
+        );
+        assert_eq!(born(&Block::default(), 0, &mut high).colour, [1.0; 3]);
+    }
+
     #[test]
     fn the_persistent_fx_types_are_the_set_ups_list() {
         let kept: Vec<u32> = (768..=1181).filter(|&kind| persistent(kind)).collect();
@@ -17726,6 +17813,22 @@ mod tests {
         assert!(light.system.particles.iter().any(|p| p.place[2] > 300.0));
         assert!((light.fade - 0.5).abs() < 1e-3, "{}", light.fade);
         assert!(!light.done());
+        // Each spark its own colour about `0x8080F0` by 15 in each byte, not all one (#3155).
+        let bytes = |c: f32| (c * 255.0).round();
+        let colours: Vec<[f32; 3]> = light
+            .system
+            .particles
+            .iter()
+            .map(|p| p.colour.map(bytes))
+            .collect();
+        assert!(colours.iter().all(|&[r, g, b]| {
+            (113.0..=143.0).contains(&r)
+                && (113.0..=143.0).contains(&g)
+                && (225.0..=255.0).contains(&b)
+        }));
+        assert!(colours.windows(2).any(|pair| pair[0] != pair[1]));
+        // Its glow's colour, `0xFF4BE9F7`.
+        assert_eq!(HOLY_GLOW_COLOUR.map(bytes), [75.0, 233.0, 247.0, 255.0]);
         for _ in 0..80 {
             light.update(0.025, &mut dice);
         }
@@ -20292,7 +20395,8 @@ mod tests {
     #[test]
     fn a_whirlwind_leaves_its_dust_and_a_fire_bolt_carries_its_smoke() {
         let mut dice = Rng::of(14, 14, 831);
-        let mut dust = BoltTrail::new(TrailKind::Windstrike);
+        let ground = [120.0 / 255.0, 100.0 / 255.0, 60.0 / 255.0];
+        let mut dust = BoltTrail::new(TrailKind::Windstrike).with_ground(ground);
         for k in 0..30u8 {
             let x = f32::from(k) * 3.3;
             dust.update(1.0 / 60.0, ([x, 0.0, 0.0], [x + 3.3, 0.0, 0.0]), &mut dice);
@@ -20306,6 +20410,19 @@ mod tests {
                 .iter()
                 .all(|p| p.place[2] >= 0.0 && p.place[2] < 115.0)
         );
+        // Each puff its own colour about the ground's by 16 in each byte, not all one (#3155).
+        let bytes: Vec<[f32; 3]> = dust
+            .system
+            .particles
+            .iter()
+            .map(|p| p.colour.map(|c| (c * 255.0).round()))
+            .collect();
+        assert!(bytes.iter().all(|&[r, g, b]| {
+            (104.0..=136.0).contains(&r)
+                && (84.0..=116.0).contains(&g)
+                && (44.0..=76.0).contains(&b)
+        }));
+        assert!(bytes.iter().any(|&[r, ..]| r < 112.0) && bytes.iter().any(|&[r, ..]| r > 128.0));
         dust.end(true);
         assert!(dust.done());
         let mut smoke = BoltTrail::new(TrailKind::Shaddar);
