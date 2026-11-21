@@ -397,6 +397,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/tooltip/set.rs`: The list of the sets worn that the equipment window's set icon shows
 - `crates/opensacred-game/src/torches.rs`: The torches' flames
 - `crates/opensacred-game/src/town_stash.rs`: The town stash's window (#1411; docs/re/containers.md, "The town stash
+- `crates/opensacred-game/src/trade_frame.rs`: The iron frame of the merchant's and the combat master's windows (#2940; docs/re/trade.md, "The merchant's window
 - `crates/opensacred-game/src/trample.rs`: The horse's trample
 - `crates/opensacred-game/src/trap_balls.rs`: The look of the thrown balls
 - `crates/opensacred-game/src/trap_landings.rs`: The looks of what the Dark Elf's trap balls make where they land

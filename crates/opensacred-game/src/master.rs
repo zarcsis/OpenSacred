@@ -2,7 +2,7 @@
 //! `+0x200` bit `0x4000` (`quests::WIZARD`) without a dialogue shows, as the hero speaks to it
 //! (`talk`, `0x52AB70`), the inventory and the master's window (`cUI_Master`, `UI_WND_MASTER`) at
 //! the screen's top left, 640 × 336, its left panel overhanging it to 342: its two panels tinted
-//! `0x9F000000`, the master's portrait
+//! `0x9F000000` in the trade windows' frame (`trade_frame`, #2940), the master's portrait
 //! and title (the text 1198), and its tab sheet's tabs COMBO and EXCHANGE over its COMBO page
 //! (`cUI_MasterCombo`, `0x6D1DA0`), the inventory's combos page selected; the inventory's hide
 //! hides it.
@@ -69,8 +69,6 @@ const LEFT_PANEL: Rect = Rect {
     max: Vec2::new(512.0, 342.0),
 };
 const PANEL: Color = Color::srgba(0.0, 0.0, 0.0, 159.0 / 255.0);
-/// The panels' edges (**estimate**, by the original's frames): a grey line of two pixels.
-const EDGE: Color = Color::srgb(0.33, 0.33, 0.31);
 /// The portrait's corner in the right panel (the control `+0x158`, `0x6D1460`; **seen**: the
 /// image 833 there to the pixel), the title's line and colour (`0xFF0050FF`).
 const PORTRAIT: Vec2 = Vec2::new(524.0, 26.0);
@@ -684,7 +682,11 @@ fn show(
     mut commands: Commands,
     (master, pack, held): (Option<Res<Master>>, Res<Pack>, Res<HeldArt>),
     (images, assets, texts): (Res<UiImages>, Res<AssetServer>, Option<Res<Texts>>),
-    (arts, portraits): (Option<Res<HeroArts>>, Option<Res<crate::talk::Portraits>>),
+    (arts, portraits, foot): (
+        Option<Res<HeroArts>>,
+        Option<Res<crate::talk::Portraits>>,
+        Res<crate::trade_frame::Foot>,
+    ),
     (tables, choice, rules): (
         Option<Res<Tables>>,
         Res<RuneChoice>,
@@ -739,18 +741,18 @@ fn show(
         commands.entity(root).add_child(child);
     };
     for panel in [RIGHT_PANEL, LEFT_PANEL] {
-        let mut node = bar::placed(panel.min, panel.size());
-        node.border = UiRect::all(Val::Px(2.0));
         let child = commands
             .spawn((
-                node,
+                bar::placed(panel.min, panel.size()),
                 BackgroundColor(PANEL),
-                BorderColor::all(EDGE),
                 Pickable::IGNORE,
             ))
             .id();
         commands.entity(root).add_child(child);
     }
+    // The frame's pieces over the panels and along the window (`0x6D1460`, as the merchant's,
+    // #2940).
+    crate::trade_frame::spawn(&mut commands, root, (&images, &assets), &foot);
     // The master's portrait by its type (`0x6D1180`): an interface image of its own, else its
     // dialogue's portrait; and its title.
     if let Some(&(_, index)) = OWN_PORTRAITS.iter().find(|(kind, _)| *kind == master.kind) {
