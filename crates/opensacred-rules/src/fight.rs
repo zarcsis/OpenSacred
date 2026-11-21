@@ -3607,6 +3607,13 @@ pub mod effects {
     /// byte (`0x582D50`'s eighth argument), the part `1 − value^whole`, its value held from 0 to 1
     /// as it is added (`0x582D50`); the Daemon's forms' auras (docs/re/arts.md, "The Daemon's").
     pub const TURNS: u32 = 53;
+    /// The butterflies' effect (`+0x2B8` bit `0x20`), which a `SetNPCState`'s `0x8C`, the potions
+    /// 6081 and 6094 and their kin give for 10 s, its art a number that their object 874 lasts
+    /// 150 ms for each unit of (`0x582D50` at `0x58437C`; docs/re/arts.md, "The effects"). It
+    /// changes none of the fight's values here.
+    pub const KNOCKOUT: u32 = 31;
+    /// How long the effect [`KNOCKOUT`] holds as a `SetNPCState`'s `0x8C` and the potions give it.
+    pub const KNOCKOUT_SECONDS: f32 = 10.0;
 }
 
 /// The least multiplier of `D` that the effect 2 leaves (the float `0x3C23D70A`).

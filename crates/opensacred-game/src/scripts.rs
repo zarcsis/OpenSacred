@@ -472,6 +472,8 @@ pub struct Effects {
     pub random_items: u32,
     /// The generic systems that its `Partikel`s start (#1828).
     pub particles: Vec<Partikel>,
+    /// The butterflies' effects that its `SetNPCState`s of `0x8C` give the hero (#3023).
+    pub knock_outs: Vec<crate::knockouts::KnockOut>,
     /// The side quests that its `ExitQuest`s won, each of which may give the hero a rune of its
     /// class (`0x46D362`, `rewards`; #1386).
     pub won: Vec<u32>,
@@ -502,6 +504,7 @@ impl Effects {
         self.given.extend(other.given);
         self.random_items += other.random_items;
         self.particles.extend(other.particles);
+        self.knock_outs.extend(other.knock_outs);
         self.won.extend(other.won);
         self.autosaves.extend(other.autosaves);
         self.active = other.active.or(self.active);
@@ -1028,6 +1031,7 @@ impl Live {
             given: recorder.given,
             random_items: recorder.random_items,
             particles: recorder.particles,
+            knock_outs: recorder.knock_outs,
             won: recorder.won,
             autosaves: recorder.autosaves,
             active: recorder.active,
@@ -1215,6 +1219,7 @@ struct Recorder<'a> {
     random_items: u32,
     /// The generic systems that its `Partikel`s start ([`Effects::particles`]).
     particles: Vec<Partikel>,
+    knock_outs: Vec<crate::knockouts::KnockOut>,
     /// The side quests that its `ExitQuest`s won ([`Effects::won`]).
     won: Vec<u32>,
     /// The numbers of its `AutoSave`s ([`Effects::autosaves`]).
@@ -1276,6 +1281,7 @@ impl<'a> Recorder<'a> {
             given: Vec::new(),
             random_items: 0,
             particles: Vec::new(),
+            knock_outs: Vec::new(),
             won: Vec::new(),
             autosaves: Vec::new(),
             active: None,
@@ -1950,14 +1956,23 @@ impl Host for Recorder<'_> {
             }
             // The hero's home: a `SetNPCState` of the tag `0x4D` naming the hero (`0x461540`,
             // `+0x2B9`), and a `StartPosition`, which teleports the hero in a game of one player
-            // and copies its position into its home (45, `0x491B30`; #974).
+            // and copies its position into its home (45, `0x491B30`; #974); and its `0x8C` of a
+            // number above 0, the butterflies' effect 31 of that art (`0x46217B`, #3023).
             "set_npc_state" => {
-                if tags
+                let hero = tags
                     .texts("_01")
                     .first()
-                    .is_some_and(|name| name.eq_ignore_ascii_case("hero"))
-                    && let [x, y, rest @ ..] = tags.numbers("_4D").as_slice()
+                    .is_some_and(|name| name.eq_ignore_ascii_case("hero"));
+                if hero
+                    && let Some(&art) = tags.numbers("_8C").first()
+                    && let Ok(art @ 1..) = u32::try_from(art)
                 {
+                    self.knock_outs.push(crate::knockouts::KnockOut {
+                        creature: None,
+                        art,
+                    });
+                }
+                if hero && let [x, y, rest @ ..] = tags.numbers("_4D").as_slice() {
                     self.home = Some(Teleport {
                         cell: (*x, *y),
                         layer: rest
@@ -2718,6 +2733,7 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
         won,
         window,
         particles,
+        knock_outs,
         autosaves,
         active,
         ..
@@ -2730,6 +2746,7 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
         halt.asked = Some(active);
     }
     world.write_message_batch(particles);
+    world.write_message_batch(knock_outs);
     world.write_message_batch(window.sounds.into_iter().map(ScriptLine));
     world.write_message_batch(sounds);
     world.write_message_batch(remarks);
@@ -2820,6 +2837,7 @@ struct Queues<'w> {
     given: MessageWriter<'w, crate::pickup::Given>,
     random_items: MessageWriter<'w, crate::stashes::RandomItem>,
     particles: MessageWriter<'w, Partikel>,
+    knock_outs: MessageWriter<'w, crate::knockouts::KnockOut>,
     won: MessageWriter<'w, crate::rewards::QuestWon>,
     autosaves: Option<ResMut<'w, crate::saves::AutoSaves>>,
     halt: Option<ResMut<'w, crate::pause::Halt>>,
@@ -2846,6 +2864,7 @@ impl Queues<'_> {
         self.random_items
             .write_batch((0..effects.random_items).map(|_| crate::stashes::RandomItem));
         self.particles.write_batch(effects.particles);
+        self.knock_outs.write_batch(effects.knock_outs);
         self.won
             .write_batch(effects.won.into_iter().map(crate::rewards::QuestWon));
         if let Some(saves) = self.autosaves.as_mut() {
@@ -3207,6 +3226,7 @@ impl Plugin for ScriptsPlugin {
             .add_message::<ScriptSound>()
             .add_message::<ScriptLine>()
             .add_message::<Partikel>()
+            .add_message::<crate::knockouts::KnockOut>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
             .add_message::<crate::stashes::RandomItem>()
@@ -3964,6 +3984,7 @@ mod tests {
             .add_message::<ScriptSound>()
             .add_message::<ScriptLine>()
             .add_message::<Partikel>()
+            .add_message::<crate::knockouts::KnockOut>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
             .add_message::<crate::stashes::RandomItem>()
@@ -4025,6 +4046,7 @@ mod tests {
             .add_message::<ScriptSound>()
             .add_message::<ScriptLine>()
             .add_message::<Partikel>()
+            .add_message::<crate::knockouts::KnockOut>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
             .add_message::<crate::stashes::RandomItem>()
@@ -4899,6 +4921,7 @@ mod tests {
             .add_message::<crate::pickup::Given>()
             .add_message::<crate::stashes::RandomItem>()
             .add_message::<Partikel>()
+            .add_message::<crate::knockouts::KnockOut>()
             .add_message::<crate::rewards::QuestWon>()
             .add_systems(Update, step_on);
         app.world_mut().insert_non_send(live);

@@ -6351,6 +6351,129 @@ impl Puddle {
     }
 }
 
+/// The butterflies about a head (874, `cParticleSystem_knockout`; its start `0x79BDC0`, its run
+/// `0x79B920`, its draw `0x79BBB0`; #3023): five of `PARTICLE_BUTTERFLY01`'s 8 × 8 frames, each
+/// circling its bearer's head, which the object follows (the FX event `0x62`, the bone 20
+/// `Bip01 Head`), at 7 to 12 units off it along the ground and 10 to 12 above it, 4 to 6 radians a
+/// second, of half side 3 to 5, its frame playing the 64 over 2.55 s; in the event's colour (`+0x3C`)
+/// laid over by its alpha and tinted by the light (the draw's flags `0x40`), for the event's
+/// milliseconds (`+0x38`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Knockout {
+    butterflies: [Butterfly; KNOCKOUT_COUNT],
+    age: f32,
+    lasts: f32,
+    alive: bool,
+}
+
+/// A butterfly of [`Knockout`]: where it flies from its bearer's head in the models' frame, its
+/// half side, its life of 0 to 255, which plays its frames, and its turn's speed.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Butterfly {
+    pub offset: [f32; 3],
+    pub size: f32,
+    pub life: f32,
+    spin: f32,
+}
+
+/// The butterflies' count, their texture and its grid.
+pub const KNOCKOUT_COUNT: usize = 5;
+pub const KNOCKOUT_TEXTURE: &str = "PARTICLE_BUTTERFLY01";
+pub const KNOCKOUT_GRID: u8 = 8;
+/// The colour of the butterflies of the effect 31 (`0xFF6060FF` at `0x584455` and `0x584564`), and
+/// of a knock-down's, white for 6 s (`0x56E7D6`).
+pub const KNOCKOUT_COLOUR: [f32; 4] = [96.0 / 255.0, 96.0 / 255.0, 1.0, 1.0];
+pub const KNOCKED_DOWN_COLOUR: [f32; 4] = [1.0; 4];
+pub const KNOCKED_DOWN_SECONDS: f32 = 6.0;
+/// How long the butterflies of the effect 31 last for each unit of its art, in seconds (150 ms).
+const KNOCKOUT_PER_ART: f32 = 0.15;
+/// How fast a butterfly's life falls, a second, and its whole cycle.
+const KNOCKOUT_LIFE_FALLS: f32 = 100.0;
+const KNOCKOUT_LIFE: f32 = 255.0;
+
+/// How long the butterflies of an effect 31 of the art `art` last (`0x58445A`: 150 ms a unit).
+pub fn knockout_seconds(art: u32) -> f32 {
+    f32::from(u16::try_from(art).unwrap_or(u16::MAX)) * KNOCKOUT_PER_ART
+}
+
+impl Knockout {
+    /// The butterflies of a start for `seconds`, rolled at their first run.
+    pub fn new(seconds: f32) -> Self {
+        Self {
+            butterflies: [Butterfly::default(); KNOCKOUT_COUNT],
+            age: 0.0,
+            lasts: seconds,
+            alive: true,
+        }
+    }
+
+    /// A run of `dt` seconds (`0x79B920`): at its first, each butterfly's half side `3 + 2r`, its
+    /// direction along the ground at random times `7 + 5r`, its height `10 + 2r` and its turn
+    /// `4 + 2r` radians a second; past its seconds it ends; each one's life falls by 100 a
+    /// second, round from 0 to 255, and it turns about the head by its speed.
+    pub fn update(&mut self, dt: f32, dice: &mut impl Dice) {
+        if self.age == 0.0 {
+            for butterfly in &mut self.butterflies {
+                butterfly.size = 2.0 * unit(dice) + 3.0;
+                let y = 2.0 * unit(dice) - 1.0;
+                let x = 2.0 * unit(dice) - 1.0;
+                let length = (x * x + y * y).sqrt();
+                let (x, y) = if length >= 1e-7 {
+                    (x / length, y / length)
+                } else {
+                    (0.0, 0.0)
+                };
+                let far = unit(dice) * 5.0 + 7.0;
+                let z = 2.0 * unit(dice) + 10.0;
+                butterfly.offset = [x * far, y * far, z];
+                butterfly.spin = 2.0 * unit(dice) + 4.0;
+            }
+        }
+        if self.lasts < self.age {
+            self.alive = false;
+        }
+        for butterfly in &mut self.butterflies {
+            butterfly.life -= dt * KNOCKOUT_LIFE_FALLS;
+            if butterfly.life < 0.0 {
+                butterfly.life += KNOCKOUT_LIFE;
+            }
+            let (sin, cos) = (dt * butterfly.spin).sin_cos();
+            let [x, y, z] = butterfly.offset;
+            butterfly.offset = [x * cos - y * sin, y * cos + x * sin, z];
+        }
+        self.age += dt;
+    }
+
+    /// Whether its seconds ran out.
+    pub fn done(&self) -> bool {
+        !self.alive
+    }
+
+    /// Its butterflies.
+    pub fn butterflies(&self) -> &[Butterfly] {
+        &self.butterflies
+    }
+}
+
+impl Butterfly {
+    /// Its frame of the grid's 64, by its life (`⌊(255 − life)·64/256⌋`, the draw's flags without
+    /// `0x100`).
+    pub fn frame(&self) -> u8 {
+        let cells = f32::from(KNOCKOUT_GRID) * f32::from(KNOCKOUT_GRID);
+        let frame = ((KNOCKOUT_LIFE - self.life) * cells / 256.0).floor();
+        u8::try_from(frame_index(frame)).unwrap_or(0)
+    }
+}
+
+/// A frame's index of its float, held within the grid.
+fn frame_index(frame: f32) -> u16 {
+    let cells = u16::from(KNOCKOUT_GRID) * u16::from(KNOCKOUT_GRID);
+    (0..cells)
+        .rev()
+        .find(|&index| f32::from(index) <= frame)
+        .unwrap_or(0)
+}
+
 /// A mark on the ground (779, `cParticleSystem_temptex`; its start `0x76DD40`, its run `0x76DAC0`,
 /// its draw `0x76DB40` and `0x763CB0`; #1092): a square of a texture flat on the ground at a turn
 /// at random, laid over by its alpha in the light's colour, under what stands on the ground,
@@ -17506,6 +17629,49 @@ mod tests {
             twirls.update(0.01, &mut dice);
         }
         assert!(twirls.done());
+    }
+
+    #[test]
+    fn the_knockouts_butterflies_circle_the_head_for_their_seconds() {
+        // `rand()` answering the half way each time: a butterfly of half side 4, at 9.5 along the
+        // ground and 11 up, turning at 5 radians a second.
+        let mut dice = crate::spawning::Script::new(vec![16_383; 64]);
+        let mut knockout = Knockout::new(knockout_seconds(20));
+        assert!((knockout_seconds(500) - 75.0).abs() < 1e-3);
+        knockout.update(0.1, &mut dice);
+        for butterfly in knockout.butterflies() {
+            assert!((butterfly.size - 4.0).abs() < 1e-3);
+            let [x, y, z] = butterfly.offset;
+            assert!(((x * x + y * y).sqrt() - 9.5).abs() < 1e-3, "{x} {y}");
+            assert!((z - 11.0).abs() < 1e-3);
+            // Its life round from 0 to 245 after its first tenth of a second: the frame 2.
+            assert!((butterfly.life - 245.0).abs() < 1e-3);
+            assert_eq!(butterfly.frame(), 2);
+        }
+        let before = knockout.butterflies()[0].offset;
+        knockout.update(0.2, &mut dice);
+        let after = knockout.butterflies()[0].offset;
+        // A turn of one radian about the upright, its distance kept.
+        let turned = (before[0] * after[0] + before[1] * after[1]) / (9.5 * 9.5);
+        assert!((turned - 1.0_f32.cos()).abs() < 1e-3, "{turned}");
+        // Its 3 s run out a run past their end.
+        for _ in 0..27 {
+            knockout.update(0.1, &mut dice);
+        }
+        assert!(!knockout.done());
+        knockout.update(0.1, &mut dice);
+        knockout.update(0.1, &mut dice);
+        assert!(knockout.done());
+        // The frames play the grid's 64 over a life's 2.55 s.
+        let frame = |life: f32| {
+            Butterfly {
+                life,
+                ..Butterfly::default()
+            }
+            .frame()
+        };
+        assert_eq!(frame(255.0), 0);
+        assert_eq!(frame(0.0), 63);
     }
 
     #[test]
