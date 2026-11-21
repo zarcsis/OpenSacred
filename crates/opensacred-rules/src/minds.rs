@@ -3763,10 +3763,14 @@ pub fn trader_for<T: Copy>(here: Spot, mut traders: Vec<(T, Spot)>) -> Option<T>
     }
 }
 
-/// What a creature standing at `here` does about its partner at `partner`, the hero or not
+/// What a townsperson standing at `here` does about its partner at `partner`, the hero or not
 /// (`0x4EF150` with the flag 4, `0x4FC490`): farther than 900 it forgets it, but never the hero,
 /// a player, which it follows; between 80 and 200 it meets it and forgets it; farther than 240 it
 /// walks up to it; within 80 it steps off to 220 from it ([`steps_off`]); else it forgets it.
+/// The original steps off within 150 (`0x4EF565`), and then has a creature of the townsfolk's
+/// flags (`0x8408`; a child alone where its partner is a player) meet its partner from 80 to 200
+/// (`0x4EF72B`–`0x4EF774`), which stops the step-off it ordered (`0x4FC490`), so that only within
+/// 80 a townsperson steps off; every partner here is a townsperson's (#3234).
 pub fn follow(here: Spot, partner: Spot, hero: bool) -> Why {
     let d = (partner - here).length();
     if d > FOLLOWS_WITHIN {
