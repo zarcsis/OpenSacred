@@ -736,6 +736,29 @@ const LOCKED: [u16; 28] = [
     62, 63, 65, 72,
 ];
 
+/// The spells whose launch test asks their target's level, at the order's own target of the
+/// launch type 1 (`0x51D840` at `0x51D90D`): 19, the flesh to stone 25, 36 and the plant cage 40.
+const LEVEL_TESTED: [u16; 4] = [19, STONE, 36, CAGE];
+/// That test's factor of a boss's level (`0x8910C8`) and of the caster's (`0x890E94`).
+const LEVEL_TEST_BOSS: f32 = 1.3;
+const LEVEL_TEST_CASTER: f32 = 0.4;
+
+/// Whether the launch test admits `spell` of the level `level`, cast by a caster of the level
+/// `caster`, at a target of the level `target`, a boss or not (`0x51D840` at
+/// `0x51D90D`–`0x51D9DD`, #3239): for the spells [`LEVEL_TESTED`], the target's level, a boss's
+/// times 1.3 and truncated, at most `0.4·caster + 5·level`; any other spell always.
+pub fn level_admits(spell: u16, (target, boss): (u32, bool), (caster, level): (u32, u32)) -> bool {
+    if !LEVEL_TESTED.contains(&spell) {
+        return true;
+    }
+    let target = if boss {
+        (f64::from(target) * f64::from(LEVEL_TEST_BOSS)).trunc()
+    } else {
+        f64::from(target)
+    };
+    target <= f64::from(caster).mul_add(f64::from(LEVEL_TEST_CASTER), f64::from(5 * level))
+}
+
 /// The keys whose effects refuse a cast of `spell` while one holds on its target: the spell
 /// itself, for the spells that last; none for another.
 pub fn locked_by(spell: u16) -> &'static [u16] {
@@ -1462,6 +1485,17 @@ mod tests {
             .count();
         assert!((800..1200).contains(&disarmed), "{disarmed}");
         assert!(turning(&record(SPRING, &[], [70, 2], 180), 1).is_empty());
+        // The stone, the cage, 19 and 36 test their target's level, a boss's times 1.3 (#3239):
+        // at the caster's level 1 and the spell's 1, a target of 5 passes, of 6 not; a boss of 4
+        // (5.2, truncated 5) passes, of 5 (6.5) not; another spell always.
+        assert!(level_admits(CAGE, (5, false), (1, 1)) && !level_admits(CAGE, (6, false), (1, 1)));
+        assert!(level_admits(STONE, (4, true), (1, 1)) && !level_admits(STONE, (5, true), (1, 1)));
+        // A boss of 20 is 25 (25.999…, the float 1.3 a little short of it), above 2 + 20.
+        assert!(
+            !level_admits(STONE, (20, true), (5, 4)) && level_admits(STONE, (20, false), (5, 4))
+        );
+        assert!(level_admits(19, (14, false), (10, 2)) && !level_admits(36, (15, false), (10, 2)));
+        assert!(level_admits(FIREBALL, (99, true), (1, 1)));
         // The spells that last refuse a cast while their effects hold.
         assert_eq!(
             (locked_by(FIRE_SKIN), locked_by(FIREBALL)),

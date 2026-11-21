@@ -3,8 +3,9 @@
 //! the inner pin, image 136 on an ellipse of 30 × 15 about it, at the newest side quest's, fading
 //! within its radius (`opensacred_rules::quests`); a marker set anew starts a sonar ring at
 //! (512, 711) with the compass's sound. A target is a cell, or a creature by its name in the
-//! scripts (`npcs::ScriptName`); the direction is the target's place less the hero's as the
-//! screen shows it, φ the angle clockwise from up. The outer pin, image 137 on an ellipse of
+//! scripts (`npcs::ScriptName`); the direction is the target's place less the hero's turned
+//! by 45° alone, not squashed as the isometric view squashes it (`0x4A5980`, #3244), φ the
+//! angle clockwise from up. The outer pin, image 137 on an ellipse of
 //! 58 × 29, points at the world map's pin (#1569). Not followed: the blinking pin of
 //! `GroupIsDead`'s creature, objects named by `CreateObj`, and the way across a dungeon's mouth.
 //! A creature that lives away from the world is sought where it stands away (#2406).
@@ -19,7 +20,7 @@ use crate::game::AppState;
 use crate::hero::Body;
 use crate::low_health::{SONAR, SONAR_FIRST, Sonar, sonar_next, sonar_node};
 use crate::npcs::{Npcs, ScriptName};
-use crate::{hud, iso, paths, scripts};
+use crate::{hud, paths, scripts};
 
 /// The needle's, the inner pin's and the outer pin's images.
 const NEEDLE: u32 = 101;
@@ -108,12 +109,14 @@ fn angle(direction: Vec2) -> f32 {
     direction.x.atan2(-direction.y)
 }
 
-/// The screen's direction (`x` right, `y` down) of the world's direction `direction`, as the
-/// camera `eye` turns it: by its rotation alone, not its projection, which refuses a place
-/// beyond its far plane, as a target a few sectors away lies (#2406).
-fn on_screen(eye: &GlobalTransform, direction: Vec3) -> Vec2 {
-    let view = eye.rotation().inverse() * direction;
-    Vec2::new(view.x, -view.y)
+/// The direction of a marker's target `to` from `from`, places on the ground (`x`, `z`), on
+/// the screen's axes (`x` right, `y` down): their difference turned by 45° alone, the cells'
+/// `x − y` across and `x + y` down, not squashed 2:1 as the isometric view draws the ground
+/// (`0x4A5980`, #3244). The pins on their ellipses of 2:1 thus stand where the target lies on the
+/// screen, and the needle and the overview's arrows take it as it is.
+pub(crate) fn direction(from: Vec2, to: Vec2) -> Vec2 {
+    let step = to - from;
+    Vec2::new(step.x - step.y, step.x + step.y)
 }
 
 /// The pin's place on its ellipse at the angle φ, its centre's.
@@ -245,7 +248,6 @@ fn point(
     scripts: Option<NonSend<scripts::Live>>,
     heroes: Query<&GlobalTransform, With<Body>>,
     seek: Seek,
-    eye: Single<&GlobalTransform, iso::Eye<With<Camera>>>,
     images: Res<UiImages>,
     mut pointers: Query<(
         &Pointer,
@@ -261,7 +263,7 @@ fn point(
             let compass = live.marker(pointer.0)?;
             let target = seek.target_of(compass)?;
             let place = Vec3::new(target.x, hero.y, target.y);
-            let screen = on_screen(&eye, place - hero);
+            let screen = direction(hero.xz(), target);
             let distance = crate::making::whole_distance(place, hero);
             Some((angle(screen), distance, compass.radius))
         });
@@ -288,15 +290,14 @@ fn point(
 fn point_outer(
     map: Res<crate::world_map::Map>,
     heroes: Query<&GlobalTransform, With<Body>>,
-    eye: Single<&GlobalTransform, iso::Eye<With<Camera>>>,
     images: Res<UiImages>,
     mut pins: Query<(&mut Node, &mut UiTransform, &mut Visibility), With<OuterPin>>,
 ) {
     let hero = heroes.iter().next().map(GlobalTransform::translation);
-    let phi = map.pin_target().zip(hero).map(|(target, hero)| {
-        let place = Vec3::new(target.x, hero.y, target.y);
-        angle(on_screen(&eye, place - hero))
-    });
+    let phi = map
+        .pin_target()
+        .zip(hero)
+        .map(|(target, hero)| angle(direction(hero.xz(), target)));
     for (mut node, mut transform, mut visibility) in &mut pins {
         let Some(phi) = phi else {
             visibility.set_if_neq(Visibility::Hidden);
@@ -379,15 +380,20 @@ mod tests {
     }
 
     #[test]
-    fn a_far_target_turns_by_the_cameras_rotation() {
-        // The cells' x runs right and down the screen, their y left and down, however far.
-        let eye = GlobalTransform::from(iso::view_of(Vec3::ZERO));
-        let step = |x: f32, y: f32| iso::ground(x, y) - iso::ground(0.0, 0.0);
-        let x = on_screen(&eye, step(200.0, 0.0));
-        let y = on_screen(&eye, step(0.0, 200.0));
-        assert!(x.x > 0.0 && x.y > 0.0, "{x}");
-        assert!(y.x < 0.0 && y.y > 0.0, "{y}");
-        assert!((x.x + y.x).abs() < 1e-2 && (x.y - y.y).abs() < 1e-2);
-        assert!((x.x / x.y - 2.0).abs() < 1e-3, "the iso view's 2:1");
+    fn a_markers_direction_is_turned_by_45_degrees_alone() {
+        // The cells' x runs right and down the screen, their y left and down, at 45° each.
+        let step = |x: f32, y: f32| {
+            let ground = |x: f32, y: f32| crate::iso::ground(x, y).xz();
+            direction(ground(0.0, 0.0), ground(x, y))
+        };
+        let x = step(200.0, 0.0);
+        let y = step(0.0, 200.0);
+        assert!(x.x > 0.0 && (x.x - x.y).abs() < 1e-2, "{x}");
+        assert!(y.x < 0.0 && (y.x + y.y).abs() < 1e-2, "{y}");
+        // The Seraphim's start's novice, two cells across and seven down: the original's
+        // (−188, 341) of `0x4A5980`, about 29° left of straight down.
+        let novice = step(2.0, 7.0);
+        assert!((novice.x / novice.y + 5.0 / 9.0).abs() < 1e-3, "{novice}");
+        assert!((angle(novice).to_degrees() + 151.0).abs() < 0.5);
     }
 }
