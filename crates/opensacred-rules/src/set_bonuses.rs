@@ -10,7 +10,7 @@
 use std::collections::BTreeMap;
 
 use crate::drops::Difficulty;
-use crate::fight::KINDS;
+use crate::fight::{ItemValues, KINDS};
 
 /// The kinds of damage and resistance, in the stats' order.
 const PHYSICAL: usize = 0;
@@ -497,6 +497,45 @@ pub struct Stats {
     /// The difficulty's factor `D` of these values, which the readers of the counts take
     /// ([`Self::luck`], [`Self::rising`], [`Self::experience`]).
     pub factor: f32,
+    /// The kinds whose dominance bonus the wearer's items reach ([`dominance`]), each adding
+    /// [`DOMINANCE`] to its resistance's factor.
+    pub dominance: [bool; KINDS],
+}
+
+/// What the dominance bonus adds to a kind's resistance factor, not times the difficulty's `D`
+/// (`0x5711F0`, the float at `0x8907E8`).
+pub const DOMINANCE: f32 = 0.15;
+/// The items of one kind above which its dominance holds: the physical above 7, the fire, the
+/// magic and the poison above 5 (`0x5711F0`).
+const DOMINATES: [u8; KINDS] = [7, 5, 5, 5];
+
+/// The kind of `values` that is not 0 and strictly above the three others, if one is (a tie
+/// gives none).
+fn dominant(values: [f32; KINDS]) -> Option<usize> {
+    (0..KINDS).find(|&kind| {
+        values[kind] != 0.0
+            && (0..KINDS)
+                .filter(|&other| other != kind)
+                .all(|other| values[kind] > values[other])
+    })
+}
+
+/// The kinds whose dominance bonus a player's worn items `items` reach (`0x5796A0`'s item loop,
+/// `0x57A1A7`–`0x57A2C3`; `0x5711F0`): each item, not the items in its sockets, adds 1 to the
+/// count of the kind whose most damage is not 0 and strictly above the three others', and 1
+/// again to that of its resistances; a count above [`DOMINATES`] reaches its kind's.
+pub fn dominance<'a>(items: impl IntoIterator<Item = &'a ItemValues>) -> [bool; KINDS] {
+    let mut counts = [0_u8; KINDS];
+    for item in items {
+        let most = item.damage.map(|[_, most]| most);
+        for kind in [dominant(most), dominant(item.resistance)]
+            .into_iter()
+            .flatten()
+        {
+            counts[kind] = counts[kind].saturating_add(1);
+        }
+    }
+    std::array::from_fn(|kind| counts[kind] > DOMINATES[kind])
 }
 
 /// The flags of `+0x148` under which a strike's whole damage is times the difficulty's factor:

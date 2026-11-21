@@ -9,7 +9,9 @@
 //! these lines are the game's texts of the bonuses as the items' tooltips word them, of the
 //! values applied. No line tells a flag whose readers the game does not follow yet, nor a bonus
 //! that another reader of the counts applies (docs/re/sets.md §4), until the game follows it
-//! (#1727).
+//! (#1727). Before the sets, a line for each kind whose dominance bonus the items reach, its
+//! resistance's key and the share its factor gains, as `0x5711F0` writes them first, an empty
+//! line after them (#2931; seen).
 
 use opensacred_rules::drops::Difficulty;
 use opensacred_rules::fight::{KINDS, Rules, ranged_curves, resistance_curves};
@@ -63,16 +65,31 @@ fn plus(x: f32) -> String {
     format!("{:+}", x.trunc() as i64)
 }
 
-/// The lines of the sets of `worn` on `difficulty`: a set's name, its pieces of `pieces` (each
-/// set's types, by its number) and its bonuses' lines, an empty line between two sets.
+/// The lines of the kinds `dominance` reaches and of the sets of `worn` on `difficulty`: each
+/// kind's resistance and its factor's share more, then a set's name, its pieces of `pieces` (each
+/// set's types, by its number) and its bonuses' lines, an empty line between two sets and after
+/// the kinds.
 pub(crate) fn lines(
-    worn: &Worn,
+    (worn, dominance): (&Worn, [bool; KINDS]),
     difficulty: Difficulty,
     pieces: &dyn Fn(u8) -> Vec<u32>,
     wearer: &Wearer,
     words: &Words,
 ) -> Vec<Line> {
-    let mut lines = Vec::new();
+    let mut lines: Vec<Line> = (0..KINDS)
+        .filter(|&kind| dominance[kind])
+        .map(|kind| {
+            // As `0x5711F0` writes it (`%s %+d%%`), its per cent the share applied.
+            Line::of(
+                format!(
+                    "{} {}",
+                    words.of(RESISTANCE_KEYS[kind]),
+                    share(set_bonuses::DOMINANCE)
+                ),
+                WHITE,
+            )
+        })
+        .collect();
     for (set, _) in worn.sets() {
         if !lines.is_empty() {
             lines.push(Line::default());
@@ -348,7 +365,13 @@ mod tests {
             3 => vec![4066, 4062],
             _ => Vec::new(),
         };
-        let lines = lines(&worn, Difficulty::Gold, &pieces, &wearer, &words());
+        let lines = lines(
+            (&worn, [false; KINDS]),
+            Difficulty::Gold,
+            &pieces,
+            &wearer,
+            &words(),
+        );
         assert_eq!(
             texts(&lines),
             [
@@ -369,6 +392,45 @@ mod tests {
         assert_eq!(lines[0], Line::of("<SetName2>", SET_NAME));
         assert_eq!(lines[3], Line::of("<4057>", SET_PIECE));
         assert_eq!(lines[4], Line::of("<4056>", RED));
+    }
+
+    #[test]
+    fn the_kinds_dominance_comes_before_the_sets() {
+        let rules = Rules::default();
+        let wearer = Wearer {
+            level: 1,
+            attributes: [0.0; 6],
+            rules: &rules,
+            night: false,
+        };
+        let worn = Worn::of([(4066, 3)]);
+        let pieces = |_: u8| vec![4066];
+        let listed = lines(
+            (&worn, [true, false, false, true]),
+            Difficulty::Bronze,
+            &pieces,
+            &wearer,
+            &words(),
+        );
+        assert_eq!(
+            texts(&listed),
+            [
+                "<INVENTAR_RES_PHYSICAL> +15%",
+                "<INVENTAR_RES_POISON> +15%",
+                "",
+                "<SetName3>",
+                "<4066>",
+            ]
+        );
+        // The kinds alone, with no set worn.
+        let alone = lines(
+            (&Worn::default(), [false, true, false, false]),
+            Difficulty::Bronze,
+            &pieces,
+            &wearer,
+            &words(),
+        );
+        assert_eq!(texts(&alone), ["<INVENTAR_RES_FIRE> +15%"]);
     }
 
     #[test]

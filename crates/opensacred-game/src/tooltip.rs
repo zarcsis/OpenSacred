@@ -196,7 +196,7 @@ impl Weighing<'_, '_> {
         };
         let difficulty = self.difficulty.as_deref().map(|d| d.0).unwrap_or_default();
         set::lines(
-            &holding.0.sets.worn,
+            (&holding.0.sets.worn, holding.0.sets.dominance),
             difficulty,
             &|set| tables.set_pieces(set),
             &wearer,

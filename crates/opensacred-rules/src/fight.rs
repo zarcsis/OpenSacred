@@ -3793,9 +3793,10 @@ pub fn combat_with(
             }
         }
     }
-    // The sets' bonuses (`0x571710`, after the items' loop, #1727): their attributes, the three
-    // arrays of multipliers, the resistances and their factors, the attack speed, `A`'s and
-    // `D`'s multipliers and the pace's factor.
+    // The dominance bonus of a player's items (`0x5711F0`, #2931), then the sets' bonuses
+    // (`0x571710`, after the items' loop, #1727): their attributes, the three arrays of
+    // multipliers, the resistances and their factors, the attack speed, `A`'s and `D`'s
+    // multipliers and the pace's factor.
     let sets = &holds.sets;
     for (bonus, set) in attribute_bonuses.iter_mut().zip(sets.attributes) {
         *bonus += set;
@@ -3804,6 +3805,9 @@ pub fn combat_with(
         item_multipliers[k] += sets.damage[k];
         weapon_items[k] += sets.weapon[k];
         spell_items[k] += sets.spells[k];
+        if sets.dominance[k] {
+            resistance_items[k] += crate::set_bonuses::DOMINANCE;
+        }
         resistance_items[k] += sets.resistance_factors[k];
         resistance[k] += sets.resistances[k];
     }
@@ -6696,6 +6700,26 @@ mod tests {
             ),
             (57.0, 22.0)
         );
+    }
+
+    #[test]
+    fn a_kinds_dominance_adds_to_its_resistance_factor_not_times_the_difficulty() {
+        let seraphim = Base {
+            id: 1,
+            attributes: [20, 15, 15, 15, 15, 20],
+            ..Base::default()
+        };
+        let rules = Rules::default();
+        let plain = combat(&seraphim, 10, Holds::default(), &[], &rules);
+        let mut holds = Holds::default();
+        holds.sets.dominance = [true, false, false, true];
+        let dominant = combat(&seraphim, 10, holds, &[], &rules);
+        let gained: Vec<f32> = (0..KINDS)
+            .map(|k| dominant.resistance_factors[k] - plain.resistance_factors[k])
+            .collect();
+        for (k, expected) in [0.15, 0.0, 0.0, 0.15].into_iter().enumerate() {
+            assert!((gained[k] - expected).abs() < 1e-6, "{gained:?}");
+        }
     }
 
     #[test]
