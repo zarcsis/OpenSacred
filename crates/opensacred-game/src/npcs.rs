@@ -6837,6 +6837,7 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
         (
             Has<crate::followers::Follower>,
             Has<crate::riding::OwnHorse>,
+            Has<RisesAgain>,
         ),
     ), Without<Remade>>();
     let world = &*world;
@@ -6848,14 +6849,22 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
     let mut placements: HashMap<usize, Placement> = HashMap::new();
     let mut queues = Vec::new();
     let mut gone = Vec::new();
-    for (placed, (at, way, ridden, corpse), health, dying, (on_death, queue), (follows, owned)) in
-        standing.iter(world)
+    for (
+        placed,
+        (at, way, ridden, corpse),
+        health,
+        dying,
+        (on_death, queue),
+        (follows, owned, rises),
+    ) in standing.iter(world)
     {
         let Some(level) = level_of(way, ridden, corpse) else {
             continue;
         };
         let stood = stood_of((at, level), health, dying, heights);
-        // A kept one leaves the death's functions it still has, as [`keep`] notes them.
+        // A kept one leaves the death's functions it still has, as [`keep`] notes them, and the
+        // scripts' mark to rise again as a hero's strike may have cleared it or Sharifa taken it
+        // (`fight::marked_after`, #3294).
         if let Source::Kept(index) = placed.source
             && let Some(placement) = npcs.placements.get(index)
             && stood.is_some()
@@ -6863,6 +6872,7 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
             let on_death = on_death.map(|on_death| on_death.0.clone());
             let placement = Placement {
                 on_death: on_death.unwrap_or_default(),
+                rises,
                 ..placement.clone()
             };
             placements.insert(index, placement);
