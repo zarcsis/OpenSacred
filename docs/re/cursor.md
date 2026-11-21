@@ -56,14 +56,19 @@ Implemented in `opensacred-game` (`cursors`, `hud`, `foe_panel`, `hover`, `label
 
 ### The horses' looks
 
-**Confirmed** by code, not seen (no horse near the start).
+**Confirmed** by code (read again 2026-11-21 for #2936, `0x611E70`'s horse branch) and **seen** under the driver: a horse of no owner made beside the Seraphim showed the ride and its description, beside the Dwarf the horseshoe crossed and the same description.
 For a horse that the hero does not take for a foe, its owner the creature of the id `+0x570`:
 
 - It may be ridden (`0x4267D0`) unless the hero is the Dwarf (the type 8), where the hero's skill 22, the riding (`0x582450`; docs/re/horses.md, "The price and the horse data"), reaches what the horse's query `0xD` asks and the horse's `+0x1F4` has none of the bits `0xF0`.
 - Where the owner is none or no player's hero (`0x426650`) and the horse is alive (its query 5, `0x549080`), its description (`0x55C9F0`: its class, its price, its level, its pace, its trample's values, its health bonus, its resistances and the riding needed, docs/re/horses.md) is drawn 32 pixels above the cursor.
-- Not to be ridden: **`MOUSE_STEALHORSEFAIL.TGA`** where its owner is no horse trader (`+0x200` bit `0x4000000` clear) in a game of one player, else **`MOUSE_CANTRIDE.TGA`**.
+- The description's place (**measured** in the frames): its panel's left side 24 pixels right of the cursor, as the items' names beside it, its middle by the call's point 32 above it (the style `0x20B`).
+- Not to be ridden: **`MOUSE_STEALHORSEFAIL.TGA`** where it has an owner and that owner is no horse trader (`+0x200` bit `0x4000000` clear) in a game of one player, else **`MOUSE_CANTRIDE.TGA`**.
 - To be ridden: the horse trader's horse **`MOUSE_HORSETRADER.TGA`**; another's horse (an owner other than the local player) **`MOUSE_STEALHORSE.TGA`** (the Dwarf `MOUSE_CANTRIDE.TGA`); a horse of no owner or the hero's own **`MOUSE_RIDE.TGA`** where its query 5 is not 0, but while the hero rides (`0x54FC20`: `+0x14` bit 2 and a mount) only with Shift held; else the default.
 - A horse that the hero takes for a foe is a creature as any other.
+
+Since #2936 `opensacred-game` follows them (`cursors::horse_look`, `riding::HorseOwners`, `cursors::describe_horse`): the owner the hero's own (`riding::Owned`), a stable's trader of the horse trader's trade (`stables::Stabled`), another NPC of a stable without it, or none; whether the hero may ride by `opensacred_rules::horses::rides`; Shift the walk's key; the description `riding::HorseSheet`'s, as the mount's bar shows it.
+Each horse of a stable keeps its trader in the game (docs/decisions/interface.md, "Horse window of its own state"), so each shows the horse trader's look, where the original's other horses of a stable, of no owner, show the ride.
+**Seen** beside the original's frames: the ride and the horseshoe crossed over a horse of no owner beside the Seraphim and the Dwarf, the description beside the cursor.
 
 ## The textures
 
@@ -167,6 +172,5 @@ Since #1461 the cursor glows so (`cursors::Glow`, `hud`) while the selected art 
 Since #3123 the Dwarf's mortar glows only over a point on his floor that, in a dungeon, a straight way reaches, and since #3204 an art made at a point (the launch type 3) only over the ground's point on the hero's floor that a straight way reaches and that he may stand on (`making::mortar_reaches`, `making::point_reached`; docs/re/arts.md, "The special weapon arts").
 Since #2508 the hand shows over a cell of the ground of the low nibble 3, a teleport's, as over the stairs' of 5 to 8, and over a cell that `bin/treppe.bin` holds on its floor (`opensacred_game::tables::Tables::stair_to`, docs/re/movement.md): **seen** 2026-11-10, the Dark Elf's cave mouth at 3431,2697 shows it over its two cells alone, as the original's.
 Since #2938 the cursor glows for an art on a friend (the launch type 2) over the hero himself and for one on the dead (the type 4) over a dead creature, where the right button makes them (`making::aim`, `cursors::admits`).
-Not followed yet: the horses' looks (#2936).
 Since #2933 the map's arrows too (`cursors::Look::Edge`, `world_map`): at an edge or a corner of the screen off the buttons' bar, outside the pin's mode, the cursor is that edge's arrow, its point the arrow's tip by `0x6C7540`'s offsets, the arrow's texture's top left 48 × 48 shown, as the render (`0x6CA0C4`) pushes it; a button held, which drags the map, leaves it as it was (`0x655930`); the pin shows since #1569 (docs/re/maps.md, "The pin").
 **Seen** beside the original's frames: the north's, the east's, the south east's and the west's arrows, their tips at the pointer.
