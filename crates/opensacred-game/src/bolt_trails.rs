@@ -41,14 +41,13 @@ struct Looks {
 }
 
 /// A trail's look, which outlives its bolt while its particles live: its bolt while it flies,
-/// its particles, its bolt's place and the place before, the dust's colour, and its mesh.
+/// its particles, its bolt's place and the place before, and its mesh.
 #[derive(Component)]
 struct Shown {
     bolt: Option<Entity>,
     trail: BoltTrail,
     place: Vec3,
     before: Option<Vec3>,
-    colour: [f32; 4],
     mesh: Handle<Mesh>,
 }
 
@@ -120,12 +119,12 @@ fn show(
                 (Some(entity), Vec3::ZERO),
             ));
         }
+        let [r, g, b, _] = colour;
         shown.insert(Shown {
             bolt: Some(entity),
-            trail: BoltTrail::new(trail.0),
+            trail: BoltTrail::new(trail.0).with_ground([r, g, b]),
             place: at,
             before: None,
-            colour,
             mesh,
         });
     }
@@ -172,9 +171,10 @@ fn blow(
         let mut quads = Quads::default();
         for particle in &look.trail.system.particles {
             match look.trail.kind {
-                // Its own colour at the alpha of its life (the flags `0x64`), the grid 1.
+                // Its own colour, rolled about the ground's (#3155), at the alpha of its life
+                // (the flags `0x64`), the grid 1.
                 TrailKind::Windstrike => {
-                    let [r, g, b, _] = look.colour;
+                    let [r, g, b] = particle.colour;
                     quads.push(
                         world(particle.place),
                         particle.size * s,
