@@ -74,6 +74,7 @@ mod debug;
 mod demon_deaths;
 mod demon_fires;
 mod demon_forms;
+mod demon_illusions;
 mod doom_signs;
 mod doors;
 mod dragon_fires;
@@ -585,6 +586,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         demon_deaths::DemonDeathsPlugin,
         demon_fires::DemonFiresPlugin,
         demon_forms::DemonFormsPlugin,
+        demon_illusions::DemonIllusionsPlugin,
         doom_signs::DoomSignsPlugin,
         doors::DoorsPlugin,
     ))
