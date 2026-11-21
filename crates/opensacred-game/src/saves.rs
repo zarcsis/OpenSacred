@@ -95,8 +95,8 @@ use crate::{arts, drops, making};
 /// (#3071); the version 30 a placement's emerging (#3075); the version 31 the `Use:` function
 /// that a drop keeps (#3099); the version 32 the script names of the items carried and of a drop
 /// (#3147); the version 33 those names kept in the items themselves, the weapon sets' too
-/// (#3217).
-pub const VERSION: u32 = 33;
+/// (#3217); the version 34 the art slots' second bank (#2928).
+pub const VERSION: u32 = 34;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -657,7 +657,10 @@ fn put_character(world: &mut bevy::prelude::World, entity: Entity, hero: &Hero) 
     if let Some(mut arts) = world.get_resource_mut::<arts::HeroArts>() {
         arts.arts = hero.arts.clone();
     }
-    world.insert_resource(hero.slots.clone());
+    // The day's bank of the art slots, as the hero's form loads (`0x6058A0` at `0x60618E`).
+    let mut slots = hero.slots.clone();
+    slots.turn(false);
+    world.insert_resource(slots);
     world.insert_resource(making::Selected(hero.selected));
     world.insert_resource(hero.combos.clone());
     if let Some(mut pack) = world.get_resource_mut::<Pack>() {
@@ -1118,6 +1121,28 @@ pub(crate) mod tests {
         }
     }
 
+    #[test]
+    fn a_load_gives_back_the_day_bank_of_the_art_slots() {
+        let mut night = ArtSlots::carried(
+            [Some(1022), None, None, None, None],
+            [None, Some(1023), None, None, None],
+            1,
+        );
+        night.turn(true);
+        let saved = Hero {
+            slots: night,
+            ..hero()
+        };
+        let mut world = bevy::prelude::World::new();
+        let entity = world.spawn_empty().id();
+        put_character(&mut world, entity, &saved);
+        let slots = world.resource::<ArtSlots>();
+        assert_eq!(
+            (slots.arts, slots.selected),
+            ([Some(1022), None, None, None, None], 1)
+        );
+    }
+
     /// The scripts of a game in the middle of its quests: a variable, a quest set up, a timer, a
     /// function done, the `rand()` on, two batches of the play's records of the world, a trigger
     /// opened and a quest's item taken.
@@ -1274,7 +1299,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (33, 0xDC40_EB58_A53C_C66E),
+            (34, 0x8A8F_4E74_1844_FC5E),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

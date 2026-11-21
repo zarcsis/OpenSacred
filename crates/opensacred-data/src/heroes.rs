@@ -82,6 +82,9 @@ pub struct HeroEntry {
     /// art, 4 a combo) and art, as its backpack's section keeps them (docs/02 §9).
     #[serde(default)]
     pub art_slots: Vec<(u32, u32)>,
+    /// The art slots of its second bank, the Vampiress's night's, as [`Self::art_slots`].
+    #[serde(default)]
+    pub night_art_slots: Vec<(u32, u32)>,
     /// The weapon set selected and the art slot selected, as its backpack's section keeps them.
     #[serde(default)]
     pub selected: [u16; 2],

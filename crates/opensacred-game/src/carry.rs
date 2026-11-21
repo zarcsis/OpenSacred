@@ -93,20 +93,28 @@ impl Carry {
         sets
     }
 
-    /// Its bar's art slots, each slot's art of its first bank (a combo's as the combos' arts,
-    /// `0x200` and its index, `combos`), and the slot its file selects (#2370).
+    /// Its bar's art slots, each slot's art of its two banks, the day's and the Vampiress's
+    /// night's (a combo's as the combos' arts, `0x200` and its index, `combos`), and the slot its
+    /// file selects (#2370, #2928).
     fn art_slots(&self) -> crate::art_slots::ArtSlots {
-        let mut arts = [None; crate::art_slots::SLOTS];
-        for (slot, &(kind, id)) in arts.iter_mut().zip(&self.hero.art_slots) {
-            *slot = match kind {
-                2 | 3 => u16::try_from(id).ok(),
-                4 => u16::try_from(id)
-                    .ok()
-                    .map(|index| opensacred_rules::combos::FIRST + index),
-                _ => None,
-            };
-        }
-        crate::art_slots::ArtSlots::carried(arts, usize::from(self.hero.selected[1]))
+        let bank = |records: &[(u32, u32)]| {
+            let mut arts = [None; crate::art_slots::SLOTS];
+            for (slot, &(kind, id)) in arts.iter_mut().zip(records) {
+                *slot = match kind {
+                    2 | 3 => u16::try_from(id).ok(),
+                    4 => u16::try_from(id)
+                        .ok()
+                        .map(|index| opensacred_rules::combos::FIRST + index),
+                    _ => None,
+                };
+            }
+            arts
+        };
+        crate::art_slots::ArtSlots::carried(
+            bank(&self.hero.art_slots),
+            bank(&self.hero.night_art_slots),
+            usize::from(self.hero.selected[1]),
+        )
     }
 
     /// Puts its items into the pack `pack` in place of its template's: its backpack's at their
@@ -376,13 +384,18 @@ mod tests {
     fn the_bars_slots_take_their_arts_and_the_selected_slot() {
         let hero = HeroEntry {
             art_slots: vec![(3, 1080), (2, 60), (4, 1), (0, 0), (0, 0)],
+            night_art_slots: vec![(0, 0), (3, 1023), (0, 0), (0, 0), (2, 61)],
             selected: [3, 1],
             ..HeroEntry::default()
         };
-        let slots = Carry::of(&hero).art_slots();
+        let mut slots = Carry::of(&hero).art_slots();
         // A combo's slot holds its art, 0x200 and its index (`combos`).
         assert_eq!(slots.arts, [Some(1080), Some(60), Some(0x201), None, None]);
         assert_eq!((slots.selected, slots.selected_art()), (1, Some(60)));
+        // The second bank is the Vampiress's night's (#2928).
+        slots.turn(true);
+        assert_eq!(slots.arts, [None, Some(1023), None, None, Some(61)]);
+        assert_eq!((slots.selected, slots.selected_art()), (1, Some(1023)));
     }
 
     #[test]
