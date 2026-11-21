@@ -986,6 +986,16 @@ impl Orders<'_, '_> {
         Some(InOrder::of(anchor, 0.0, anchor.xyz(), self.looked()?, 0.0))
     }
 
+    /// The depth of an FX object of list 0 on the ground at `position`, a type of the flag `0x4`
+    /// (the marks, the blood's splashes and puddles, the summonings' pentagrams; #3285): in list
+    /// 0, [`crate::statics::LIST_0_BACK`] behind its cell's place, after its cell's statics there,
+    /// as the walk appends it after the cell's other objects (`0x62AE90`, docs/re/drawing.md, "The
+    /// models"); under the statics' shadows of list 1, the underlays of list 2 and every sprite
+    /// and model of lists 3 and 4, its quads laid at that one depth ([`Quads::at_order`]).
+    pub(crate) fn in_list_0(&self, position: Vec3) -> Option<InOrder> {
+        Some(InOrder::in_list_0(position, self.looked()?))
+    }
+
     /// [`Self::after_statics`] for a system of an object `layered` in a building: on an upper
     /// storey's floor, no further back than the floor's plane where each of its vertices shows,
     /// in its order among the quads standing on the floor, as a model standing there
@@ -1058,6 +1068,20 @@ const _: () = assert!(32.0 < LAST_PLACE && crate::models::PLACE < LAST_PLACE);
 const _: () = assert!(CHAIN * LAST_PLACE < ACROSS * iso::CELL * std::f32::consts::SQRT_2);
 
 impl InOrder {
+    /// The order of an FX object of list 0 on the ground at `position`, the camera looking at
+    /// `looked` ([`Orders::in_list_0`]).
+    fn in_list_0(position: Vec3, looked: Vec3) -> Self {
+        let place = crate::models::place_of(position);
+        let anchor = Vec4::new(place.x, 0.0, place.z, LAST_PLACE);
+        Self::of(
+            anchor,
+            crate::statics::LIST_0_BACK,
+            anchor.xyz(),
+            looked,
+            0.0,
+        )
+    }
+
     /// How far `vertex`, from a mesh's origin `origin`, lies behind the order's depth along the
     /// line of sight toward the camera: below 0 where it lies nearer the camera. On a floor, the
     /// nearer of its place's depth and the floor's where the vertex shows, as `models.wesl`
@@ -2048,6 +2072,48 @@ mod tests {
             assert!((now - was).dot(iso::right()).abs() < 1e-3, "{was} {now}");
             assert!((now - was).dot(iso::up()).abs() < 1e-3, "{was} {now}");
             assert!(((now - was).dot(-iso::forward()) - LIST_4_FORWARD).abs() < 1e-2);
+        }
+    }
+
+    #[test]
+    fn a_mark_of_list_0_lies_among_its_sprites_under_the_other_lists() {
+        use crate::statics::{LIST_0_BACK, LIST_1_BACK, LIST_2_BACK};
+        let back = -iso::forward();
+        let looked = iso::ground(10.0, 10.0);
+        // `order.wesl`'s order of a sprite of the cell `(cx, cy)`, `behind` units back along the
+        // line of sight, at the place `chain` of its cell's chain, as `statics::Spot` lays it.
+        let sprite = |cx: f32, cy: f32, behind: f32, chain: f32| {
+            let at = iso::ground(cx, cy) + iso::forward() * behind;
+            (at - looked).dot(back) + ACROSS * (at - looked).dot(iso::right()) + CHAIN * chain
+        };
+        let true_depth = |point: Vec3| (point - looked).dot(back);
+        // A puddle in the cell (22, 13), off its centre, flat on the ground at height 12.
+        let origin = iso::ground(22.3, 13.8) + Vec3::Y * 12.0;
+        let (across, depth) = iso::fx_axes();
+        let mut quads = Quads::default();
+        quads.push_corners(
+            [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+                .map(|(x, y)| (across * x + depth * y) * 30.0),
+            [Vec2::ZERO, Vec2::X, Vec2::ONE, Vec2::Y],
+            [1.0; 4],
+        );
+        let before = quads.positions.clone();
+        quads.at_order(Some(InOrder::in_list_0(origin, looked)), origin);
+        for (was, now) in before.iter().zip(&quads.positions) {
+            let (was, now) = (origin + Vec3::from(*was), origin + Vec3::from(*now));
+            // Where it shows on screen, it shows still.
+            assert!((now - was).dot(iso::right()).abs() < 1e-3, "{was} {now}");
+            assert!((now - was).dot(iso::up()).abs() < 1e-3, "{was} {now}");
+            let depth = true_depth(now);
+            // In list 0 after its cell's sprites there, before those of the next row.
+            assert!(depth > sprite(22.5, 13.5, LIST_0_BACK, 32.0), "{depth}");
+            assert!(depth < sprite(23.5, 13.5, LIST_0_BACK, 0.0), "{depth}");
+            // Under its cell's shadows of list 1 and underlays of list 2, and under the sprites
+            // of list 3 of its cell and of rows behind it.
+            assert!(depth < sprite(22.5, 13.5, LIST_1_BACK, 0.0));
+            assert!(depth < sprite(22.5, 13.5, LIST_2_BACK, 0.0));
+            assert!(depth < sprite(22.5, 13.5, 0.0, 0.0));
+            assert!(depth < sprite(20.5, 12.5, 0.0, 0.0));
         }
     }
 

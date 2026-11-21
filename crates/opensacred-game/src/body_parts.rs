@@ -178,7 +178,7 @@ fn throw(
         if let Some(texture) = blood_texture(set, dice) {
             crate::marks::lay(
                 &mut commands,
-                place,
+                (place, level),
                 (texture, BURST_BLOOD.0, BURST_BLOOD.1),
             );
         }
@@ -227,7 +227,7 @@ fn fly(
             {
                 crate::marks::lay(
                     &mut commands,
-                    place.with_y(ground),
+                    (place.with_y(ground), *level),
                     (texture, PART_BLOOD.0, PART_BLOOD.1),
                 );
             }

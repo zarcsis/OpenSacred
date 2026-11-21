@@ -125,9 +125,9 @@ fn burn(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&look.mesh) {
-            // Just behind a creature standing at its place, the one it summons, as the original
-            // draws the system before the creature (#2188): its object bears no model (#2825).
-            glows.in_order(orders.at(at.translation()), at.translation());
+            // In list 0, under every sprite and model, the creature it summons among them, as
+            // the original's walk appends the FX objects of the flag `0x4` (#3285).
+            glows.at_order(orders.in_list_0(at.translation()), at.translation());
             glows.into_mesh(&mut mesh);
         }
         if look.summon.done() {
