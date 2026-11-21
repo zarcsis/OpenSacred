@@ -54,8 +54,6 @@ const PANEL: Rect = Rect {
     max: Vec2::new(640.0, 340.0),
 };
 const PANEL_TINT: Color = Color::srgba(0.0, 0.0, 0.0, 159.0 / 255.0);
-/// The panel's edges (**estimate**, as the master's): a grey line of two pixels.
-const EDGE: Color = Color::srgb(0.33, 0.33, 0.31);
 /// The portrait's corner (`+0x17C`, `+0x180`), the title's line and colour (the text 1197 in
 /// `0xFF0050FF`, **seen** centred in the panel at 214 to 229).
 const PORTRAIT: Vec2 = Vec2::new(524.0, 42.0);
@@ -229,7 +227,10 @@ fn show(
     mut commands: Commands,
     (merchant, showing): (Option<Res<Merchant>>, Res<Showing>),
     (images, assets, texts): (Res<UiImages>, Res<AssetServer>, Option<Res<Texts>>),
-    portraits: Option<Res<crate::talk::Portraits>>,
+    (portraits, foot): (
+        Option<Res<crate::talk::Portraits>>,
+        Res<crate::trade_frame::Foot>,
+    ),
     (mut targets, mut layers): (ResMut<Assets<Image>>, ResMut<Assets<Layer>>),
     window: Option<Single<&Window>>,
     olds: Query<Entity, Or<(With<Root>, With<Scene>)>>,
@@ -265,17 +266,16 @@ fn show(
             GlobalZIndex(-1),
         ))
         .id();
-    let mut panel = bar::placed(PANEL.min, PANEL.size());
-    panel.border = UiRect::all(Val::Px(2.0));
     let panel = commands
         .spawn((
-            panel,
+            bar::placed(PANEL.min, PANEL.size()),
             BackgroundColor(PANEL_TINT),
-            BorderColor::all(EDGE),
             Pickable::IGNORE,
         ))
         .id();
     commands.entity(root).add_child(panel);
+    // The frame's pieces over the panel and along the window (`0x6DC010`, #2940).
+    crate::trade_frame::spawn(&mut commands, root, (&images, &assets), &foot);
     // The merchant's portrait by its type, and the title.
     if let Some((file, rect)) = portraits.as_deref().and_then(|p| p.of(look.merchant.kind)) {
         let [x, y, w, h] = rect.map(f32::from);
