@@ -728,8 +728,13 @@ pub const BLAST_REACH: f32 = 80.0;
 
 /// The spells that a cast refuses while an effect keyed by the spell holds on its target, the
 /// caster for the launch types 0 and 5 or without a creature for its target (`0x51D840` at
-/// `0x51DA76`, `0x582B00`): their effect `0x22` among them.
-const LOCKED: [u16; 15] = [2, 17, 18, 19, 20, 21, 22, 24, 25, 27, 28, 30, 31, 32, 37];
+/// `0x51DA76`, `0x582B00`), a hero's or a creature's alike: their effect `0x22` among them (the
+/// spells 2 to 37 by the byte table `0x51E040`, 47 to 63 by `0x51E06C`, 40, 41, 65 and 72 by
+/// their own tests; #3237).
+const LOCKED: [u16; 28] = [
+    2, 3, 17, 18, 19, 20, 21, 22, 24, 25, 27, 28, 30, 31, 32, 37, 40, 41, 47, 55, 56, 57, 58, 59,
+    62, 63, 65, 72,
+];
 
 /// The keys whose effects refuse a cast of `spell` while one holds on its target: the spell
 /// itself, for the spells that last; none for another.
