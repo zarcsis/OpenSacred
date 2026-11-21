@@ -1198,7 +1198,9 @@ fn summon(
     }
 }
 
-/// Makes `summoning`'s creature at `at`, hostile, of its caster's level and side.
+/// Makes `summoning`'s creature at `at`, hostile, of its caster's level and side; the goblin god's
+/// child of a ring a boss at that level with its wand in its right hand
+/// (`GoblinLanding::summoned_wand`, #3225).
 fn make_summoned(world: &mut World, summoning: Summoning, at: Vec3) {
     let floor = world
         .get_resource::<Heights>()
@@ -1208,12 +1210,20 @@ fn make_summoned(world: &mut World, summoning: Summoning, at: Vec3) {
     let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
         return;
     };
+    let wand = summoning
+        .hired
+        .then(|| GoblinLanding::summoned_wand(summoning.creature))
+        .flatten();
     let request = crate::npcs::Spawn {
         creature: summoning.creature,
         cells: vec![(x, y)],
         floor,
         level: Some(summoning.level),
-        rank: crate::fight::Rank::Common,
+        rank: if wand.is_some() {
+            crate::fight::Rank::Boss
+        } else {
+            crate::fight::Rank::Common
+        },
         hostile: Some(true),
         immortal: false,
         roams: false,
@@ -1243,6 +1253,9 @@ fn make_summoned(world: &mut World, summoning: Summoning, at: Vec3) {
         creature.insert(Summoned(summoning.caster));
         if summoning.hired {
             creature.insert(Hired);
+        }
+        if let Some(wand) = wand {
+            creature.insert(crate::npcs::Rearms::right(wand));
         }
     }
 }
