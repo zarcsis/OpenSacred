@@ -72,14 +72,19 @@ pub struct Burning {
     /// The level of its place, and how long until it may strike again ([`scald`]).
     level: crate::terrain::Level,
     cooldown: f32,
+    /// Whether its type puts it in list 4 ([`over_all`]).
+    over: bool,
 }
 
 /// The fires' and smokes' variants and each one's materials of its layers, made as the game
-/// starts.
+/// starts, and the same of list 4 ([`over_all`]).
 #[derive(Resource, Default)]
 struct Fires {
-    variants: Vec<(u8, Arc<Fire>, Vec<Material>)>,
+    variants: Vec<(u8, Arc<Fire>, Layers)>,
 }
+
+/// A variant's materials of its layers, and the same of list 4 ([`over_all`]).
+type Layers = [Vec<Material>; 2];
 
 /// A layer's material, none without its texture.
 type Material = Option<Handle<Effect>>;
@@ -277,20 +282,22 @@ fn burn_on(
     }
 }
 
-/// A fire to make: its variant and the level of its place, as `spawn` leaves it for [`light`].
+/// A fire to make: its variant, the level of its place and whether it is of list 4, as `spawn`
+/// leaves it for [`light`].
 #[derive(Component)]
-struct Unlit(u8, crate::terrain::Level);
+struct Unlit(u8, crate::terrain::Level, bool);
 
-/// Spawns the fire of the variant `variant` at `at` on `level`, in its layer and visibility.
+/// Spawns the fire of the variant `variant` at `at` on `level`, in its layer and visibility, of
+/// list 4 where `over` (its type's flag `0x800000`, #3286).
 pub fn spawn(
     commands: &mut Commands,
-    (variant, level): (u8, crate::terrain::Level),
+    (variant, level, over): (u8, crate::terrain::Level, bool),
     at: Vec3,
     (layered, visibility): (crate::buildings::Layered, Visibility),
 ) -> Entity {
     commands
         .spawn((
-            Unlit(variant, level),
+            Unlit(variant, level, over),
             Transform::from_translation(at),
             layered,
             visibility,
@@ -389,13 +396,15 @@ pub(crate) type Effect = ExtendedMaterial<StandardMaterial, Particles>;
 /// The extension of [`Effect`]: whether an added particle takes its colour whole, its alpha
 /// unused, as the original's source `ONE` does (`0x761B00`'s flag `0x10`, the glows' styles but
 /// 3), where Bevy's premultiplies it by its alpha: the texels of `PARTICLE_FIRE02` and of some
-/// glows carry an alpha as their brightness, which that would take twice (#1092); and whether its
-/// `depth_bias` is a blended layer's, for its order alone ([`layered`]).
+/// glows carry an alpha as their brightness, which that would take twice (#1092); whether its
+/// `depth_bias` is a blended layer's, for its order alone ([`layered`]); and whether it is of list
+/// 4 ([`over_all`]).
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug, Default)]
 #[bind_group_data(ParticlesKey)]
 pub(crate) struct Particles {
     whole: bool,
     layered: bool,
+    over: bool,
 }
 
 /// What the pipeline of an [`Effect`] depends on beyond Bevy's own material.
@@ -403,6 +412,7 @@ pub(crate) struct Particles {
 pub(crate) struct ParticlesKey {
     whole: bool,
     layered: bool,
+    over: bool,
 }
 
 impl From<&Particles> for ParticlesKey {
@@ -410,6 +420,7 @@ impl From<&Particles> for ParticlesKey {
         Self {
             whole: extension.whole,
             layered: extension.layered,
+            over: extension.over,
         }
     }
 }
@@ -429,6 +440,11 @@ impl MaterialExtension for Particles {
             fragment.shader_defs.push("PARTICLES".into());
             if key.bind_group_data.whole {
                 fragment.shader_defs.push("WHOLE".into());
+            }
+            if key.bind_group_data.over {
+                // A model's texel nearer than its true point hides it (`standard.wesl`).
+                fragment.shader_defs.push("NEAREST".into());
+                fragment.shader_defs.push("LIST_4".into());
             }
         }
         if key.bind_group_data.layered {
@@ -450,6 +466,23 @@ pub(crate) fn layered(material: Effect, layer: crate::blended::Layer) -> Effect 
             layered: true,
             ..material.extension
         },
+    }
+}
+
+/// `material` of an FX object of list 4 (#3286): in the last of the blended layers, over every
+/// sprite's texels, its quads [`crate::statics::LIST_4_FORWARD`] nearer the camera than they lie
+/// ([`Quads::ahead`]), so that every sprite and model lies behind them, and each of its fragments
+/// dropped where a model's texel lies nearer than the fragment's true point (`standard.wesl`'s
+/// `LIST_4`, the models' prepass): as the original draws list 4 last, the sprites without the
+/// depth test, and its particles tested against the models' depths (`0x62AE90`, `0x761B00`).
+pub(crate) fn over_all(material: Effect) -> Effect {
+    let material = layered(material, crate::blended::Layer::Overlays);
+    Effect {
+        extension: Particles {
+            over: true,
+            ..material.extension
+        },
+        ..material
     }
 }
 
@@ -475,7 +508,7 @@ pub(crate) fn whole_material(image: Handle<Image>) -> Effect {
     Effect {
         extension: Particles {
             whole: true,
-            layered: false,
+            ..Particles::default()
         },
         ..particle_material(image, AlphaMode::Add)
     }
@@ -754,6 +787,15 @@ impl Quads {
             *position = order
                 .no_nearer(Vec3::from_array(*position), origin)
                 .to_array();
+        }
+    }
+
+    /// Brings every vertex `by` world units nearer the camera along the line of sight, where it
+    /// shows still in the camera's orthographic view: the quads of list 4 ([`over_all`]).
+    pub(crate) fn ahead(&mut self, by: f32) {
+        let back = -iso::forward() * by;
+        for position in &mut self.positions {
+            *position = (Vec3::from_array(*position) + back).to_array();
         }
     }
 
@@ -1110,38 +1152,40 @@ fn begin(
     assets: Res<AssetServer>,
     mut materials: ResMut<Assets<Effect>>,
 ) {
-    let mut made: Vec<((&'static str, Blend), Material)> = Vec::new();
+    let mut made: Vec<((&'static str, Blend, bool), Material)> = Vec::new();
     let mut variants = Vec::new();
     for variant in VARIANTS {
         let Some(fire) = fire(variant) else {
             continue;
         };
-        let layers = fire
-            .blends
-            .iter()
-            .map(|&blend| {
-                let key = (fire.texture, blend);
-                if let Some((_, material)) = made.iter().find(|(k, _)| *k == key) {
-                    return material.clone();
-                }
-                let image = data
-                    .as_ref()
-                    .and_then(|data| particle_texture(&data.0.assets, &assets, fire.texture));
-                if image.is_none() {
-                    warn!("fx: no texture {}; its effects are not drawn", fire.texture);
-                }
-                let material = image.map(|image| {
-                    materials.add(match blend {
-                        Blend::Add => particle_material(image, AlphaMode::Add),
-                        Blend::Whole => whole_material(image),
-                        Blend::Over => particle_material(image, AlphaMode::Blend),
-                    })
-                });
-                made.push((key, material.clone()));
-                material
-            })
-            .collect();
-        variants.push((variant, Arc::new(fire), layers));
+        let [layers, over] = [false, true].map(|over| {
+            fire.blends
+                .iter()
+                .map(|&blend| {
+                    let key = (fire.texture, blend, over);
+                    if let Some((_, material)) = made.iter().find(|(k, _)| *k == key) {
+                        return material.clone();
+                    }
+                    let image = data
+                        .as_ref()
+                        .and_then(|data| particle_texture(&data.0.assets, &assets, fire.texture));
+                    if image.is_none() {
+                        warn!("fx: no texture {}; its effects are not drawn", fire.texture);
+                    }
+                    let material = image.map(|image| {
+                        let material = match blend {
+                            Blend::Add => particle_material(image, AlphaMode::Add),
+                            Blend::Whole => whole_material(image),
+                            Blend::Over => particle_material(image, AlphaMode::Blend),
+                        };
+                        materials.add(if over { over_all(material) } else { material })
+                    });
+                    made.push((key, material.clone()));
+                    material
+                })
+                .collect::<Vec<_>>()
+        });
+        variants.push((variant, Arc::new(fire), [layers, over]));
     }
     // The steps' small fire takes the fires' two materials, and its burnt ground one added.
     let step = small_fire();
@@ -1150,7 +1194,7 @@ fn begin(
         .iter()
         .map(|&blend| {
             made.iter()
-                .find(|(key, _)| *key == (step.texture, blend))
+                .find(|(key, _)| *key == (step.texture, blend, false))
                 .and_then(|(_, material)| material.clone())
         })
         .collect();
@@ -1554,16 +1598,17 @@ fn light(
     unlit: Query<(Entity, &Unlit, &Transform)>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
-    for (entity, &Unlit(variant, level), at) in &unlit {
+    for (entity, &Unlit(variant, level, over), at) in &unlit {
         commands.entity(entity).remove::<Unlit>();
         let (x, z) = (at.translation.x, at.translation.z);
         debug!(
             "fx: a fire of the variant {variant} at {:?}",
             crate::paths::cell_of(x, z)
         );
-        let Some((_, fire, materials)) = fires.variants.iter().find(|(v, ..)| *v == variant) else {
+        let Some((_, fire, layers)) = fires.variants.iter().find(|(v, ..)| *v == variant) else {
             continue;
         };
+        let materials = &layers[usize::from(over)];
         let mut handles = Vec::new();
         commands.entity(entity).with_children(|layers| {
             for material in materials {
@@ -1600,6 +1645,7 @@ fn light(
             geyser,
             level,
             cooldown: 0.0,
+            over,
         });
         if fire.light > 0.0 {
             burning.insert(daynight::Light(fire.light));
@@ -1634,9 +1680,10 @@ fn burn(
     for (entity, mut burning, at, layered) in &mut fires {
         // At its object's place in the order, after its cell's statics and under what a row
         // nearer draws (#2188); on an upper storey's floor, no further back than its plane
-        // (#2220).
+        // (#2220); one of list 4 over every sprite (#3286).
         let place = at.translation();
         let order = orders.after_statics_in(place, layered);
+        let over = burning.over;
         let Burning {
             fire,
             system,
@@ -1667,7 +1714,11 @@ fn burn(
                 continue;
             };
             let mut quads = layer_quads(fire, system, layer);
-            quads.in_order(order, place);
+            if over {
+                quads.ahead(crate::statics::LIST_4_FORWARD);
+            } else {
+                quads.in_order(order, place);
+            }
             quads.into_mesh(&mut mesh);
         }
     }
@@ -1976,6 +2027,28 @@ mod tests {
         let was = ring.positions.clone();
         ring.in_order(Some(order), root);
         assert_eq!(ring.positions, was);
+    }
+
+    #[test]
+    fn a_quad_of_list_4_comes_ahead_where_it_shows() {
+        use crate::statics::LIST_4_FORWARD;
+        let mut quads = Quads::default();
+        quads.push(
+            Vec3::new(5.0, 80.0, -3.0),
+            8.0,
+            0.3,
+            (Vec2::ZERO, 1.0),
+            [1.0; 4],
+        );
+        let before = quads.positions.clone();
+        quads.ahead(LIST_4_FORWARD);
+        for (was, now) in before.iter().zip(&quads.positions) {
+            let (was, now) = (Vec3::from(*was), Vec3::from(*now));
+            // Where it shows on screen, it shows still, that much nearer the camera.
+            assert!((now - was).dot(iso::right()).abs() < 1e-3, "{was} {now}");
+            assert!((now - was).dot(iso::up()).abs() < 1e-3, "{was} {now}");
+            assert!(((now - was).dot(-iso::forward()) - LIST_4_FORWARD).abs() < 1e-2);
+        }
     }
 
     #[test]

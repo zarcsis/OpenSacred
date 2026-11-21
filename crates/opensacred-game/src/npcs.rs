@@ -376,9 +376,10 @@ struct Placement {
     /// The trigger that a door or a container names (`CreateObj`'s `0x29`), whose cells a door
     /// opens and closes (#372).
     trigger: Option<String>,
-    /// A fire of the FX objects (`items.pak` category 12), its variant of the smoke class and its
-    /// height in the models' units, the record's `0x7E` (`fx`, #1092).
-    fx: Option<(u8, f32)>,
+    /// A fire of the FX objects (`items.pak` category 12), its variant of the smoke class, its
+    /// height in the models' units, the record's `0x7E` (`fx`, #1092), and whether its type's
+    /// flag `0x800000` puts it in list 4 (#3286).
+    fx: Option<(u8, f32, bool)>,
     /// An FX object that loops a sound of its own near the hero, an element stone or a stargate
     /// (`fx_loops`, #1170), which has no model of its item's: its sound and its type, a
     /// stargate's look its own (`stargates`), an element stone's its own (`element_stones`).
@@ -3815,7 +3816,7 @@ impl Makers {
                     (FX_HEIGHT, Value::I32(h)) => i16::try_from(*h).ok().map(f32::from),
                     _ => None,
                 });
-                (variant, height.unwrap_or(0.0))
+                (variant, height.unwrap_or(0.0), item.flags() & LIST_4 != 0)
             });
         // An element stone or a stargate of the FX objects, which loops its sound and has no
         // model of its item's.
@@ -7395,10 +7396,10 @@ fn spawn(
     let spot = placement
         .drawn
         .unwrap_or_else(|| Vec2::new(position.x, position.z));
-    if let Some((variant, height)) = placement.fx {
+    if let Some((variant, height, over)) = placement.fx {
         return crate::fx::spawn(
             commands,
-            (variant, level),
+            (variant, level, over),
             raised(spot, height),
             (layered, layered.visibility(states)),
         );
@@ -7806,6 +7807,10 @@ pub(crate) fn load_texture(assets: &AssetServer, texture: &str) -> Handle<Image>
 }
 
 /// An item's category (`items.pak +0x2E`, the third byte of the word at `+0x2C`).
+/// The type's flag that puts an FX object in the draw list 4 (`0x4280F0`, docs/re/drawing.md,
+/// "The models"; #2941).
+const LIST_4: u32 = 0x80_0000;
+
 fn category(item: &Item) -> u8 {
     item.words_14[6].to_le_bytes()[2]
 }

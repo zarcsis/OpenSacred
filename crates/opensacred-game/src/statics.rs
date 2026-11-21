@@ -423,8 +423,8 @@ const _: () = assert!(LIST_2_BACK < LIST_1_BACK && LIST_1_BACK < LIST_0_BACK);
 pub const UNDER_LIQUIDS_BACK: f32 = 4_600.0;
 /// How far forward the objects of list 4 come: over the sprites of list 3 around them and the
 /// characters among them, as the original's list 4 always covers the hero (docs/re/drawing.md,
-/// "The trees about the heroes").
-const LIST_4_FORWARD: f32 = 1_000.0;
+/// "The trees about the heroes"), and the FX objects of list 4 (`fx`, #3286).
+pub const LIST_4_FORWARD: f32 = 1_000.0;
 
 /// The original's order of drawing as the sprites' shader has it (`order.wesl`): how far forward
 /// a place comes per world unit its cell lies right, and per place in its cell's chain.
