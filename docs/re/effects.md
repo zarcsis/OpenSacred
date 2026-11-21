@@ -2797,7 +2797,8 @@ Read 2026-11-06 for #2147 in Ghidra (**confirmed** by code unless marked).
 The ring's streaks are born along the turn's way in the frame, where the original sets the block's offset to the turn's point once a frame and a frame's streaks stand together (**estimate**: at the game's frame rate they stood apart as bright bars).
 **Seen** 2026-11-06 beside the original: the miss's column of blue streaks alike in size, brighter at its right edge and its foot in both; in the game the hit's cracks radiating from the hero's feet.
 Since #2149 its heal of the caster's friends follows ("The healing").
-Not followed: its strikes on the hero's followers (the game's ball strikes the hero alone), the summoned creature hired by its caster (it is made hostile, of the caster's side, as a creature's summons are), the type 145's item `0x73A` in its slot 13, and the event's sound (#3167).
+Since #3167 it strikes each gathered creature hostile to its caster, the hero's followers too, its impact under each (`creature_casts::throw`).
+Not followed: the summoned creature hired by its caster (it is made hostile, of the caster's side, as a creature's summons are; #3224), the type 145's item `0x73A` in its slot 13, and the event's sound (#3225).
 
 ## The guns' sights
 
