@@ -1,7 +1,8 @@
 //! The combat master's window (#1540; docs/re/arts.md, "The combat master"): a creature of
 //! `+0x200` bit `0x4000` (`quests::WIZARD`) without a dialogue shows, as the hero speaks to it
 //! (`talk`, `0x52AB70`), the inventory and the master's window (`cUI_Master`, `UI_WND_MASTER`) at
-//! the screen's top left, 640 × 342: its two panels tinted `0x9F000000`, the master's portrait
+//! the screen's top left, 640 × 336, its left panel overhanging it to 342: its two panels tinted
+//! `0x9F000000`, the master's portrait
 //! and title (the text 1198), and its tab sheet's tabs COMBO and EXCHANGE over its COMBO page
 //! (`cUI_MasterCombo`, `0x6D1DA0`), the inventory's combos page selected; the inventory's hide
 //! hides it.
@@ -51,8 +52,10 @@ use crate::lines::Texts;
 use crate::pickup::{Held, Pack};
 use crate::tooltip::{Rest, TipRoot, argb, spawn_tip};
 
-/// The window on the original's screen, and its two panels and their tint (`UI_STATIC_BG`,
-/// `0x9F000000`).
+/// The area that the window's two panels cover on the original's screen, the window's 640 × 336
+/// (`0x6D1460`) and its left panel's overhang to 342, and the two panels and their tint
+/// (`UI_STATIC_BG`, `0x9F000000`): the right one of `(W − 128, 16, 128, H − 12)`, the left one
+/// of `(0, 50, 512, 292)`.
 pub(crate) const WINDOW: Rect = Rect {
     min: Vec2::ZERO,
     max: Vec2::new(640.0, 342.0),

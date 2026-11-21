@@ -685,7 +685,7 @@ pub struct WeaponArt {
     pub value_3c: u32,
     /// The regeneration time in seconds at the speed 1.
     pub regeneration: [f32; 2],
-    /// The distance it is made from: 101 to 250 the reach of the two creatures, 0 where the
+    /// The distance it is made from: 100 to 250 the reach of the two creatures, 0 where the
     /// creature stands, below 0 for the jumps.
     pub distance: i32,
     /// The launch type, as a spell's.

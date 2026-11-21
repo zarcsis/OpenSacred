@@ -1607,7 +1607,7 @@ pub fn due(point: f32, done: f32) -> bool {
 }
 
 /// How far from its target a creature makes an art of the record's distance `distance`, and how
-/// near that it must stand (`0x4FD0F0`): 101 to 250 the reach of the two creatures `reach`,
+/// near that it must stand (`0x4FD0F0`): 100 to 250 the reach of the two creatures `reach`,
 /// within 10 of it; 1 to 99 the distance itself, within 10 of it (the backbreaker's 80, a
 /// **hypothesis**); 0 where it stands; none for another, the jumps' below 0 among them (not
 /// here).
@@ -2504,14 +2504,15 @@ pub const DAEMON_ACTS: f32 = 0.3;
 pub const RING_REACH: f32 = 350.0;
 
 /// The Daemon's 1101's, 1102's and 1103's ratio `⌊([+0x60] + [+0x64]·L)/([+0x68] + [+0x6C]·L)⌋`
-/// of `record` at the level in play `level`, 0 for a divisor not above 2⁻²³: the seconds of the
-/// burns of 1101 and 1102 (3 at the level 1), the count of 1103's bolts on each side of its aim.
+/// of `record` at the level in play `level`, 0 for a divisor not above 2⁻²³ (`0x5537B0`, the
+/// float `0x890C9C`): the seconds of the burns of 1101 and 1102 (3 at the level 1), the count of
+/// 1103's bolts on each side of its aim.
 pub fn daemon_ratio(record: &WeaponArt, level: u32) -> u32 {
     let l = f64::from(level);
     let [a, b] = record.value_60.map(f64::from);
     let [c, d] = record.value_68.map(f64::from);
     let divisor = l.mul_add(d, c);
-    if divisor <= f64::from(f32::EPSILON) / 2.0 {
+    if divisor <= f64::from(f32::EPSILON) {
         return 0;
     }
     u32::try_from(whole_units(l.mul_add(b, a) / divisor)).unwrap_or(0)

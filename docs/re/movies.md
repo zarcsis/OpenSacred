@@ -37,7 +37,7 @@ Each name is a path under `.\MOVIE\`, from the table at `0x9DFED0`, and a movie 
 
 ## Its play
 
-`0x6A0EA0` plays the file through DirectShow's multimedia stream into a DirectDraw surface, frame by frame, until the stream ends or a key or a button stops it.
+`0x6A0EA0` plays the file through DirectShow's multimedia stream into a DirectDraw surface, frame by frame, until the stream ends or a key or a button stops it, once `0x6A0D80` has made the stream and opened the file (docs/01 §4.5; each caller calls the two in turn).
 At each frame it tests, by `GetAsyncKeyState`, Escape, Space, the left button and the right one: any held stops the movie; then it waits while Escape or Space is still held.
 It reads `COMPAT_VIDEO` (the GOG release's 1) and draws by one of two paths (**hypothesis** for which the key picks): each frame as a quad over the whole screen, 1024 × 768, from the 640 × 480 frame in a 1024 × 512 surface, or copied to the window's rectangle; either way the 4:3 movie fills the 4:3 screen.
 The keys' and the mouse's messages are thrown away at each frame.

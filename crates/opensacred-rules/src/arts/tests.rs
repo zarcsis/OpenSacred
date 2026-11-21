@@ -867,7 +867,10 @@ fn an_arts_clip_strikes_at_its_hit_points() {
     assert_eq!(hardhit_point(&[]), 0.5);
     assert_eq!(hardhit_point(&[1.5]), 0.5);
     assert!(!due(0.5, 0.5) && due(0.5, 0.51));
-    // 101 to 250 the reach, within 10; 0 where it stands; the jumps not here.
+    // 100 to 250 the reach, within 10 (`0x4FD0F0`: 99 < d < 251); 0 where it stands; the jumps
+    // not here.
+    assert_eq!(made_from(100, 130.0), Some((130.0, 10.0)));
+    assert_eq!(made_from(251, 130.0), None);
     assert_eq!(made_from(130, 130.0), Some((130.0, 10.0)));
     assert_eq!(made_from(0, 130.0).map(|(at, _)| at), Some(0.0));
     assert_eq!(made_from(-290, 130.0), None);

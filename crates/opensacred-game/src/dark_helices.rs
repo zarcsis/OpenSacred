@@ -1,7 +1,7 @@
 //! The Dark Elf's casts' helices (#1092; docs/re/effects.md, "The Dark Elf's casts"): as the clip
-//! of his slaughter (1047) or his death's mark (1048) starts, `cParticleSystem_dark_sm_cast` (865)
+//! of his testosterone (1047) or his adrenaline (1048) starts, `cParticleSystem_dark_sm_cast` (865)
 //! goes with his root, and 3 s on a coil of `FX_HELIX01` of radius 20 winds up from it, red for
-//! the slaughter and yellow for the death's mark, spinning and stretching as it rises, fading in
+//! the testosterone and yellow for the adrenaline, spinning and stretching as it rises, fading in
 //! and out over 1.67 s, added by its alpha, untinted by the night and drawn just behind his model,
 //! as the original draws the system before the creature it follows (`fx::Orders`, #2178)
 //! (`opensacred_rules::particles::DarkHelix`). Its `DELF_CAST` is `art_sounds`'.
@@ -40,7 +40,7 @@ struct Helix {
     mesh: Handle<Mesh>,
 }
 
-/// Makes the helix of each slaughter and death's mark whose clip starts (`0x50A986`, `0x50AA4A`:
+/// Makes the helix of each testosterone and adrenaline whose clip starts (`0x50A986`, `0x50AA4A`:
 /// the event `0x58` at his root).
 fn start(
     mut commands: Commands,
