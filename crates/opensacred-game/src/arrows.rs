@@ -168,6 +168,10 @@ fn loose(
         Res<crate::crowd::Nearest>,
         Res<Heights>,
     ),
+    (mut hero_arts, heroes): (
+        Option<ResMut<crate::arts::HeroArts>>,
+        Query<(), With<crate::hero::Body>>,
+    ),
 ) {
     let Some(npcs) = npcs else {
         shots.clear();
@@ -263,9 +267,17 @@ fn loose(
             (None, Some(length)) => (arrows::Arrow::ray(point(from), point(toward), length), None),
             (None, None) => (first, None),
         };
-        // The `Rundum`'s ring at its shooter as its arrows leave (`0x4DEB2A`, #2240).
+        // The `Rundum`'s ring at its shooter as its arrows leave (`0x4DEB2A`, #2240), and the
+        // start of a hero's regeneration: 1061's time, its entry's else its record's at the level
+        // 0, added to every weapon art's, the group 0, whatever the class's own `Rundum`
+        // (`0x4DEB8C`, `0x562470(0x582850(1061), 2, 0)`; #3297).
         if rundum.is_some() {
             crate::elf_sights::bow_rundum(&mut commands, shot.shooter);
+            if heroes.contains(shot.shooter)
+                && let Some(arts) = hero_arts.as_deref_mut()
+            {
+                arts.start_with(opensacred_rules::arts::BOW_RUNDUM, 1.0, None);
+            }
         }
         for i in 0..count {
             // The `Rundum`'s arrow `i` after the first flies at the hero's `i`-th hostile, nearest
