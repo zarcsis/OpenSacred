@@ -183,8 +183,9 @@ A class keeps one ramp per layer, side by side; the draw takes the entry of the 
 
 ### Where in the frame
 
-- The FX objects are dynamic objects of their cells' chains, and the world pass appends them to the draw lists as entries of kind 0 (docs/re/drawing.md): at `0x62C3F8` … `0x62C633` (a building's floors; the cell's own chain at the other call sites of `0x4280B0`, alike, **hypothesis** for those), after the cell's other objects, a second walk takes the objects of the category 12 alone (`0x4280B0`): a type of the flag `0x800000` (`0x4280F0`) to list 4, a type of the flag `0x4` (`0x4280D0`) on the layer 0 to list 0, any other to list 3.
-- So the chimney smokes (771, 810, 811, flags `0x801002`) lie over everything, the blood puddles, the magic marker, the temporary texture and the big demon's summoning (the five of kind 6) under everything on the ground, and the rest among the sprites and models of list 3 by their cells.
+- The FX objects are dynamic objects of their cells' chains, and the world pass appends them to the draw lists as entries of kind 0 (docs/re/drawing.md, "The models"; **confirmed** by code 2026-11-21 for #2941 at the three call sites of each test, a building's floors and the cell's own chain): after the cell's other objects, a second walk takes the objects of the category 12 alone (`0x4280B0`): a type of the flag `0x800000` (`0x4280F0`) to list 4, a type of the flag `0x4` (`0x4280D0`) to list 0 (on a building's floor only while the object's floor, its `+0x24`, is 0), any other to list 3.
+- So the chimney smokes (771, 810, 811, flags `0x801002`) lie over everything, the blood puddles, the magic marker, the temporary texture and the big demon's summoning (the five of kind 6) under everything on the ground, and the rest among the sprites and models of list 3 by their cells, after the cell's other objects.
+- The game lays every system in list 3's order (`fx::Orders`); the lists 0 and 4 are not followed yet (#3285, #3286).
 
 ### The billboards (`0x761B00`)
 
