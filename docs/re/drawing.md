@@ -364,7 +364,7 @@ Its size is the type's size for the arrows' hits (`items.pak +0x14`, 50 for 0, `
 
 - It binds `SHADOWDOT.TGA` (white, its alpha falling from the middle) and draws quads of four `D3DLVERTEX`es (FVF `0x1E2`) as triangle strips, their colour `0x50000000`: black at an alpha of 80.
 - The first quad has a half side of 0.6 times the size and lies at the root bone's (`__Root`) state, in the frame of the model's matrix with its translation's first two coordinates taken from the bone, on the plane `z = 0`.
-- The offsets of `Bip01 R Foot` and `Bip01 L Foot` from the root (the string table `0x401000`'s entries `0x25` and `0x24`) stay 0 where the model lacks the bone.
+- The offsets of `Bip01 R Foot` and `Bip01 L Foot` from the root (the string table `0x401000`'s entries `0x24` and `0x25`, 36 and 37; the table read again 2026-11-21 for #2844 at `0x8E7680`) stay 0 where the model lacks the bone.
 - Two quads of two thirds the half side lie halfway from the root to each foot, and two of two thirds of that at the feet.
 - So five dots lie under a creature, darkest where they overlap, about its root and its feet.
 
