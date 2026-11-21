@@ -2800,7 +2800,8 @@ The ring's streaks are born along the turn's way in the frame, where the origina
 Since #2149 its heal of the caster's friends follows ("The healing").
 Since #3167 it strikes each gathered creature hostile to its caster, the hero's followers too, its impact under each (`creature_casts::throw`).
 The summoned creature hired by its caster is the caster's (`creature_casts::Hired`) since #3224, which as a creature's hire makes it no follower (docs/re/ai.md, "Followers"): hostile, of the caster's level and side, it is dismissed as the caster dies.
-Not followed: the type 145's item `0x73A` in its slot 13, and the event's sound (#3225).
+Read 2026-11-21 for #3225 (**confirmed** by code): the ring's action 1 (`0x5B2600` at `0x5B45CD` to `0x5B4680`) gives a summoned 145 the magic wand 1850 (`0x5FB530`), made by the item maker at the 145's level (`0x5D5080`), in its slot 13, its right hand (`0x555E00`), and makes it a boss by its flags word's bit `0x80000` alone, at its level, before `sdk_HIRE`; `opensacred-game` makes it so since #3225 (`GoblinLanding::summoned_wand`, `npcs::Rearms::right`, the rank of a boss at the caster's level).
+The sound of the ring's FX event is the handler's common play of its type's sound profile (`0x5A3840`), and the type 786 has none (`items.pak +0x24` 0, of no weapon's record to fall back on), so that it plays nothing, as the game.
 
 ## The guns' sights
 

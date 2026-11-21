@@ -13503,6 +13503,17 @@ impl Rearms {
         }
     }
 
+    /// `item` put into its right hand (slot 13) in place of what it held there, made by the item
+    /// maker at its level: the goblin god's child's wand (`0x555E00`, #3225).
+    pub fn right(item: u32) -> Self {
+        Self {
+            away: vec![Hand::Right],
+            takes: vec![(item, Hand::Right, None)],
+            disarmed: false,
+            wears: Vec::new(),
+        }
+    }
+
     /// The bow-taking (`0x4D4A80`): its right hand emptied (slot 13), and `bow` in its left
     /// (slot 12).
     pub fn bow(bow: u32) -> Self {

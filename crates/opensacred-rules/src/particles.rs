@@ -7535,6 +7535,14 @@ impl GoblinLanding {
             Self::Summons(_) => Some(76),
         }
     }
+
+    /// The item that the summoned creature of the type `creature` takes into its right hand (the
+    /// slot 13), made by the item maker at its level, the creature then a boss by its flags word's
+    /// bit `0x80000` alone, at its level (`0x5B2600`'s action 1, `0x5B45CD` to `0x5B4670`): the
+    /// god's child 145 the magic wand 1850; none for the others, made as their types make them.
+    pub fn summoned_wand(creature: u32) -> Option<u32> {
+        (creature == 145).then_some(1850)
+    }
 }
 
 /// The goblin mages' ball's impact (786, `cParticleSystem_goblinimpact`, its start `0x774C40`, run
@@ -16929,6 +16937,9 @@ mod tests {
         assert_eq!(GoblinLanding::missed_by(143).summoned(), Some(142));
         assert_eq!(GoblinLanding::missed_by(144).summoned(), Some(145));
         assert_eq!(GoblinLanding::missed_by(127).summoned(), Some(76));
+        // The god's child takes its wand, the others nothing.
+        assert_eq!(GoblinLanding::summoned_wand(145), Some(1850));
+        assert_eq!(GoblinLanding::summoned_wand(76), None);
         // Its creature comes as its turn passes π, some 0.31 s on.
         assert!((GOBLIN_SUMMONS - 0.314).abs() < 0.001);
         let mut miss = GoblinImpact::new(GoblinLanding::missed_by(127));
