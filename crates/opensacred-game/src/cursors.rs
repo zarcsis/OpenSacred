@@ -9,15 +9,14 @@
 //! mouse event of the scripts (#1518, `stashes`; `mouse_action`), and over the teleports, the
 //! stairs and the cells before them that `bin/treppe.bin` sends a click on to them (`0x616AD0`,
 //! `0xAB4498`, #2508); else, over the interface and outside a game, the arrow (`MOUSE_MAIN`); and
-//! the pin while the world map's pin's mode holds (`MOUSE_PUSHPIN`, #1569). `hud` puts the picture
-//! on the window. Beside the hand over an item, the item's name, and over a stash its text.
+//! the pin while the world map's pin's mode holds (`MOUSE_PUSHPIN`, #1569), else at its screen's
+//! edges their arrows (`MOUSE_DIRN` …, #2933). `hud` puts the picture on the window. Beside the hand over an item, the item's name, and over a stash its text.
 //! The same choice tells the foe under the cursor, whose panel shows ([`Foe`], #1459), what the
 //! hover highlights ([`Highlit`], #1460) and whether the cursor glows, the right button's art
 //! ready for what lies under it ([`Glow`], #1461).
 //!
 //! Not followed yet: the glow over a friend or the dead for an art on one (the launch types 2 and
-//! 4), the horses' looks and the map's arrows; the name's red for some objects (`+0x14` bit
-//! `0x20`, not read).
+//! 4) and the horses' looks; the name's red for some objects (`+0x14` bit `0x20`, not read).
 
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
@@ -55,10 +54,43 @@ pub enum Look {
     HorseTrader,
     /// The world map's pin's mode (#1569).
     Pushpin,
+    /// The world map's edge, its arrow (#2933).
+    Edge(Edge),
+}
+
+/// An edge of the world map's screen, or a corner, whose arrow the cursor shows as the map
+/// scrolls that way (`0x6C7920`, `MOUSE_DIRNW` …).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Edge {
+    NorthWest,
+    North,
+    NorthEast,
+    West,
+    East,
+    SouthWest,
+    South,
+    SouthEast,
+}
+
+impl Edge {
+    /// Its arrow's texture and the arrow's point within it, the opposite of the offset at which
+    /// the map pushes it (`0x6C7540`).
+    fn arrow(self) -> (&'static str, (u16, u16)) {
+        match self {
+            Edge::NorthWest => ("mouse_dirnw", (0, 0)),
+            Edge::North => ("mouse_dirn", (16, 0)),
+            Edge::NorthEast => ("mouse_dirne", (32, 0)),
+            Edge::West => ("mouse_dirw", (0, 16)),
+            Edge::East => ("mouse_dire", (40, 16)),
+            Edge::SouthWest => ("mouse_dirsw", (0, 32)),
+            Edge::South => ("mouse_dirs", (16, 40)),
+            Edge::SouthEast => ("mouse_dirse", (32, 32)),
+        }
+    }
 }
 
 impl Look {
-    pub const ALL: [Look; 11] = [
+    pub const ALL: [Look; 19] = [
         Look::Arrow,
         Look::Hand,
         Look::Sword,
@@ -70,6 +102,14 @@ impl Look {
         Look::Smith,
         Look::HorseTrader,
         Look::Pushpin,
+        Look::Edge(Edge::NorthWest),
+        Look::Edge(Edge::North),
+        Look::Edge(Edge::NorthEast),
+        Look::Edge(Edge::West),
+        Look::Edge(Edge::East),
+        Look::Edge(Edge::SouthWest),
+        Look::Edge(Edge::South),
+        Look::Edge(Edge::SouthEast),
     ];
 
     /// Its texture's name, as the converter names the file.
@@ -86,15 +126,28 @@ impl Look {
             Look::Smith => "mouse_blacksmith",
             Look::HorseTrader => "mouse_horsetrader",
             Look::Pushpin => "mouse_pushpin",
+            Look::Edge(edge) => edge.arrow().0,
         }
     }
 
     /// Its point within its picture, at the scale 1: the pin's middle, which the original
-    /// draws 16 pixels up and left of the pointer (`0x6C7540`), the others' corner.
-    pub fn spot(self) -> u16 {
+    /// draws 16 pixels up and left of the pointer, and each edge's arrow's tip (`0x6C7540`), the
+    /// others' corner.
+    pub fn spot(self) -> (u16, u16) {
         match self {
-            Look::Pushpin => 16,
-            _ => 0,
+            Look::Pushpin => (16, 16),
+            Look::Edge(edge) => edge.arrow().1,
+            _ => (0, 0),
+        }
+    }
+
+    /// The side of the square of its texture that the cursor shows: the edges' arrows' up to
+    /// 43 × 43 within 48, the others' within the top left 32 (docs/re/cursor.md, "The
+    /// textures").
+    pub fn side(self) -> usize {
+        match self {
+            Look::Edge(_) => 48,
+            _ => 32,
         }
     }
 
@@ -112,6 +165,14 @@ impl Look {
             Look::Smith => "smith",
             Look::HorseTrader => "horse-trader",
             Look::Pushpin => "pushpin",
+            Look::Edge(Edge::NorthWest) => "edge-nw",
+            Look::Edge(Edge::North) => "edge-n",
+            Look::Edge(Edge::NorthEast) => "edge-ne",
+            Look::Edge(Edge::West) => "edge-w",
+            Look::Edge(Edge::East) => "edge-e",
+            Look::Edge(Edge::SouthWest) => "edge-sw",
+            Look::Edge(Edge::South) => "edge-s",
+            Look::Edge(Edge::SouthEast) => "edge-se",
         }
     }
 }
@@ -409,11 +470,12 @@ fn choose(
         }
         _ => Look::Arrow,
     };
-    // The world map's pin's mode shows the pin (`0x6C8140`).
-    let look = if map.is_some_and(|map| map.pin_mode()) {
-        Look::Pushpin
-    } else {
-        look
+    // The world map's pin's mode shows the pin (`0x6C8140`), and its edges their arrows
+    // (`0x6C7920`, #2933).
+    let look = match map.as_deref() {
+        Some(map) if map.pin_mode() => Look::Pushpin,
+        Some(map) => map.edge().map_or(look, Look::Edge),
+        None => look,
     };
     shown.set_if_neq(Shown(look));
     named.set_if_neq(Named(item.filter(|_| look == Look::Hand)));

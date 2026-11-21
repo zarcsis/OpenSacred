@@ -259,27 +259,30 @@ fn scaled_picture(square: &[u8], unscaled: usize, percent: u32) -> (Vec<u8>, usi
     (out, side)
 }
 
-/// The top left `CURSOR_SIDE` square of an 8-bit RGBA texture, with its glow where `glows`
+/// The top left square of `side` of an 8-bit RGBA texture, with its glow where `glows`
 /// ([`glowing`]), at the scale of `percent` hundredths ([`scaled_picture`]).
-fn cursor_image(path: &Path, percent: u32, glows: bool) -> Result<Image> {
+fn cursor_image(path: &Path, percent: u32, glows: bool, side: usize) -> Result<Image> {
     let data = files::read(path).map_err(|e| anyhow!("reading {}: {e}", path.display()))?;
     let texture::Rgba {
         width,
         height,
         pixels,
     } = texture::read(&data).map_err(|e| anyhow!("decoding {}: {e}", path.display()))?;
-    if width < CURSOR_SIDE || height < CURSOR_SIDE {
-        bail!("{}: not an image of at least 32 x 32", path.display());
+    if width < side || height < side {
+        bail!(
+            "{}: not an image of at least {side} x {side}",
+            path.display()
+        );
     }
-    let mut square = Vec::with_capacity(CURSOR_SIDE * CURSOR_SIDE * 4);
-    for y in 0..CURSOR_SIDE {
+    let mut square = Vec::with_capacity(side * side * 4);
+    for y in 0..side {
         let row = y * width * 4;
-        square.extend_from_slice(&pixels[row..row + CURSOR_SIDE * 4]);
+        square.extend_from_slice(&pixels[row..row + side * 4]);
     }
     let (square, unscaled) = if glows {
-        glowing(&square, CURSOR_SIDE)
+        glowing(&square, side)
     } else {
-        (square, CURSOR_SIDE)
+        (square, side)
     };
     let (out, side) = scaled_picture(&square, unscaled, percent);
     let side = u32::try_from(side)?;
@@ -354,7 +357,7 @@ fn cursor(
     *shown = Some((look, scale, glows));
     let handle = match made.get(&(look, scale, glows)) {
         Some(handle) => handle.clone(),
-        None => match cursor_image(path, scale, glows) {
+        None => match cursor_image(path, scale, glows, look.side()) {
             Ok(image) => {
                 let handle = images.add(image);
                 made.insert((look, scale, glows), handle.clone());
@@ -368,7 +371,7 @@ fn cursor(
     };
     // The glow widens the picture by its reach on each side, its point as far in; a picture's
     // own point by the scale.
-    let spot = scaled_point(look.spot(), scale);
+    let spot = look.spot();
     let point = if glows {
         scaled_point(u16::try_from(GLOW_REACH).unwrap_or(0), scale)
     } else {
@@ -378,7 +381,10 @@ fn cursor(
         .entity(entity)
         .insert(CursorIcon::Custom(CustomCursor::Image(CustomCursorImage {
             handle,
-            hotspot: (point + spot, point + spot),
+            hotspot: (
+                point + scaled_point(spot.0, scale),
+                point + scaled_point(spot.1, scale),
+            ),
             ..default()
         })));
 }
@@ -499,7 +505,7 @@ mod tests {
         rgba[far..far + 4].copy_from_slice(&[0, 255, 0, 255]);
         let file = texture::write(texture::Encoding::Rgba8, 64, 64, &[rgba]).unwrap();
         fs::write(&path, file).unwrap();
-        let image = cursor_image(&path, 200, false).unwrap();
+        let image = cursor_image(&path, 200, false, CURSOR_SIDE).unwrap();
         fs::remove_file(&path).unwrap();
         assert_eq!((image.width(), image.height()), (64, 64));
         let data = image.data.unwrap();
