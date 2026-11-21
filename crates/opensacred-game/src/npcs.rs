@@ -10454,6 +10454,12 @@ impl ScriptClip {
         DEFENDING.contains(&self.slot)
     }
 
+    /// The rate it plays at where not its attack speed's.
+    #[cfg(test)]
+    pub(crate) fn rate(&self) -> Option<f32> {
+        self.rate
+    }
+
     /// The length of its clip in seconds, once it plays, at its own rate.
     pub(crate) fn length(&self, clips: &Assets<AnimationClip>) -> Option<f32> {
         let (_, clip) = self.playing.as_ref()?;
