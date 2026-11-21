@@ -782,6 +782,7 @@ mod tests {
             .insert_resource(crate::hero::GameSpeed(1.0))
             .insert_resource(crate::terrain::Heights::default())
             .insert_resource(Assets::<AnimationClip>::default())
+            .add_message::<crate::hit_sparks::Spark>()
             .add_systems(Update, (leaps, crate::making::leap).chain());
         let mind = Mind::new(
             Vec3::ZERO,

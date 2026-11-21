@@ -6,7 +6,9 @@
 //! Seraphim and the Mage's `Hardhit` and `Rundum`, `FX_ELVE_SM_HIT` (860) green for the Wood Elf
 //! and the Mage's `Attacke`, `FX_VAMP_SM_HIT` (862) red for the Vampiress, `FX_DARK_SM_HIT` (864)
 //! yellow for the Dark Elf (`particles::hit_sparks`, drawn by `puffs`, untinted by the night); and
-//! its object lights the night by 200 at the striker's place on the ground while it lives.
+//! its object lights the night by 200 at the striker's place on the ground while it lives. A
+//! hero's flight that a cell stops bursts the Dark Elf's at the hero's own neck, whatever the class
+//! (`making::leap`, #3203).
 //!
 //! The Dwarf's `Attacke` and `Hardhit` with a gun make none (`0x514DC4` to `0x515011`). Not
 //! followed: the variants of the sparks' classes that are not hits (the Gladiator's rings of 1015
