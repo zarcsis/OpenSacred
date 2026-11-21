@@ -616,7 +616,16 @@ fn refit(
                 .map(|&item| ((item, set_of(item)), Vec::new())),
         );
     let difficulty = difficulty.map(|d| d.0).unwrap_or_default();
-    let set_stats = set_bonuses::stats(&set_bonuses::Worn::of_items(items), difficulty, night);
+    let mut set_stats = set_bonuses::stats(&set_bonuses::Worn::of_items(items), difficulty, night);
+    // The dominance bonus of the items themselves (`0x57A1A7`, #2931): the ridden horse's bridle,
+    // the worn ones and those in the hands, each with what its sockets' items add to it.
+    let own: Vec<fight::ItemValues> = bridle
+        .iter()
+        .chain(pack.worn.iter().flatten().map(|(_, d)| d))
+        .chain(hands.iter())
+        .map(|d| tables.values(d))
+        .collect();
+    set_stats.dominance = set_bonuses::dominance(&own);
     for (entity, base, mut holding, mut combat, mut regenerates, effects, old, _) in &mut heroes {
         // Each item's values with its sockets', then the bonus slots of the items in its
         // sockets, as the stats take each item's record and then theirs (`0x5796A0`, #1661);
