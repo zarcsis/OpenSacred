@@ -1285,6 +1285,8 @@ impl Rest {
 pub(crate) enum Frame {
     Screen,
     Column,
+    /// The original's screen over the world map (#2933).
+    OverMap,
 }
 
 /// A control's tooltip of `text` on the original's screen centred on `centre` (the style `0x209`,
@@ -1361,6 +1363,9 @@ fn tip_root(commands: &mut Commands, frame: Frame) -> Entity {
     match frame {
         Frame::Screen => commands
             .spawn((TipRoot, crate::backpack::screen(), GlobalZIndex(2)))
+            .id(),
+        Frame::OverMap => commands
+            .spawn((TipRoot, crate::backpack::screen(), GlobalZIndex(4)))
             .id(),
         Frame::Column => commands
             .spawn((

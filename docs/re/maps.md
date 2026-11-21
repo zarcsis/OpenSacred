@@ -76,6 +76,7 @@ Implemented in `opensacred-game` (`world_map`, `overview`, `minimap`, `lens_crea
 
 ## The pin (#1569)
 
+- The buttons under the pointer (**seen** 2026-11-21 for #2933): each glows (the flag `0x8000000`, docs/re/interface.md, "The buttons") and shows its tooltip, `UI_TOOLTIP_MAP1` or `UI_TOOLTIP_MAP2`, centred 20 pixels above its top's middle as the bar's are; the pin's button shows its second image, 231, while the pin's mode holds, and the close button hides the map as it is pressed, so that its 233 is not seen.
 - The pin's button starts the pin's mode with the cursor `MOUSE_PUSHPIN` (−16, −16); a left release off the bar places the pin, its world point kept as the script manager's marker 2 (`0x4A63B0`, `+0x7674`), the compass's outer pin (docs/re/interface.md, "The markers"); a right press within the pin's 64 × 64 takes it away; a right press elsewhere ends the mode.
 - **hypothesis**: a defect, where no pin is placed the render and the right press project the marker 3's direction as a place.
 
@@ -124,5 +125,7 @@ Since #2932 the lens's places too: the scripts' state keeps `SetMapIcon`'s place
 Since #2343 the overview's ground is at the alpha 255 less the options' map transparency (`[interface] map_alpha`), at least 96, and its fog opaque or half black by the options' fog of war (`[interface] explore_map`), the world map's lens's fog opaque whatever it says.
 **Seen** in the game: the transparency at 254 and the fog off, the ground at 96 over the world and the unexplored ground half dark.
 
-Not followed yet: the warnings' events (#3110), the buttons' pressed looks and tooltips and the edges' cursors (#2933).
+Since #2933 the buttons glow under the pointer and show their tooltips over the map, the pin's button its image 231 while the pin's mode holds, and the edges their arrows (`world_map`, `cursors`; docs/re/cursor.md).
+**Seen** beside the original's frames: both tooltips, the glow, the pin's button pressed in the pin's mode and four of the arrows.
+Not followed yet: the warnings' events (#3110).
 The icons of the traders that `SetNPCState` makes are left out (docs/decisions/interface.md, "No map icon for a trader that a script makes").

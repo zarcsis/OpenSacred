@@ -339,7 +339,7 @@ impl UiImages {
     }
 
     /// The image `index`: its texture's file and its part in it.
-    fn part(&self, index: u32) -> Option<(&str, Rect)> {
+    pub(crate) fn part(&self, index: u32) -> Option<(&str, Rect)> {
         self.turned_part(index).map(|(file, rect, _)| (file, rect))
     }
 
