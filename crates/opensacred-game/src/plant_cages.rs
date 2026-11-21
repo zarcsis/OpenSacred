@@ -6,8 +6,10 @@
 //! ground up over 0.667 s, swaying as its waves run down it, seven spurs from its bends and a glow
 //! flat on the ground at its base, all added by their alpha in its colour, green a hero's and blue
 //! a creature's, untinted by the night, and its light at its base
-//! (`opensacred_rules::particles::PlantCage`); after the hold it sinks as it rose. Every fifth
-//! cage of a cast plays `DRYADE_DORNEN` as it comes, the terror's none.
+//! (`opensacred_rules::particles::PlantCage`). Grown, the first cage of a cast holds its creature
+//! for the hold's seconds (its action 7, `0x5B5CC8`; #3166), as long as the cages stand; after the
+//! hold they sink as they rose. Every fifth cage of a cast plays `DRYADE_DORNEN` as it comes, the
+//! terror's none.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -27,24 +29,26 @@ const GROUND_LIFT: f32 = 0.5;
 /// The bone a cage stands at (3), else its creature's root.
 const NECK: [&str; 1] = ["Bip01 Neck"];
 
-/// A cage to make about its creature ([`make`]): whose it is, its hold's seconds, and whether it
-/// sounds.
+/// A cage to make about its creature ([`make`]): whose it is, its hold's seconds, whether it
+/// sounds, and whether it holds its creature as it has grown (the first of a cast).
 #[derive(Component)]
 struct Unmade {
     target: Entity,
     hero: bool,
     seconds: f32,
     sounded: bool,
+    holds: bool,
 }
 
-/// A cage that stands: its creature, its look, its base point in the world, and the meshes of its
-/// dots and of its glow.
+/// A cage that stands: its creature, its look, its base point in the world, the meshes of its
+/// dots and of its glow, and the seconds of the hold that it gives once it has grown, until then.
 #[derive(Component)]
 struct Cage {
     target: Entity,
     look: PlantCage,
     base: Vec3,
     meshes: [Handle<Mesh>; 2],
+    hold: Option<f32>,
 }
 
 /// The cages' materials, made as first asked: the vine's dots' and the glow's.
@@ -62,7 +66,8 @@ impl Default for Dice {
 }
 
 /// Makes `count` cages about `target` for its hold of `seconds`, a hero's or a creature's (the
-/// event `0x49` each, `0x52634B`), every fifth sounding from the first.
+/// event `0x49` each, `0x52634B`), every fifth sounding from the first; the first holds it once
+/// it has grown.
 pub(crate) fn cage(
     commands: &mut Commands,
     target: Entity,
@@ -74,7 +79,7 @@ pub(crate) fn cage(
 
 /// Holds `target` by the plant cage for `seconds` (the cages' action 7, the effect 15 keyed by
 /// the spell 40, docs/re/effects.md, "The plant cage"): it stops what it does and stands held.
-pub(crate) fn hold(commands: &mut Commands, target: Entity, seconds: f32) {
+fn hold(commands: &mut Commands, target: Entity, seconds: f32) {
     let effect = opensacred_rules::fight::Effect {
         id: opensacred_rules::spells::HELD,
         whole: 0,
@@ -116,6 +121,7 @@ fn cages(
                 hero,
                 seconds,
                 sounded: sounds && index % THORNS_SOUNDED == 0,
+                holds: index == 0,
             },
             DespawnOnExit(AppState::InGame),
         ));
@@ -196,13 +202,14 @@ fn make(
             look,
             base,
             meshes: parts,
+            hold: unmade.holds.then_some(unmade.seconds),
         });
     }
 }
 
 /// Runs each cage a frame on (`0x799D30`, `0x799E10`): its dots facing the camera from its
-/// creature's neck to its base, and its glow flat on the ground at its base; it goes once it is
-/// over, or with its creature.
+/// creature's neck to its base, and its glow flat on the ground at its base, the first of a cast
+/// holding its creature as it has grown; it goes once it is over, or with its creature.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
@@ -229,6 +236,15 @@ fn run(
             continue;
         };
         cage.look.update(dt);
+        if cage.look.grown()
+            && let Some(seconds) = cage.hold.take()
+        {
+            debug!(
+                "plant cages: grown, they hold {} for {seconds} s",
+                cage.target
+            );
+            hold(&mut commands, cage.target, seconds);
+        }
         if cage.look.done() {
             commands.entity(entity).despawn();
             continue;
@@ -289,5 +305,67 @@ impl Plugin for PlantCagesPlugin {
                     .in_set(Unpaused)
                     .run_if(in_state(AppState::InGame)),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use bevy::time::TimeUpdateStrategy;
+
+    use super::*;
+
+    #[test]
+    fn a_cast_holds_its_creature_once_its_first_cage_has_grown() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+                100,
+            )))
+            .init_resource::<Assets<Mesh>>()
+            .init_resource::<Assets<bevy::render::storage::ShaderBuffer>>()
+            .init_resource::<crate::models::Anchors>()
+            .add_systems(Update, run);
+        let goblin = app
+            .world_mut()
+            .spawn(GlobalTransform::from_translation(Vec3::ZERO))
+            .id();
+        let mut dice = Rng::of(6, 6, 2);
+        // Two cages of a cast, the first holding for 2 s.
+        for hold in [Some(2.0), None] {
+            let look = PlantCage::new(2.0, true, &mut dice);
+            app.world_mut().spawn(Cage {
+                target: goblin,
+                look,
+                base: Vec3::ZERO,
+                meshes: [Handle::default(), Handle::default()],
+                hold,
+            });
+        }
+        let held = |app: &App| {
+            app.world()
+                .get::<crate::effects::Effects>(goblin)
+                .map_or(0, |effects| {
+                    effects
+                        .list()
+                        .iter()
+                        .filter(|effect| effect.id == opensacred_rules::spells::HELD)
+                        .count()
+                })
+        };
+        // Free while its cages grow, 0.667 s; held once, by the first, as they have grown.
+        for _ in 0..6 {
+            app.update();
+        }
+        assert_eq!(held(&app), 0);
+        for _ in 0..3 {
+            app.update();
+        }
+        assert_eq!(held(&app), 1);
+        let effects = app.world().get::<crate::effects::Effects>(goblin);
+        assert!(
+            effects.is_some_and(|effects| effects.holds_any(&[opensacred_rules::spells::CAGE]))
+        );
     }
 }

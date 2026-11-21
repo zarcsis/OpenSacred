@@ -219,21 +219,10 @@ fn spit(
     }
 }
 
-/// Holds `target` by the crab queen's cages: the plant cage's effect 15 for 3 s (`0x5B5CC8`)
-/// and its ten cages about it, the first and the sixth sounding (`plant_cages`).
+/// Holds `target` by the crab queen's cages: its ten cages about it, the first and the sixth
+/// sounding, which give it the plant cage's effect 15 for 3 s as they have grown (`0x5B5CC8`,
+/// `plant_cages`, #3166).
 fn hold(commands: &mut Commands, target: Entity) {
-    let effect = opensacred_rules::fight::Effect {
-        id: opensacred_rules::spells::HELD,
-        whole: 0,
-        value: 0.0,
-        art: u32::from(opensacred_rules::casts::CAGE),
-        level: 0,
-    };
-    commands
-        .entity(target)
-        .entry::<crate::effects::Effects>()
-        .or_default()
-        .and_modify(move |mut effects| effects.add(effect, CRAB_CAGES_HOLD));
     crate::plant_cages::cage(commands, target, CRAB_CAGES, (false, CRAB_CAGES_HOLD));
 }
 

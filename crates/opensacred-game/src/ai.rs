@@ -2802,21 +2802,9 @@ fn behave(
                 && let Some(seconds) = cage_seconds
             {
                 debug!("ai: {entity} caged for {seconds} s");
-                // Its ten cages, the hero's (`0x4E26F1`, no sound).
+                // Its ten cages, the hero's (`0x4E26F1`, no sound), which hold it as they have
+                // grown (#3166).
                 crate::plant_cages::cage_quietly(&mut commands, entity, 10, (true, seconds));
-                let effect = opensacred_rules::fight::Effect {
-                    id: opensacred_rules::spells::HELD,
-                    whole: 0,
-                    value: 0.0,
-                    art: u32::from(opensacred_rules::spells::CAGE),
-                    level: 0,
-                };
-                let mut held = commands.entity(entity);
-                held.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
-                held.entry::<crate::effects::Effects>()
-                    .or_default()
-                    .and_modify(move |mut effects| effects.add(effect, seconds));
-                mind.stunned(seconds);
             }
             continue;
         }
