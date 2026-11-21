@@ -4,7 +4,7 @@ Recovered from the GOG `Sacred.exe` 2.28 with Ghidra and scans of the executable
 Seen in the running original with the driver of #448 on 2026-10-27 (a Seraphim's new game: the braziers of 50,39 by noon and by night, the butterflies of 54,42 by noon and by night, a torch in the hero's hand by night; frames in the scratchpad only).
 Status: **confirmed** by code unless marked otherwise.
 Builds on docs/re/arts.md ("The spells' objects", "The objects' actions", "The objects' hits", "The objects' systems"), docs/re/weather.md ("The butterflies and the birds"), docs/re/daynight.md ("The light", "The glows") and docs/re/drawing.md (the draw lists, the engine's switch of render states `0x643430`/`0x643470`).
-Implemented in `opensacred-rules` (`particles`, `spells`, `casts`, `arrows`, `fight`, `ways`, `pong`, `script_traps`, `shaddar`, `zhadum`) and `opensacred-game` (`fx`, `puffs`, `fx_lights`, `npcs`, `bolt_looks`, `torches`, `butterflies`, `hit_sparks`, `beams`, `marks`, `skins`, `item_glows`); a module of `opensacred-game` for each class of effects besides, which the class's section names.
+Implemented in `opensacred-rules` (`particles`, `spells`, `casts`, `arrows`, `fight`, `ways`, `pong`, `script_traps`, `shaddar`, `zhadum`) and `opensacred-game` (`fx`, `knockouts`, `puffs`, `fx_lights`, `npcs`, `bolt_looks`, `torches`, `butterflies`, `hit_sparks`, `beams`, `marks`, `skins`, `item_glows`); a module of `opensacred-game` for each class of effects besides, which the class's section names.
 
 ## Summary
 
@@ -1296,6 +1296,25 @@ Read 2026-11-11 for #2537 in Ghidra (**confirmed** by code unless marked).
 
 `opensacred-game` makes it since #2537 (`demon_deaths`, `opensacred_rules::particles::DemonDeath`; `bodies` at the first tick of lying); **seen** 2026-11-11 in the game beside the original's frames of the same death, alike in the glow and the rays.
 Not followed: the system's flag `0x40`, the glows and the rays being drawn untinted by the night (**hypothesis**; #3152).
+
+## The butterflies over a head
+
+Read 2026-11-21 for #3023 in Ghidra (**confirmed** by code unless marked otherwise).
+
+| Object | FX type | Class | Its start, run, draw |
+|---|---|---|---|
+| Butterflies circling a head | 874 `FX_KNOCKOUT` | `cParticleSystem_knockout` (virtual table `0x898500`) | `0x79BDC0`, `0x79B920`, `0x79BBB0` |
+
+- **Who makes it**: the adder's case of the effect 31 (`0x582D50` at `0x58437C`), at each adding and each renewal, by the FX event `0x62` whose `+0x38` is 150 times the effect's art (the renewal's: the art it holds after it, `0x584528`) and whose `+0x3C` is `0xFF6060FF`, a blue (`0x584455`, `0x584564`); and a knock-down (`0x56E7D2`, docs/re/fight.md, "A knock-down"), its `+0x38` 6,000 and its `+0x3C` white, `0xFFFFFFFF`.
+  The handler's case `0x62` (`0x5A5393`) has the object follow the event's caster at its bone 20, `Bip01 Head`.
+- **Its start** (`0x79BDC0`): its seconds the event's `+0x38` times 0.001, its four ramps the event's `+0x3C`, its age 0, the flag `0x200` (its bearer followed) and its five particles cleared (the class table's count).
+- **Its run** (`0x79B920`): at its first, each particle's half side `3 + 2r`, a direction along the ground `(2r − 1, 2r − 1)` made of unit length, times `7 + 5r`, a height `10 + 2r` and a turn of `4 + 2r` radians a second, `r` a roll of `rand()/32767` each; once its age passes its seconds it ends (`+0x20A8`); at each run each particle's life falls by 100 a second, round from 0 to 255, it stands at the system's place plus its offset, and its offset turns about the upright by its turn times the frame's time; its age grows.
+- **Its draw** (`0x79BBB0`): the billboards (`0x761B00`) of `PARTICLE_BUTTERFLY01`'s 8 × 8 frames with the flags `0x40` alone: the four corners in the ramps' colour as they are, tinted by the light at the object, laid over by their alpha, each its frame of its life, the 64 over a cycle of 2.55 s; the size factor 1.
+- So the effect 31 of a barrel's `SetNPCState` (`0x8C` of 500) shows its butterflies for 75 s, ten times its own 10 s (**hypothesis** for the length seen; **seen** 2026-11-19 by #2889: blue butterflies by the Seraphim's head), and a potion's for 60 to 150 s.
+- Not read: what the strike does with the effect's bit `0x20` of `+0x2B8` and its whole value (`0x56C3F4`).
+
+`opensacred-game` makes them since #3023 (`knockouts`, `opensacred_rules::particles::Knockout`, `effects::Effects::knock_out`): from a `SetNPCState`'s `0x8C` naming the hero (the 22 of the trees, all `Fass_gesoffen`'s), from the potions 6081 and 6094 (`belt`), and white for 6 s from a knock-down (`fight::resolve`); at the bearer's `Bip01 Head`, laid over its model as a system drawn after its bearer (`fx::Orders::over`), tinted by the night.
+**Seen** 2026-11-21 in the game: `script Fass_gesoffen2203` at 50,39, blue butterflies by the Seraphim's head, as the original's of #2889.
 
 ## The blood puddle
 
