@@ -205,8 +205,10 @@ type Creatures<'w, 's> = Query<
 /// The values that a foe's label tells under its name while the hero's sets know the enemies
 /// (`0x627180`, its format `0x95FBA4`): its health; its attack and defence times the difficulty's
 /// `aw`, as the getters of a creature give them (`0x56AA10`, `0x56AA90`); each kind's mean
-/// damage, `(l·F + m·F)/2` of its multiplier `F` (`0x563FD0` to `0x5641B0`), the halving of a
-/// hand without a weapon not followed; and each resistance times its factor; each cut. The
+/// damage, `(l·F + m·F)/2` of its multiplier `F` (`0x563FD0` to `0x5641B0`), whole: the half of
+/// two weapons' not followed (#3279), a right hand's item of the class 0 alone kept whole by
+/// choice (docs/decisions/interface.md, "Damage whole where a strike deals it whole"); and each
+/// resistance times its factor; each cut. The
 /// values of `combat` hold the multipliers and the factors already.
 fn foe_values(health: u32, combat: &opensacred_rules::fight::Combat, aw: f32) -> String {
     let damage: [i64; 4] = std::array::from_fn(|k| {
