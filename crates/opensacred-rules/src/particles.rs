@@ -2084,7 +2084,7 @@ pub fn helix_ribbons(
     [flat, upright]
 }
 
-/// The Dark Elf's casts' helices' colours, the slaughter's (1047) red and the death's mark's
+/// The Dark Elf's casts' helices' colours, the testosterone's (1047) red and the adrenaline's
 /// (1048) yellow (`0x794300`).
 pub const DARK_HELIX_COLOURS: [[f32; 3]; 2] =
     [[1.0, 64.0 / 255.0, 64.0 / 255.0], [1.0, 1.0, 64.0 / 255.0]];
@@ -2114,7 +2114,7 @@ pub struct DarkHelix {
 }
 
 impl DarkHelix {
-    /// The helix of `art`, where it is the slaughter (1047) or the death's mark (1048), its first
+    /// The helix of `art`, where it is the testosterone (1047) or the adrenaline (1048), its first
     /// step at the angle `base` (`rand()/32767·2π`).
     pub fn new(art: u16, base: f32) -> Option<Self> {
         let colour = match art {

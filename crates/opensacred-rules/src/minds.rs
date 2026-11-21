@@ -67,7 +67,8 @@ impl Spot {
     }
 
     /// It turned about the origin by `degrees`, as the game's world turns a point about its
-    /// vertical.
+    /// vertical: clockwise on the ground's `x` and `y`, so that `turned(−a)` is the original's
+    /// turn by `a` (`x·cos a − y·sin a`, `x·sin a + y·cos a`).
     fn turned(self, degrees: f32) -> Self {
         let (sin, cos) = degrees.to_radians().sin_cos();
         Self::new(self.x * cos + self.y * sin, self.y * cos - self.x * sin)
@@ -913,8 +914,10 @@ impl Mind {
 
     /// The point that a riding archer's horse takes about the hero at `hero` from `here`, of the
     /// reach `reach` of the two (`0x5455A4`, `0x4F4A85`, #2288): the vector from the hero turned
-    /// by −45° for an odd id or +45° for an even one, lengthened to five times the reach where it
-    /// is shorter than four times it and not 0.
+    /// by the original's +45° for an odd id or −45° for an even one, counterclockwise on the
+    /// ground's `x` and `y` ([`Spot::turned`] of −45° and +45°, the floats `0x890EA8` and
+    /// `0x890EA4`), lengthened to five times the reach where it is shorter than four times it and
+    /// not 0.
     fn circles(here: Spot, hero: Spot, odd: bool, reach: f32) -> Spot {
         let away = here - hero;
         let length = away.length();

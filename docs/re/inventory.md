@@ -338,7 +338,7 @@ The refusal weighs the class's variants since #1516 (`opensacred_rules::equipmen
 ## Open questions
 
 - The tabs' advance and font; the equipment window's event to the camera.
-- The sender of the taskbar's message 9, the weapon sets' lock; `0x4263A0`, `0x427E30` and `0x427E80` of the slot's test.
+- The sender of the taskbar's message 9, the weapon sets' lock; `0x4263A0` and `0x427E30` of the slot's test (`0x427E80` is a crossbow's or a musket's test, its weapon's kind `+0x1E` 12 or 14, docs/re/spawning.md).
 - `0x43F710` (the cube); whether the reference `0x11`'s fit refuses any item.
 - The cells' mark `0x40`.
 - The tooltip's: the record's bit `0x40`, the classes of `0x5C9800`, `0x5CC1F0`, `0x5CC780` and `0x5CCC40`, and `UNIQUE_COLOR`'s default (`0x5C95C0` is the smith's view's, docs/re/blacksmith.md).

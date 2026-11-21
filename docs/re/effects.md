@@ -641,7 +641,7 @@ Other makers of these types, not read and not followed: 801 at `0x4D3FA8`; 778 a
 - Its body (`0x77E7A0`): twelve white vertices of two crossed quads, one flat and one upright, 40 along it and 30 across (`±20`, `±15`), of `FX_PLASMA_CENTER` (128 × 64, a cyan comet whose head lies a quarter along the texture), its `u` 0 at the front and 1 at the back; turned once at its start so that its length lies along the flight (`0x642690` about the axis `x × d`, `0x77EF50`).
   Drawn laid over by its alpha (`SRCALPHA`, `INVSRCALPHA`), the depth tested and not written, both faces, untinted (`0x77EBC0`).
 - Before it, for a hero's bolt (`+0xA9` 0), a line of eight glows of `PARTICLE_GLOW01` facing the camera (`0x40DA80`), each of a half side of 15 and the colour (32, 32, 64), added, the first 20 behind its centre and each 5 on.
-- It flies at 400 for 2 s at most and ends at its hit or a cell that stops it, with no burst; its light 100; the shot plays `SERA_PLASMASHOT` (2072) with the first bolt (`0x4DDE02`).
+- It flies at 400 for 2 s at most and ends at its hit or a cell that stops it, with no burst; its light 100; the shot plays `SERA_PLASMASHOT` (2072) with the first bolt (its id pushed at `0x4DDE02`, `playSFX` at `0x4DDE12`, docs/re/sound.md).
 - **Seen**: a cyan streak, its head forward, in a pale lavender haze about three times its width, leaving her right hand; a shot's two bolts close together; nothing stays at the hit.
 
 ### The BFG (875)
@@ -2342,7 +2342,7 @@ Not followed yet: its flash at a spell it turns aside (#3172), and the wards mad
 
 Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed** by code unless marked).
 
-- The Dark Elf's executor (`0x506770`), at the art's first run after its clip starts, makes for the slaughter (1047) and the death's mark (1048) an object 865 (`cParticleSystem_dark_sm_cast`, its constructor `0x793D80`, start `0x794300`, run `0x793E50`, draw `0x793FD0`) at him (`0x50A996`, `0x50AA5A`) with the FX event `0x58` from him, `+0x3C` the art; the handler (`0x5A52A3`) follows him at his root.
+- The Dark Elf's executor (`0x506770`), at the art's first run after its clip starts, makes for the testosterone (1047) and the adrenaline (1048) an object 865 (`cParticleSystem_dark_sm_cast`, its constructor `0x793D80`, start `0x794300`, run `0x793E50`, draw `0x793FD0`) at him (`0x50A996`, `0x50AA5A`) with the FX event `0x58` from him, `+0x3C` the art; the handler (`0x5A52A3`) follows him at his root.
   His empty-handed 1065 to 1067 make one that its start kills at once (nothing shows), and its case of 1043 (a magic circle) has no maker found.
 - Its start for 1047 and 1048: the start time 3.0; a helix of radius 20, half width 3, rise 0.1 and turn −0.4 a step, its base angle `rand()/32767·2π`, its colour (255, 64, 64) for 1047 and (255, 255, 64) for 1048; `DELF_CAST` (2066) once at him.
 - Its run: nothing before 3.0 s; then the phase grows by 0.6 a second and at 1 the system dies (4.67 s); the colour's alpha `⌊255 sin(π·phase)⌋`; each frame the rise a step times `1 + 1.5 dt`.
@@ -2350,7 +2350,7 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
   So a coil of about 3.2 turns winds up from his root, red or yellow, spinning and stretching as it rises, brightest 0.83 s after it shows.
 
 `opensacred-game` draws the helix since #1092 (`dark_helices`, `opensacred_rules::particles::DarkHelix`), as the clip of 1047 or 1048 starts (`making::Playing` added), at his root, just behind his model (`fx::Orders`, #2178).
-**Seen** 2026-11-07 in the game (not beside the original): the slaughter's red coil about the Dark Elf's waist 3.85 s after the art, his body over it.
+**Seen** 2026-11-07 in the game (not beside the original): the testosterone's red coil about the Dark Elf's waist 3.85 s after the art, his body over it.
 
 ## The Gladiator's sights
 
