@@ -8,7 +8,8 @@
 //! metal clothes', the skeletons', the horses', the bigger ones', the tatzelwurms' and the
 //! spiders', the wings of the fliers, at a rate of the sample's of 0.9 to 1.1 (0.6 to 0.8 for the
 //! giant spiders); and the Big Demon's step jolts the screen (`0x639080`, the weather's event of
-//! kind 12 of 18).
+//! kind 12 of 18) and, where no sector's `Enter` made it, leaves a small fire (`fx::SmallFire`,
+//! #3028).
 //!
 //! The types' sounds are the original's cascade worked out over its types' names
 //! (`0x8EC328`): the two tables of name prefixes that `0x697860` fills, the lists of types, and the
@@ -260,20 +261,21 @@ fn step(
             (Option<&Walk>, Option<&crate::npcs::Steered>),
             &GlobalTransform,
             (&crate::ai::Mind, Has<crate::flight::Aloft>),
-            Option<&Stepped>,
+            (Option<&Stepped>, Option<&crate::crowd::InTheWay>),
         ),
         Without<Dies>,
     >,
     players: Query<(&AnimationPlayer, &AnimationGraphHandle)>,
     (graphs, clips): (Res<Assets<AnimationGraph>>, Res<Assets<AnimationClip>>),
     heights: Res<Heights>,
-    (mut sfx, mut sounds, mut weather): (
+    (mut sfx, mut sounds, mut weather, mut fires): (
         ResMut<sfx::Sfx>,
         MessageWriter<sfx::Play>,
         Option<ResMut<crate::weather::Weather>>,
+        MessageWriter<crate::fx::SmallFire>,
     ),
 ) {
-    for (entity, npc, (walk, steered), at, (mind, aloft), stepped) in &walkers {
+    for (entity, npc, (walk, steered), at, (mind, aloft), (stepped, way)) in &walkers {
         let moving = match (walk, steered) {
             (Some(walk), _) => npc.walking(walk),
             (None, Some(steered)) => npc.steered(steered),
@@ -316,6 +318,15 @@ fn step(
                 && let Some(weather) = weather.as_mut()
             {
                 weather.set(Event::Jolt(JOLT));
+            }
+            // A small fire at the step of a Big Demon that no sector's `Enter` made (`+0x14` bit
+            // `0x80000000`, `0x5FE4B0`), the demon its caster (`0x639492`–`0x639532`, #3028).
+            if kind == BIG_DEMON && !mind.thinks.enter {
+                fires.write(crate::fx::SmallFire {
+                    at: at.translation(),
+                    level: way.and_then(|way| way.level),
+                    caster: Some(entity),
+                });
             }
             let Some(sound) = sound(kind, aloft) else {
                 continue;

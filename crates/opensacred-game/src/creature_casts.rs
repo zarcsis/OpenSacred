@@ -1040,6 +1040,7 @@ fn act(
             casts::DEMON_FIRE => {
                 // A small fire at its feet that strikes nothing (`0x527669`, #2898).
                 small_fires.write(crate::fx::SmallFire {
+                    caster: None,
                     at: here,
                     level: way.level,
                 });
