@@ -1017,10 +1017,13 @@ fn make(
                 commands
                     .entity(hero)
                     .insert(crate::attack::Attack::shot(making.target, special));
-                // A shot's start of the group 0, its time to every art of its kind, the
-                // Vampiress's bites and the Dark Elf's traps too (`0x5133A1`, `0x50A29C`,
-                // `0x50A409`; #2995).
-                arts.start_with(making.art, 1.0, None);
+                // The `Hardhit`'s and the `Attacke`'s start of the group 0, their time to every art
+                // of their kind, the Vampiress's bites and the Dark Elf's traps too (`0x5133A1`,
+                // `0x50A29C`, `0x50A409`; #2995); the `Rundum`'s executor starts none, its shot
+                // starts 1061's time as it looses (`arrows::loose`, `0x4DEB8C`; #3297).
+                if shot != arts::BOW_RUNDUM {
+                    arts.start_with(making.art, 1.0, None);
+                }
                 end(&mut commands);
                 continue;
             }
