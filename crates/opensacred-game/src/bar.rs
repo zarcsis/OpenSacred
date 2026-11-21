@@ -83,6 +83,60 @@ pub(crate) const BUTTONS: [(u32, Vec2); 5] = [
     BOOK_BUTTON,
     COLLECT_BUTTON,
 ];
+/// A button of the bar, its index in [`BUTTONS`] (#2924).
+#[derive(Component)]
+struct BarButton(usize);
+
+/// The button of `BUTTONS[button]`'s image, its lit one, or where `pressed` the darker one after
+/// it (`cUI_Button2`'s `+0x54`: 88, 90, 92, 94 and 135).
+fn button_image(button: usize, pressed: bool) -> Option<u32> {
+    let (lit, _) = *BUTTONS.get(button)?;
+    Some(if pressed { lit + 1 } else { lit })
+}
+
+/// The bar's buttons drawn as the original's toggles (`cUI_Button2`'s flag `0x10`; docs/re/
+/// interface.md, "The buttons", #2924): a button pressed while its window shows, opened by its
+/// click or its key and closed by either or by Esc (**seen**): the inventory's, the menu over the
+/// game's (the pause but a still one's), the world map's and the quest book's; the collecting's,
+/// which opens no window, lit.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's optional resources, grouped"
+)]
+fn press(
+    images: Res<UiImages>,
+    (inventory, book, map): (
+        Option<Res<crate::inventory::Shown>>,
+        Option<Res<crate::quest_book::Book>>,
+        Option<Res<crate::world_map::Map>>,
+    ),
+    (play, still): (
+        Option<Res<State<crate::pause::Play>>>,
+        Option<Res<crate::pause::Still>>,
+    ),
+    mut buttons: Query<(&BarButton, &mut ImageNode)>,
+) {
+    let menu = play.is_some_and(|play| *play.get() == crate::pause::Play::Paused)
+        && !still.is_some_and(|still| still.0);
+    let shows = [
+        inventory.is_some_and(|shown| shown.0),
+        menu,
+        map.is_some_and(|map| map.shown),
+        book.is_some_and(|book| book.shown),
+        false,
+    ];
+    for (button, mut picture) in &mut buttons {
+        let pressed = shows.get(button.0).copied().unwrap_or(false);
+        let Some((_, rect)) = button_image(button.0, pressed).and_then(|index| images.part(index))
+        else {
+            continue;
+        };
+        if picture.rect != Some(rect) {
+            picture.rect = Some(rect);
+        }
+    }
+}
+
 /// The potions' belt's buttons, 32 × 32 each, the slots 1 to 5 (`belt`).
 pub(crate) const BELT: [Vec2; 5] = [
     Vec2::new(435.0, 667.0),
@@ -458,12 +512,13 @@ pub(crate) fn spawn(
         .spawn((image(HOUSING.0, HOUSING.1, BAR.min), ZIndex(1)))
         .id();
     commands.entity(bar).add_child(housing);
-    for (index, at) in BUTTONS {
+    for (button, (index, at)) in BUTTONS.into_iter().enumerate() {
         let child = commands
             .spawn((
                 image(index, at, BAR.min),
                 ZIndex(1),
                 crate::control_glow::Glows,
+                BarButton(button),
             ))
             .id();
         commands.entity(bar).add_child(child);
@@ -1356,6 +1411,7 @@ impl Plugin for BarPlugin {
                     art_icon,
                     entries,
                     entry_rings,
+                    press,
                 )
                     .chain()
                     .run_if(in_state(AppState::InGame))
@@ -1378,6 +1434,55 @@ mod tests {
         assert_eq!(slots(29), 4);
         assert_eq!(slots(30), 5);
         assert_eq!(slots(200), 5);
+    }
+
+    #[test]
+    fn a_buttons_image_is_pressed_while_its_window_shows() {
+        assert_eq!(button_image(0, false), Some(87));
+        assert_eq!(button_image(0, true), Some(88));
+        assert_eq!(button_image(3, true), Some(94));
+        assert_eq!(button_image(5, true), None);
+        // Each image its own part of one texture, its index its left.
+        let images = UiImages {
+            images: (0..200)
+                .map(|index| UiImage {
+                    texture: "gui".to_owned(),
+                    rect: [index, 0, 1, 1],
+                    turned: [false; 2],
+                    anchors: [0; 4],
+                })
+                .collect(),
+            files: HashMap::from([("gui".to_owned(), "gui.png".to_owned())]),
+            rail_texels: None,
+        };
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(images)
+            .insert_resource(crate::inventory::Shown(true))
+            .init_resource::<crate::quest_book::Book>()
+            .add_systems(Update, press);
+        let buttons: Vec<Entity> = (0..BUTTONS.len())
+            .map(|button| {
+                app.world_mut()
+                    .spawn((BarButton(button), ImageNode::default()))
+                    .id()
+            })
+            .collect();
+        app.update();
+        let left = |app: &App, button: usize| {
+            app.world()
+                .get::<ImageNode>(buttons[button])
+                .and_then(|image| image.rect)
+                .map(|rect| rect.min.x)
+        };
+        // The inventory shows: its button pressed; the others lit.
+        assert_eq!(left(&app, 0), Some(88.0));
+        assert_eq!(left(&app, 3), Some(93.0));
+        assert_eq!(left(&app, 4), Some(134.0));
+        // Closed, lit again.
+        app.insert_resource(crate::inventory::Shown(false));
+        app.update();
+        assert_eq!(left(&app, 0), Some(87.0));
     }
 
     #[test]
