@@ -1205,6 +1205,25 @@ pub(crate) fn spawn_tip_right_in(
 #[derive(Component)]
 struct TipLeft(Vec2);
 
+/// A tooltip beside the cursor (a horse's description, `0x611E70`, #2936): the middle of its
+/// window's left side, kept 16 pixels within the screen.
+#[derive(Component)]
+struct TipBeside(Vec2);
+
+/// [`spawn_lines_tip_in`] beside the cursor: the panel's left side's middle at `point`.
+pub(crate) fn spawn_lines_tip_beside(
+    commands: &mut Commands,
+    (images, assets): (&UiImages, &AssetServer),
+    (lines, point): (&[Line], Vec2),
+) -> Entity {
+    let panel = spawn_lines_tip_in(commands, (images, assets), (lines, point), Frame::Screen);
+    commands
+        .entity(panel)
+        .remove::<Tip>()
+        .insert(TipBeside(point));
+    panel
+}
+
 /// [`spawn_tip_in`] of the style `0xB`: the text's panel with its top left corner at `corner`;
 /// the style's border is the caller's to add ([`add_border`]).
 pub(crate) fn spawn_tip_left_in(
@@ -1499,17 +1518,21 @@ fn centre_tips(
         Option<&Tip>,
         Option<&TipRight>,
         Option<&TipLeft>,
+        Option<&TipBeside>,
         &ComputedNode,
         &mut Node,
     )>,
 ) {
-    for (tip, right, left, computed, mut node) in &mut tips {
+    for (tip, right, left, beside, computed, mut node) in &mut tips {
         let size = computed.size() * computed.inverse_scale_factor();
-        let corner = match (tip, right, left) {
+        let corner = match (tip, right, left, beside) {
             (Some(tip), ..) => tip_corner(tip.0, size),
-            (None, Some(right), _) => kept_corner(right.0 - Vec2::new(size.x, 0.0), size),
-            (None, None, Some(left)) => kept_corner(left.0, size),
-            (None, None, None) => continue,
+            (None, Some(right), ..) => kept_corner(right.0 - Vec2::new(size.x, 0.0), size),
+            (None, None, Some(left), _) => kept_corner(left.0, size),
+            (None, None, None, Some(beside)) => {
+                kept_corner(beside.0 - Vec2::new(0.0, size.y / 2.0), size)
+            }
+            (None, None, None, None) => continue,
         };
         if node.left != Val::Px(corner.x) {
             node.left = Val::Px(corner.x);

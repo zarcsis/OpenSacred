@@ -15,9 +15,11 @@
 //! hover highlights ([`Highlit`], #1460) and whether the cursor glows, the right button's art
 //! ready for what lies under it ([`Glow`], #1461).
 //!
+//! Over a horse that is no foe, its owner's and the riding's look and its description beside the
+//! cursor (#2936, [`horse_look`]).
+//!
 //! Not followed yet: the glow over a friend or the dead for an art on one (the launch types 2 and
-//! 4), the horses' looks and the map's arrows; the name's red for some objects (`+0x14` bit
-//! `0x20`, not read).
+//! 4) and the map's arrows; the name's red for some objects (`+0x14` bit `0x20`, not read).
 
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
@@ -55,10 +57,16 @@ pub enum Look {
     HorseTrader,
     /// The world map's pin's mode (#1569).
     Pushpin,
+    /// A horse to ride, another's to steal, one the hero may not ride, and another's that it may
+    /// not ride to steal (#2936).
+    Ride,
+    StealHorse,
+    CantRide,
+    StealHorseFail,
 }
 
 impl Look {
-    pub const ALL: [Look; 11] = [
+    pub const ALL: [Look; 15] = [
         Look::Arrow,
         Look::Hand,
         Look::Sword,
@@ -70,6 +78,10 @@ impl Look {
         Look::Smith,
         Look::HorseTrader,
         Look::Pushpin,
+        Look::Ride,
+        Look::StealHorse,
+        Look::CantRide,
+        Look::StealHorseFail,
     ];
 
     /// Its texture's name, as the converter names the file.
@@ -86,6 +98,10 @@ impl Look {
             Look::Smith => "mouse_blacksmith",
             Look::HorseTrader => "mouse_horsetrader",
             Look::Pushpin => "mouse_pushpin",
+            Look::Ride => "mouse_ride",
+            Look::StealHorse => "mouse_stealhorse",
+            Look::CantRide => "mouse_cantride",
+            Look::StealHorseFail => "mouse_stealhorsefail",
         }
     }
 
@@ -112,8 +128,83 @@ impl Look {
             Look::Smith => "smith",
             Look::HorseTrader => "horse-trader",
             Look::Pushpin => "pushpin",
+            Look::Ride => "ride",
+            Look::StealHorse => "steal-horse",
+            Look::CantRide => "cant-ride",
+            Look::StealHorseFail => "steal-horse-fail",
         }
     }
+}
+
+/// The cursor over a horse that is no foe (`0x611E70`'s horse branch, #2936), its owner `owner`,
+/// whether the hero `may` ride it, whether the hero `rides` now and whether Shift is held: where
+/// it may not, another NPC's the theft refused and any other's the horseshoe crossed; where it
+/// may, a trader's the horse trader's, another's the theft, and the hero's own or one of no owner
+/// the ride, but while the hero rides only with Shift held, else the arrow.
+fn horse_look(owner: crate::riding::Owner, may: bool, rides: bool, shift: bool) -> Look {
+    use crate::riding::Owner;
+    match (may, owner) {
+        (false, Owner::Another) => Look::StealHorseFail,
+        (false, _) => Look::CantRide,
+        (true, Owner::Trader) => Look::HorseTrader,
+        (true, Owner::Another) => Look::StealHorse,
+        (true, Owner::None | Owner::Hero) if rides && !shift => Look::Arrow,
+        (true, Owner::None | Owner::Hero) => Look::Ride,
+    }
+}
+
+/// The horse under the cursor whose description shows beside it: one that is no hero's own
+/// (`0x426650`), alive (#2936).
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Described(pub Option<Entity>);
+
+/// The description's left side's middle from the cursor, in the original's pixels (`0x611E70`:
+/// the point 32 above the cursor; **measured**: the panel's left 24 right of it, as the items'
+/// names beside the cursor).
+const DESCRIBED_AT: Vec2 = Vec2::new(24.0, -32.0);
+
+/// The description of the horse under the cursor, beside it (`0x55C9F0`, the style `0x20B`),
+/// made as the horse comes under it and taken away as it leaves; the window's point the
+/// original's screen's.
+#[derive(Component)]
+struct HorseTip;
+
+/// Shows the description of the horse that [`Described`] names beside the cursor.
+fn describe_horse(
+    mut commands: Commands,
+    described: Res<Described>,
+    (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
+    (images, assets, texts): (
+        Res<crate::bar::UiImages>,
+        Res<AssetServer>,
+        Option<Res<Texts>>,
+    ),
+    sheet: crate::riding::HorseSheet,
+    (parents, tips): (Query<&ChildOf>, Query<Entity, With<HorseTip>>),
+    mut shown: Local<Option<(Entity, Vec2)>>,
+) {
+    let at = crate::inventory::screen_point(&pointer, &ui_scale, &windows);
+    let wanted = described.0.zip(at);
+    if wanted == *shown {
+        return;
+    }
+    for tip in &tips {
+        let root = parents.get(tip).map_or(tip, ChildOf::parent);
+        commands.entity(root).despawn();
+    }
+    *shown = wanted;
+    let Some((horse, at)) = wanted else {
+        return;
+    };
+    let Some(lines) = sheet.lines(horse, texts.as_deref()) else {
+        return;
+    };
+    let panel = crate::tooltip::spawn_lines_tip_beside(
+        &mut commands,
+        (&images, &assets),
+        (&lines, at + DESCRIBED_AT),
+    );
+    commands.entity(panel).insert(HorseTip);
 }
 
 /// The picture the cursor shows.
@@ -271,9 +362,12 @@ fn choose(
         Query<(), With<Node>>,
         Option<Res<crate::frame::HeldBack>>,
     ),
-    (under_cursor, hero_ids): (
+    (under_cursor, hero_ids, owners, mut described, keys): (
         Res<crate::under_cursor::UnderCursor>,
         Query<Entity, With<Body>>,
+        crate::riding::HorseOwners,
+        ResMut<Described>,
+        crate::controls::Keys,
     ),
     cameras: Query<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     (npcs, forms, lines): (Option<Res<Npcs>>, Option<Res<Forms>>, crate::talk::Lines),
@@ -361,7 +455,23 @@ fn choose(
                     creature_look(trades.map_or(0, |trades| trades.0), dialogue)
                 };
             let foe = foe_under.map(|_| foe_look(holding.map(|holding| &holding.0), by_night));
-            foe.or_else(|| creature.and_then(creature_look))
+            // A horse that is no foe, by its owner and whether the hero may ride it; its
+            // description beside the cursor unless it is the hero's own (#2936).
+            let horse = creature
+                .filter(|_| foe.is_none())
+                .and_then(|(entity, ..)| Some((entity, owners.of(entity)?)));
+            let rides = hero
+                .and_then(|(.., seat)| seat)
+                .is_some_and(|seat| seat.ridden().is_some());
+            let shift = keys.pressed(crate::controls::Action::Walk);
+            described.set_if_neq(Described(
+                horse
+                    .filter(|(_, (owner, _))| *owner != crate::riding::Owner::Hero)
+                    .map(|(entity, _)| entity),
+            ));
+            let horse = horse.map(|(_, (owner, may))| horse_look(owner, may, rides, shift));
+            foe.or(horse)
+                .or_else(|| creature.and_then(creature_look))
                 .or_else(|| {
                     let (lying, text) = items.get(picked?).ok()?;
                     item = Some((Some(lying.dropped.clone()), text.map(|text| text.0.clone())));
@@ -546,13 +656,43 @@ impl Plugin for CursorsPlugin {
             .init_resource::<Foe>()
             .init_resource::<Highlit>()
             .init_resource::<Glow>()
-            .add_systems(Update, (choose, name_tag).chain());
+            .init_resource::<Described>()
+            .add_systems(Update, (choose, name_tag, describe_horse).chain());
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_horses_look_is_its_owners_and_the_riding() {
+        use crate::riding::Owner;
+        // Not to be ridden: another NPC's the theft refused, any other's the horseshoe crossed.
+        assert_eq!(
+            horse_look(Owner::Another, false, false, false),
+            Look::StealHorseFail
+        );
+        assert_eq!(
+            horse_look(Owner::Trader, false, false, false),
+            Look::CantRide
+        );
+        assert_eq!(horse_look(Owner::None, false, false, false), Look::CantRide);
+        // To be ridden: the trader's, another's, and the ride.
+        assert_eq!(
+            horse_look(Owner::Trader, true, false, false),
+            Look::HorseTrader
+        );
+        assert_eq!(
+            horse_look(Owner::Another, true, true, false),
+            Look::StealHorse
+        );
+        assert_eq!(horse_look(Owner::None, true, false, false), Look::Ride);
+        assert_eq!(horse_look(Owner::Hero, true, false, false), Look::Ride);
+        // While riding, the ride only with Shift held.
+        assert_eq!(horse_look(Owner::Hero, true, true, false), Look::Arrow);
+        assert_eq!(horse_look(Owner::Hero, true, true, true), Look::Ride);
+    }
 
     #[test]
     fn the_cursor_glows_over_what_the_arts_launch_admits() {
