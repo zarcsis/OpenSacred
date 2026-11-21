@@ -12182,6 +12182,12 @@ impl PlantCage {
         self.growth == Growth::Done
     }
 
+    /// Whether it has grown to its full rise, when its action 7 holds its creature (`0x799D30`,
+    /// `0x5B5CC8`).
+    pub fn grown(&self) -> bool {
+        self.growth != Growth::Rises
+    }
+
     /// The half side of its glow on the ground at its base: `10·(rise + 2)`, 20 at its full rise.
     pub fn glow(&self) -> f32 {
         10.0 * (self.rise + 2.0)
@@ -17071,6 +17077,7 @@ mod tests {
         for _ in 0..2 {
             cage.update(0.025);
         }
+        assert!(!cage.grown());
         let dots = cage.dots(to_base);
         assert!(!dots.is_empty());
         assert!(
@@ -17081,6 +17088,7 @@ mod tests {
             cage.update(0.025);
         }
         // Grown: from the neck to the base, thin at the neck and thick at the ground.
+        assert!(cage.grown());
         let dots = cage.dots(to_base);
         let (first, last) = (dots[0], dots[dots.len() - 1]);
         assert!(first.0.iter().all(|v| v.abs() < 1e-4) && (first.1 - 1.0).abs() < 1e-4);
@@ -17098,7 +17106,7 @@ mod tests {
         for _ in 0..30 {
             cage.update(0.025);
         }
-        assert!(cage.done());
+        assert!(cage.done() && cage.grown());
     }
 
     #[test]

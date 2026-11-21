@@ -1591,7 +1591,7 @@ Each acts at its share of its clip ("The spells' cast"): 3 and 42 at 0.9, 36 at 
 - the speed's effects from each of its two objects, the second's effect 28 refused;
 - the bubble as a bolt flying at 100 a second for 7.35 s (**hypothesis**: its clip `FX_C_IDLE_BH`'s length), striking what it touches within 25 every 0.5 s and flying on, bursting where an arrow passes within 25 of it, striking within 300 and their size at twice its damage, and ending without a burst at a cell it may not pass (#2128);
 - the thorns, each where it may stand within 75 of the centre along each axis, striking within 50 and their size once a second for `v₁` seconds (a creature's 3 s) and their rise and sink of a second each, every fifth sounding at its place (#2104);
-- the plant cage's effect 15 and hold for `v₀` seconds on a target of no big type, as the stone's, at once rather than 0.67 s on;
+- the plant cage's effect 15 and hold for `v₀` seconds on a target of no big type, as the stone's, given as its cages have grown, 0.667 s on (#3166);
 - the lost souls, flying at 150 a second along headings that turn toward their targets, each striking the first it touches within 20 and its size once a second for `v₁` seconds, her effect `0x22` for as long;
 - the plants' healing, as the healing's.
 

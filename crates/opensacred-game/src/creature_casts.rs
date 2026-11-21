@@ -553,23 +553,24 @@ fn act(
                 }
                 let seconds =
                     f32::from(u16::try_from(spells::holds(record, level, false)).unwrap_or(3));
-                let effect = opensacred_rules::fight::Effect {
-                    id: spells::HELD,
-                    whole: 0,
-                    value: 0.0,
-                    art: u32::from(cast.spell),
-                    level: 0,
-                };
-                commands
-                    .entity(cast.target)
-                    .entry::<crate::effects::Effects>()
-                    .or_default()
-                    .and_modify(move |mut effects| effects.add(effect, seconds));
-                // The stone's sight and skin as long (822, `stones`), or the cages about it
-                // (849, `plant_cages`).
                 if cast.spell == spells::STONE {
+                    let effect = opensacred_rules::fight::Effect {
+                        id: spells::HELD,
+                        whole: 0,
+                        value: 0.0,
+                        art: u32::from(cast.spell),
+                        level: 0,
+                    };
+                    commands
+                        .entity(cast.target)
+                        .entry::<crate::effects::Effects>()
+                        .or_default()
+                        .and_modify(move |mut effects| effects.add(effect, seconds));
+                    // The stone's sight and skin as long (822, `stones`).
                     crate::stones::stone(&mut commands, cast.target, seconds);
                 } else {
+                    // The cages about the hero (849, `plant_cages`), which hold her as they have
+                    // grown (#3166).
                     let cages = spells::count(record, level);
                     crate::plant_cages::cage(&mut commands, cast.target, cages, (false, seconds));
                 }
