@@ -168,6 +168,10 @@ impl Mind {
     }
 }
 
+/// The Mage's hero type, a target that a creature of the mark 4 takes its special at the more
+/// (`0x4D5CC1`, #3263).
+const MAGE: u32 = 3;
+
 /// A creature as another sees it for the fights between them (#630): its entity, where it
 /// stands, its side and type, by which they are hostile or not (`minds::hostile`), and its level.
 #[derive(Clone, Copy, Debug)]
@@ -1240,6 +1244,12 @@ fn pursue(
                     at_hero: foe.is_none(),
                     hero_level,
                     held: hero_held,
+                    // The hero with a bow or a crossbow in a hand (`0x54A2A0`), or the Mage (the
+                    // type 3), by which a creature of the mark 4 takes its special the more
+                    // (#3263); a creature fought, none.
+                    ranged_target: foe.is_none()
+                        && (holding.is_some_and(|holding| holding.0.ranged)
+                            || kind.as_deref().is_some_and(|hero| hero.creature == MAGE)),
                     elite: rank.is_some_and(|rank| rank.0 != crate::fight::Rank::Common),
                     hostiles: hand_to_hand,
                     crowded: nearest.hostiles.len() > 1,
