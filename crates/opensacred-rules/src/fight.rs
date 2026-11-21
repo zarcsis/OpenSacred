@@ -278,9 +278,9 @@ impl Rank {
             Self::Champion => rules.ranks.level_up[1],
         };
         if big {
-            return level.max(1);
+            return level;
         }
-        level.min(most_level(values, creature, rules) + up).max(1)
+        level.min(most_level(values, creature, rules) + up)
     }
 
     /// The factor of its most health (`0x5658F0`): `HPFakBoss` or `HPFakChamp`, three times for
@@ -429,21 +429,20 @@ impl Bands {
     /// `factors[i] + (factors[i + 1] − factors[i])/(L − levels[i])` on the x87 unit at the
     /// world's 53 bits, the step divided by the level's distance from the band's start rather
     /// than interpolated (a quirk): 0.65 at level 1, 0.6125 at 4, 0.75 at 5, 0.667 at 10, 0.85
-    /// at 11, 0.76 at 20, 0.95 at 21 and toward 0.85 above. A factor of 0 or below is 1, and so
-    /// is the one of a level at its band's start, which the original divides by zero (the level 0
-    /// alone, on file).
+    /// at 11, 0.76 at 20, 0.95 at 21 and toward 0.85 above. A factor not above 0 is 1; at a
+    /// level at its band's start (the level 0 alone, on file) the step is divided by zero, as the
+    /// original's x87 unit divides it with its exceptions masked: infinite where the step rises,
+    /// which the player's cap then holds (#2870), and 1 where it is 0.
     fn factor(&self, level: u32) -> f64 {
         let l = i32::from(u16::try_from(level).unwrap_or(u16::MAX));
         let i = (0..BANDS - 2)
             .find(|&i| self.levels[i] <= l && l <= self.levels[i + 1])
             .unwrap_or(BANDS - 2);
         let over = l.wrapping_sub(self.levels[i]);
-        if over == 0 {
-            return 1.0;
-        }
         let (from, to) = (f64::from(self.factors[i]), f64::from(self.factors[i + 1]));
         let factor = (to - from) / f64::from(over) + from;
-        if factor <= 0.0 { 1.0 } else { factor }
+        // Not above 0, a NaN among them, as the unit's comparison finds it unordered.
+        if factor > 0.0 { factor } else { 1.0 }
     }
 }
 
@@ -746,7 +745,7 @@ pub fn regeneration_with(
     let b3 = base.hardened.attribute(u32::from(base.attributes[3]));
     let mut value = to_f32(
         base.hardened
-            .regeneration(b3 + b3 * (level.max(1) - 1) / 10 + u32::from(base.extras[3])),
+            .regeneration(grown_by(b3, level) + u32::from(base.extras[3])),
     );
     for effect in effects.iter().filter(|e| e.id == effects::REGENERATION) {
         value = quickened(value, f64::from(effect.value) + 1.0);
@@ -2822,6 +2821,14 @@ pub fn listed_skills(base: &Base, level: u32) -> Vec<(u8, u32)> {
         .collect()
 }
 
+/// An attribute of base `b` grown by the level `level`, `b + (L − 1)·b/10` (`0x564D60`), the
+/// division truncated toward 0 as the original's integers divide it: at the level 0 that a sector
+/// without levels holds a creature at, `b` less a tenth of it, truncated (#2870).
+pub fn grown_by(b: u32, level: u32) -> u32 {
+    let b = i64::from(b);
+    u32::try_from(b + b * (i64::from(level) - 1) / 10).unwrap_or(0)
+}
+
 /// The bonuses of the items and the sets of `holds` to the skills of `base`'s slots at level
 /// `level` (the stats' `+0x34 + i`, cleared as the recomputation starts, `0x5796A0` at
 /// `0x57AC6E`): each bonus that holds for the creature, its value grown by its attribute and
@@ -2830,11 +2837,9 @@ pub fn listed_skills(base: &Base, level: u32) -> Vec<(u8, u32)> {
 /// holds it (`0x571710`); each held within 0 and 255.
 pub fn skill_bonuses(base: &Base, level: u32, holds: &Holds) -> [u8; 8] {
     let items = &holds.items;
-    let level = level.max(1);
     let attributes = base.attributes.map(u32::from);
-    let grown: [u32; 6] = std::array::from_fn(|i| {
-        attributes[i] + attributes[i] * (level - 1) / 10 + u32::from(base.extras[i])
-    });
+    let grown: [u32; 6] =
+        std::array::from_fn(|i| grown_by(attributes[i], level) + u32::from(base.extras[i]));
     let mut sums = [0_i64; 8];
     for bonus in items
         .iter()
@@ -2872,11 +2877,9 @@ pub fn skill_bonuses(base: &Base, level: u32, holds: &Holds) -> [u8; 8] {
 /// (`0x571710`). Their entries take them by [`crate::arts::Arts::set_bonuses`], with the sets'
 /// bonus of every art held.
 pub fn art_bonuses(base: &Base, level: u32, holds: &Holds) -> Vec<(u16, u16)> {
-    let level = level.max(1);
     let attributes = base.attributes.map(u32::from);
-    let grown: [u32; 6] = std::array::from_fn(|i| {
-        attributes[i] + attributes[i] * (level - 1) / 10 + u32::from(base.extras[i])
-    });
+    let grown: [u32; 6] =
+        std::array::from_fn(|i| grown_by(attributes[i], level) + u32::from(base.extras[i]));
     holds
         .items
         .iter()
@@ -2910,11 +2913,9 @@ pub const AGILITY: u32 = 848;
 /// value grown by its attribute and truncated, summed, at least 0;
 /// [`crate::arts::Arts::set_bonuses`] gives it to each weapon art but 1019.
 pub fn concentration(base: &Base, level: u32, holds: &Holds) -> u16 {
-    let level = level.max(1);
     let attributes = base.attributes.map(u32::from);
-    let grown: [u32; 6] = std::array::from_fn(|i| {
-        attributes[i] + attributes[i] * (level - 1) / 10 + u32::from(base.extras[i])
-    });
+    let grown: [u32; 6] =
+        std::array::from_fn(|i| grown_by(attributes[i], level) + u32::from(base.extras[i]));
     let sum: i32 = holds
         .items
         .iter()
@@ -3600,7 +3601,7 @@ fn quickened(whole: f32, by: f64) -> f32 {
 /// The attack, defence, damage and resistances of a creature of `base` and level `level` that
 /// holds `holds`, armed when it holds a weapon (the recomputation `0x5796A0` and the attack
 /// record `0x568D70`; docs/re/fight.md, "An NPC's attack, defence and damage"):
-/// - the attributes `a_i = b_i + ⌊b_i(L − 1)/10⌋` and the level's factor
+/// - the attributes `a_i = b_i + b_i(L − 1)/10`, truncated toward 0 ([`grown_by`]), and the level's factor
 ///   `F = (156 − BalStatOff)·L/156 + BalStatOff + 9`;
 /// - `A = (a0 + a2)/2`, `D = 0.2·a0 + 0.8·a2`;
 /// - unarmed, the bonuses of the kinds 1 to 7 (`x` per cent of an attribute or of the level) to a
@@ -3650,15 +3651,13 @@ pub fn combat_with(
     rules: &Rules,
 ) -> Combat {
     let armed = holds.weapon;
-    let level = level.max(1);
     let mut attributes = base.attributes.map(u32::from);
     attributes[3] = base.hardened.attribute(attributes[3]);
     let b = attributes.map(to_f32);
     // The hero's spent points add to its attributes and its multipliers (`e_i`, #1522).
     let e = base.extras.map(|e| to_f32(u32::from(e)));
-    let grown: [u32; 6] = std::array::from_fn(|i| {
-        attributes[i] + attributes[i] * (level - 1) / 10 + u32::from(base.extras[i])
-    });
+    let grown: [u32; 6] =
+        std::array::from_fn(|i| grown_by(attributes[i], level) + u32::from(base.extras[i]));
     let a = grown.map(to_f32);
     let l = to_f32(level);
     let off = rules.stat_offset;
@@ -4209,10 +4208,8 @@ pub fn regenerations(base: &Base, level: u32, holds: &Holds) -> (f32, f32) {
 /// The items' bonuses 813 and 814, each a hundredth of its value, and the six attributes grown
 /// by the level and raised by the items', held at 0 and above.
 fn regeneration_values(base: &Base, level: u32, holds: &Holds) -> ([f32; 2], [f32; 6]) {
-    let level = level.max(1);
     let grown: [u32; 6] = std::array::from_fn(|i| {
-        let b = u32::from(base.attributes[i]);
-        b + b * (level - 1) / 10 + u32::from(base.extras[i])
+        grown_by(u32::from(base.attributes[i]), level) + u32::from(base.extras[i])
     });
     // The sets' spells' regeneration speed, added with the items' 813 (`0x571710`).
     let mut bonuses = [holds.sets.arts_speed, 0.0_f32];
@@ -5263,9 +5260,9 @@ const HORSES_MOST: u32 = 250;
 /// `CreateNPC` and the creature maker set it (`0x48475B`, `0x549500`), and with it on bronze,
 /// where the scaling keeps it: a horse's at most 250 (`0x4266F0`); any other's at most the
 /// highest level of its sector, `values`, plus the difficulty's `LevelKap` (0 on bronze), or
-/// that addition alone where the sector has no highest, 300 for the type 701; at least 1, where
-/// the original leaves 0 in a sector without levels (docs/decisions/fight.md, "Level 1 in sectors
-/// without levels"). A boss's or a champion's hold, raised by `LevelUpBoss` or `LevelUpChamp` and
+/// that addition alone where the sector has no highest, 300 for the type 701: 0 on bronze in a
+/// sector without levels, as the original leaves it (#2870). A boss's or a champion's hold, raised
+/// by `LevelUpBoss` or `LevelUpChamp` and
 /// none for a big type, is [`Rank::level`]'s: the setter holds a creature before it is ranked.
 pub fn held_level(
     level: u32,
@@ -5277,7 +5274,7 @@ pub fn held_level(
     if horse {
         return level.min(HORSES_MOST);
     }
-    level.min(most_level(values, creature, rules)).max(1)
+    level.min(most_level(values, creature, rules))
 }
 
 /// The highest level that the level's setter leaves a creature of type `creature` that is no
@@ -5354,7 +5351,7 @@ fn played_level(level: u32, played: Played, rules: &Rules) -> u32 {
 }
 
 /// The most health of a creature of `Creature.pak`'s base bytes `base` and level `level`
-/// (`0x5658F0`): with `a` and `b` the bytes 0 and 3, `S = a + b + ⌊(L − 1)a/10⌋ + ⌊(L − 1)b/10⌋`
+/// (`0x5658F0`): with `a` and `b` the bytes 0 and 3, `S = a + b + (L − 1)a/10 + (L − 1)b/10` truncated
 /// and `g = 1.5 + G · max(0, 60 − a − b)`, `⌊S^g · (a0 + a3)/S · 10/31⌋`, 100 for 0, times the
 /// level's factor of a creature not a hero and the difficulty's (`rules`); the attributes `a0`
 /// and `a3` are `S`'s two terms, without extra points or items' bonuses, so that the most is
@@ -5437,11 +5434,7 @@ pub fn most_health_held(
 /// attributes before it computes the most health, each held at 0 and above (#1365).
 fn health_points(base: &Base, level: u32, holds: &Holds) -> f64 {
     let (_, a) = regeneration_values(base, level, holds);
-    let l = level.max(1) - 1;
-    let grown = |i: usize| {
-        let b = u32::from(base.attributes[i]);
-        b + b * l / 10
-    };
+    let grown = |i: usize| grown_by(u32::from(base.attributes[i]), level);
     f64::from(a[0]) + f64::from(a[3]) - f64::from(grown(0) + grown(3))
 }
 
@@ -5474,8 +5467,9 @@ fn health_spent(
     factor: f64,
 ) -> u32 {
     let (a, b) = (f64::from(base[0]), f64::from(base[3]));
-    let l = f64::from(level.max(1) - 1);
-    let (a0, a3) = (a + (l * a / 10.0).floor(), b + (l * b / 10.0).floor());
+    // `(L − 1)·a/10` as the original's integers divide it, truncated toward 0 (#2870).
+    let l = f64::from(level) - 1.0;
+    let (a0, a3) = (a + (l * a / 10.0).trunc(), b + (l * b / 10.0).trunc());
     let s = a0 + a3;
     let g = 1.5 + f64::from(HEALTH_EXPONENT) * (60.0 - a - b).max(0.0);
     // A base without the attributes 0 and 3 gives nothing, and so 100.
@@ -6906,6 +6900,67 @@ mod tests {
     }
 
     #[test]
+    fn the_spent_points_add_to_the_attribute_that_a_bonus_grows_by() {
+        // The hero's spent points `e_i` (#1522) on its attribute grown by the level: `a0` 20 + 2
+        // at level 2, and 30 spent, 52; a tenth of it, 5, to the skills, the arts and the weapon
+        // arts' concentration alike.
+        let mut base = Base::of(&recordless(1));
+        base.skills = [14, 2, 0, 0, 0, 0, 0, 0];
+        base.attributes = [20, 20, 20, 20, 20, 20];
+        base.extras = [30, 0, 0, 0, 0, 0];
+        let by_a0 = |effect: u32| {
+            let mut item = ItemValues::default();
+            item.bonuses[0] = Bonus {
+                condition: 0,
+                effect: effect | 1 << 16,
+                value: 10,
+            };
+            Holds {
+                items: vec![item],
+                ..Holds::default()
+            }
+        };
+        assert_eq!(skill_bonuses(&base, 2, &by_a0(601))[1], 5);
+        assert_eq!(art_bonuses(&base, 2, &by_a0(1001)), vec![(1001, 5)]);
+        assert_eq!(concentration(&base, 2, &by_a0(CONCENTRATION)), 5);
+        // The regeneration of `a3` with 10 spent on it is that of 10 more.
+        let rules = Rules::default();
+        let spent = Base {
+            attributes: [0, 0, 0, 22, 0, 0],
+            extras: [0, 0, 0, 10, 0, 0],
+            ..Base::default()
+        };
+        let more = Base {
+            attributes: [0, 0, 0, 32, 0, 0],
+            ..Base::default()
+        };
+        assert_eq!(
+            regeneration_with(&spent, 1, &[], &[], &rules),
+            regeneration_with(&more, 1, &[], &[], &rules)
+        );
+    }
+
+    #[test]
+    fn a_creature_at_level_0_has_its_attributes_and_health_a_tenth_less_truncated() {
+        // Seen in the original (#2870): the bandits of 83,54 at level 0, their attributes
+        // `b + (L − 1)·b/10` truncated toward 0, and their most health of them.
+        assert_eq!(
+            [15, 20, 21, 10, 0, 8].map(|b| grown_by(b, 0)),
+            [14, 18, 19, 9, 0, 8]
+        );
+        assert_eq!(
+            [28, 35, 19, 25, 5, 14].map(|b| grown_by(b, 0)),
+            [26, 32, 18, 23, 5, 13]
+        );
+        assert_eq!(grown_by(20, 3), 24);
+        assert_eq!(grown_by(21, 1), 21);
+        assert_eq!(health_of([15, 20, 21, 10, 0, 8], 0, None, 1.0, 1.0), 55);
+        assert_eq!(health_of([16, 20, 22, 10, 0, 8], 0, None, 1.0, 1.0), 58);
+        assert_eq!(health_of([28, 35, 19, 25, 5, 14], 0, None, 1.0, 1.0), 123);
+        assert_eq!(health_of([15, 20, 21, 10, 0, 8], 1, None, 1.0, 1.0), 63);
+    }
+
+    #[test]
     fn a_creatures_strike_at_the_hero_is_times_the_factor_of_its_band_of_levels() {
         let rules = Rules::default();
         let at = |level| weapons_factor(Some(Side::Defender), level, Rank::Common, &rules);
@@ -6927,10 +6982,23 @@ mod tests {
         ] {
             assert!(close(at(level), factor), "level {level}: {}", at(level));
         }
+        // A step of 0 divided by zero is no number, which the unit's test finds not above 0.
+        let flat = Bands {
+            levels: [0, 4, 10, 20, 35],
+            factors: [0.6, 0.6, 0.75, 0.85, 0.95],
+        };
+        assert_eq!(flat.factor(0), 1.0);
+        // A factor of 0 exactly is not above 0, and so 1.
+        let none = Bands {
+            levels: [0, 4, 10, 20, 35],
+            factors: [0.0, 0.0, 0.75, 0.85, 0.95],
+        };
+        assert_eq!(none.factor(2), 1.0);
         // On the x87 unit at 53 bits: at level 1 the float 0.65 exactly.
         assert_eq!(at(1), f64::from(0.65_f32));
-        // The level 0 would divide by zero.
-        assert_eq!(at(0), 1.0);
+        // The level 0 divides the rising step by zero: infinite, as the original's unit makes
+        // it, which the player's cap then holds (#2870).
+        assert_eq!(at(0), f64::INFINITY);
         // Not a boss's nor a champion's, not the hero's, not between creatures.
         for rank in [Rank::Boss, Rank::Champion] {
             assert_eq!(weapons_factor(Some(Side::Defender), 1, rank, &rules), 1.0);
@@ -8913,8 +8981,8 @@ mod tests {
         assert_eq!(npc(Some(&smith), 9, start, 1), 7);
         assert_eq!(npc(Some(&smith), 7, start, 1), 7);
         // A sector without its levels holds none and rolls none, and the setter holds its
-        // creature at bronze's `LevelKap`, 0, and so at 1; one with a lowest of 0 rolls none.
-        assert_eq!(npc(None, 3, start, 1), 1);
+        // creature at bronze's `LevelKap`, 0 (#2870); one with a lowest of 0 rolls none.
+        assert_eq!(npc(None, 3, start, 1), 0);
         assert_eq!(npc(Some(&values(0, 7)), 1, start, 1), 1);
         assert_eq!(npc(Some(&values(0, 7)), 9, start, 1), 7);
         // A horse by an eighth of the hero's riding, without the time played, and not held at
@@ -8947,8 +9015,8 @@ mod tests {
         };
         assert_eq!(held_level(3, Some(&start), 295, false, &rules), 3);
         assert_eq!(held_level(5, Some(&start), 295, false, &rules), 4);
-        // Without a highest, at bronze's `LevelKap` alone, 0, and so at 1.
-        assert_eq!(held_level(5, None, 295, false, &rules), 1);
+        // Without a highest, at bronze's `LevelKap` alone, 0, as the original leaves it (#2870).
+        assert_eq!(held_level(5, None, 295, false, &rules), 0);
         // The type 701 at 300 wherever it stands; a horse at 250.
         assert_eq!(held_level(280, Some(&start), 701, false, &rules), 280);
         assert_eq!(held_level(400, Some(&start), 701, false, &rules), 300);
@@ -9044,8 +9112,8 @@ mod tests {
             tagged_level(400, Some(&start), 701, false, &rules),
             Some(300)
         );
-        // A sector without levels holds it at bronze's `LevelKap`, 0, and so at 1.
-        assert_eq!(tagged_level(5, None, 295, false, &rules), Some(1));
+        // A sector without levels holds it at bronze's `LevelKap`, 0 (#2870).
+        assert_eq!(tagged_level(5, None, 295, false, &rules), Some(0));
         // 0 or none: the rule of the records without one.
         assert_eq!(Rank::of_tag(0), Rank::Common);
         assert_eq!(tagged_level(0, Some(&start), 295, false, &rules), None);
