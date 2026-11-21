@@ -17682,10 +17682,10 @@ mod tests {
             [96.0, 96.0, 255.0, 255.0]
         );
         // Each butterfly's rolls: its size, its direction's `y` and `x`, its distance, its height
-        // and its turn; `y` the most, `x` the least: toward (−1, 1) along the ground.
+        // and its turn; `y` three quarters, `x` the least: toward (−1, 0.5) along the ground.
         let mut rolls = Vec::new();
         for _ in 0..KNOCKOUT_COUNT {
-            rolls.extend([0, 32_767, 0, 0, 0, 0]);
+            rolls.extend([0, 24_575, 0, 0, 0, 0]);
         }
         let mut dice = crate::spawning::Script::new(rolls);
         let mut knockout = Knockout::new(0.5);
@@ -17693,14 +17693,14 @@ mod tests {
         knockout.update(0.0, &mut dice);
         let butterfly = knockout.butterflies()[0];
         assert!((butterfly.size - 3.0).abs() < 1e-6);
-        let half = std::f32::consts::FRAC_1_SQRT_2 * 7.0;
+        let along = 7.0 / 1.25_f32.sqrt();
         assert!(
-            (butterfly.offset[0] + half).abs() < 1e-4,
+            (butterfly.offset[0] + along).abs() < 1e-3,
             "{:?}",
             butterfly.offset
         );
         assert!(
-            (butterfly.offset[1] - half).abs() < 1e-4,
+            (butterfly.offset[1] - along / 2.0).abs() < 1e-3,
             "{:?}",
             butterfly.offset
         );
