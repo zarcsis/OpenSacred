@@ -1497,7 +1497,7 @@ fn act(
                 launches.write(crate::bolts::Launch {
                     shooter: act.caster,
                     direction,
-                    course: crate::bolts::Course::fireball(act.level),
+                    course: crate::bolts::Course::fireball(act.level, true),
                     damages,
                     wait: 0.0,
                 });
