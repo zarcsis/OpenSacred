@@ -2013,10 +2013,24 @@ fn make(
                             );
                             let seconds = to_f32(arts::flame_seconds(&record, playing.level));
                             let from = here.xz();
+                            // On his layer and reached by a straight way from him (`0x5FFC70`,
+                            // `0x4FCC80`; #3143).
+                            let level = body.level();
+                            let reached = |entity: Entity| {
+                                ways.get(entity).is_ok_and(|way| way.level == level)
+                                    && creatures.get(entity).is_ok_and(|(_, at, ..)| {
+                                        crate::paths::straight(
+                                            from,
+                                            at.translation().xz(),
+                                            |cell| heights.walkable_on(cell, level),
+                                        )
+                                    })
+                            };
                             let burned: Vec<Entity> =
                                 hostile_near(from, from + facing * arts::FLAMES_LENGTH)
                                     .into_iter()
                                     .map(|(entity, _)| entity)
+                                    .filter(|&entity| reached(entity))
                                     .collect();
                             if !burned.is_empty() {
                                 commands
