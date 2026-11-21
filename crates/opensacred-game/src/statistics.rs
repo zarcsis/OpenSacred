@@ -235,8 +235,9 @@ impl LevelRecord {
     /// The record of the hero's damages `damage` (each kind's least and most), its resistances
     /// `resistance` and its gold `gold`: each kind's least and most rounded and their mean cut,
     /// `⌊(l + m)/2⌋`, and each resistance cut (`0x57E160` at `0x57F1D5`…`0x57F35D`, `0x424870` for
-    /// the values now). The halving of a hero's damage without a weapon in its hands
-    /// (`0x54A470`) is not followed.
+    /// the values now). The half of a hit's damage with two weapons is not followed (#3279), and
+    /// a right hand's item of the class 0 alone keeps its whole by choice (docs/decisions/
+    /// interface.md, "Damage whole where a strike deals it whole").
     pub fn of(damage: [[f32; 2]; 4], resistance: [f32; 4], gold: u32) -> Self {
         let round = |value: f32| whole(value + 0.5);
         Self {
