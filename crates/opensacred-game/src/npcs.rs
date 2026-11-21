@@ -12674,6 +12674,10 @@ pub struct Strikes {
     playing: Option<(AnimationNodeIndex, f32, [f32; 2])>,
     /// How many hits it has struck.
     struck: u8,
+    /// Whether a shot that plays no clip ([`BoltClip::Kept`]) has seen its start's frame, and the
+    /// world's ticks since its bolts left.
+    begun: bool,
+    after: u8,
 }
 
 impl Strikes {
@@ -12686,6 +12690,8 @@ impl Strikes {
             bolt: None,
             playing: None,
             struck: 0,
+            begun: false,
+            after: 0,
         }
     }
 
@@ -12699,11 +12705,55 @@ impl Strikes {
     }
 
     /// A shot of the bolts `bolt`, where it holds the Seraphim's effect 16 or 17 (`0x4DCB80`,
-    /// #2899): its bolt's own clip at its own rate where the model has it, else the attack's of
-    /// the shot, and the bolts at its first fraction in place of an arrow.
+    /// #2899): its bolt's own clip at its own rate where the model has it, else its stand-in or
+    /// none ([`BoltClip`]), and the bolts at its first fraction in place of an arrow.
     pub fn bolts(self, bolt: Option<opensacred_rules::arts::Bolt>) -> Self {
         Self { bolt, ..self }
     }
+}
+
+/// The name of `MOTIONS.PAK`'s record 0, whose fractions a slot that a model lacks takes, its
+/// entry of the model's slot table 0 (`0x4135D0`; docs/02-data-formats.md §4.1).
+const LACKING: &str = "INVALID_MOTION";
+
+/// The clip that a shot of bolts plays (`0x4DCB80`'s sub-state 0 through `0x593320` and the
+/// models' clip getter `0x4118B0`; docs/re/motions.md, "Where the model lacks the slot"; #3303).
+enum BoltClip {
+    /// The clip of its slot, at the fractions of its name, or, where the model lacks the slot, of
+    /// its first stand-in that the model has (`minds::stand_ins`), at the fractions of [`LACKING`].
+    Plays(AnimationNodeIndex, Handle<AnimationClip>, [f32; 2]),
+    /// None, the slot lacking without a stand-in (the railgun's 164): the clip in play goes on.
+    Kept,
+}
+
+/// The clip of a shot of `bolt` for an NPC's model ([`BoltClip`]).
+fn bolt_clip(
+    npc: &mut Npc,
+    bolt: opensacred_rules::arts::Bolt,
+    data: &Npcs,
+    (gltfs, graphs): (&Assets<Gltf>, &mut Assets<AnimationGraph>),
+) -> BoltClip {
+    let fractions = |name: &str| {
+        data.hits
+            .get(&name.to_ascii_uppercase())
+            .copied()
+            .unwrap_or_default()
+    };
+    if let Some((node, clip)) = slot_clip(npc, bolt.slot(), data, (gltfs, &mut *graphs)) {
+        let own = data
+            .slots
+            .get(&npc.model)
+            .and_then(|slots| slots.slot(bolt.slot()))
+            .map(&fractions)
+            .unwrap_or_default();
+        return BoltClip::Plays(node, clip, own);
+    }
+    for &slot in minds::stand_ins(bolt.slot()) {
+        if let Some((node, clip)) = slot_clip(npc, slot, data, (gltfs, &mut *graphs)) {
+            return BoltClip::Plays(node, clip, fractions(LACKING));
+        }
+    }
+    BoltClip::Kept
 }
 
 /// An NPC whose strike, not a shot, has just played its clip whole: its mind decides whether the
@@ -12728,8 +12778,11 @@ fn hits_within(size: u32, other: u32) -> f32 {
 /// reach, as the action steps at the ticks alone (#617); a walk ends the strike (`0x4E4CF0`,
 /// `0x4EA1F0`). A shot plays its clip at its attack speed times its chain, and at the first tick
 /// past the clip's first fraction, or at its end, looses its arrow (`arrows::Loose`, `0x4DD90E`);
-/// a shot of bolts plays its bolt's own clip at its own rate where the model has it, and sends
-/// its bolts in place of the arrow (`bolts::Fire`, `0x4DCB80`, #2899).
+/// a shot of bolts plays its bolt's clip at its own rate, its stand-in where the model lacks it,
+/// and sends its bolts in place of the arrow (`bolts::Fire`, `0x4DCB80`, #2899); one whose model
+/// has neither plays nothing, the clip in play going on: the creature's stance, whose fraction is
+/// 0, so that its bolts leave at the first tick after its start and it ends at the second tick
+/// after them (`0x4DCB80`'s sub-states 1 and 2; #3303).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -12774,20 +12827,9 @@ fn strike(
     ),
 ) {
     for (entity, mut npc, mut strikes, walking, at, combat, mind) in &mut strikers {
-        // A shot of bolts takes its bolt's own clip, with the fractions of its name (`0x4DCB80`);
-        // where its model lacks the slot, one of its attack's as the hero's does, where the
-        // original plays nothing and keeps the clip in play (#3303).
+        // A shot of bolts takes its bolt's clip, its stand-in or none ([`BoltClip`]).
         let bolt_clip = match (strikes.playing, strikes.bolt) {
-            (None, Some(bolt)) => slot_clip(&mut npc, bolt.slot(), &data, (&gltfs, &mut graphs))
-                .map(|(node, clip)| {
-                    let fractions = data
-                        .slots
-                        .get(&npc.model)
-                        .and_then(|slots| slots.slot(bolt.slot()))
-                        .and_then(|name| data.hits.get(&name.to_ascii_uppercase()).copied())
-                        .unwrap_or_default();
-                    (node, clip, fractions)
-                }),
+            (None, Some(bolt)) => Some(bolt_clip(&mut npc, bolt, &data, (&gltfs, &mut graphs))),
             _ => None,
         };
         let (Some(graph), Some(player)) = (&npc.graph, npc.player) else {
@@ -12801,11 +12843,36 @@ fn strike(
             continue;
         }
         let Some((node, length, fractions)) = strikes.playing else {
-            let index = usize::try_from(strikes.choice).unwrap_or(0) % graph.attacks.len();
-            if strikes.bolt.is_some() && bolt_clip.is_none() {
-                bevy::log::debug!("npcs: {entity} shoots its bolts by its attack's clip");
+            // No clip: its bolts at the first tick after its start, and the shot's end at the
+            // second after them.
+            if let (Some(BoltClip::Kept), Some(bolt)) = (&bolt_clip, strikes.bolt) {
+                if !std::mem::replace(&mut strikes.begun, true) || tick.seconds.is_none() {
+                    continue;
+                }
+                if strikes.struck == 0 {
+                    bevy::log::debug!("npcs: {entity} shoots its bolts in the clip it plays");
+                    strikes.struck = 1;
+                    let toward = places
+                        .get(strikes.target)
+                        .map_or(at.translation(), |(target, ..)| target.translation());
+                    bolts.write(crate::bolts::Fire {
+                        shooter: entity,
+                        toward,
+                        bolt,
+                    });
+                } else {
+                    strikes.after += 1;
+                    if strikes.after >= 2 {
+                        commands.entity(entity).remove::<Strikes>();
+                    }
+                }
+                continue;
             }
-            let (node, clip, fractions) = bolt_clip.unwrap_or_else(|| graph.attacks[index].clone());
+            let index = usize::try_from(strikes.choice).unwrap_or(0) % graph.attacks.len();
+            let (node, clip, fractions) = match bolt_clip {
+                Some(BoltClip::Plays(node, clip, fractions)) => (node, clip, fractions),
+                _ => graph.attacks[index].clone(),
+            };
             let length = clips.get(&clip).map_or(1.0, AnimationClip::duration);
             // At its attack speed (`0x4E4CF0`), a shot's times its chain (`0x4DCB80`).
             let attack = combat.map_or(1.0, |combat| combat.clip_speed());
