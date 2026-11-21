@@ -1549,8 +1549,8 @@ fn make(
             }
             Style::Bite => {
                 // Below 0.9 left of its clip its target is held with the effect 15 and struck with
-                // a fixed physical damage of its drain, and she takes as much health; then it ends
-                // (`0x50E6C0`).
+                // a fixed physical damage of its drain, and she takes as much health as a heal,
+                // her poisons cured; then it ends (`0x50E6C0`).
                 if !due(1.0 - arts::BITES, done) {
                     if finished {
                         end(&mut commands);
@@ -1601,12 +1601,15 @@ fn make(
                         fixed: Some([to_f32(drain), 0.0, 0.0, 0.0]),
                         ..hit(playing.target, &playing)
                     });
+                    // Her health by her own event 6 of the sub-kind 3, the heal's, which cures
+                    // her poisons too (`0x510248` to `0x5102DC`, #3213).
                     commands
                         .entity(hero)
                         .entry::<Health>()
                         .and_modify(move |mut health| {
                             health.current = (health.current + drain).min(health.most);
                         });
+                    crate::effects::heal_cures(&mut commands, hero);
                     info!("making: {} drains {drain}", making.art);
                 }
                 end(&mut commands);
