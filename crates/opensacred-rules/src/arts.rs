@@ -700,13 +700,17 @@ pub fn drowning(health: u32) -> u32 {
 }
 
 /// The arts that `0x51D840` refuses while an effect of theirs holds on their maker (`0x582B00`):
-/// 1031, 1042, 1044 to 1048, 1082 and 1089, and 1018 and 1019 while either's does; for a spell
-/// (an id below 1000), the keys of [`crate::spells::locked_by`].
+/// 1005, 1015 and 1016 (`0x51DA48`, `0x51D9F5`), 1031, 1042, 1044 to 1048, 1082 and 1089 (the
+/// byte table `0x51E0A0`), and 1018 and 1019 while either's does (`0x51DA8F`); for a spell (an
+/// id below 1000), the keys of [`crate::spells::locked_by`].
 pub fn refused_while(art: u16) -> &'static [u16] {
     if art < 1000 {
         return crate::spells::locked_by(art);
     }
     match art {
+        1005 => &[1005],
+        1015 => &[1015],
+        1016 => &[1016],
         1018 | 1019 => &[1018, 1019],
         1031 => &[1031],
         1042 => &[1042],

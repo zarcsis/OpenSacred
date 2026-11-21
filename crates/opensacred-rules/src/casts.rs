@@ -1209,13 +1209,9 @@ pub fn on_itself(spell: u16) -> bool {
 }
 
 /// Whether the launch test refuses `spell` on a target that holds an effect keyed by it
-/// (`0x51D840`, `0x582B00`): the spells 2, 17 to 22, 24, 25, 27, 28, 30 to 32, 37, 40, 41, 47,
-/// 55 to 59, 62, 63, 65 and 72.
+/// (`0x51D840`, `0x582B00`), as it refuses the hero's ([`crate::spells::locked_by`], #3237).
 pub fn refused_while_keyed(spell: u16) -> bool {
-    matches!(
-        spell,
-        2 | 17..=22 | 24 | 25 | 27 | 28 | 30..=32 | 37 | 40 | 41 | 47 | 55..=59 | 62 | 63 | 65 | 72
-    )
+    !crate::spells::locked_by(spell).is_empty()
 }
 
 /// What the ice elf casts within its reach and 30 (`0x4D4E50`, mark `0x208`), by a roll of 1 in 3
@@ -1698,6 +1694,7 @@ mod tests {
         );
         assert!(prince_casts(200.0, 90.0, 0) && !prince_casts(100.0, 90.0, 0));
         assert!(refused_while_keyed(17) && refused_while_keyed(40) && !refused_while_keyed(13));
+        assert!(refused_while_keyed(3) && refused_while_keyed(72) && !refused_while_keyed(73));
         assert!(on_itself(BLADES) && !on_itself(CHAIN));
     }
 
