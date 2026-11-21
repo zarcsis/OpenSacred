@@ -1675,8 +1675,18 @@ fn pursue(
                     let to = Vec3::new(at.x, height, at.z);
                     let seconds = opensacred_rules::casts::blink_fog_seconds(mind.level);
                     debug!("ai: {entity} blinks from {here} to {to}");
-                    crate::battle_fogs::rise(&mut commands, here, seconds);
-                    crate::battle_fogs::rise(&mut commands, to, seconds);
+                    crate::battle_fogs::rise(
+                        &mut commands,
+                        here,
+                        seconds,
+                        crate::battle_fogs::Variant::Leaves,
+                    );
+                    crate::battle_fogs::rise(
+                        &mut commands,
+                        to,
+                        seconds,
+                        crate::battle_fogs::Variant::Lands,
+                    );
                     transform.translation = to;
                     commands.entity(entity).remove::<Walk>();
                 }
