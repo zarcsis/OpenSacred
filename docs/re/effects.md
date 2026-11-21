@@ -2799,7 +2799,8 @@ The ring's streaks are born along the turn's way in the frame, where the origina
 **Seen** 2026-11-06 beside the original: the miss's column of blue streaks alike in size, brighter at its right edge and its foot in both; in the game the hit's cracks radiating from the hero's feet.
 Since #2149 its heal of the caster's friends follows ("The healing").
 Since #3167 it strikes each gathered creature hostile to its caster, the hero's followers too, its impact under each (`creature_casts::throw`).
-Not followed: the summoned creature hired by its caster (it is made hostile, of the caster's side, as a creature's summons are; #3224), the type 145's item `0x73A` in its slot 13, and the event's sound (#3225).
+The summoned creature hired by its caster is the caster's (`creature_casts::Hired`) since #3224, which as a creature's hire makes it no follower (docs/re/ai.md, "Followers"): hostile, of the caster's level and side, it is dismissed as the caster dies.
+Not followed: the type 145's item `0x73A` in its slot 13, and the event's sound (#3225).
 
 ## The guns' sights
 
