@@ -1882,6 +1882,13 @@ fn the_soulcatcher_gives_its_effect_for_its_spells_time_and_its_souls_heal() {
     // GOG 2.28's spell 47: the value 0 39 + L at most 90, the value 1 10 + 30·L.
     assert_eq!(style(1044), Some(Style::Boon));
     assert_eq!(refused_while(1044), [1044]);
+    // The Wood Elf's 1005 and the Gladiator's 1015 and 1016 too, and a spell by its own key
+    // (#3237).
+    assert_eq!(refused_while(1005), [1005]);
+    assert_eq!(refused_while(1015), [1015]);
+    assert_eq!(refused_while(1016), [1016]);
+    assert_eq!(refused_while(41), [41]);
+    assert!(refused_while(1017).is_empty());
     let mut catcher = spell(47, [0, 0], 0);
     catcher.values = [[39, 1], [10, 30], [0, 0]];
     catcher.caps = [90, 0, 0];
