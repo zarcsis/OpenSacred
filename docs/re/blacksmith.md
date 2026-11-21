@@ -70,7 +70,8 @@ The Dwarf as the smith may work only an item and socket items that his check all
 - `f` 1, or `100 / (s + 79)` for the Dwarf as the smith of skill 33's value `s`: 1.27 at 0, 1 at 21, 0.5 at 121.
 
 The products by the hundredths are of whole numbers (`5·P` and `10·S` as 64-bit integers, times the single float 0.01, a little below a hundredth), then added to 500 and multiplied by `n` and `f`.
-At the x87 unit's 53 bits a price that comes to a whole number in real numbers falls just below it and is one less: an item worth 1,000 with a socket costs 549 (**hypothesis**: the window's draw runs in the render thread's frame, measured at 53 bits, #589, and its input there too; at the main thread's 24 bits it would cost 550; not yet measured in the running original, #2844).
+At the x87 unit's 53 bits a price that comes to a whole number in real numbers falls just below it and is one less: an item worth 1,000 with a socket costs 549, where 24 bits would give 550.
+  **Confirmed** 2026-11-21 in the running original (#2844): the window's draw (`0x6A33A0`, each frame) and its input (`0x6A4380`, at a click into it), the price's callers, run on the frame's thread, whose x87 control word is `0x027F`, 53 bits (`exec fpu`).
 
 ## A socket filled (`0x5BFF60`)
 
@@ -78,7 +79,7 @@ At the x87 unit's 53 bits a price that comes to a whole number in real numbers f
 - The first item put into the item keeps the item's requirements as they were (`+0x192…+0x197`, the record's level `+0x14`, its `+0x15…+0x17`, `+0x18`, `+0x1A` and `+0x1B`), to take them back when its sockets empty; then each requirement of the item is raised to the socket's item's where that is higher (the level, the three bytes after it and `+0x18`; the skill `+0x1A` with its level `+0x1B` where the level is higher).
 - The socket's item's record (130 bytes) joins the item's list of its sockets' items (the object's `+0x100` to `+0x104`), the next socket in order filled, the smith's tier kept in its last byte (`+0x81`, written as the item's object's `+0x199`, its record being at `+0x118`).
 - Its values are added to the item's record (`0x5BFB60`), each times `1 + (k + t)/100` and truncated, `k` 1, 3 or 9 by the socket's kind (bronze, silver, gold; the kind 4 as gold, 0 none) and `t` the smith's tier: the four kinds' least and most damage (`+0x1C…+0x2A`), the four resistances (`+0x32…+0x38`), `A` (`+0x2C`), `D` (`+0x2E`) and `+0x30`.
-  The hundredth is the float 0.01 again, so at 53 bits a product that comes to a whole number falls just below it: `A` 100 in a gold socket by a smith of tier 2 adds 110, not 111 (the same **hypothesis** as the price's).
+  The hundredth is the float 0.01 again, so at 53 bits a product that comes to a whole number falls just below it: `A` 100 in a gold socket by a smith of tier 2 adds 110, not 111 (the work's press runs on the frame's thread at 53 bits, as the price's input).
   The `n`-th item in the list goes with the `n`-th socket's kind (`+0x0C + n`), as the item maker writes the kinds from the first on.
 - The item's values are worked out again (`0x5C0810`): its record's price becomes the worth of its values with its sockets' (`0x5D3AB0` with the item's object, docs/re/items.md, "The worth of an item"), and in a network game the change is sent (the event `0x16C`).
 - Taking an item out (`0x5C0430`, re-read 2026-11-01, #1661): every socket's item's values come off the item, the last first, each by its socket's kind and its own record's tier (`+0x81`), each value held at 0 or more; the item's requirements are taken back from `+0x192…`, its level `⌊(+0x192 + 9)/0.8 − 8.5⌋`; the whole list is cleared (`0x5C9480` copying nothing over its start); and the record of the socket asked for is given back.

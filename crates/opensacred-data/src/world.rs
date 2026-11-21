@@ -338,7 +338,7 @@ impl Sector {
     /// `(cx, cy)`, its sprite's rectangle at the object's position; a miniature's square, turned
     /// about the position, and a lamp's glow of three times its side about it, within twice its
     /// side's diagonal of the position; and the ground's corners raised or lowered by their
-    /// heights. Of the 6,050 sectors the median's sprites reach 391 pixels up, the farthest's
+    /// heights. Of the 6,050 sectors the median's sprites reach 409 pixels up, the farthest's
     /// 2,034.
     pub fn reach(&self, sprites: &Sprites) -> [u16; 4] {
         let side = i64::try_from(SIDE).unwrap_or(64);
