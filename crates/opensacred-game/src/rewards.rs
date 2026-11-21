@@ -12,8 +12,11 @@
 //! Each `Gewinn` counts the hero's quests and, by a second count, now and then has the hero drop
 //! a piece of an item set before the rest (`0x4AC940`, `0x559BF0`, [`QuestCounts`], #2886).
 //!
-//! Not followed yet: the level of its item's values (taken as the hero's), and a reward to
-//! another creature than the hero.
+//! The item is made at a level of the sector's lowest and of the hero's
+//! (`opensacred_rules::fight::Rules::reward_level`) and lies at rest 40 before the hero, as a
+//! side quest's rune does (#2872).
+//!
+//! Not followed yet: a reward to another creature than the hero.
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
@@ -96,8 +99,8 @@ struct Laying<'w> {
 }
 
 impl Laying<'_> {
-    /// Lays `item` before the hero at `at`, turned `turned`, on `level`, made at the hero's
-    /// level `made_at` of the item maker's key `quality`.
+    /// Lays `item` before the hero at `at`, turned `turned`, on `level`, made at the level
+    /// `made_at` of the item maker's key `quality`.
     fn lay(
         &mut self,
         commands: &mut Commands,
@@ -307,10 +310,14 @@ fn reward(
                 if item.class_rune {
                     laying.given.one_more();
                 }
+                // At a level of the sector's lowest and of the hero's (`0x4AD8CB`, #2872).
+                let made_at = npcs.as_deref().map_or(level, |npcs| {
+                    npcs.reward_level(level, at.translation, &mut laying.dice.0)
+                });
                 laying.lay(
                     &mut commands,
                     (at.translation, at.rotation, body.level()),
-                    (item.item, level, quality),
+                    (item.item, made_at, quality),
                 );
             }
         }

@@ -1087,6 +1087,31 @@ impl Rules {
         roll(dice).min(bound)
     }
 
+    /// The level that a quest's reward (`Gewinn`) makes its item at for the hero of level `hero`
+    /// standing in a sector of the levels `values` (`0x4AC940` at `0x4AD8CB`…`0x4ADA15`): the
+    /// bound 1, or in a sector of levels the greater of its lowest and of the least of 1 and its
+    /// highest, both raised as [`Self::item_bounds`] raises them, as a container's
+    /// ([`Self::contained_level`]); the bound scaled by the difficulty with no time played
+    /// (`0x552230(b, 0)`); then the roll `R(H, ⌊1.05·H⌋)` held at most at it. So on bronze the item
+    /// is at most at the sector's lowest, and at 1 in a sector without levels (#2872).
+    pub fn reward_level(
+        &self,
+        hero: u32,
+        values: Option<&SpawnValues>,
+        dice: &mut impl Dice,
+    ) -> u32 {
+        let bound = values
+            .filter(|values| values.highest > 0)
+            .map_or(1, |values| {
+                let (lowest, highest) = self.item_bounds(values);
+                highest.min(1).max(lowest)
+            });
+        let bound = played_level(bound, Played::default(), self);
+        let most = truncated(f64::from(NEAR_HERO) * f64::from(hero));
+        let roll = crate::drops::between(i64::from(hero), most, dice);
+        u32::try_from(roll).unwrap_or(hero).min(bound)
+    }
+
     /// The level that a container's gold is made for, of the hero of level `hero` standing in a
     /// sector of the levels `values` (`0x4A0CE5`): the hero's level held at most at the sector's
     /// highest raised by `LevelKap` (not by `OffLevelProz`), the hero's own in a sector without
@@ -7056,6 +7081,24 @@ mod tests {
         // No levels: the bound a roll of its own, drawn first.
         assert_eq!(contained(&bronze, 40, None, vec![0, 1]), 40);
         assert_eq!(contained(&bronze, 40, None, vec![1, 1]), 41);
+        // A reward's item: the container's bound, or 1 without levels, scaled by the difficulty
+        // with no time played, over the roll of `H` to `⌊1.05·H⌋` (#2872).
+        let reward = |rules: &Rules, hero, values, rolls: Vec<u32>| -> u32 {
+            let mut dice = Rolls(rolls);
+            let level = rules.reward_level(hero, values, &mut dice);
+            assert!(dice.0.is_empty(), "{:?} left", dice.0);
+            level
+        };
+        assert_eq!(reward(&bronze, 30, Some(&values), vec![1]), 2);
+        assert_eq!(reward(&bronze, 30, Some(&start), vec![0]), 1);
+        assert_eq!(reward(&bronze, 40, None, vec![1]), 1);
+        assert_eq!(reward(&bronze, 1, None, vec![]), 1);
+        // On gold the lowest 55 scaled to `⌊55·1.5 + 20 + 0.5⌋`, 102 by the float 0.01 a little
+        // below a hundredth, and 1 to 21 so.
+        assert_eq!(reward(&gold, 60, Some(&values), vec![2]), 62);
+        assert_eq!(reward(&gold, 200, Some(&values), vec![0]), 102);
+        assert_eq!(reward(&gold, 30, None, vec![0]), 21);
+        assert_eq!(reward(&gold, 30, Some(&none), vec![0]), 21);
         // A container's gold: the hero's level held at the highest plus `LevelKap`, unscaled.
         assert_eq!(bronze.gold_level(30, Some(&values)), 6);
         assert_eq!(bronze.gold_level(3, Some(&values)), 3);

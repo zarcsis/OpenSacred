@@ -2768,6 +2768,28 @@ impl Flight {
         }
     }
 
+    /// An item made at rest on the ground at the point `at`, with no flight: a quest's reward's
+    /// item and a side quest's rune, which the original makes 40 before the hero (`0x4AC940` at
+    /// `0x4ADA2C`, `0x45FC60`; neither calls the flight `0x44DED0`, #2872). Its arc of no time
+    /// and no height lays it at the ground's height there at its first step.
+    pub fn laid(at: [f32; 2]) -> Self {
+        Self {
+            at: [at[0], at[1], 0.0],
+            velocity: [0.0; 3],
+            angles: [0.0; 3],
+            spin: [0.0; 3],
+            resting: false,
+            arc: Some(Arc {
+                from: at,
+                to: at,
+                peak: 0.0,
+                seconds: 0.0,
+                flown: 0.0,
+            }),
+            turns: false,
+        }
+    }
+
     /// An item that a container throws to its opener (`0x5C9BA0`, `0x44DED0(x, y, 0, −1000, 80,
     /// 0.9)`): from the container's point `from` on the ground to `to`, in 0.9 s along an arc
     /// that peaks at 80.
