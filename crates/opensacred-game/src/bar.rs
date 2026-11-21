@@ -216,6 +216,9 @@ const ART_SELECTED: u32 = 479;
 /// An empty art slot while the cursor holds a spell, or a weapon art in the edit mode
 /// (`0x6E3430`: the image 533, `GUI_spell04`, green).
 const ART_TAKES: u32 = 533;
+/// An empty art slot of the Vampiress in her night's form, whatever else (`0x6E3430`: the image
+/// 569, `GUI_spell06`, purple, while the hero's `+0x14` has the bit `0x2000`; seen, #2928).
+const ART_NIGHT: u32 = 569;
 const RING_SELECTED: u32 = 103;
 const RING: u32 = 102;
 /// The rings' layer among the bar's pieces: over a weapon set's halves' glow (`sets`, at 1) and
@@ -1205,8 +1208,9 @@ const HORSE_SPRITES: [u32; 3] = [630, 631, 632];
 /// `⌊(1 − s)·64⌋` rows of its grey picture over the rest of its pale one, `s` the share
 /// regenerated, a combo's of its three (`combos::sprites`) by its own share (`0x581A20`);
 /// without an art, the empty slot's orb, the selected one's 479, the others' 635, and the green
-/// 533 while the cursor holds a spell, or a weapon art in the edit mode, never a combo; the
-/// selected slot's ring 103, the others' 102.
+/// 533 while the cursor holds a spell, or a weapon art in the edit mode, never a combo, the
+/// Vampiress's in her night's form the purple 569 over them all; the selected slot's ring 103, the
+/// others' 102.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -1219,7 +1223,7 @@ fn art_icon(
         Option<Res<crate::art_slots::HeldArt>>,
         Option<Res<crate::inventory::Shown>>,
     ),
-    (arts, combos, timer, riders): (
+    (arts, combos, timer, riders, forms): (
         Option<Res<HeroArts>>,
         Option<Res<crate::combos::HeroCombos>>,
         Option<Res<crate::trample::Timer>>,
@@ -1227,6 +1231,7 @@ fn art_icon(
             (Option<&crate::riding::Seat>, Option<&crate::fight::Holding>),
             With<crate::hero::Body>,
         >,
+        Option<Res<crate::forms::Forms>>,
     ),
     mut tops: Query<(&ArtTop, &mut ImageNode, &mut Node), Without<ArtBottom>>,
     mut bottoms: Query<
@@ -1289,7 +1294,9 @@ fn art_icon(
             continue;
         };
         let art = slots.arts.get(slot.0).copied().flatten();
-        let empty = if takes {
+        let empty = if forms.as_deref().is_some_and(crate::forms::Forms::by_night) {
+            ART_NIGHT
+        } else if takes {
             ART_TAKES
         } else if slot.0 == slots.selected {
             ART_SELECTED

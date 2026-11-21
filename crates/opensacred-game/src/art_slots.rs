@@ -13,8 +13,12 @@
 //! the arts bound to them into the selected slot (`spells_page`, #1536). A save keeps the slots
 //! (`saves`), and a hero carried from its file brings its own (`carry`, #2370).
 //!
-//! Not followed yet: the Vampiress's second bank of the slots (`+0x1162` bit 1, `0x557040`). A
-//! slot's tooltip is `tooltip::art`'s (#1694).
+//! The slots are kept twice, a bank for each of the Vampiress's forms (`+0xC90`, the slot `s` of
+//! the bank `b` at `20·(2s + b)`): her change of form turns the bank (`0x557040` calls
+//! `0x5D9240`, the bit 1 of `+0x1162` her night's flag), her day's arts standing in the slots in
+//! her human form and her night's in her vampire's, the same slot selected (`0x5D9860`; **seen**,
+//! #2928). A load gives back the day's bank (`0x6058A0` at `0x60618E`). A slot's tooltip is
+//! `tooltip::art`'s (#1694).
 
 use bevy::prelude::*;
 
@@ -30,21 +34,31 @@ pub(crate) const SLOTS: usize = 5;
 /// An art's picture on the cursor, its side and its corner from the pointer (`0x6C1930`).
 const ON_CURSOR: f32 = 64.0;
 
-/// The slots' arts, each slot's art if it holds one, the slot selected, and whether a new game's
-/// first slot took the hero's first art.
+/// The slots' arts, each slot's art if it holds one, those of the other bank, whether the slots
+/// shown are the night's bank (`+0x1162` bit 1), the slot selected, and whether a new game's first
+/// slot took the hero's first art.
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ArtSlots {
     pub arts: [Option<u16>; SLOTS],
+    other: [Option<u16>; SLOTS],
+    night: bool,
     pub selected: usize,
     seeded: bool,
 }
 
 impl ArtSlots {
-    /// The slots of a hero carried from its file (#2370): `arts` in its slots, the slot
-    /// `selected` selected, which no new game's seeding fills again.
-    pub fn carried(arts: [Option<u16>; SLOTS], selected: usize) -> Self {
+    /// The slots of a hero carried from its file (#2370): its day's bank `day` in its slots, its
+    /// night's `night` kept for the Vampiress's other form, the slot `selected` selected, which no
+    /// new game's seeding fills again.
+    pub fn carried(
+        day: [Option<u16>; SLOTS],
+        night: [Option<u16>; SLOTS],
+        selected: usize,
+    ) -> Self {
         Self {
-            arts,
+            arts: day,
+            other: night,
+            night: false,
             selected: selected.min(SLOTS - 1),
             seeded: true,
         }
@@ -53,6 +67,15 @@ impl ArtSlots {
     /// The selected slot's art.
     pub fn selected_art(&self) -> Option<u16> {
         self.arts.get(self.selected).copied().flatten()
+    }
+
+    /// The bank of the form `night` shown (`0x5D9240`): the other bank's arts into the slots, the
+    /// slots' kept for the change back, the slot selected the same.
+    pub fn turn(&mut self, night: bool) {
+        if self.night != night {
+            std::mem::swap(&mut self.arts, &mut self.other);
+            self.night = night;
+        }
     }
 }
 
@@ -296,6 +319,7 @@ mod tests {
             arts: [Some(1071), None, Some(13), None, None],
             selected: 0,
             seeded: true,
+            ..ArtSlots::default()
         };
         // The right button selects, the art kept, the cursor's art not dropped.
         let (after, dropped) = clicked(&slots, 2, (true, true), Some(20));
@@ -318,6 +342,32 @@ mod tests {
         assert_eq!((after.selected, after.arts[0]), (0, None));
         let (after, _) = clicked(&slots, 2, (false, true), None);
         assert_eq!((after.selected, after.arts[2]), (2, Some(13)));
+    }
+
+    #[test]
+    fn the_form_turns_the_bank() {
+        let mut slots = ArtSlots::carried(
+            [Some(1022), Some(1022), None, None, None],
+            [None, None, Some(1023), None, None],
+            2,
+        );
+        assert_eq!(slots.selected_art(), None);
+        // By night the night's bank, the same slot selected.
+        slots.turn(true);
+        assert_eq!(
+            (slots.arts, slots.selected, slots.selected_art()),
+            ([None, None, Some(1023), None, None], 2, Some(1023))
+        );
+        // A turn to the bank shown changes nothing.
+        let night = slots.clone();
+        slots.turn(true);
+        assert_eq!(slots, night);
+        // An art put by night stays in the night's bank, the day's coming back.
+        slots.arts[4] = Some(1023);
+        slots.turn(false);
+        assert_eq!(slots.arts, [Some(1022), Some(1022), None, None, None]);
+        slots.turn(true);
+        assert_eq!(slots.arts, [None, None, Some(1023), None, Some(1023)]);
     }
 
     #[test]

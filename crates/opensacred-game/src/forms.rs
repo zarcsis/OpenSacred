@@ -165,10 +165,11 @@ fn change(
     forms: Option<ResMut<Forms>>,
     mut hero: ResMut<Hero>,
     assets: Res<AssetServer>,
-    (mut arts, mut light, mut footsteps): (
+    (mut arts, mut light, mut footsteps, slots): (
         Option<ResMut<HeroArts>>,
         ResMut<HeroLight>,
         Option<ResMut<Footsteps>>,
+        Option<ResMut<crate::art_slots::ArtSlots>>,
     ),
     (experience, rules, speed): (Res<Experience>, Res<Rules>, Res<GameSpeed>),
     mut bodies: Query<
@@ -211,6 +212,10 @@ fn change(
     hero.wear(&form, &assets);
     if let Some(arts) = arts.as_mut() {
         arts.kind = form.creature;
+    }
+    // Her bar's other bank of art slots, the same slot selected (`0x5D9240`, #2928).
+    if let Some(mut slots) = slots {
+        slots.turn(change.night);
     }
     // The Vampiress's light by night is doubled as the Wood Elf's (class 7, `0x54A7B0`).
     light.doubled = change.night;

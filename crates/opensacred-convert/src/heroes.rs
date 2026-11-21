@@ -216,6 +216,7 @@ fn convert_one(dir: &Path, source: String, data: &[u8]) -> Result<(HeroEntry, Su
         let sets = amh.sets().with_context(|| source.clone())?.to_vec();
         let (slots, selected) = amh.art_slots().with_context(|| source.clone())?;
         let art_slots = slots.iter().map(|banks| banks[0]).collect();
+        let night_art_slots = slots.iter().map(|banks| banks[1]).collect();
         let stats = HeroStats {
             experience: stats.experience,
             gold: stats.gold,
@@ -262,6 +263,7 @@ fn convert_one(dir: &Path, source: String, data: &[u8]) -> Result<(HeroEntry, Su
                 equipment,
                 sets,
                 art_slots,
+                night_art_slots,
                 selected,
             },
             info,
@@ -365,11 +367,17 @@ mod tests {
             opensacred_data::text::sacred_hash(b"GEN_GR_FE_RING2"),
             0x866A_F7CF & 0x7FFF_FFFF
         );
-        // His bar's four weapon arts, his fourth set and his second slot selected.
+        // His bar's four weapon arts, his fourth set and his second slot selected, the second
+        // bank, the Vampiress's night's, empty (docs/02 §9).
         assert_eq!(
-            (saved.art_slots.clone(), saved.selected),
+            (
+                saved.art_slots.clone(),
+                saved.night_art_slots.clone(),
+                saved.selected
+            ),
             (
                 vec![(3, 1080), (3, 1082), (3, 1085), (3, 1087), (0, 0)],
+                vec![(0, 0); 5],
                 [3, 1]
             )
         );
