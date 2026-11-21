@@ -39,6 +39,10 @@ Most models fill few slots: a thief's idle `THFM_IDLE_BH` fills 1, 14 and 21, it
 
 A creature that walks on a run's clip so moves at its run speed, which `0x4F75F0` takes by the gait (docs/re/movement.md, "The speed").
 
+The actions that play a slot themselves through `0x593320` (a shot's 145, the Seraphim's bolts' 145 and 164) take no stand-in (read 2026-11-21 for #3031, **confirmed** by code): `0x593320` asks the model for the slot's clip (`0x4118B0`), the slot 174 trying 173 after it, and where it has none it only sets the creature's `+0xB0` bit 1 and returns, starting nothing; the clip in play goes on and the slot in play (`+0x64`) stays.
+So an action that times itself by the clip in play times itself by that one: the ice druid's shot of the Seraphim's bolts (its model has no clip in 145 or 164) looses at the fraction of its art's cast, the slot 154 that its executor started before it (docs/re/fight.md, "The archers"), its bolt 0.52 s after the shot asked for 145 (**seen** 2026-11-19).
+The game plays an attack clip at the shot's rate there (#3303).
+
 ## The class of what a creature holds
 
 `0x546F80` gives the class from the creature's two hands, the left (`+0x1D4`) and the right (`+0x1D8`), each counted when it holds a `cWeapon3D`:

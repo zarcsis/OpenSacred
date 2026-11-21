@@ -12775,8 +12775,8 @@ fn strike(
 ) {
     for (entity, mut npc, mut strikes, walking, at, combat, mind) in &mut strikers {
         // A shot of bolts takes its bolt's own clip, with the fractions of its name (`0x4DCB80`);
-        // where its model lacks the slot, one of its attack's as the hero's does (what the
-        // original plays then is not read, #3031).
+        // where its model lacks the slot, one of its attack's as the hero's does, where the
+        // original plays nothing and keeps the clip in play (#3303).
         let bolt_clip = match (strikes.playing, strikes.bolt) {
             (None, Some(bolt)) => slot_clip(&mut npc, bolt.slot(), &data, (&gltfs, &mut graphs))
                 .map(|(node, clip)| {
