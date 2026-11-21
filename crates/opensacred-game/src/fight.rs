@@ -222,12 +222,31 @@ pub struct KnockMarks(pub u8);
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Immortal;
 
+/// The scripts' mark to rise again on a struck creature (`+0x2B7` bit 8, `npcs::RisesAgain`;
+/// docs/re/ai.md, "The scripts' hired followers"): whether it bears the mark, a hero's strike or
+/// another's (`hero`), on Sharifa or another (`sharifa`), of a hero for its master, of a dialogue,
+/// and of a function of the scripts but an item's and a sight's: the mark it bears after the
+/// strike, and whether the strike leaves its health. A hero's strike clears the mark from one of
+/// no dialogue, no such function and no hero for its master (`0x56B296`–`0x56B306`); Sharifa
+/// takes it at every strike (`0x56B316`); and with it and no hero for its master the health's fall
+/// is skipped (`0x56F859`).
+fn marked_after(
+    marked: bool,
+    (hero, sharifa): (bool, bool),
+    (mastered, talks, functions): (bool, bool, bool),
+) -> (bool, bool) {
+    let cleared = marked && hero && !talks && !functions && !mastered;
+    let marked = (marked && !cleared) || sharifa;
+    (marked, marked && !mastered)
+}
+
 /// Resolves each hit (`0x56B130`), weighed by the difficulty between the hero and a creature
 /// ([`weighed`]), a hit at range with its attack times the range's factor of the distance between
 /// the attacker and the target ([`range_factor`], `0x56B449`), and a creature's at the hero, but a
 /// boss's or a champion's, with its damage times the factor of its level ([`weapons_factor`],
 /// `0x56A890`): a target without a health, or dying, ignores it; else the strike may miss, and
-/// its damage takes the target's health down, shows over it, and at 0 the target dies (the AI's
+/// its damage takes the target's health down, but for one that the scripts' mark spares
+/// ([`marked_after`]), shows over it, and at 0 the target dies (the AI's
 /// state 9, `0x53E7C0`), one of its two dying clips at random, and a hero that killed it earns
 /// its experience (the event 9, `0x57D860`), a creature that killed it through a [`Kill`].
 #[expect(
@@ -294,6 +313,12 @@ pub(crate) fn resolve(
                     Option<&KnockMarks>,
                     Option<&crate::npcs::ScriptClip>,
                 ),
+                (
+                    Has<crate::followers::Follower>,
+                    Has<crate::npcs::RisesAgain>,
+                    Has<crate::npcs::Talk>,
+                    Option<&crate::npcs::OnDeath>,
+                ),
             ),
         ),
         Without<Dies>,
@@ -333,7 +358,15 @@ pub(crate) fn resolve(
                 worth,
                 hero_hit,
                 rank,
-                (immortal, victim, guarded, arms, seat, (downed, knock_marks, clip)),
+                (
+                    immortal,
+                    victim,
+                    guarded,
+                    arms,
+                    seat,
+                    (downed, knock_marks, clip),
+                    (followed, rises, talks, on_death),
+                ),
             )),
         ) = (attackers.get(hit.attacker), targets.get_mut(hit.target))
         else {
@@ -380,6 +413,25 @@ pub(crate) fn resolve(
                     });
                 }
                 continue;
+            }
+        }
+        // The scripts' mark to rise again, which a hero's strike may clear and Sharifa takes, and
+        // which spares the struck one while no hero is its master (#3294).
+        let sharifa =
+            victim.is_some_and(|victim| victim.creature == opensacred_rules::casts::SHARIFA);
+        let functions = on_death.is_some_and(|on_death| on_death.0.holds());
+        let (marked, unharmed) = marked_after(rises, (hero, sharifa), (followed, talks, functions));
+        if marked != rises {
+            debug!(
+                "fight: {} strikes {}, marked {marked}",
+                hit.attacker, hit.target
+            );
+            if marked {
+                commands.entity(hit.target).insert(crate::npcs::RisesAgain);
+            } else {
+                commands
+                    .entity(hit.target)
+                    .remove::<crate::npcs::RisesAgain>();
             }
         }
         // A defender in its defending clip, a parry's or a script's (the slots 53 to 65), doubles
@@ -777,7 +829,7 @@ pub(crate) fn resolve(
         // The struck one's health falls by the strike (`0x56F8B9`–`0x56F9AA`), what it held before
         // kept for the leech (`0x56F855`).
         let before = health.current;
-        if !immortal {
+        if !immortal && !unharmed {
             health.current = health.current.saturating_sub(damage);
         }
         // A lethal blow on a rider leaves it 1 health and fells its horse instead, whose death
@@ -2121,6 +2173,51 @@ mod tests {
     }
 
     #[test]
+    fn the_scripts_mark_spares_a_creature_without_a_hero_for_its_master() {
+        // Marked, no hero its master: a creature's strike leaves it; a hero's clears the mark
+        // from one of no dialogue nor function and harms it, but not from one of a dialogue or a
+        // function.
+        assert_eq!(
+            marked_after(true, (false, false), (false, false, false)),
+            (true, true)
+        );
+        assert_eq!(
+            marked_after(true, (true, false), (false, false, false)),
+            (false, false)
+        );
+        assert_eq!(
+            marked_after(true, (true, false), (false, true, false)),
+            (true, true)
+        );
+        assert_eq!(
+            marked_after(true, (true, false), (false, false, true)),
+            (true, true)
+        );
+        // A hero its master: the mark stays and spares nothing.
+        assert_eq!(
+            marked_after(true, (true, false), (true, false, false)),
+            (true, false)
+        );
+        // Unmarked: harmed, but Sharifa takes the mark at every strike, a hero's too.
+        assert_eq!(
+            marked_after(false, (false, false), (false, false, false)),
+            (false, false)
+        );
+        assert_eq!(
+            marked_after(false, (true, true), (false, false, false)),
+            (true, true)
+        );
+        assert_eq!(
+            marked_after(true, (true, true), (false, false, false)),
+            (true, true)
+        );
+        assert_eq!(
+            marked_after(false, (false, true), (true, false, false)),
+            (true, false)
+        );
+    }
+
+    #[test]
     fn an_immortal_takes_the_hits_but_keeps_its_health() {
         let combat = Combat(opensacred_rules::fight::Combat {
             attack: 200.0,
@@ -2163,7 +2260,17 @@ mod tests {
         let immortal = world
             .spawn((combat, health, GlobalTransform::default(), Immortal))
             .id();
-        for target in [mortal, immortal] {
+        // One that the scripts mark to rise again, of no hero for its master, which a creature's
+        // strikes leave (#3294).
+        let marked = world
+            .spawn((
+                combat,
+                health,
+                GlobalTransform::default(),
+                crate::npcs::RisesAgain,
+            ))
+            .id();
+        for target in [mortal, immortal, marked] {
             for _ in 0..50 {
                 world.write_message(Hit {
                     attacker: hero,
@@ -2182,6 +2289,8 @@ mod tests {
         let current = |entity| app.world().get::<Health>(entity).unwrap().current;
         assert!(current(mortal) < health.current);
         assert_eq!(current(immortal), health.current);
+        assert_eq!(current(marked), health.current);
+        assert!(app.world().get::<crate::npcs::RisesAgain>(marked).is_some());
     }
 
     /// The attacker's health and the health that the struck one lost after one sure strike of
