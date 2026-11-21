@@ -204,8 +204,8 @@ pub struct Downed {
 }
 
 /// A player's hero knocked back by a whirlwind's strike (the event of the kind 3, `0x531AF7`,
-/// #2901): where the whirlwind struck from, and how far it still slides (`+0x24D`), which each
-/// new knock sets anew (`knock_down::slide`).
+/// #2901): the place of the whirlwind's caster, the event's sender (#3305), and how far it still
+/// slides (`+0x24D`), which each new knock sets anew (`knock_down::slide`).
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct Pushed {
     pub from: Vec3,

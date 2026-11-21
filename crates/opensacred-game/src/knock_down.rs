@@ -6,7 +6,7 @@
 //! settlement at its whole health (`0x54808A`).
 //!
 //! A player's hero knocked back by a creature's whirlwind (#2901, [`Pushed`]): it leaves what it
-//! does, stands in its idle clip and slides away from the whirlwind until it has gone the knock's
+//! does, stands in its idle clip and slides away from the whirlwind's caster until it has gone the knock's
 //! distance, which each new strike sets anew (the event of the kind 3, `0x531AF7`, which the
 //! original's hero takes as a creature does; seen 2026-11-19).
 //!
@@ -99,7 +99,7 @@ fn pushed(
     }
 }
 
-/// Slides the hero knocked back away from where its whirlwind struck it, at the knocked
+/// Slides the hero knocked back away from its whirlwind's caster (#3305), at the knocked
 /// creatures' speed, until it has gone what is left (`0x594D12`, as `making::Knocked`), onto
 /// where it may stand, a cell it may not enter ending it; then it is free.
 fn slide(

@@ -746,7 +746,19 @@ fn fly(
             });
         }
         // The whirlwind's knockback first, on each of no big type below its level (`0x5AD135`):
-        // a creature's whirlwind's on the hero too, below it by the hero's level (#2901).
+        // a creature's whirlwind's on the hero too, below it by the hero's level (#2901). Its
+        // sender is the bolt's caster (`+0x54`, `0x5AD27A`), so that the struck slide away from
+        // the caster's place, along the bolts' way (`0x594D12`; #3305), from the bolt's where
+        // the caster is gone.
+        let kicker = shooters
+            .get(bolt.shooter)
+            .map(|at| at.translation)
+            .or_else(|_| {
+                creatures
+                    .get(bolt.shooter)
+                    .map(|(_, at, ..)| at.translation)
+            })
+            .unwrap_or(transform.translation);
         if let Some((left, below)) = course.knocks {
             for &target in &struck {
                 if heroes.contains(target) {
@@ -755,10 +767,9 @@ fn fly(
                         .map_or(1, |experience| experience.level);
                     if opensacred_rules::spells::whirlwind_knocks_back(below, level, false, false) {
                         debug!("bolts: {entity} knocks the hero back {left:.0}");
-                        commands.entity(target).insert(fight::Pushed {
-                            from: transform.translation,
-                            left,
-                        });
+                        commands
+                            .entity(target)
+                            .insert(fight::Pushed { from: kicker, left });
                     }
                     continue;
                 }
@@ -776,7 +787,7 @@ fn fly(
                         .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
                         .insert(crate::making::Knocked {
                             by: bolt.shooter,
-                            from: transform.translation,
+                            from: kicker,
                             left,
                             held: 0.0,
                             throw: None,
