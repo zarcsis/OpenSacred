@@ -437,7 +437,7 @@ impl Stock {
     /// page in turn): for another merchant than the last, each page emptied and filled; for the
     /// same, in one case of two up to five cells emptied and `R(1, 2k)` tries made of the `k`
     /// items that left; the potions topped up either way. A merchant's own items that the scripts
-    /// give it (`0x6DA1A0`) are not followed.
+    /// give it (`0x6DA1A0`) are none in the release (docs/re/trade.md, "The stock", #2939).
     pub fn visit(
         &mut self,
         merchant: u64,
