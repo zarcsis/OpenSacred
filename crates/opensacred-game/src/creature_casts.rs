@@ -825,6 +825,7 @@ fn act(
                         side: mind.side,
                         floor: way.level,
                         left: SUMMONS,
+                        hired: false,
                     },
                     Transform::from_xyz(x, here.y, z),
                     DespawnOnExit(AppState::InGame),
@@ -1115,7 +1116,8 @@ fn raise(world: &mut World, caster: Entity, kind: u32, here: Vec3) {
 /// creature it makes, of the caster's level and side, on the caster's level, and the time until
 /// it makes it (seen in the original, #1869: the black magician 264 of level 30 and the side 14
 /// summoned a 567 of level 30 and the side 14, hostile, not hired; the level the caster's is a
-/// **hypothesis** of that one case).
+/// **hypothesis** of that one case); or the goblin mages' ball's ring's (`0x5A7531`), whose
+/// creature its caster hires ([`Hired`]).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Summoning {
     caster: Entity,
@@ -1124,6 +1126,7 @@ pub struct Summoning {
     side: u8,
     floor: Level,
     left: f32,
+    hired: bool,
 }
 
 /// How long a summoning takes to make its creature: its phase, at 2 a second, passing 3.0, as the
@@ -1134,6 +1137,49 @@ const SUMMONS: f32 = 1.5;
 /// summons none (`casts::mage_spell`).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Summoned(pub Entity);
+
+/// A creature that a creature hired, the goblin mages' ball's ring's (`sdk_HIRE`'s branch of a
+/// creature master, `0x54CF70`): of its master's side, its flags word 1, in its master's list and
+/// so in no follower's ways (no master at `+0x251`, no flag `0x100`), it fights as any creature
+/// of its side; its master dismisses it as it dies ([`dismiss`], #3224).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct Hired;
+
+/// How far from its home a dismissed creature's home moves to it (`0x54D380`).
+const DISMISSED_HOME: f32 = 600.0;
+
+/// Dismisses each creature that a creature hired as its master dies or goes (`0x54D380`): out of
+/// its master's list, stopped where it does not fight, and its home moved to its place where that
+/// lies farther than 600 from it.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
+fn dismiss(
+    mut commands: Commands,
+    mut hired: Query<(Entity, &Summoned, &mut Mind, &Transform), (With<Hired>, Without<Dies>)>,
+    masters: Query<(), Without<Dies>>,
+) {
+    for (entity, summoned, mut mind, at) in &mut hired {
+        if masters.contains(summoned.0) {
+            continue;
+        }
+        debug!(
+            "creature_casts: {entity} is dismissed by its master {}",
+            summoned.0
+        );
+        let mut dismissed = commands.entity(entity);
+        dismissed.remove::<(Summoned, Hired)>();
+        if !mind.fighting() {
+            dismissed.remove::<crate::npcs::Walk>();
+        }
+        let here = opensacred_rules::minds::Spot::new(at.translation.x, at.translation.z);
+        let (dx, dy) = (here.x - mind.home.x, here.y - mind.home.y);
+        if dx.hypot(dy) > DISMISSED_HOME {
+            mind.home = here;
+        }
+    }
+}
 
 /// Makes the creature of each summoning whose time is up.
 fn summon(
@@ -1195,6 +1241,9 @@ fn make_summoned(world: &mut World, summoning: Summoning, at: Vec3) {
             mind.side = summoning.side;
         }
         creature.insert(Summoned(summoning.caster));
+        if summoning.hired {
+            creature.insert(Hired);
+        }
     }
 }
 
@@ -1524,6 +1573,7 @@ fn throw(
                         side: mind.side,
                         floor: ball.level,
                         left: opensacred_rules::particles::GOBLIN_SUMMONS,
+                        hired: true,
                     },
                     Transform::from_translation(ball.to),
                     DespawnOnExit(AppState::InGame),
@@ -1748,7 +1798,7 @@ impl Plugin for CreatureCastsPlugin {
             Update,
             (
                 (pending, ordered, begin, act, end).chain(),
-                summon,
+                (summon, dismiss),
                 home,
                 throw,
                 burn,
@@ -1794,6 +1844,46 @@ mod tests {
             let clip = app.world().get::<ScriptClip>(flower);
             let played = clip.and_then(ScriptClip::rate).unwrap_or_default();
             assert!((played - rate).abs() < 1e-3, "{played} for {rate}");
+        }
+    }
+
+    #[test]
+    fn a_hired_creature_is_dismissed_as_its_master_dies_its_home_moved_from_afar() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins).add_systems(Update, dismiss);
+        let mind = || {
+            Mind::new(
+                Vec3::ZERO,
+                0x1,
+                (false, false),
+                None,
+                [10.0, 20.0],
+                (76, 10),
+            )
+        };
+        let master = app.world_mut().spawn_empty().id();
+        // One 700 from its home, one 300 from it.
+        let [far, near] = [700.0, 300.0].map(|x| {
+            app.world_mut()
+                .spawn((
+                    Summoned(master),
+                    Hired,
+                    mind(),
+                    Transform::from_xyz(x, 0.0, 0.0),
+                ))
+                .id()
+        });
+        // While its master lives, nothing.
+        app.update();
+        assert!(app.world().get::<Hired>(far).is_some());
+        app.world_mut().entity_mut(master).despawn();
+        app.update();
+        for (creature, home) in [(far, 700.0), (near, 0.0)] {
+            let world = app.world();
+            assert!(world.get::<Hired>(creature).is_none());
+            assert!(world.get::<Summoned>(creature).is_none());
+            let mind = world.get::<Mind>(creature).unwrap();
+            assert_eq!((mind.home.x, mind.home.y), (home, 0.0));
         }
     }
 
