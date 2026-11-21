@@ -16,7 +16,7 @@
 //! health is below its most, gives back its share of the most health; a purple or a blue one gives
 //! the drinker its effect 33, one alone of its whole value; a green one cures its effects 30; a
 //! yellow one sets every combo's regeneration to its cocktail's factor of the combo's time
-//! (#1531). Each is then used up, with the sound of an item used up (`0x5D8000`); a healing
+//! (#1531); 6081 and 6094 give the butterflies' effect 31 (`knockouts`, #3023). Each is then used up, with the sound of an item used up (`0x5D8000`); a healing
 //! potion at full health is not.
 //!
 //! The slots' sparkles are `sparkles`' (#1272), their tooltips `bar_tips`' (#1684). Not followed:
@@ -283,6 +283,15 @@ pub(crate) fn drunk(
         Some(Drink::Cures(per_cent)) => {
             affect(commands, drinker, move |effects| effects.cure(per_cent));
             info!("belt: {who} drinks {item}: the poison cured by {per_cent} %");
+        }
+        // The butterflies' effect 31 (#3023).
+        Some(Drink::KnocksOut) => {
+            let art = crate::knockouts::potion_art(dice);
+            commands.write_message(crate::knockouts::KnockOut {
+                creature: Some(drinker),
+                art,
+            });
+            info!("belt: {who} drinks {item}: the effect 31 of the art {art}");
         }
         // The combos' regeneration set to the cocktail's factor of their times (#1531).
         Some(Drink::Refills(factor)) if hero => {

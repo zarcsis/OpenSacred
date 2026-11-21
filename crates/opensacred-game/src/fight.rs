@@ -777,6 +777,8 @@ pub(crate) fn resolve(
                     },
                     KnockMarks(marks + 1),
                 ));
+                // Its butterflies, white for 6 s (the object 874, `0x56E7D2`; #3023).
+                crate::knockouts::knocked_down(&mut commands, hit.target);
                 if seat.and_then(crate::riding::Seat::ridden).is_some() {
                     let me = hit.target;
                     commands.queue(move |world: &mut World| crate::riding::throw_off(world, me));

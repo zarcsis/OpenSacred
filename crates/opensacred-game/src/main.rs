@@ -152,6 +152,7 @@ mod item_pictures;
 mod journal;
 mod killer_plants;
 mod knock_down;
+mod knockouts;
 mod labels;
 mod laser_fences;
 mod lava_bursts;
@@ -670,6 +671,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         journal::JournalPlugin,
         killer_plants::KillerPlantsPlugin,
         knock_down::KnockDownPlugin,
+    ))
+    .add_plugins(knockouts::KnockoutsPlugin)
+    .add_plugins((
         labels::LabelsPlugin,
         laser_fences::LaserFencesPlugin,
         lava_bursts::LavaBurstsPlugin,

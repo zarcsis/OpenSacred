@@ -113,6 +113,24 @@ impl Effects {
         }
     }
 
+    /// Adds the butterflies' effect 31 `effect` for `seconds` as `0x582D50` does (at `0x58437C`;
+    /// #3023): to the first that holds, its seconds then `seconds`, its art grown by `effect`'s
+    /// where that is the larger, its value the larger of the two; else at the list's end. The art
+    /// that its butterflies then take (`0x584528`): the one that holds, else `effect`'s.
+    pub fn knock_out(&mut self, effect: Effect, seconds: f32) -> u32 {
+        let held = self.0.iter_mut().find(|timed| timed.effect.id == effect.id);
+        let Some(timed) = held else {
+            self.add(effect, seconds);
+            return effect.art;
+        };
+        timed.left = seconds;
+        if timed.effect.art < effect.art {
+            timed.effect.art = timed.effect.art.saturating_add(effect.art);
+        }
+        timed.effect.value = timed.effect.value.max(effect.value);
+        timed.effect.art
+    }
+
     /// A green potion's cure of `per_cent` (`0x582D50` at `0x583F1B`): each effect 30 keeps the
     /// value `potions::cured` leaves it, or ends at once.
     pub fn cure(&mut self, per_cent: u32) {
@@ -511,6 +529,22 @@ impl Plugin for EffectsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_butterflies_effect_renews_its_seconds_and_grows_its_art() {
+        let of = |art| Effect {
+            art,
+            ..Effect::new(opensacred_rules::fight::effects::KNOCKOUT, 0.0)
+        };
+        let mut effects = Effects::default();
+        assert_eq!(effects.knock_out(of(500), 10.0), 500);
+        // A smaller art renews the seconds alone; a larger one grows the held art by itself.
+        effects.0[0].left = 3.0;
+        assert_eq!(effects.knock_out(of(400), 10.0), 500);
+        assert_eq!(effects.0[0].left, 10.0);
+        assert_eq!(effects.knock_out(of(600), 10.0), 1100);
+        assert_eq!(effects.0.len(), 1);
+    }
 
     #[test]
     fn a_saved_poison_keeps_its_dose_but_not_its_source() {

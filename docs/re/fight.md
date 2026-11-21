@@ -369,7 +369,7 @@ Read 2026-11-08 for #2311 (`0x56B130` at `0x56E366`–`0x56E8CC`, after the woun
 
 Since #2311 `opensacred-game` follows it (`opensacred_rules::fight::{knocks_down, knocked_damage}`, `fight::{Downed, KnockMarks}`, the module `knock_down`): outside the god mode, the hero knocked down falls by its slot 228, is thrown off its horse first (`riding::throw_off`), is thrown back 150 from its attacker where it may stand, lies 5 s doing nothing else, its near hostiles' strikes ended, and keeps a ninth of its health; its marks clear in a settlement at its whole health.
 **Seen** in the game: the Seraphim of the level 1 at 17 health struck by a creature 76 of the level 15 fell to 1, took 0 from its strikes while she lay, got up after 5 s, fell again at the next heavy blow, and the third killed her.
-Not followed: the unconscious line, which no hero's type has (`tables/voices.ron`; the companions' are #3087), the object 874 (#3023), the turn to the attacker (#3079), and the `+0x2B7` bit 8 (the scripts' tag `0x6B` sets it, docs/re/netscript.md, "`SetNPCState`"), which none of the 18 `CreateNPC` and `SetNPCState` records naming the hero in the Seraphim's two trees carries.
+Not followed: the unconscious line, which no hero's type has (`tables/voices.ron`; the companions' are #3087), the turn to the attacker (#3079), and the `+0x2B7` bit 8 (the scripts' tag `0x6B` sets it, docs/re/netscript.md, "`SetNPCState`"), which none of the 18 `CreateNPC` and `SetNPCState` records naming the hero in the Seraphim's two trees carries.
 
 ## An NPC's attack, defence and damage
 

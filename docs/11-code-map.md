@@ -264,6 +264,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/journal.rs`: The log, readable in the game and after it
 - `crates/opensacred-game/src/killer_plants.rs`: The look of the thorns' plants
 - `crates/opensacred-game/src/knock_down.rs`: A player's hero knocked down by a heavy blow
+- `crates/opensacred-game/src/knockouts.rs`: The butterflies over a head
 - `crates/opensacred-game/src/labels.rs`: The labels while Alt is held
 - `crates/opensacred-game/src/laser_fences.rs`: The scripts' fences of lightning
 - `crates/opensacred-game/src/lava_bursts.rs`: The lava bursts

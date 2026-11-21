@@ -115,7 +115,13 @@ pub enum Drink {
     /// cocktail over the difficulty's `PotionDiv` (`0x562470` with the kind 3 and the time −40
     /// times its per cent, `crate::combos::refilled`).
     Refills(f32),
+    /// The potions 6081 and 6094: the butterflies' effect 31 for 10 s, its art
+    /// `rand() % 601 + 400` (`0x582D50(31, 0, 0.0, 10.0, art)` at `0x5CB8A4`), used up.
+    KnocksOut,
 }
+
+/// The potions that give the butterflies' effect 31 ([`Drink::KnocksOut`]).
+const KNOCK_OUTS: [u32; 2] = [6081, 6094];
 
 /// The balance's cocktails of the yellow potions by size, small to large (`DriversComboCocktail`,
 /// `ComboCocktail`, `JumboComboCocktail`, at `0xAD5788`, `0xAD5784` and `0xAD5780`).
@@ -213,11 +219,14 @@ impl Potions {
     /// What a potion of the type `item` does to its drinker (`0x5CAA60`): a healing potion
     /// heals; the purple ones (5137, 5142, 5168) give the effect 33 of the whole value 4 and the
     /// blue ones (5138, 5143, 5169) of the whole value 5; the green ones (5139, 5144, 5170) cure
-    /// and the yellow ones (5141, 5146, 5172) refill by 100, 50 or 25 per cent; none for another
-    /// type, which is drunk to no effect and kept.
+    /// and the yellow ones (5141, 5146, 5172) refill by 100, 50 or 25 per cent; 6081 and 6094 give
+    /// the butterflies' effect; none for another type, which is drunk to no effect and kept.
     pub fn drink(&self, item: u32) -> Option<Drink> {
         if let Some(share) = self.heals(item) {
             return Some(Drink::Heals(share));
+        }
+        if KNOCK_OUTS.contains(&item) {
+            return Some(Drink::KnocksOut);
         }
         let size = Size::of_others(item)?;
         let lasts = |whole: i32, (value, seconds): (f32, [f32; 3])| {
