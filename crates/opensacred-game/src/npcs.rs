@@ -10133,6 +10133,15 @@ pub(crate) fn script_healths(
     }
 }
 
+/// A creature whose queue is gone waits no more: it hears its foes again (#3253).
+fn hear_again(gone: On<Remove<ScriptQueue>>, mut minds: Query<&mut ai::Mind>) {
+    if let Ok(mut mind) = minds.get_mut(gone.entity)
+        && mind.thinks.deaf()
+    {
+        mind.thinks.waits(false);
+    }
+}
+
 /// Lifts the dead creature `entity` out of its death (`0x59E151`'s `PlayAnim` over the dying
 /// action, `0x48E280`'s stop `0x54E6D0`; #2477): its mind, out of its fight, and its place in the
 /// way back from what it kept aside as it died ([`Stashed`]), its dying and its body's mark gone.
@@ -10782,8 +10791,21 @@ fn take_steps(
                     ),
                 };
                 let holds = until.holds(state, real.elapsed_secs_f64());
-                if holds && until.stops() {
+                let deaf = holds && until.stops();
+                if deaf {
                     commands.entity(entity).remove::<Walk>();
+                }
+                // Held, it takes no foes' event, does not part and is stopped where it fights
+                // (`+0x200` bit `0x10`, `0x54E6D0`, #3253); done, it hears them again.
+                if mind.is_some_and(|mind| mind.thinks.deaf() != deaf || (deaf && mind.fighting()))
+                {
+                    commands.entity(entity).queue(
+                        move |mut creature: bevy::ecs::world::EntityWorldMut| {
+                            if let Some(mut mind) = creature.get_mut::<ai::Mind>() {
+                                mind.thinks.waits(deaf);
+                            }
+                        },
+                    );
                 }
                 !holds
             }
@@ -14079,6 +14101,7 @@ impl Plugin for NpcsPlugin {
             .add_observer(retexture)
             .add_observer(equipment_ready)
             .add_observer(keep)
+            .add_observer(hear_again)
             .add_systems(
                 Update,
                 (
@@ -16537,6 +16560,53 @@ mod tests {
         app.update();
         assert!(fights(&app));
         assert!(app.world().get::<ScriptQueue>(guard).is_none());
+    }
+
+    /// A creature waiting on a `Wait` while another lives (#3253): it leaves its fight and is
+    /// deaf to its foes until the wait ends.
+    #[test]
+    fn a_creature_waiting_in_its_queue_is_deaf_until_its_wait_ends() {
+        let mut tick = WorldTick::default();
+        tick.gather(0.2);
+        let mut app = App::new();
+        app.add_plugins(bevy::prelude::MinimalPlugins)
+            .insert_resource(tick)
+            .insert_resource(Heights::house())
+            .add_message::<sfx::Play>()
+            .add_systems(Update, take_steps)
+            .add_observer(hear_again);
+        let mind = || {
+            ai::Mind::new(
+                Vec3::ZERO,
+                0x1,
+                (false, false),
+                None,
+                [70.0, 140.0],
+                (76, 2),
+            )
+        };
+        let mona = app
+            .world_mut()
+            .spawn((Transform::default(), ScriptName("mona".into()), mind()))
+            .id();
+        let mut fighter = mind();
+        assert!(fighter.send_at_hero());
+        let wait = Queued::Wait {
+            other: Some("mona".into()),
+            until: Until::Lives,
+        };
+        let waiter = app
+            .world_mut()
+            .spawn((Transform::default(), fighter, ScriptQueue([wait].into())))
+            .id();
+        app.update();
+        let thinks = |app: &App| app.world().get::<ai::Mind>(waiter).unwrap().thinks.clone();
+        assert!(thinks(&app).deaf() && !thinks(&app).fighting());
+        // Mona gone, the wait ends, and it hears its foes again.
+        app.world_mut().despawn(mona);
+        app.update();
+        assert!(!thinks(&app).deaf());
+        assert!(app.world().get::<ScriptQueue>(waiter).is_none());
     }
 
     /// Anducar dead, his queue of `QIS_OnEnter56` (#2477): the dead one's walk goes nowhere, its

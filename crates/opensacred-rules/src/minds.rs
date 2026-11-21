@@ -855,6 +855,9 @@ pub struct Mind {
     /// it has fled in this fight (`+0x1F4` bit `0x200`).
     fighting: bool,
     fled: bool,
+    /// Whether it waits in its queue on a `Wait` of the conditions `0x58` to `0x5C` (`+0x200` bit
+    /// `0x10`, #3253): it takes no event `0x100` and does not part ([`Self::waits`]).
+    deaf: bool,
     /// A caster's (`crate::casts`, #1852): the second of the real clock from which it may cast
     /// again (`+0x24D`), the decisions it stands facing its target (`+0x129`), its decisions on
     /// its casting path (`+0x12A`), whether it was ordered a cast in this fight (`+0x12B` 2) and
@@ -988,6 +991,7 @@ impl Mind {
             fun: 0,
             woman: false,
             fighting: false,
+            deaf: false,
             fled: false,
             cast_deadline: 0.0,
             stands: 0,
@@ -1050,6 +1054,23 @@ impl Mind {
         hostile(self.side, self.creature, other.side, other.creature)
     }
 
+    /// It waits in its queue on a `Wait` of the conditions `0x58` to `0x5C`, `deaf`, or no more
+    /// (`0x59CAA5`, docs/re/netscript.md, "`Wait`"): under `+0x200` bit `0x10` a creature takes no
+    /// event `0x100` (`0x52FA63`), the guards' and the alarms' call to fight, and does not part,
+    /// and the wait stops it at each tick it is not idle (`0x54E6D0(1, 0)`), so that it leaves a
+    /// fight it was in (#3253).
+    pub fn waits(&mut self, deaf: bool) {
+        self.deaf = deaf;
+        if deaf && self.fighting {
+            self.leaves_fight();
+        }
+    }
+
+    /// Whether it waits deaf to its foes ([`Self::waits`]).
+    pub fn deaf(&self) -> bool {
+        self.deaf
+    }
+
     /// Whether a guard awake attacks the nearest creature hostile to it, standing at `foe`
     /// (`0x4EF150`, `0x4EEE40`): within 500 of it, it sends itself the event `0x100` with the
     /// creature, which takes the AI's state 4 with it for its target (`0x52FA63`), unless it fights
@@ -1059,6 +1080,7 @@ impl Mind {
         if !self.active
             || !self.is_guard()
             || self.fighting
+            || self.deaf
             || (foe - here).length() >= GUARD_ATTACKS
         {
             return false;
@@ -1072,7 +1094,7 @@ impl Mind {
     /// A follower sent at a foe by the event `0x100` (`0x52FA63`): it takes the AI's state 4, or 8
     /// with a ranged weapon, as any creature does, unless it fights already; whether it does.
     pub fn sent_at(&mut self) -> bool {
-        if self.fighting {
+        if self.fighting || self.deaf {
             return false;
         }
         self.fighting = true;
@@ -1381,7 +1403,12 @@ impl Mind {
     /// The alarm of the group `group` (`0x46AE70`): it sends the group's hostile members at the
     /// hero; whether it sends this one, which leaves any other as it is.
     pub fn hears_alarm(&mut self, group: u32) -> bool {
-        if self.group == Some(group) && self.hostile() && !self.fighting && !self.to_door {
+        if self.group == Some(group)
+            && self.hostile()
+            && !self.fighting
+            && !self.to_door
+            && !self.deaf
+        {
             self.fighting = true;
             self.deciding = true;
             true
@@ -1401,7 +1428,7 @@ impl Mind {
     /// that creature for its foe, whatever its side; whether it does. One with a ranged weapon
     /// fights it at range (#670).
     pub fn joins(&mut self, group: u32) -> bool {
-        if self.group != Some(group) || !self.idle() {
+        if self.group != Some(group) || !self.idle() || self.deaf {
             return false;
         }
         self.fighting = true;
@@ -2793,6 +2820,7 @@ impl Mind {
             && !self.dialogue
             && !self.trader
             && !self.fighting
+            && !self.deaf
             && rng.below(PARTS) == 0)
             .then(|| parting(self.home, here, rng));
         if to.is_some() && self.flies && on_ground {
@@ -8289,6 +8317,64 @@ mod tests {
         let mut archer = on_guard();
         archer.ranged = true;
         assert!(archer.guards(here, at(100.0, 0.0)) && archer.fighting());
+    }
+
+    #[test]
+    fn a_creature_waiting_in_its_queue_is_deaf_to_its_foes() {
+        // `+0x200` bit `0x10` (#3253): a guard waiting leaves its fight, takes no event `0x100`,
+        // its own, an alarm's or a sending's, and does not part; done, it hears them again.
+        let here = Spot::default();
+        let mut guard = on_guard();
+        guard.group = Some(7);
+        assert!(guard.guards(here, at(100.0, 0.0)));
+        guard.waits(true);
+        assert!(guard.deaf() && !guard.fighting());
+        guard.active = true;
+        assert!(!guard.guards(here, at(100.0, 0.0)));
+        assert!(!guard.sent_at());
+        assert!(!guard.joins(7));
+        assert!(!guard.hears_alarm(7));
+        let mut rng = Rng::of(1, 2, 3);
+        for _ in 0..60 {
+            assert!(guard.parts(here, (true, true), &mut rng).is_none());
+        }
+        guard.waits(false);
+        assert!(!guard.deaf());
+        assert!(guard.sent_at() && guard.fighting());
+        // Hearing again leaves a fight it took up as it was.
+        guard.waits(false);
+        assert!(guard.fighting());
+    }
+
+    #[test]
+    fn the_groups_alarm_sends_its_hostile_idle_members_at_the_hero() {
+        let member = || {
+            Mind::new(
+                Spot::default(),
+                0x1,
+                (false, false),
+                Some(7),
+                SPEEDS,
+                (76, 14),
+            )
+        };
+        let mut idle = member();
+        assert!(idle.hostile());
+        assert!(!idle.hears_alarm(8));
+        assert!(idle.hears_alarm(7) && idle.fighting());
+        // Not one that fights already, goes for a door, waits deaf, or is no foe of the heroes.
+        assert!(!idle.hears_alarm(7));
+        let mut to_door = member();
+        to_door.to_door = true;
+        let mut deaf = member();
+        deaf.waits(true);
+        let mut friend = member();
+        friend.turned = true;
+        assert!(!friend.hostile());
+        for mut other in [to_door, deaf] {
+            assert!(!other.hears_alarm(7));
+        }
+        assert!(!friend.hears_alarm(7));
     }
 
     #[test]
