@@ -25,8 +25,10 @@
 //! the hero's sets know the enemies (set 3 at 4 pieces, `UI_KNOW_ENEMY`), the foe that the cursor
 //! picks tells its values under its name ([`foe_values`]).
 //!
-//! Not followed: the mounts' labels and the stargate 1180's; the townsfolk's doings' icons under
-//! Alt are `icons`' (#2234).
+//! A ridden horse's label is its rider's, about the horse's halved box, and the rider's own is
+//! not drawn (`0x627303`, `0x6276D9`; **seen**, #2927); a horse standing alone, of the bit 26,
+//! takes none. Not followed: the stargate 1180's (#3271); the townsfolk's doings' icons under Alt are
+//! `icons`' (#2234).
 
 use std::collections::{HashMap, HashSet};
 
@@ -288,11 +290,17 @@ fn label(
         Option<Res<crate::game::Request>>,
         Option<Res<crate::arts::HeroArts>>,
     ),
-    (foe, holding, fighters, rules): (
+    (foe, holding, fighters, rules, horses): (
         Res<crate::cursors::Foe>,
         Query<&crate::fight::Holding, With<crate::hero::Body>>,
         Query<(&crate::fight::Health, &crate::fight::Combat)>,
         Res<crate::fight::Rules>,
+        Query<(
+            Entity,
+            &GlobalTransform,
+            &crate::riding::Ridden,
+            &crate::ai::Mind,
+        )>,
     ),
     mut labels: Query<(
         Entity,
@@ -335,11 +343,25 @@ fn label(
                 item: true,
             });
         }
+        // A rider's label is laid about its horse's halved box and names the horse, the horse's
+        // link giving the rider's text (`0x627303`, `0x6276D9`, #2927).
+        let mount = |rider: Entity| {
+            horses
+                .iter()
+                .find(|(_, _, ridden, _)| ridden.rider == rider)
+                .and_then(|(horse, at, _, mind)| {
+                    let corner = view
+                        .creature(at.translation(), mind.creature, true)
+                        .map(corner_of)?;
+                    Some((horse, corner))
+                })
+        };
         let class = arts.as_deref().map_or(1, |arts| arts.kind);
         let hero = heroes.iter().next();
         let hero_text = hero_name(texts, request.as_deref(), class);
         if let (Some((entity, at)), Some(text)) = (hero, hero_text.clone())
-            && let Some(corner) = tall(at.translation(), class)
+            && let Some((entity, corner)) = mount(entity)
+                .or_else(|| tall(at.translation(), class).map(|corner| (entity, corner)))
         {
             wanted.push(Wanted {
                 entity,
@@ -358,8 +380,12 @@ fn label(
                 continue;
             }
             // A dead creature's box of its model as it falls and lies (`+0xB0` bit 2, which its
-            // death sets, `0x53FB4C`), a living one's of its type's size.
-            let corner = if dies {
+            // death sets, `0x53FB4C`), a living one's of its type's size; a rider's its horse's.
+            let ridden = mount(entity);
+            let named = ridden.map_or(entity, |(horse, _)| horse);
+            let corner = if let Some((_, corner)) = ridden {
+                Some(corner)
+            } else if dies {
                 modelled(entity, at.translation()).or_else(|| tall(at.translation(), mind.creature))
             } else {
                 tall(at.translation(), mind.creature)
@@ -399,7 +425,7 @@ fn label(
                 text.push_str(&foe_values(health.current, &combat.0, rules.creatures_aw()));
             }
             wanted.push(Wanted {
-                entity,
+                entity: named,
                 corner,
                 text,
                 colour,
