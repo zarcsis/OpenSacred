@@ -364,7 +364,10 @@ mod tests {
     #[test]
     fn a_type_steps_by_its_sound() {
         assert_eq!(sound(300, false), Some(Sound::Ground(HUMAN, Ground::Hero)));
-        assert_eq!(sound(53, false), Some(Sound::Ground(BIGGER, Ground::Only(1))));
+        assert_eq!(
+            sound(53, false),
+            Some(Sound::Ground(BIGGER, Ground::Only(1)))
+        );
         assert_eq!(sound(54, false), Some(Sound::Wings(BIG_WINGS)));
         assert_eq!(sound(551, false), Some(Sound::Ground(HORSE, Ground::Horse)));
         assert_eq!(sound(1, false), None);
