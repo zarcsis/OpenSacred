@@ -18,8 +18,7 @@
 //! Over a horse that is no foe, its owner's and the riding's look and its description beside the
 //! cursor (#2936, [`horse_look`]).
 //!
-//! Not followed yet: the glow over a friend or the dead for an art on one (the launch types 2 and
-//! 4); the name's red for some objects (`+0x14` bit `0x20`, not read).
+//! An item's name is never red: no code sets the bit `0x20` of an item's `+0x14` (#2937).
 
 use bevy::picking::hover::HoverMap;
 use bevy::prelude::*;
