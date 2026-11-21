@@ -1574,6 +1574,7 @@ fn act(
                     bearer.current = bearer.current.saturating_add(health).min(bearer.most);
                     info!("spells: the plants heal {health}, to {}", bearer.current);
                 }
+                crate::effects::heal_cures(&mut commands, act.target);
             }
             spells::BUBBLE => {
                 let toward = places
@@ -2258,6 +2259,7 @@ fn act(
                     bearer.current = bearer.current.saturating_add(health).min(bearer.most);
                     info!("spells: the healing gives {health}, to {}", bearer.current);
                 }
+                crate::effects::heal_cures(&mut commands, act.target);
                 // Its object's sound as it starts, at the target it follows, and its sparks
                 // (784, `healings`).
                 sounds.write(crate::sfx::Play {
