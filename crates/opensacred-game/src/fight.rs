@@ -253,10 +253,13 @@ pub(crate) fn resolve(
         Option<ResMut<crate::statistics::Tally>>,
         Option<ResMut<crate::statistics::Kills>>,
     ),
-    (hero_arts, effects, clock, mut lusts): (
+    (hero_arts, effects, (clock, dungeons), mut lusts): (
         Option<Res<crate::arts::HeroArts>>,
         Query<&crate::effects::Effects>,
-        Option<Res<crate::daynight::Clock>>,
+        (
+            Option<Res<crate::daynight::Clock>>,
+            Option<Res<crate::daynight::Dungeons>>,
+        ),
         Query<&mut Bloodlust>,
     ),
     attackers: Query<(
@@ -628,9 +631,9 @@ pub(crate) fn resolve(
         } else {
             damage
         };
-        // The Vampiress's strike in her night form raises her bloodlust, by day sets it to 0
-        // (the sectors of `0x63D180` that keep it by day are left out), and draws more health by
-        // it (`0x56DB08`).
+        // The Vampiress's strike in her night form raises her bloodlust, by day sets it to 0 but
+        // in a dungeon's sector, where it rises as by night (`0x63D180`), and draws more health
+        // by it (`0x56DB08`).
         let damage = if hero
             && hero_arts
                 .as_ref()
@@ -640,7 +643,11 @@ pub(crate) fn resolve(
             let by_day = clock
                 .as_ref()
                 .is_some_and(|clock| clock.phase() == crate::daynight::Phase::Day);
-            let lust = if by_day {
+            let place = from.translation();
+            let dungeon = dungeons
+                .as_ref()
+                .is_some_and(|dungeons| dungeons.holds(place.x, place.z));
+            let lust = if by_day && !dungeon {
                 0.0
             } else {
                 opensacred_rules::arts::bloodlust_rises(was)
