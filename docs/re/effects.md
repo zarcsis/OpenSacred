@@ -619,7 +619,7 @@ Read 2026-11-04 for #1092 in Ghidra and with capstone (**confirmed** by code unl
 The fireball is 778 (`sdk_CREATE(0x30A)` at `0x523834`): 776, the catalogue's `fireball`, is a weapon's glow that `cWeapon3D` makes (`0x5CDDAD`, below), not the spell's.
 The Daemon's 1103 makes 1159 by the FX event `0x91` (`0x51B0EF`).
 801 at `0x4E369E` is the medium spider's shot, which `opensacred-game` makes since #2067 (`creature_casts`; docs/re/ai.md, "In `opensacred-game`").
-Other makers of these types, not read and not followed: 801 at `0x4D3FA8`; 778 at `0x4D4315`, `0x4E3A84` (inside the fire ghoul's block, #2903), `0x5354AA` and `0x57865F`; 1159 at `0x5357B6`, `0x57529B` and `0x6AAEB6`.
+Other makers of these types, not read and not followed: 801 at `0x4D3FA8`; 778 at `0x4D4315`, `0x4E3A84` (the fire ghoul's fireball, docs/re/ai.md, "In `opensacred-game`"; #3262), `0x5354AA` and `0x57865F`; 1159 at `0x5357B6`, `0x57529B` and `0x6AAEB6`.
 
 ### Their flight
 
