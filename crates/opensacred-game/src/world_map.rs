@@ -80,6 +80,13 @@ const ORNAMENT: [(u32, Vec2); 2] = [
 ];
 const PIN_BUTTON: (u32, Vec2) = (230, Vec2::new(432.0, 685.0));
 const CLOSE_BUTTON: (u32, Vec2) = (232, Vec2::new(558.0, 685.0));
+/// The pin's button's second image, which it shows while the pin's mode holds (seen, #2933), and
+/// the buttons' tooltips' texts, each centred 20 above its button's top's middle, as the bar's
+/// (seen).
+const PIN_PRESSED: u32 = 231;
+const PIN_TIP: &str = "UI_TOOLTIP_MAP1";
+const CLOSE_TIP: &str = "UI_TOOLTIP_MAP2";
+const TIP_ABOVE: f32 = 20.0;
 const BUTTON: f32 = 34.0;
 /// The window's frame (`0x725870`, the style 1) about (48, 48) 928 × 672: its corners, its edges
 /// across and down (`GUI_main_12`, images 310 to 321), the bottom edge 12 below the rectangle and
@@ -126,6 +133,9 @@ pub struct Map {
     pin_mode: bool,
     pin: Option<Vec2>,
     pin_world: Option<Vec2>,
+    /// The edge of the screen that the pointer touches off the buttons' bar, whose arrow the
+    /// cursor shows (`0x6C7920`, #2933).
+    edge: Option<crate::cursors::Edge>,
 }
 
 impl Map {
@@ -143,6 +153,11 @@ impl Map {
     /// The world point of the pin, the compass's outer pin's target.
     pub fn pin_target(&self) -> Option<Vec2> {
         self.pin_world
+    }
+
+    /// The edge whose arrow the cursor shows, while the map shows outside the pin's mode.
+    pub fn edge(&self) -> Option<crate::cursors::Edge> {
+        self.edge.filter(|_| self.shown && !self.pin_mode)
     }
 
     /// The pin as a save keeps it (#1959): its place on the map and its world point.
@@ -842,6 +857,28 @@ fn clamped(scroll: Vec2) -> Vec2 {
     scroll.clamp(Vec2::ZERO, SIZE - bar::SCREEN)
 }
 
+/// The edge or the corner of the screen at the point `at` (`0x6CA042`–`0x6CA0BE`): the left at x
+/// below 1, the right at x above 1022, the top at y below 1 and the bottom at y above 766, the
+/// corners where both hold; none within.
+fn edge_at(at: Vec2) -> Option<crate::cursors::Edge> {
+    use crate::cursors::Edge;
+    let left = at.x < EDGE;
+    let right = at.x > bar::SCREEN.x - 2.0 * EDGE;
+    let top = at.y < EDGE;
+    let bottom = at.y > bar::SCREEN.y - 2.0 * EDGE;
+    Some(match (left, right, top, bottom) {
+        (true, _, true, _) => Edge::NorthWest,
+        (_, true, true, _) => Edge::NorthEast,
+        (true, _, _, true) => Edge::SouthWest,
+        (_, true, _, true) => Edge::SouthEast,
+        (_, _, true, _) => Edge::North,
+        (_, _, _, true) => Edge::South,
+        (true, ..) => Edge::West,
+        (_, true, ..) => Edge::East,
+        _ => return None,
+    })
+}
+
 /// The scroll of the pointer at `at`, off the bar, at the screen's edges: 4 pixels a frame toward
 /// each edge it is at.
 fn edge_scroll(at: Vec2) -> Vec2 {
@@ -1003,7 +1040,8 @@ fn scroll(
     let Some(at) = screen_point(&pointer, &ui_scale, &windows) else {
         return;
     };
-    // The edges scroll while no button is held, neither in the pin's mode (`0x6C9F60`).
+    // The edges scroll while no button is held, neither in the pin's mode (`0x6C9F60`); off
+    // the bar their arrow shows, which a button held leaves as it was (`0x6CA0C4`).
     let step = if map.pin_mode {
         Vec2::ZERO
     } else if buttons.pressed(MouseButton::Right) {
@@ -1011,6 +1049,10 @@ fn scroll(
     } else if buttons.pressed(MouseButton::Left) {
         Vec2::ZERO
     } else {
+        let edge = edge_at(at).filter(|_| !BAR.contains(at));
+        if map.edge != edge {
+            map.edge = edge;
+        }
         edge_scroll(at)
     };
     if step != Vec2::ZERO {
@@ -1141,8 +1183,7 @@ fn show(
     }
     let pieces = frame(|index| images.size(index))
         .into_iter()
-        .chain(ORNAMENT)
-        .chain([PIN_BUTTON, CLOSE_BUTTON]);
+        .chain(ORNAMENT);
     for (index, at) in pieces {
         let child = commands
             .spawn((
@@ -1153,6 +1194,108 @@ fn show(
             .id();
         commands.entity(root).add_child(child);
     }
+    // The two buttons, which glow under the pointer (`0x731F00`, #2933).
+    for (button, (index, at)) in [
+        (MapButton::Pin, PIN_BUTTON),
+        (MapButton::Close, CLOSE_BUTTON),
+    ] {
+        let child = commands
+            .spawn((
+                button,
+                bar::piece(&images, &assets, index, at, Vec2::ZERO),
+                ZIndex(2),
+                crate::control_glow::Glows,
+                Pickable::IGNORE,
+            ))
+            .id();
+        commands.entity(root).add_child(child);
+    }
+}
+
+/// A button of the map's bar.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+enum MapButton {
+    Pin,
+    Close,
+}
+
+impl MapButton {
+    /// Its corner and its tooltip's text.
+    fn place(self) -> (Vec2, &'static str) {
+        match self {
+            Self::Pin => (PIN_BUTTON.1, PIN_TIP),
+            Self::Close => (CLOSE_BUTTON.1, CLOSE_TIP),
+        }
+    }
+
+    /// The button under the point `at` of the original's screen.
+    fn at(at: Vec2) -> Option<Self> {
+        [Self::Pin, Self::Close].into_iter().find(|button| {
+            let corner = button.place().0;
+            Rect::from_corners(corner, corner + Vec2::splat(BUTTON)).contains(at)
+        })
+    }
+}
+
+/// The pin's button pressed, its second image, while the pin's mode holds (seen, #2933).
+fn press_pin(
+    map: Res<Map>,
+    images: Res<UiImages>,
+    mut buttons: Query<(&MapButton, &mut ImageNode)>,
+) {
+    let index = if map.pin_mode {
+        PIN_PRESSED
+    } else {
+        PIN_BUTTON.0
+    };
+    let Some((_, rect)) = images.part(index) else {
+        return;
+    };
+    for (button, mut picture) in &mut buttons {
+        if *button == MapButton::Pin && picture.rect != Some(rect) {
+            picture.rect = Some(rect);
+        }
+    }
+}
+
+/// The buttons' tooltips (`UI_TOOLTIP_MAP1`, `UI_TOOLTIP_MAP2`) as the pointer rests on one, each
+/// centred 20 above its top's middle over the map, taken away as it leaves or the map hides.
+fn button_tips(
+    mut commands: Commands,
+    map: Res<Map>,
+    time: Res<Time<Real>>,
+    (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
+    (assets, texts): (Res<AssetServer>, Option<Res<Texts>>),
+    parents: Query<&ChildOf>,
+    (mut rest, mut shown): (Local<crate::tooltip::Rest>, Local<Option<Entity>>),
+) {
+    let over = screen_point(&pointer, &ui_scale, &windows)
+        .filter(|_| map.shown)
+        .and_then(MapButton::at);
+    let number = over.map(|button| match button {
+        MapButton::Pin => 0,
+        MapButton::Close => 1,
+    });
+    let (gone, due) = rest.step(number, time.elapsed_secs());
+    if gone && let Some(panel) = shown.take() {
+        let root = parents.get(panel).map_or(panel, ChildOf::parent);
+        commands.entity(root).despawn();
+    }
+    let (Some(button), Some(_)) = (over, due) else {
+        return;
+    };
+    let (corner, name) = button.place();
+    let text = texts
+        .as_deref()
+        .and_then(|texts| texts.named(name))
+        .unwrap_or(name);
+    let centre = Vec2::new(corner.x + BUTTON / 2.0, corner.y - TIP_ABOVE);
+    *shown = Some(crate::tooltip::spawn_tip_in(
+        &mut commands,
+        &assets,
+        (text, centre),
+        crate::tooltip::Frame::OverMap,
+    ));
 }
 
 /// The map's pictures' container, the hero's cross and the quests' icons, apart.
@@ -1391,7 +1534,9 @@ impl Plugin for WorldMapPlugin {
                     show_layers,
                     follow,
                     show_pin,
+                    press_pin,
                     tooltip,
+                    button_tips,
                     hold_lens,
                     show_lens,
                     lens_marks,
@@ -1405,6 +1550,24 @@ impl Plugin for WorldMapPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_edges_arrows_are_the_screens_edges_and_corners() {
+        use crate::cursors::Edge;
+        let at = |x: f32, y: f32| edge_at(Vec2::new(x, y));
+        assert_eq!(at(0.0, 0.0), Some(Edge::NorthWest));
+        assert_eq!(at(1023.0, 0.5), Some(Edge::NorthEast));
+        assert_eq!(at(0.0, 767.0), Some(Edge::SouthWest));
+        assert_eq!(at(1023.0, 767.0), Some(Edge::SouthEast));
+        assert_eq!(at(512.0, 0.0), Some(Edge::North));
+        assert_eq!(at(512.0, 767.0), Some(Edge::South));
+        assert_eq!(at(0.0, 384.0), Some(Edge::West));
+        assert_eq!(at(1023.0, 384.0), Some(Edge::East));
+        // Within a pixel of the edge's, none: x 1 to 1022, y 1 to 766.
+        assert_eq!(at(1.0, 1.0), None);
+        assert_eq!(at(1022.0, 766.0), None);
+        assert_eq!(at(512.0, 384.0), None);
+    }
 
     #[test]
     fn the_maps_pictures_put_the_underworld_above_ancaria() {
