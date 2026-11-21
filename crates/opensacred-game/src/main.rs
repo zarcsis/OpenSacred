@@ -93,6 +93,7 @@ mod esc_menu;
 mod explored;
 mod explosions;
 mod exports;
+mod fade_points;
 mod fades;
 mod fight;
 mod files;
@@ -604,6 +605,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         explored::ExploredPlugin,
     ))
     .add_plugins(explosions::ExplosionsPlugin)
+    .add_plugins(fade_points::FadePointsPlugin)
     .add_plugins((
         fades::FadesPlugin,
         fight::FightPlugin,
