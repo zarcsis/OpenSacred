@@ -435,8 +435,8 @@ pub(crate) fn resolve(
             }
         }
         // A defender in its defending clip, a parry's or a script's (the slots 53 to 65), doubles
-        // its defence (`0x56B96A`–`0x56B9A5`, #2487); a hero's eight times, which the game's hero,
-        // with no such clip, never takes.
+        // its defence (`0x56B96A`–`0x56B9A5`, #2487); a hero's eight times, with its resistances
+        // twice, under Shift, which the game's hero, playing no such clip, never takes (#3392).
         let mut defending = defender.0;
         if clip.is_some_and(crate::npcs::ScriptClip::defends) {
             defending.defence *= opensacred_rules::fight::PARRY_DEFENCE;
