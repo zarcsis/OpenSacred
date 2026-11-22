@@ -1405,7 +1405,10 @@ function standingHeight(theWorld, cx, cy, floor, layer) {
 function snapshot(engine) {
   const h = hero();
   const all = creatures();
-  const out = { objects: objectCount(), creatures: all.length, clock: readClock(), zoom: view(engine).add(VIEW_ZOOM).readFloat() };
+  const out = {
+    objects: objectCount(), creatures: all.length, clock: readClock(), zoom: view(engine).add(VIEW_ZOOM).readFloat(),
+    difficulty: WORLD.difficulty.readS32(),
+  };
   if (h !== null) {
     const me = readCreature(h);
     out.hero = { ...me, gold: h.add(STATS + STAT.gold).readS32() };
@@ -2581,6 +2584,15 @@ function stackProbe(spec) {
   };
 }
 
+// A probe of an address's reaches alone, a plain `trace ADDRESS` (#3374): it waits for no return either, so that an
+// instruction inside a function is safe to trace, where a call's trace would take the slot at ESP for its return
+// address and crash the game as that slot is read.
+function reachProbe() {
+  return (trace) => function probe() {
+    record(trace, 'reached');
+  };
+}
+
 // The presets, by the functions of docs/re (docs/re/traces.md lists them with their docs).
 const PRESETS = {
   // A strike's resolution (docs/re/fight.md): the defender is the creature of `this`'s +4, the attacker the id at the
@@ -2784,8 +2796,11 @@ function startTrace(spec) {
       throw new Error(`${spec.target} is neither a preset nor an address of a module`);
     }
     target = address;
+    // A call's trace where its arguments, its return or its objects are asked, at a function's start alone.
+    const asksCall = (spec.args?.length ?? 0) > 0 || spec.ret !== undefined || (spec.ids?.length ?? 0) > 0;
     make = spec.stack?.length ? stackProbe(spec)
-      : genericTrace({ abi: spec.abi ?? 'cdecl', args: spec.args ?? [], ret: spec.ret, ids: spec.ids });
+      : asksCall ? genericTrace({ abi: spec.abi ?? 'cdecl', args: spec.args ?? [], ret: spec.ret, ids: spec.ids })
+        : reachProbe();
   }
   const limit = spec.limit ?? preset?.limit ?? 200;
   const trace = { name, target, listeners: [], count: 0, dropped: 0, second: 0, inSecond: 0, limit };
