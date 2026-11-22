@@ -2826,30 +2826,31 @@ pub fn throw_point(from: [f32; 2], to: [f32; 2], s: f32, height: f32) -> ([f32; 
     (at, rise)
 }
 
-/// The damages of an item that the Gladiator's 1013 hurls (`0x56B130` at `0x56BC81`,
-/// `0x56ACD0`): each kind's least and most (`damage`), rolled at the hundredth, times `times`,
+/// The damages of an item that the Gladiator's 1013 hurls (`0x56B130` at `0x56BCE2`,
+/// `0x56ACD0`): each kind's least and most (`damage`, its own and its slots',
+/// `crate::fight::ItemValues::hurled_damage`) times `times`,
 /// `1 + c(s₂)/100 + (a0 + e0)/BalanceGeschick`, 1016's of `a0` and the points spent on it, which
-/// `a0` holds already (`crate::fight::Rules::glance_factor`, the stats' byte `+0x1C`).
+/// `a0` holds already (`crate::fight::Rules::glance_factor`, the stats' byte `+0x1C`), then rolled
+/// at the hundredth between the two, `R(⌊100·least⌋, ⌊100·most⌋)/100`.
 pub fn thrown_damage(
     damage: &[[f32; 2]; crate::fight::KINDS],
     times: f64,
     dice: &mut impl crate::spawning::Dice,
 ) -> [f32; crate::fight::KINDS] {
     damage.map(|[least, most]| {
-        let span = hundredths(most - least);
-        let rolled = f64::from(least) + f64::from(dice.below(span + 1)) / 100.0;
-        narrow(rolled * times)
+        let [least, most] = [least, most].map(|end| hundredths(f64::from(end) * times));
+        let rolled = crate::drops::between(least.into(), most.into(), dice);
+        narrow(f64::from(i32::try_from(rolled).unwrap_or(0)) / 100.0)
     })
 }
 
-/// A span of damage in whole hundredths, none below 0.
+/// A damage's whole hundredths, truncated, none below 0.
 #[expect(
     clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    reason = "a span of an item's damage, a few hundred at most, in hundredths"
+    reason = "a hurled item's damage, a few hundred at most, in hundredths"
 )]
-fn hundredths(span: f32) -> u32 {
-    (span.max(0.0) * 100.0).round() as u32
+fn hundredths(damage: f64) -> i32 {
+    (damage.max(0.0) * 100.0).floor() as i32
 }
 
 /// The flight of a creature that a flyer of the velocity `velocity` knocks over, the line from the

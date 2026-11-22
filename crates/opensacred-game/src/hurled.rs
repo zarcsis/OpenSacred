@@ -3,10 +3,11 @@
 //! (`0x556A30`, his arms then without it, `arsenal`) and flies on an arc from him to 200 beyond
 //! his target along the line to it (`0x501D39`), 80 high, for the ground distance to the target
 //! over 1,000 seconds (`0x44DFE0`'s arc branch). It strikes the first creature that it touches
-//! by the sum of their sizes, alive and not the hero (`0x600340`), once, with its own damages,
-//! each rolled between its least and most and times `1 + c(s₂)/100 + a0/BalanceGeschick`, and
-//! the art's factor (`0x56B130` at `0x56BC81`); then it falls there, or at its end, an item lying
-//! on the ground, which the hero picks up again into his hand (`pickup`).
+//! by the sum of their sizes, alive and not the hero (`0x600340`), once, with its own damages and
+//! its bonus slots' by his attributes (#3372), times `1 + c(s₂)/100 + a0/BalanceGeschick`, each
+//! rolled between its least and most, and the art's factor (`0x56B130` at `0x56BCE2`); then it
+//! falls there, or at its end, an item lying on the ground, which the hero picks up again into
+//! his hand (`pickup`).
 
 use bevy::prelude::*;
 use opensacred_rules::arts;
@@ -155,10 +156,13 @@ fn fly(
                 .and_then(|arsenal| arsenal.hurled_item())
                 .and_then(|item| item.values),
         ) {
-            // Its own damages, each rolled at the hundredth between its least and most, times
+            // Its own damages and its slots' by the thrower's attributes (#3372), times
             // `1 + c(s₂)/100 + (a0 + e0)/BalanceGeschick`, `e0` the points spent on `a0`, which
-            // `a0` holds already (`0x56ACD0`, the stats' byte `+0x1C`, #3135).
-            let strength = throwers.get(flight.thrower).map_or(0.0, |(combat, base)| {
+            // `a0` holds already (`0x56ACD0`, the stats' byte `+0x1C`, #3135), each rolled at the
+            // hundredth between its least and most.
+            let thrower = throwers.get(flight.thrower).ok();
+            let attributes = thrower.map_or([0.0; 6], |(combat, _)| combat.attributes);
+            let strength = thrower.map_or(0.0, |(combat, base)| {
                 combat.attributes[0] + base.map_or(0.0, |base| f32::from(base.extras[0]))
             });
             let skills = arts
@@ -166,7 +170,7 @@ fn fly(
                 .map(|arts| arts.skills.clone())
                 .unwrap_or_default();
             let times = rules.glance_factor(&skills, strength);
-            let fixed = arts::thrown_damage(&item.damage, times, &mut dice.0);
+            let fixed = arts::thrown_damage(&item.hurled_damage(attributes), times, &mut dice.0);
             info!(
                 "hurled: the hurled weapon strikes {target}, {:?}",
                 fixed.map(|d| d.round())

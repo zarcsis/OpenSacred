@@ -274,7 +274,7 @@ impl Weighing<'_, '_> {
                     .as_deref()
                     .and_then(crate::arsenal::Arsenal::hurls)
                     .and_then(|hurled| hurled.item.values.as_ref())
-                    .map(|values| values.damage),
+                    .map(|values| values.hurled_damage(combat.attributes)),
             },
         };
         let text = |name: &str| texts.and_then(|texts| texts.named(name)).map(str::to_owned);

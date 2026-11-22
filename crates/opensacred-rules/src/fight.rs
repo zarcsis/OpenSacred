@@ -2277,6 +2277,46 @@ impl Bonus {
 }
 
 impl ItemValues {
+    /// Each kind's least and most damage of the item as a hurl deals it (`0x56ACD0`, #3372): its
+    /// record's own, then its bonus slots in their order that count for any holder, their
+    /// condition's low byte 0 or 13 (no test of the thrower's type; those of the struck
+    /// creature's class left out): 801 to 804 without the condition's bit 15 add their value to
+    /// both ends of their kind, 805 to 808 with its bit 14 multiply both by `(value + 100)·0.01`,
+    /// each value by the thrower's attribute that its effect's byte 2 names, `attributes` the
+    /// stats' words `+0x10`… ([`Combat::attributes`]).
+    pub fn hurled_damage(&self, attributes: [f32; 6]) -> [[f32; 2]; KINDS] {
+        let a = attributes.map(whole);
+        let mut damage = self.damage;
+        for bonus in self.bonuses {
+            let [class, _] = bonus.condition.to_le_bytes();
+            if class != 0 && class != 13 {
+                continue;
+            }
+            let effect = bonus.effect & 0xFFFF;
+            let Some(kind) = (match effect {
+                801..=804 if bonus.condition & 0x8000 == 0 => effect.checked_sub(801),
+                805..=808 if bonus.condition & 0x4000 != 0 => effect.checked_sub(805),
+                _ => None,
+            })
+            .and_then(|kind| usize::try_from(kind).ok()) else {
+                continue;
+            };
+            let value = bonus.value(a);
+            let Some(ends) = damage.get_mut(kind) else {
+                continue;
+            };
+            if effect <= 804 {
+                ends[0] += value;
+                ends[1] += value;
+            } else {
+                let times = (value + 100.0) * 0.01;
+                ends[0] *= times;
+                ends[1] *= times;
+            }
+        }
+        damage
+    }
+
     /// The values of an item's record, given as its `u16` words from its `+4`, as `Weapon.pak
     /// +0x84` holds a fixed item's and a hero template its items' (docs/re/items.md): each kind's
     /// least damage at `+0x1C`, its most at `+0x24`, `A` at `+0x2C`, `D` at `+0x2E` and the
@@ -8465,6 +8505,73 @@ mod tests {
             combat(&a_goblin(), 1, held(vec![other]), &[], &rules).speed,
             without.speed
         );
+    }
+
+    #[test]
+    fn a_hurled_items_damages_take_its_own_slots_by_the_throwers_attributes() {
+        let slot = |condition, effect, value| Bonus {
+            condition,
+            effect,
+            value,
+        };
+        // The 7900 seen in the original (#3372): 22 to 28 physical, its slot 0 an 801 of the bit
+        // 14 scaled by `a0`, 11; at `a0` 56 it adds 6.16 to both ends.
+        let mut bonuses = [Bonus::default(); BONUSES];
+        bonuses[0] = slot(0x4000, 0x1_0321, 11);
+        let sword = ItemValues {
+            damage: [[22.0, 28.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+            bonuses,
+            ..ItemValues::default()
+        };
+        let attributes = [56.0, 30.0, 20.0, 40.0, 10.0, 5.0];
+        let [physical, fire, ..] = sword.hurled_damage(attributes);
+        assert!(near(physical[0], 28.16) && near(physical[1], 34.16));
+        assert_eq!(fire, [0.0, 0.0]);
+        // A fire 802 of a class 13 adds its plain value; an 806 of the bit 14 then raises the
+        // fire by its 50 per cent, scaled by `a2` (byte 2 of 2) to 10.
+        bonuses[1] = slot(0x000D, 802, 4);
+        bonuses[2] = slot(0x4000, 0x2_0326, 50);
+        let fiery = ItemValues {
+            damage: [[22.0, 28.0], [2.0, 6.0], [0.0; 2], [0.0; 2]],
+            bonuses,
+            ..sword
+        };
+        let [_, fire, magic, poison] = fiery.hurled_damage(attributes);
+        assert!(near(fire[0], 6.6) && near(fire[1], 11.0));
+        assert_eq!((magic, poison), ([0.0, 0.0], [0.0, 0.0]));
+        // None counts against an opponent's class, nor an 801 of the bit 15 (a resistance), nor
+        // an 805 without the bit 14, nor another effect.
+        for skipped in [
+            slot(0x0005, 801, 9),
+            slot(0x8000, 804, 9),
+            slot(0x2000, 805, 90),
+            slot(0x0000, 808, 90),
+            slot(0x4000, 809, 90),
+            slot(0x0000, 800, 9),
+        ] {
+            let mut bonuses = [Bonus::default(); BONUSES];
+            bonuses[0] = skipped;
+            let item = ItemValues {
+                damage: [[1.0, 2.0]; KINDS],
+                bonuses,
+                ..ItemValues::default()
+            };
+            assert_eq!(
+                item.hurled_damage(attributes),
+                [[1.0, 2.0]; KINDS],
+                "{skipped:?}"
+            );
+        }
+        // 804 adds to the poison and 808 multiplies it, the slots in order.
+        let mut bonuses = [Bonus::default(); BONUSES];
+        bonuses[0] = slot(0, 804, 2);
+        bonuses[1] = slot(0x4000, 808, 100);
+        let item = ItemValues {
+            damage: [[1.0, 2.0]; KINDS],
+            bonuses,
+            ..ItemValues::default()
+        };
+        assert_eq!(item.hurled_damage(attributes)[3], [6.0, 8.0]);
     }
 
     #[test]
