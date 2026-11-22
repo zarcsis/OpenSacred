@@ -492,7 +492,8 @@ Read 2026-11-21 for #3068 in the code (the original not run).
   - `REJECTNQ` (`0x696060`, at `0x6960A4`).
 - No other test of the word is found in the manager's code (a scan for its displacement from `0x676000` to `0x6A1000`), so that the weapons', the spells', the arts', the items' and the interface's sounds, the lines by name of the world and the music play at every quality (**hypothesis**: a test outside that code would not show).
 
-`opensacred-game` keeps the options' choice (`settings::Sound::quality`) and reads it nowhere: its low quality silences nothing.
+`opensacred-game` follows the ten tests (#3333): at the options' low quality (`settings::low_sound`) `voices` plays no creature's voice, fight comment, critical hit's cry, idle noise, breath or comment on the foes' flight (its weighing of the flight still feeds the music), `steps` and `sound` no footstep (the footprints stay), `npcs` and `containers` no door's or container's opening and closing, `fx` no fire's loop, `ambience` no water's loop, `skies` no quake's rumble, and `remarks` no `REJECTNQ`.
+The quality's other choices change nothing in the game: it has no 3D sound of the original's kind to turn on.
 
 ## The sources: what plays, and what `opensacred-game` plays of it
 

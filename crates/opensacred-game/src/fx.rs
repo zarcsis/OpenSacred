@@ -1841,12 +1841,17 @@ fn crackle(
     assets: Res<AssetServer>,
     audio: Res<bevy_kira_audio::Audio>,
     mut instances: ResMut<Assets<bevy_kira_audio::AudioInstance>>,
+    settings: Option<Res<crate::settings::Settings>>,
 ) {
     use bevy_kira_audio::prelude::{AudioControl, AudioTween, PlaybackState};
     let Some(hero) = heroes.iter().next().map(GlobalTransform::translation) else {
         return;
     };
-    let near = |at: &GlobalTransform| crate::sfx::screen_distance(at.translation(), hero) <= NEAR;
+    // None at the lowest sound quality (`0x690451`).
+    let quiet = crate::settings::low_sound(settings.as_deref());
+    let near = |at: &GlobalTransform| {
+        !quiet && crate::sfx::screen_distance(at.translation(), hero) <= NEAR
+    };
     crackles.0.retain(|(fire, handle)| {
         // A loop whose instance is not made yet is starting.
         let playing = instances.get(handle).is_none_or(|instance| {

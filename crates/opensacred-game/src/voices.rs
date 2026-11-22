@@ -799,7 +799,13 @@ fn speak(
         Option<Res<Names>>,
         Query<(&GlobalTransform, &crate::ai::Mind), (Without<Body>, Without<Dies>)>,
     ),
+    settings: Option<Res<crate::settings::Settings>>,
 ) {
+    // At the lowest sound quality no creature's voice and no fight comment (`0x6852E2`).
+    if crate::settings::low_sound(settings.as_deref()) {
+        lines.clear();
+        cries.clear();
+    }
     let now = time.elapsed_secs_f64();
     let the_hero = heroes.iter().next();
     let listener = the_hero.map(|(_, at)| at.translation());
@@ -1126,11 +1132,12 @@ fn flees(motions: &Motions, at: Vec3, (hero, hero_motions): (Vec3, &Motions)) ->
 fn flight(
     mut commands: Commands,
     mut state: bevy::prelude::Local<Flight>,
-    (hero, mut voices, mut sfx, heard): (
+    (hero, mut voices, mut sfx, heard, settings): (
         Option<Res<hero::Hero>>,
         ResMut<Voices>,
         ResMut<Sfx>,
         Res<sfx::Listener>,
+        Option<Res<crate::settings::Settings>>,
     ),
     heroes: Query<
         (
@@ -1233,6 +1240,10 @@ fn flight(
     if matches!(hero.creature, 8 | 9) {
         return;
     }
+    // The comment none at the lowest sound quality (`0x68D571`), the weighing all the same.
+    if crate::settings::low_sound(settings.as_deref()) {
+        return;
+    }
     let named = named_line.plays(&audio);
     let Some((id, file)) = line
         .name(hero.creature, n)
@@ -1324,8 +1335,16 @@ fn breathe(
     (mut sfx, named_line): (ResMut<Sfx>, Res<NamedLine>),
     heard: Res<sfx::Listener>,
     (assets, audio, mut instances): (Res<AssetServer>, Res<Audio>, ResMut<Assets<AudioInstance>>),
-    (time, speech): (Res<Time>, Res<AudioChannel<crate::volumes::Speech>>),
+    (time, speech, settings): (
+        Res<Time>,
+        Res<AudioChannel<crate::volumes::Speech>>,
+        Option<Res<crate::settings::Settings>>,
+    ),
 ) {
+    // None at the lowest sound quality (`0x68D571`).
+    if crate::settings::low_sound(settings.as_deref()) {
+        return;
+    }
     let (Some(hero), Ok((entity, body, at, striking, (acting, rides)))) = (hero, heroes.single())
     else {
         return;
@@ -1459,7 +1478,12 @@ fn idle(
     assets: Res<AssetServer>,
     audio: Res<Audio>,
     (time, heard): (Res<Time>, Res<sfx::Listener>),
+    settings: Option<Res<crate::settings::Settings>>,
 ) {
+    // None at the lowest sound quality (`0x69CB23`).
+    if crate::settings::low_sound(settings.as_deref()) {
+        return;
+    }
     let Some(listener) = heroes.iter().next().map(GlobalTransform::translation) else {
         return;
     };
