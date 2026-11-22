@@ -457,12 +457,6 @@ struct Placement {
     /// Whether the start made it, its script or a quest it entered rather than a sector's
     /// function: its creature takes its level as the game starts ([`place`]).
     started: bool,
-    /// Whether it is an object of the start's outside the 3 × 3 sectors about its start, which the
-    /// original's start keeps in the interpreter's list `+0x364` rather than making it, and which
-    /// its sector's `Enter` makes again each time, flagged `0x4000` ([`MadeAgain`], #2292). The
-    /// start's tree gives it as a game loads; a save keeps no placement of the start's.
-    #[serde(skip)]
-    made_again: bool,
     /// Whether it is an effect of the start's of a type off the persistent list outside the 3 × 3
     /// sectors about its start, which the original makes at once in a sector that no `Enter` has
     /// marked and its tick ends at its first run (`0x5A6210`, [`ends_at_start`], #3049): never
@@ -1123,7 +1117,6 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         size: kind.size,
         made: (true, false),
         started: false,
-        made_again: false,
         ended: false,
         dialogue: false,
         trades: 0,
@@ -1522,13 +1515,6 @@ pub struct Object {
     /// (`containers::pick`, #1978).
     pub level: Level,
 }
-
-/// An object of the start's that its sector's `Enter` made again from the interpreter's list
-/// `+0x364` (`0x4939F0` at `0x494924`), flagged `0x4000` (`+0x14`): a creature that went for it as
-/// a door in its way opens it not (`0x53BF19`, `ai::open`, #2292). The original flags an emptied
-/// container alone so (docs/re/fight.md, "Doors in the way"), no door (#3398).
-#[derive(Component, Clone, Copy, Debug)]
-pub struct MadeAgain;
 
 /// The texture a placed model takes in place of its own: its item's (`items.pak +0x08`).
 #[derive(Component)]
@@ -4010,7 +3996,6 @@ impl Makers {
             size: arrows::size(item.words_14[0]),
             made: (origin.enter, true),
             started: origin.started,
-            made_again: false,
             ended: false,
             dialogue: record.kind == CREATE_NPC
                 && ops.iter().any(|o| {
@@ -4717,28 +4702,14 @@ impl Npcs {
         let equips = set_states(&records, &made, &mut placements);
         makers.equip(equips, &mut placements, &mut model_slots)?;
         // The start's objects outside the 3 × 3 about its `StartPosition`, the sectors that no
-        // `Enter` has marked yet (`+0x30` bit `0x800`), which its `CreateObj`s keep in the
-        // interpreter's list `+0x364` rather than making them (`0x486AA7`), their sectors' `Enter`
-        // making them each time (#2292): its chests, barrels and the like, not its effects, made
-        // before (`0x48907C`).
+        // `Enter` has marked yet (`+0x30` bit `0x800`): its effects of the types off the
+        // persistent list there end at once (#3049). Its chests, barrels and the like there, which
+        // its `CreateObj`s keep in the interpreter's list `+0x364` for their sectors' `Enter` to
+        // make each time (`0x486AA7`, #2292), are placed as any other, the emptied ones by their
+        // placements (#1380; docs/re/fight.md, "The containers that an `Enter` makes again").
         if let Some(((x, y), _)) = start_position(tree) {
             let side = u32::try_from(SIDE).unwrap_or(64);
             let start = (x / side, y / side);
-            let mut again = 0;
-            for placement in placements
-                .iter_mut()
-                .filter(|p| p.object && p.started && !p.special && p.fx_loop.is_none())
-            {
-                let sector = (placement.cell.0 / side, placement.cell.1 / side);
-                placement.made_again =
-                    sector.0.abs_diff(start.0) > 1 || sector.1.abs_diff(start.1) > 1;
-                again += usize::from(placement.made_again);
-            }
-            bevy::log::debug!(
-                "npcs: {again} of the start's objects lie outside its 3 x 3, made again by their \
-                 sectors' Enter"
-            );
-            // Its effects of the types off the persistent list there end at once (#3049).
             for placement in placements.iter_mut().filter(|p| p.object && p.started) {
                 let kind = placement.creature.0;
                 let effect = items.get(&kind).is_some_and(|item| category(item) == FX);
@@ -7560,9 +7531,6 @@ fn spawn(
             at: position,
             level,
         });
-        if placement.made_again {
-            entity.insert(MadeAgain);
-        }
         if placement.blocks {
             entity.insert(crowd::InTheWay::object(level));
         }
