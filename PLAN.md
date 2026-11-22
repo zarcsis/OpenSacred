@@ -26,7 +26,7 @@ Claim status is marked with the words **confirmed** (verified on GOG release fil
   Every pull request records its Claude Code usage, which the README's badge sums (§9.1); no estimates of time or cost are kept.
   The first visible result, a walk through the starting region in 4K, came on 2026-10-17 (G2).
   By 2026-11-17 M0 to M5 were done and every issue then planned for M6 was closed.
-  M6 has since taken what the documents' audit and the sortings of the notes found (#2787, #2845, #2950), 144 issues open on 2026-11-20; version 1.0 waits for the maintainer's own play-through after them (G5, §10).
+  M6 has since taken what the documents' audit and the sortings of the notes found (#2787, #2845, #2950), 85 issues open on 2026-11-22; version 1.0 waits for the maintainer's own play-through after them (G5, §10).
 
 ## 1. Requirements and goals
 
@@ -383,7 +383,7 @@ The details are in their own documents: the formats in docs/02, the original's b
   The weather drawn and heard (#1073), the sound by the profiles (#1093), the effects of the spells, the arts and the world as the original's particle systems (#1092), the creatures' casts (#1852), and the movies where the original plays them (#1094).
   The saves came from M6 on 2026-11-03, ahead of the rest of M5, so that the campaigns could be played through and checked (#1095).
   The guardrails grew beside it, on 2026-10-29: property tests of the rules and round trips of the open formats (#1428, #1434), the oracle's `fuzz` (#1431), mutation testing of the lines a pull request changes (#1432, a required check since #2690), and the tools that keep parallel sessions apart (#1396; docs/03 §3.4, §3.5).
-* **M6 Version 1.0 for Windows 11: every issue closed by 2026-11-17, 144 open on 2026-11-20 of those filed since by the documents' audit and the sortings of the notes; the milestone open until version 1.0** (G5).
+* **M6 Version 1.0 for Windows 11: every issue closed by 2026-11-17, 85 open on 2026-11-22 of those filed since by the documents' audit and the sortings of the notes; the milestone open until version 1.0** (G5).
   The player's release (#1494): the converter finds a GOG or Steam installation (#1484, #1496) and converts it in one run (#1497), which the packaged game starts at its first start (#1498); the Release workflow publishes the newest version at most once a day, with a 7z archive of the game, the converter and the project's own FFmpeg build (#1548, #1500, #1499).
   Every key in `controls.toml`, the defaults the original's (#1553); the original's options window and the settings behind it (#1096); 4K and HiDPI (#1098).
   The horses (#1822); the Underworld campaign with its heroes, a hero carried into it and the hero's export (#1117, #2362, #2358); the difficulty's other rules (#1125) and the Underworld's bosses' specials (#2548).
@@ -392,7 +392,8 @@ The details are in their own documents: the formats in docs/02, the original's b
   The research of the soft shadows (#1436) ended on 2026-11-11; the next day the shadow-mapped ones left `main` for the experiments' branch (#2623), and the models' flattened shadows took soft edges (#2624).
   The audit of the documents (#2787) then read the code against its notes: the defects it found are M6's (#2797 to #2833, #2839, #2858, #2859), and so is what the notes list as not followed, sorted into 64 issues (#2845, #2886 to #2949), by the maintainer's decisions of 2026-11-18.
   The notes' other lines of what is not followed were sorted on 2026-11-20 into 110 more (#2950, #3064 to #3175), the maintainer agreeing to the sorting's recommendations the same day.
-  On 2026-11-20, 99 of M6's issues having closed since 2026-11-18, 144 are open: 36 `bug`, 69 `feature` and 39 `research`; 110 of them come from #2950, 21 from #2845, 4 from the audit (#2844, #2870 to #2872) and 9 were filed while working on them.
+  On 2026-11-20, 99 of M6's issues having closed since 2026-11-18, 144 were open: 36 `bug`, 69 `feature` and 39 `research`; 110 of them came from #2950, 21 from #2845, 4 from the audit (#2844, #2870 to #2872) and 9 were filed while working on them.
+  On 2026-11-22, #2950's bugs all closed and the issues filed while working on them counted in, 85 are open: 1 `bug`, 56 `feature` and 28 `research`.
   What remains after them is the maintainer's own play-through, after which version 1.0 is released (the decision of 2026-11-10, #2479).
 * **M7 HD assets: research begun, the rest after version 1.0.**
   Done on 2026-11-12: the game's recording into one lossless Matroska file, each frame at its time, with the game's sound (#1225).
@@ -408,7 +409,7 @@ Since 2026-10-17 the queue is the repository's open issues (github.com/zarcsis/O
 Work takes this order: the known problems and bugs (`bug`), then the dependency upgrades (`deps`), then new features (`feature`, `research`), the earliest milestone first.
 The dependencies are updated every day without a session (#1550): the Dependencies workflow (`.github/workflows/deps.yml`, running `tools/deps/daily.py`) moves every package to its newest compatible version in a pull request that merges itself once its checks are green, and opens a `deps` issue for every newer incompatible release of a direct dependency, of a Python package, of Rust, of Python and of a source of the release's FFmpeg (`CLAUDE.md`, "Work order"; docs/03 §3.3).
 A session takes an issue with `tools/stack/claim.py`, which refuses one that another session holds or that another account filed (`CLAUDE.md`, "Issues and pull requests").
-On 2026-11-20 the queue holds M6's issues, the bugs first, and no `deps` issue; among them are what the audit left to settle (#2844, #2870 to #2872); beside them are open the research of M7 (#1437, #2604, #2621, #2622) and M8's gamepad (#1097) and ASTC textures (#702).
+On 2026-11-22 the queue holds M6's issues, the bugs first, and no `deps` issue; beside them are open the research of M7 (#1437, #2604, #2621, #2622) and M8's gamepad (#1097) and ASTC textures (#702).
 
 ## 11. Top risks
 
