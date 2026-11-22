@@ -35,7 +35,7 @@ One original runs on the machine, whichever worktree starts it. `--holder` takes
 | `--log-file FILE` | append the records to a file in the scratchpad as well |
 | `--keep-captures` | keep the game's `Capture/shotNNNN.tga` and `.jpg` of each screenshot (removed by default once converted) |
 | `--no-game-log` | leave out the game's own log (`logPrintf`) |
-| `--muted` | the game's volumes 64, so that it plays its sounds (for the sound traces), while the agent sets every volume of mss32.dll to 0, a stream's volume read back answering the one asked (#1213); never `--sound` while the maintainer may hear it |
+| `--mute` | the game's volumes 64, so that it plays its sounds (for the sound traces), while the agent sets every volume of mss32.dll to 0, a stream's volume read back answering the one asked (#1213); never `--sound` while the maintainer may hear it |
 | `--arg WORD` | a word of `Sacred.exe`'s command line, as `--arg tabblocker` (docs/re/window.md) |
 | `--port N` | another port (15703 by default) |
 | `--holder NAME` | who holds the original while the host runs: the session's name as `ListAgents` shows it, which a host started meanwhile names as it refuses (#1398) |

@@ -2,7 +2,7 @@
 // Sacred.exe (GOG 2.28, 32-bit), where it guards the maintainer's desktop, keeps the game drawing without the
 // focus, counts its frames and takes its screenshots, sends the player's input as messages of its own (#450), reads
 // the interface's windows (#1340), reads and changes the world on the render thread's frame (#451), traces the
-// original's functions (#452) and, with the host's --muted, silences mss32.dll. `tools/original/host.py` loads it
+// original's functions (#452) and, with the host's --mute, silences mss32.dll. `tools/original/host.py` loads it
 // and talks to it through `rpc.exports` and `send`.
 //
 // It carries only addresses, offsets and the original's names (docs/re/window.md, docs/re/objects.md and the pages
@@ -2823,7 +2823,7 @@ function stopTrace(name) {
 
 // --- The mute ------------------------------------------------------------------------------------------------------
 
-// With the host's --muted, the game keeps its volumes and so plays its sounds, for their traces, while mss32.dll
+// With the host's --mute, the game keeps its volumes and so plays its sounds, for their traces, while mss32.dll
 // outputs nothing: every volume the game sets on a sample, a 3D sample or a stream is 0, each is set to 0 again as it
 // starts, and so is the digital driver's master volume as it opens. A stream's volume read back answers the volume the
 // game asked for, as the music's crossfades weigh the streams' own levels and would never end at 0 (#1213).
