@@ -475,6 +475,7 @@ What the first step found (2026-10-21, Windows 11, #449):
   At the start it waits for the foreground with no end, which the agent's answers to the focus queries end at once.
 * The "tabblocker" installs its low-level keyboard hook only with the word `tabblocker` on the command line, and removes it again at once; the guard refuses it all the same (`--arg tabblocker` shows the refusal in the log).
 * Stopping the host's background task ends the game within a second, the game's `quit` ends the host with its exit code, and a host that stops answering for 5 s ends the game.
+  After a `quit` the game's own end may hang in the sounds' shutdown (ended by the host 15 s on) or crash past its `WinMain`, seen after the driver's `kill` above all, its root not found (#3183, #3378): the host tells it in a warning of the journal, a fault of the game's end and not of its play, and exits with 0; it leaves past the interpreter's finalizers, in which frida's binding crashed with such a game (its exit 139).
 * The maintainer's checks of 2026-10-22 (#546): Win, Alt-Tab, Win+Tab and Win+D work as ever while the original runs, with dgVoodoo2 and without it, and the original is not in Alt-Tab's list.
   The guards refused nothing, and the maintainer's clicks and keys did not reach the game: the hero stood on its cell.
 * On a locked desktop the original draws nothing through the system's D3D7: its surfaces are lost at the lock, the frames and the agent's state stand, and a screenshot asked for waits for the unlock (docs/re/window.md).
