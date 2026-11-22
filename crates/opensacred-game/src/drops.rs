@@ -1730,8 +1730,8 @@ fn piles_from_hits(
 fn fly(
     mut commands: Commands,
     time: Res<Time>,
-    heights: Option<Res<Heights>>,
-    heroes: Query<(&Transform, &Body), Without<Flying>>,
+    (heights, crowd): (Option<Res<Heights>>, Option<Res<crowd::Crowd>>),
+    heroes: Query<(Entity, &Transform, &Body), Without<Flying>>,
     mut flying: Query<(Entity, &mut Flying, &mut Lying, &mut Transform)>,
 ) {
     let Some(heights) = heights else {
@@ -1755,9 +1755,14 @@ fn fly(
         if flying.flight.resting {
             lying.resting = true;
             if flying.marked
-                && let Some((hero, body)) = heroes.iter().next()
+                && let Some((the_hero, hero, body)) = heroes.iter().next()
+                // The hostile creatures on the line stop it (`0x44F6C6` with the item's id,
+                // #3360).
                 && out_of_reach(hero.translation.xz(), transform.translation.xz(), |cell| {
                     heights.walkable_on(cell, body.level())
+                        && crowd.as_deref().is_none_or(|crowd| {
+                            !crowd.stops(cell, body.level(), the_hero, true)
+                        })
                 })
             {
                 let at = transform.translation;
