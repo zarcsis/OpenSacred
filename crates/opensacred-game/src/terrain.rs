@@ -57,6 +57,8 @@ pub struct Heights {
     occupied: HashSet<((i32, i32), Level)>,
     /// The liquid materials of the loaded sectors' two slots ([`Self::liquids`]).
     liquids: HashMap<(u32, u32), [u8; 2]>,
+    /// Whether the liquid material [`liquids::DRAINED`] is drained ([`Self::drain`]).
+    drained: bool,
 }
 
 /// An inside layer: of its sector, by its index from 1 (docs/re/movement.md).
@@ -1009,7 +1011,31 @@ impl Heights {
     /// their cells (`0x47C5B0`); `None` for any other cell and outside the loaded sectors.
     pub fn liquid_bed(&self, (cx, cy): (i32, i32)) -> Option<[i8; 4]> {
         let key = (u32::try_from(cx).ok()?, u32::try_from(cy).ok()?);
+        if self.dry(key) {
+            return None;
+        }
         self.cells.get(&key)?.bed
+    }
+
+    /// The liquid material [`liquids::DRAINED`] drained, or filled again: its cells no liquid's
+    /// to the beds ([`Self::liquid_bed`], [`Self::liquid_material`]), and their steps sounding
+    /// as on a bridge ([`Self::step_nature`]; `0x62B4A1`, `0x63968C`–`0x6397C3`, #3021).
+    pub fn drain(&mut self, drained: bool) {
+        self.drained = drained;
+    }
+
+    /// Whether the global cell `key` is a liquid cell of the material drained now.
+    fn dry(&self, key: (u32, u32)) -> bool {
+        self.drained && self.material(key) == Some(liquids::DRAINED)
+    }
+
+    /// The liquid material of the global cell `key` under a liquid, drained or not.
+    fn material(&self, key: (u32, u32)) -> Option<u8> {
+        let cell = self.cells.get(&key)?;
+        cell.bed?;
+        let side = u32::try_from(SIDE).ok()?;
+        let slots = self.liquids(((key.0 / side), (key.1 / side)))?;
+        slots.get(usize::from(cell.nature.checked_sub(9)?)).copied()
     }
 
     /// The liquid material of the global cell `(cx, cy)` under a liquid: its sector's material of
@@ -1017,11 +1043,7 @@ impl Heights {
     /// other cell and outside the loaded sectors.
     pub fn liquid_material(&self, (cx, cy): (i32, i32)) -> Option<u8> {
         let key = (u32::try_from(cx).ok()?, u32::try_from(cy).ok()?);
-        let cell = self.cells.get(&key)?;
-        cell.bed?;
-        let side = u32::try_from(SIDE).ok()?;
-        let slots = self.liquids(((key.0 / side), (key.1 / side)))?;
-        slots.get(usize::from(cell.nature.checked_sub(9)?)).copied()
+        self.material(key).filter(|_| !self.dry(key))
     }
 
     /// The liquid materials of a loaded sector's two slots (docs/02 §5.1).
@@ -1040,8 +1062,18 @@ impl Heights {
     /// `0x639080` gives it to the footstep: `BRIDGE` on a bridge over a liquid ([`bridged`]),
     /// else the cell's own.
     pub fn step_nature(&self, x: f32, z: f32) -> Option<u8> {
-        self.cell(x, z)
-            .map(|(cell, _, _)| if cell.bridged { BRIDGE } else { cell.nature })
+        let (cx, cy) = crate::paths::cell_of(x, z);
+        let dry = u32::try_from(cx)
+            .ok()
+            .zip(u32::try_from(cy).ok())
+            .is_some_and(|key| self.dry(key));
+        self.cell(x, z).map(|(cell, _, _)| {
+            if cell.bridged || dry {
+                BRIDGE
+            } else {
+                cell.nature
+            }
+        })
     }
 
     /// The height a creature at world `(x, z)` on a level stands at, as the client gives it
@@ -2324,6 +2356,52 @@ mod tests {
         assert!(close(at(2.5, 0.5, floor), lift));
         // Outside the loaded sectors.
         assert!(heights.standing(-1.0, 0.0, None).is_none());
+    }
+
+    #[test]
+    fn the_pumps_material_drained_is_no_liquid_and_steps_as_on_a_bridge() {
+        let cell = |ground| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [-10; 4],
+            light: [255; 4],
+            heights2: [-10; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground,
+        };
+        let mut cells = vec![cell(0x40); SIDE * SIDE];
+        // Water A of the material 0, water B of the material 13.
+        cells[1] = cell(0x90);
+        cells[2] = cell(0xA0);
+        let sector = Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0, liquids::DRAINED],
+            cells,
+            statics: Vec::new(),
+            layers: Vec::new(),
+            buildings: Vec::new(),
+        };
+        let mut heights = Heights::default();
+        heights.add(&sector);
+        let step = |heights: &Heights, column: f32| {
+            let p = iso::ground(column + 0.5, 0.5);
+            heights.step_nature(p.x, p.z).unwrap()
+        };
+        assert_eq!(heights.liquid_material((2, 0)), Some(liquids::DRAINED));
+        assert!(heights.liquid_bed((2, 0)).is_some());
+        assert_eq!(step(&heights, 2.0), 10);
+        heights.drain(true);
+        assert_eq!(heights.liquid_material((2, 0)), None);
+        assert_eq!(heights.liquid_bed((2, 0)), None);
+        assert_eq!(step(&heights, 2.0), BRIDGE);
+        // The other material stays a liquid.
+        assert_eq!(heights.liquid_material((1, 0)), Some(0));
+        assert_eq!(step(&heights, 1.0), 9);
+        heights.drain(false);
+        assert_eq!(heights.liquid_material((2, 0)), Some(liquids::DRAINED));
     }
 
     #[test]
