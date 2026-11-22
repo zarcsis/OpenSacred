@@ -1032,7 +1032,11 @@ fn blend(rate: f32) -> Duration {
 )]
 pub(crate) fn take(
     mut taking: Taking,
-    (heights, settings): (Res<Heights>, Option<Res<crate::settings::Settings>>),
+    (heights, settings, crowd): (
+        Res<Heights>,
+        Option<Res<crate::settings::Settings>>,
+        Option<Res<crate::crowd::Crowd>>,
+    ),
     (clips, speed, animations): (
         Option<Res<hero::Clips>>,
         Res<hero::GameSpeed>,
@@ -1061,7 +1065,13 @@ pub(crate) fn take(
         let (here, at) = (transform.translation, at.translation());
         let level = body.level();
         if !takes(here, at)
-            || !paths::straight(here.xz(), at.xz(), |cell| heights.walkable_on(cell, level))
+            // The hostile creatures on the line stop it (`0x53C97D` with the item's id, #3360).
+            || !paths::straight(here.xz(), at.xz(), |cell| {
+                heights.walkable_on(cell, level)
+                    && crowd
+                        .as_deref()
+                        .is_none_or(|crowd| !crowd.stops(cell, level, hero, true))
+            })
         {
             debug!("pickup: the hero cannot reach {}", picks.0);
             continue;
