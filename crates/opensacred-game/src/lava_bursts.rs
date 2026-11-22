@@ -214,6 +214,7 @@ fn vent(
         sound: Of::Id(particles::LAVA_BURST_SOUND),
         point,
         rate: (0.4, Roll::Share(0.2)),
+        factor: 1.0,
     });
     flames(&mut commands, point, &looks, (&mut meshes, &mut dice.0));
 }

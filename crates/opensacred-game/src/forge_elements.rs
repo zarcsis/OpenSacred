@@ -357,6 +357,7 @@ fn run(
                 sound: crate::sfx::Of::Id(FORGE_BEAM_SOUND),
                 point: at,
                 rate: (0.5, crate::sfx::Roll::None),
+                factor: 1.0,
             });
         }
         if shown.element.ended() {
