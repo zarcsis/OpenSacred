@@ -3,7 +3,8 @@
 //! by its slot 228 at the rate 1.0, its near hostiles' strikes stopping (`0x54E6D0` on each of
 //! `0xAD3CE0`), is thrown 150 back from its attacker where it may stand, and lies 5 s, doing
 //! nothing else meanwhile (`hero::run`, `attack`, `making`); its marks clear while it stands in a
-//! settlement at its whole health (`0x54808A`).
+//! settlement at its whole health (`0x54808A`), and an undead's mark of a bonus against the undead
+//! too (#3385).
 //!
 //! A player's hero knocked back by a creature's whirlwind (#2901, [`Pushed`]): it leaves what it
 //! does, stands in its idle clip and slides away from the whirlwind's caster until it has gone the knock's
@@ -173,8 +174,14 @@ fn lie(
     }
 }
 
+/// The sides for which `0x4D4DA0` answers on a settlement's cell, where the creature's home's cell
+/// is no settlement's (docs/re/fight.md, "A knock-down").
+const AWAY_IN_SETTLEMENTS: [u8; 9] = [2, 5, 6, 8, 9, 10, 11, 14, 15];
+
 /// A hero's knock-down marks clear while it stands in a settlement at its whole health
-/// (`0x54808A`, `0x4D4DA0`), at a tick of the world.
+/// (`0x54808A`, `0x4D4DA0`), at a tick of the world; so does the same bit of a creature, the mark
+/// of a bonus against the undead (`undead::Marked`, #3385), where its side is one that
+/// `0x4D4DA0` answers for on a settlement's cell away from a home that is none.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their filters"
@@ -184,17 +191,31 @@ fn clear(
     tick: Res<WorldTick>,
     heights: Res<Heights>,
     heroes: Query<(Entity, &Transform, &Health), (With<KnockMarks>, With<Body>)>,
+    marked: Query<(Entity, &Transform, &Health, &crate::ai::Mind), With<crate::undead::Marked>>,
 ) {
     if tick.seconds.is_none() {
         return;
     }
+    let settled = |x: f32, z: f32| {
+        heights
+            .flags(crate::paths::cell_of(x, z))
+            .is_some_and(|flags| flags & SETTLEMENT != 0)
+    };
     for (hero, transform, health) in &heroes {
         let here = transform.translation;
-        let settled = heights
-            .flags(crate::paths::cell_of(here.x, here.z))
-            .is_some_and(|flags| flags & SETTLEMENT != 0);
-        if settled && health.current >= health.most {
+        if settled(here.x, here.z) && health.current >= health.most {
             commands.entity(hero).remove::<KnockMarks>();
+        }
+    }
+    for (creature, transform, health, mind) in &marked {
+        let here = transform.translation;
+        if AWAY_IN_SETTLEMENTS.contains(&mind.side)
+            && settled(here.x, here.z)
+            && !settled(mind.home.x, mind.home.y)
+            && health.current >= health.most
+        {
+            debug!("knock_down: {creature}'s mark against the undead clears");
+            commands.entity(creature).remove::<crate::undead::Marked>();
         }
     }
 }

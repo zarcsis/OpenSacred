@@ -72,6 +72,13 @@ pub(crate) struct Destroyed(pub(crate) f32);
 #[derive(Component, Clone, Copy, Debug)]
 pub(crate) struct Bursts;
 
+/// An undead that a bonus against the undead marked (`+0x2B7` bit `0x80`; `fight` marks it,
+/// `opensacred_rules::fight::marks_undead`, #3385): the chance of its rise halved ([`rolls`]),
+/// kept as it goes with its sector and in the saves (`npcs`), and as it rises or changes its type
+/// ([`remake`]).
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Marked;
+
 /// The undead's dice for the health they rise with and the sparks they burn away in.
 #[derive(Resource)]
 struct Dice(Rng);
@@ -91,12 +98,15 @@ impl Default for Dice {
 /// under a purple potion's effect (#1353); the chance cut by the hero's `sets` where it kills
 /// (`set_bonuses::Stats::rising`, #1727); and never where the killer's exorcism of the value and
 /// the parameters `exorcism` lays it to rest for good first (`undead::exorcised`, a roll of
-/// `R(0, 99)`, #1727's M20).
+/// `R(0, 99)`, #1727's M20). Before the sets cut it, the chance is halved where the fire's part of
+/// the killing `blow`, its whole damage and its fire's part, wins its roll, drawn first
+/// (`undead::fire_halves`), and again where the dead is [`Marked`] (`undead::halved`, #3385).
 pub fn rolls(
     dice: &mut Rng,
     mind: &Mind,
     rank: Rank,
-    (plain, banished): (bool, bool),
+    (plain, banished, marked): (bool, bool, bool),
+    blow: (u32, u32),
     (sets, exorcism): (
         Option<&opensacred_rules::set_bonuses::Stats>,
         (f32, [f32; 3]),
@@ -107,7 +117,8 @@ pub fn rolls(
     if !(warrior || rank == Rank::Common && undead::rises(kind) && mind.flags & RISEN == 0) {
         return None;
     }
-    let chance = undead::chance(plain, banished);
+    let fire = undead::fire_halves(blow.0, blow.1, dice);
+    let chance = undead::halved(undead::chance(plain, banished), (fire, marked));
     let chance = sets.map_or(chance, |sets| sets.rising(chance));
     let (value, params) = exorcism;
     if undead::exorcised(value, params, dice.below(undead::EXORCISM_FACES)) {
@@ -184,7 +195,8 @@ fn rise(
 /// of `old` on the level `on`, with `old`'s names, dialogue, trades and death's functions, and
 /// takes `old` away: the creatures made, none where `old` is gone. Where it is the `same` object
 /// as `old`, an undead that rises or changes its type (`0x541E8D`, `0x532E3C`), it keeps `old`'s
-/// rank, most health and flags word too, as the original's object keeps its own (#3386).
+/// rank, most health, flags word and mark ([`Marked`]) too, as the original's object keeps its
+/// own (#3386, #3385).
 pub(crate) fn remake(
     world: &mut World,
     old: Entity,
@@ -258,17 +270,22 @@ pub(crate) fn remake(
         if let (Some(flags), Some(mut mind)) = (itself.flags, new.get_mut::<Mind>()) {
             mind.flags = flags;
         }
+        if itself.marked {
+            new.insert(Marked);
+        }
     }
     made
 }
 
 /// What an undead keeps of itself as it rises or changes its type ([`remake`]): its rank, its
-/// most health and its flags word, the last its mind's while it lives, else its body's.
+/// most health, its flags word, the last its mind's while it lives, else its body's, and the
+/// mark of a bonus against the undead ([`Marked`], #3385).
 #[derive(Clone, Copy, Debug)]
 struct Itself {
     rank: Rank,
     most: Option<u32>,
     flags: Option<u32>,
+    marked: bool,
 }
 
 /// What `old` keeps of itself ([`Itself`]).
@@ -282,6 +299,7 @@ fn itself(world: &World, old: Entity) -> Itself {
             .get::<Mind>(old)
             .map(|mind| mind.flags)
             .or_else(|| world.get::<Corpse>(old).map(|corpse| corpse.flags)),
+        marked: world.get::<Marked>(old).is_some(),
     }
 }
 
@@ -671,7 +689,8 @@ mod tests {
                 &mut dice,
                 &undead(kind),
                 rank,
-                (true, false),
+                (true, false, false),
+                (0, 0),
                 (None, (0.0, [0.0; 3])),
             )
             .is_some()

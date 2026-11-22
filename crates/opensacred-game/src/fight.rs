@@ -318,6 +318,7 @@ pub(crate) fn resolve(
                     Has<crate::npcs::RisesAgain>,
                     Has<crate::npcs::Talk>,
                     Option<&crate::npcs::OnDeath>,
+                    Has<crate::undead::Marked>,
                 ),
             ),
         ),
@@ -365,7 +366,7 @@ pub(crate) fn resolve(
                     arms,
                     seat,
                     (downed, knock_marks, clip),
-                    (followed, rises, talks, on_death),
+                    (followed, rises, talks, on_death, undead_marked),
                 ),
             )),
         ) = (attackers.get(hit.attacker), targets.get_mut(hit.target))
@@ -573,6 +574,36 @@ pub(crate) fn resolve(
                 holding.0.sets.stun(value),
                 rules.rare(opensacred_rules::fight::STUN),
             ));
+        }
+        // A bonus against the undead marks the undead it fights (`+0x2B7` bit `0x80`, #3385):
+        // the attacker's record made against an undead that its strike of no fixed damages
+        // strikes, before the hit's roll (`0x56B965`), and the struck one's against an undead
+        // that strikes it (`0x56B6CC`), but at the poison's own strike.
+        let hero_kind = hero_arts.as_deref().map_or(0, |arts| arts.kind);
+        let marks = |holding: Option<&Holding>, arms: Option<&crate::npcs::Arms>, kind: u32| match (
+            holding, arms,
+        ) {
+            (Some(holding), _) => {
+                opensacred_rules::fight::marks_undead(&holding.0.items, hero_kind)
+            }
+            (None, Some(arms)) => opensacred_rules::fight::marks_undead(&arms.item_values(), kind),
+            (None, None) => false,
+        };
+        let undead = |mind: Option<&crate::ai::Mind>| {
+            mind.is_some_and(|mind| mind.class == opensacred_rules::undead::CLASS)
+        };
+        let undead_marked = undead_marked
+            || (hit.fixed.is_none()
+                && undead(victim)
+                && marks(holding, caster_arms, mind.map_or(0, |mind| mind.creature)));
+        if undead_marked {
+            commands.entity(hit.target).insert(crate::undead::Marked);
+        }
+        if !hit.poison
+            && undead(mind)
+            && marks(guarded, arms, victim.map_or(0, |victim| victim.creature))
+        {
+            commands.entity(hit.attacker).insert(crate::undead::Marked);
         }
         let landed = match (hit.sure, hit.art) {
             (true, _) => Some(sure_landed(&attacker, &defender, blow, &mut dice.0)),
@@ -1037,12 +1068,16 @@ pub(crate) fn resolve(
                 exorcist(holding),
                 rules.rare(opensacred_rules::undead::EXORCISM),
             );
+            // The killing blow's whole damage and its fire's part as it came through, which
+            // halves the chance by its roll (`0x532BFC`, #3385).
+            let fire = whole(landed.through[1]);
             let rises = victim.and_then(|victim| {
                 crate::undead::rolls(
                     &mut dice.0,
                     victim,
                     rank_of,
-                    (plain, banished),
+                    (plain, banished, undead_marked),
+                    (damage, fire),
                     (sets, exorcism),
                 )
                 .inspect(|_| {
@@ -1286,6 +1321,16 @@ fn exorcist(holding: Option<&Holding>) -> f32 {
     })
 }
 
+/// A kind's damage as it came through, truncated (`__ftol`), none below 0.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a strike's damage, not negative, far below the integers' range"
+)]
+fn whole(damage: f32) -> u32 {
+    damage.max(0.0) as u32
+}
+
 /// `damage` times `factor`, taken whole.
 #[expect(
     clippy::cast_possible_truncation,
@@ -1397,7 +1442,7 @@ pub fn kill(
             &mut Health,
             &crate::ai::Mind,
             Option<&Worth>,
-            (Option<&Ranked>, &Combat),
+            (Option<&Ranked>, &Combat, Has<crate::undead::Marked>),
         ),
         (Without<Dies>, Without<Body>),
     >,
@@ -1412,7 +1457,7 @@ pub fn kill(
     let home = crate::paths::cell_of(at.x, at.z);
     let radius = i32::try_from(radius).unwrap_or(i32::MAX);
     let mut lines = Vec::new();
-    for (entity, transform, mut health, mind, worth, (rank, combat)) in &mut creatures {
+    for (entity, transform, mut health, mind, worth, (rank, combat, marked)) in &mut creatures {
         let here = transform.translation;
         let cell = crate::paths::cell_of(here.x, here.z);
         if !mind.hostile() || (cell.0 - home.0).abs() > radius || (cell.1 - home.1).abs() > radius {
@@ -1422,7 +1467,7 @@ pub fn kill(
             &mut commands,
             (&mut dice, &mut experience, &rules),
             (tally.as_deref_mut(), records.as_deref_mut()),
-            (entity, &mut health, mind),
+            (entity, &mut health, mind, marked),
             (worth, rank, combat),
         );
         lines.push(format!(
@@ -1492,7 +1537,7 @@ impl<'a> Slayer<'a> {
             Option<&mut crate::statistics::Tally>,
             Option<&mut crate::statistics::Kills>,
         ),
-        (entity, health, mind): (Entity, &mut Health, &crate::ai::Mind),
+        (entity, health, mind, marked): (Entity, &mut Health, &crate::ai::Mind, bool),
         (worth, rank, combat): (Option<&Worth>, Option<&Ranked>, &Combat),
     ) -> u32 {
         health.current = 0;
@@ -1500,7 +1545,8 @@ impl<'a> Slayer<'a> {
             &mut dice.0,
             mind,
             rank.map_or(Rank::Common, |rank| rank.0),
-            (true, self.banished),
+            (true, self.banished, marked),
+            (0, 0),
             (
                 self.sets,
                 (
@@ -1576,7 +1622,7 @@ pub fn terrify(
             &mut Health,
             &crate::ai::Mind,
             Option<&Worth>,
-            (Option<&Ranked>, &Combat),
+            (Option<&Ranked>, &Combat, Has<crate::undead::Marked>),
             Has<crate::npcs::ScriptQueue>,
         ),
         (Without<Dies>, Without<Body>),
@@ -1603,7 +1649,7 @@ pub fn terrify(
     let slayer = Slayer::of(&effects, holding, hero_combat);
     let walks = body.moving().is_some();
     for &entity in &nearest.hostiles {
-        let Ok((transform, mut health, mind, worth, (rank, combat), queued)) =
+        let Ok((transform, mut health, mind, worth, (rank, combat, marked), queued)) =
             creatures.get_mut(entity)
         else {
             continue;
@@ -1633,7 +1679,7 @@ pub fn terrify(
             &mut commands,
             (&mut dice, &mut experience, &rules),
             (tally.as_deref_mut(), records.as_deref_mut()),
-            (entity, &mut health, mind),
+            (entity, &mut health, mind, marked),
             (worth, rank, combat),
         );
         if disarms {
