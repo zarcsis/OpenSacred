@@ -225,9 +225,6 @@ pub struct NewGame {
     /// The hero's footstep sound profile
     #[arg(long)]
     pub footsteps: Option<String>,
-    /// No music and no ambient loops
-    #[arg(long)]
-    pub no_music: bool,
     /// Leave the new game's first window and the tutorial's tips open, which the command
     /// `new-game` and a game that the command line names otherwise close by OK and No more Tips,
     /// as the original's driver does (#1343); the menu's game leaves them open
@@ -280,10 +277,10 @@ fn parse_difficulty(text: &str) -> Result<opensacred_rules::drops::Difficulty, S
 }
 
 impl NewGame {
-    /// Whether these options name a game rather than leave it to the menu: any but the zoom and
-    /// the music, which are about how it shows, the first windows left open, and the name, the
-    /// difficulty and a saved or an exported hero's slot, which a game of the menus takes from
-    /// the choice of the hero (`choice`).
+    /// Whether these options name a game rather than leave it to the menu: any but the zoom,
+    /// which is about how it shows, the first windows left open, and the name, the difficulty and
+    /// a saved or an exported hero's slot, which a game of the menus takes from the choice of the
+    /// hero (`choice`).
     pub fn named(&self) -> bool {
         self.class.is_some()
             || self.sector.is_some()
@@ -329,32 +326,22 @@ pub struct Request(pub NewGame);
 #[derive(Resource, Clone, Default)]
 pub struct Launch(pub NewGame);
 
-/// The command line's options about how a game shows (`--zoom`, `--no-music`), which hold for
-/// every game of the run that a `new-game` starts, unless its own line sets them (#831).
+/// The command line's option about how a game shows (`--zoom`), which holds for every game of the
+/// run that a `new-game` starts, unless its own line sets it (#831).
 #[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
 pub struct Shows {
     zoom: Option<f32>,
-    no_music: bool,
 }
 
 impl Shows {
-    /// Whether the music is off, in the games and in the menus (`menu_sound`).
-    pub fn no_music(self) -> bool {
-        self.no_music
-    }
-
     /// How `game` says its games show.
     pub fn of(game: &NewGame) -> Self {
-        Self {
-            zoom: game.zoom,
-            no_music: game.no_music,
-        }
+        Self { zoom: game.zoom }
     }
 
     /// `game` with what it leaves unset taken from these.
     pub fn fill(self, mut game: NewGame) -> NewGame {
         game.zoom = game.zoom.or(self.zoom);
-        game.no_music |= self.no_music;
         game
     }
 }
@@ -388,7 +375,7 @@ struct Loaded {
     forms: Option<forms::Forms>,
     arsenal: Option<arsenal::Arsenal>,
     zoom: f32,
-    music: Option<(music::Music, atmosphere::Atmosphere)>,
+    music: music::Music,
     backpack: crate::pickup::Starting,
     sets: crate::sets::Starting,
     maker: arsenal::Maker,
@@ -804,14 +791,7 @@ fn load(
         hero.gait = hero::Gait::Walk;
     }
     hero.target = game.target.map(|(dx, dy)| center + iso::ground(dx, dy));
-    let music = if game.no_music {
-        None
-    } else {
-        Some((
-            music::Music::new(&shared.world, sound),
-            atmosphere::Atmosphere::default(),
-        ))
-    };
+    let music = music::Music::new(&shared.world, sound);
     Ok(Loaded {
         npcs,
         scripts: started,
@@ -1124,10 +1104,8 @@ fn finish(
         Some(carry) => commands.insert_resource(carry),
         None => commands.remove_resource::<crate::carry::Carry>(),
     }
-    if let Some((music, atmosphere)) = loaded.music {
-        commands.insert_resource(music);
-        commands.insert_resource(atmosphere);
-    }
+    commands.insert_resource(loaded.music);
+    commands.insert_resource(atmosphere::Atmosphere::default());
     next.set(AppState::InGame);
 }
 
@@ -1268,7 +1246,7 @@ mod tests {
     fn a_game_is_named_by_its_options_but_how_it_shows_and_what_the_choice_of_the_hero_takes() {
         let parse = |args: &[&str]| Line::parse_from(["game"].iter().chain(args)).game;
         assert!(!parse(&[]).named());
-        assert!(!parse(&["--zoom", "1.5", "--no-music"]).named());
+        assert!(!parse(&["--zoom", "1.5"]).named());
         // The name, the difficulty and a saved or an exported hero's slot alone lead to the
         // menu, whose choice of the hero sets them again.
         assert!(!parse(&["--name", "Ann", "--difficulty", "gold"]).named());
@@ -1283,13 +1261,13 @@ mod tests {
     #[test]
     fn a_games_line_keeps_how_it_shows_unless_it_sets_it() {
         let parse = |args: &[&str]| Line::parse_from(["game"].iter().chain(args)).game;
-        let shows = Shows::of(&parse(&["--zoom", "1.5", "--no-music"]));
+        let shows = Shows::of(&parse(&["--zoom", "1.5"]));
         let game = shows.fill(parse(&["--class", "mage"]));
-        assert_eq!((game.zoom, game.no_music), (Some(1.5), true));
+        assert_eq!(game.zoom, Some(1.5));
         assert_eq!(game.class, Some(Class::Mage));
         assert_eq!(shows.fill(parse(&["--zoom", "0.5"])).zoom, Some(0.5));
         let game = Shows::default().fill(parse(&["--class", "mage"]));
-        assert_eq!((game.zoom, game.no_music), (None, false));
+        assert_eq!(game.zoom, None);
     }
 
     #[test]

@@ -1985,13 +1985,13 @@ mod tests {
     #[test]
     fn the_commands_take_the_command_lines_options() {
         let Ok(Command::NewGame(game)) =
-            parse("new-game --class wood-elf --sector 50,39 --time 20:00 --walking --no-music")
+            parse("new-game --class wood-elf --sector 50,39 --time 20:00 --walking")
         else {
             panic!("not new-game");
         };
         assert_eq!(game.class, Some(Class::WoodElf));
         assert_eq!(game.sector, Some((50, 39)));
-        assert!(game.walking && game.no_music);
+        assert!(game.walking);
         assert!(matches!(
             parse("go 3236,2510"),
             Ok(Command::Go {
@@ -2283,14 +2283,14 @@ mod tests {
     fn a_new_game_keeps_how_the_command_line_shows_it() {
         let mut app = app("shows");
         let world = app.world_mut();
-        let Ok(Command::NewGame(line)) = parse("new-game --zoom 1.5 --no-music") else {
+        let Ok(Command::NewGame(line)) = parse("new-game --zoom 1.5") else {
             panic!("not new-game");
         };
         world.insert_resource(Shows::of(&line));
         run(world, "new-game --class mage").unwrap();
         let game = &world.resource::<Request>().0;
         assert_eq!(game.class, Some(Class::Mage));
-        assert_eq!((game.zoom, game.no_music), (Some(1.5), true));
+        assert_eq!(game.zoom, Some(1.5));
         run(world, "new-game --zoom 2").unwrap();
         assert_eq!(world.resource::<Request>().0.zoom, Some(2.0));
     }

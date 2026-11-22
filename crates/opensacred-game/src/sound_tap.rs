@@ -1,5 +1,5 @@
 //! The game's whole mix for a recording's sound track (#1230, #1228's answer): a tap at the end of
-//! every channel's track, after its volume control (`volumes`), and on the movies' track. Kira's
+//! every channel's track, the movies' among them, after its volume control (`volumes`). Kira's
 //! main track sums its sub tracks and has no effects of its own here, and a sub track runs its
 //! effects before its own volume, which stays 0 dB, so that the sum of the taps is what goes to
 //! the device, sample for sample.
