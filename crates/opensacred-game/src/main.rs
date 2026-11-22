@@ -374,6 +374,11 @@ struct Cli {
     /// screen, taskbar or Alt-Tab, and draws on and takes its screenshots
     #[arg(long, conflicts_with = "borderless")]
     hidden: bool,
+    /// No sound for this run, whatever the settings say: the effects, the speech, the music, the
+    /// ambient loops and the movies all silent from the start, for a game driven in the
+    /// background (a recording's sound track silent too)
+    #[arg(long)]
+    mute: bool,
     /// The seed of the run's rolls, which the log tells of every run, to play one again; the
     /// clock's by default, as the original seeds its rolls with the time
     #[arg(long)]
@@ -460,6 +465,10 @@ fn run(cli: Cli) -> Result<AppExit> {
     let mut app = App::new();
     // Before Bevy's plugins, whose `LogPlugin` takes the log's layer from it.
     app.insert_resource(journal::Journal::new(log_file));
+    // Before the volumes' plugin, whose tracks then start silent (#3412).
+    if cli.mute {
+        app.insert_resource(volumes::Mute);
+    }
     // The asset server reads the assets' layers (#699); before `AssetPlugin`.
     let root = assets.clone();
     app.register_asset_source(

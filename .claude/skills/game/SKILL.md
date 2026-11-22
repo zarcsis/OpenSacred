@@ -12,7 +12,7 @@ The game is `opensacred-game` (docs/10). It reads the converted assets of `asset
 - **One shot, nothing to wait on** (a screenshot, a benchmark, a scripted tour): a script on the command line, no server.
 
   ```bash
-  cargo run --release -p opensacred-game -- --assets <assets> --hidden --no-music \
+  cargo run --release -p opensacred-game -- --assets <assets> --hidden --mute \
     --settings <scratch>/settings.toml --log-file <scratch>/game.log \
     --exec "new-game --class mage; wait ready; go +6,+2; wait arrived; screenshot <scratch>/shot.png; quit"
   ```
@@ -21,14 +21,14 @@ The game is `opensacred-game` (docs/10). It reads the converted assets of `asset
 - **Interactive** (look, decide, act again): start the game with `--remote` in the background, then call `tools/game/remote.py` as often as needed.
 
   ```bash
-  cargo run --release -p opensacred-game -- --assets <assets> --remote --hidden --no-music \
+  cargo run --release -p opensacred-game -- --assets <assets> --remote --hidden --mute \
     --settings <scratch>/settings.toml --log-file <scratch>/game.log      # run_in_background
   uv run python -I tools/game/remote.py wait-state menu        # up, on its main menu
   uv run python -I tools/game/remote.py exec "new-game --class dwarf"
   uv run python -I tools/game/remote.py wait-ready             # loaded, the hero animating, the sectors in place
   ```
 
-Always pass `--hidden`, for a one-shot script too, `--no-music`, and a `--settings` and `--log-file` in the scratchpad: the default is borderless full screen over the maintainer's desktop, with the maintainer's settings (F11's mode), keys (`controls.toml`, beside the settings), console history and log. `--hidden` keeps the window off the screen, the taskbar and Alt-Tab, while the game draws on and its screenshots are whole, also while the computer is locked (#556); it cannot be shown again, as the game hangs when it is. With `--remote` the window opens without taking the focus.
+Always pass `--hidden`, for a one-shot script too, `--mute`, and a `--settings` and `--log-file` in the scratchpad: the default is borderless full screen over the maintainer's desktop, every sound heard, with the maintainer's settings (F11's mode), keys (`controls.toml`, beside the settings), console history and log. `--hidden` keeps the window off the screen, the taskbar and Alt-Tab, while the game draws on and its screenshots are whole, also while the computer is locked (#556); it cannot be shown again, as the game hangs when it is. With `--remote` the window opens without taking the focus.
 
 ## What the client does
 

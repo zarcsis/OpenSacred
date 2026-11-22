@@ -11,7 +11,7 @@ session's own, which it records under the session and its working directory (#13
 finds it there, so that two sessions, or two worktrees of one, never drive each other's games.
 
 Example
-  cargo run --release -p opensacred-game -- --remote --hidden --no-music --settings <scratch>/settings.toml --log-file <scratch>/game.log
+  cargo run --release -p opensacred-game -- --remote --hidden --mute --settings <scratch>/settings.toml --log-file <scratch>/game.log
   uv run python -I tools/game/remote.py wait-state menu            # the game is up, on its menu
   uv run python -I tools/game/remote.py exec "new-game --class mage"
   uv run python -I tools/game/remote.py wait-ready                 # loaded, the hero animating, the sectors in place

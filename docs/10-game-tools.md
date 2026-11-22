@@ -54,6 +54,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   A file that does not parse is reported and left alone, never overwritten; an unknown key is reported.
 * Writing changes only the keys it sets and keeps the user's comments (`toml_edit`).
 * The command line overrides the file for one run without writing it: `--settings FILE` (another file, for the tests and Claude Code's runs), `--windowed` or `--borderless`, `--width` and `--height`, and `--hidden`, a window that is never shown, for the runs driven from afar (#556).
+* `--mute` silences the run whatever the settings' sound says (#3412): every channel's track at no volume from the start, the movies' too, so that a game driven in the background is not heard; the game plays on as a player's does, its music chosen, its sounds started and its volumes kept, and a recording's sound track is silent.
 * `--screenshot`, `--record` and `--benchmark` run in a window of the given size, as now, so that their frames do not depend on the monitor.
 * The overlays add `[debug] overlay` and `[debug] log` (§5); the keys are in `controls.toml` beside the settings (§9, #1553); the sound and the gameplay of docs/06 §6 are the options window's keys (below).
 * `[interface] enemy_info` (on by default, as the installation's `SHOW_ENEMYINFO`) shows the foe's panel at the bottom while the cursor is over a foe (#1459).
@@ -71,8 +72,8 @@ The commands are the one way in: the console, the scripts and the remote protoco
 * Before #171, `main.rs` read the world, the hero, the start script and the first sector before Bevy started.
   For a menu, the game must start and end inside one process.
 * States `AppState { Menu, Loading, InGame }`.
-  A resource `Request` holds a `NewGame`, what a game starts from: the class and the command line's options that belong to a game (`--sector`, `--hero`, the clips, `--creature`, `--tree`, `--footsteps`, `--walking`, `--target`, `--time`, `--zoom`, `--no-music`, `--leave-open`, the hero's `--name` and the `--difficulty`, #1086, and a saved or an exported hero's slot, `--saved` and `--exported`, #2362, #2552), as a `clap::Args` struct that the command `new-game` reuses (§6).
-  The command line's `--zoom` and `--no-music`, which say how a game shows, hold for every game of the run: a `new-game` of a script, the console or remote control takes them from a resource `Shows` unless its own line sets them (#831).
+  A resource `Request` holds a `NewGame`, what a game starts from: the class and the command line's options that belong to a game (`--sector`, `--hero`, the clips, `--creature`, `--tree`, `--footsteps`, `--walking`, `--target`, `--time`, `--zoom`, `--leave-open`, the hero's `--name` and the `--difficulty`, #1086, and a saved or an exported hero's slot, `--saved` and `--exported`, #2362, #2552), as a `clap::Args` struct that the command `new-game` reuses (§6).
+  The command line's `--zoom`, which says how a game shows, holds for every game of the run: a `new-game` of a script, the console or remote control takes it from a resource `Shows` unless its own line sets it (#831).
 * What every game shares (the world's index, the sprites, the tables) is read once; the tables that the start and the loads read (`items`, `weapons`, `creatures`, `motions`, `balance`, `stairs`) are parsed when first asked for and kept in `sectors::Shared` (`tables`, #830).
   `Loading` does the rest on Bevy's async compute pool behind a loading screen, and an error goes to the log and back to the menu.
 * The modules' systems run only in `InGame`: the steps of `frame::Step` take the condition once, and the plugins' `Startup` systems move to `OnEnter(InGame)`.
@@ -98,7 +99,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   Done 2026-10-19 (#178): a module `pause` with a sub-state `Play { Running, Paused }` of `InGame`, Bevy's virtual time paused, the three channels of the sound paused and resumed with a fade of 0.2 s, and a set `frame::Unpaused` of what stops with the pause, the hero's keys and clicks, the zoom, and the systems that start a sound; the menu is the third screen of `menu`.
   Since #1410 the menu is the original's Esc menu (`esc_menu`, docs/re/menus.md): its framed window, Options and Save Game opening their windows, Export the choice of the hero in its export mode (#2554), Quit asking first in the original's dialog, OK leaving for the main menu, and Continue; the taskbar's Options button opens it too.
   The rest of a game's systems go on, standing still on the paused time, so that a model that comes in while the game is paused still takes its materials.
-* A game named on the command line (`--class` or another of the game's options but `--zoom` and `--no-music`, which only say how it shows, or `--screenshot`, `--record`, `--benchmark`, which need a scene) starts as if `new-game` with those options ran at the start (§6), not by a mechanism of its own.
+* A game named on the command line (`--class` or another of the game's options but `--zoom`, which only says how it shows, or `--screenshot`, `--record`, `--benchmark`, which need a scene) starts as if `new-game` with those options ran at the start (§6), not by a mechanism of its own.
   The remote protocol can drive the menu too (§8), but a one-shot run, such as a screenshot, a benchmark or a comparison with an older build, then needs no server, client or waiting.
 * Where the menus still depart from the original's screens (the picture's scale, the keyboard's arrows, Enter and Esc, the text, the unlit figures) is two decisions: docs/decisions/interface.md, "Menus' scale and keys" and docs/decisions/interface.md, "The choice of the hero's text and figures".
 
@@ -152,7 +153,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
 | `time HH:MM` | sets the clock | `--time` |
 | `setrain N`, `setfog N`, `setsnow N` | starts the rain, the fog or the snow of the intensity N (1 to 100), or stops it with 0, as the original's console (docs/re/weather.md) | |
 | `setquake N` | shakes the screen by a third of N pixels (1 to 100), falling by 10 a second, as the original's console | |
-| `music on\|off` | the music and the ambient loops | `--no-music` |
+| `music on\|off` | the music and the ambient loops | |
 | `movies on\|off` | the movies that play by themselves (the start's logos, the scripts', `GameEnd`'s) for this run; a driven run starts with them off (§3, #1946) | |
 | `movie NAME…` | plays the movie NAME (`intro`, `extro`, `introuw`, `extrouw`, `act1` to `act4`, `ascaron`, `oem`) as the original's player does: over everything, the game standing, until it ends or Escape, Space or either mouse button stops it; `state` names it while it plays (#1945); several NAMEs one after another as one request, as the start's logos play (`movie ascaron oem`, #2416) | |
 | `screenshot FILE` | saves the next frame and goes on (a script waits before it with `wait frames N`) | `--screenshot`, `--frames` |
@@ -249,7 +250,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
   The game registers its own method under that name after Bevy's, which takes its place: it looks the entity up and answers `ENTITY_NOT_FOUND` (-23401) for one that is gone, as Bevy's other methods on an entity do, and hands the rest to Bevy's.
 * The client, `tools/game/remote.py`, uses the standard library alone: `exec "zoom 1.5"`, `state`, `wait-state`, `wait-ready`, `key F11`, `type`, `click X Y`, `move`, `wheel`, `screenshot FILE`, `logs`, `wait-log PATTERN`, `call METHOD`, `shell`, and `--port`; `state --json` gives the state as the method returns it.
   `shell` (#550) reads lines until `:quit`, for driving a game by hand: a line is a command of the game, one starting with `:` a call of the client with the same arguments (`:state`, `:key Escape`, `:screenshot FILE`), and `:logs` goes on from the last record shown; `:follow on` prints the new records after each line.
-* Claude Code runs the game so that it neither covers the maintainer's screen nor touches the maintainer's settings: `--remote --hidden --no-music --settings <scratch>/settings.toml --log-file <scratch>/game.log`, the window hidden (#556).
+* Claude Code runs the game so that it neither covers the maintainer's screen nor touches the maintainer's settings: `--remote --hidden --mute --settings <scratch>/settings.toml --log-file <scratch>/game.log`, the window hidden (#556).
 * Screenshots and logs taken this way are pictures of the converted assets: they stay local, but for a frame of a problem, cropped to it, which its issue or pull request carries as an attachment (`gh … --attach`; docs/08 §3, #1222).
 * Done 2026-10-19 (#175), in a module `remote`, with the client `tools/game/remote.py` and the recipe in docs/03 §3.7.
   The input waits in a queue that sends each message in its frame before Bevy reads the input: a key's release `hold` frames after its press (1 by default, #1409), a click's press a frame after the cursor's move and its release `hold` frames later (2 by default), so that the game's systems see the key and the button held.

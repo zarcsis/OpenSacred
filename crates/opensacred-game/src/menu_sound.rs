@@ -1,6 +1,5 @@
 //! The menus' sound (docs/re/menus.md, "The sound"; #1128): `SOUND_FX_MENU_ADDON` as their music,
-//! looping from their start through all their screens unless the music is off (`--no-music`);
-//! each drop's sound as it falls into the water (`ripples::Fallen`), a cave's on the choices of the
+//! looping from their start through all their screens; each drop's sound as it falls into the water (`ripples::Fallen`), a cave's on the choices of the
 //! hero; and the idle sounds, a roll every half a second, the woods' or the dungeons' by the last
 //! drop's water, as the original's sound manager plays them in its menus' state (`0x69B770`).
 //! A drop's and an idle sound play at the effects' volume, panned and at a rate at random; the
@@ -10,7 +9,7 @@ use bevy::prelude::*;
 use bevy_kira_audio::AudioApp;
 use bevy_kira_audio::prelude::{Audio, AudioChannel, AudioControl, AudioSource};
 
-use crate::game::{AppState, Shows};
+use crate::game::AppState;
 use crate::music;
 use crate::ripples::Fallen;
 use crate::sfx::{self, Sfx};
@@ -123,19 +122,15 @@ fn murmur(
     play((&mut sfx, &audio, &assets), id, IDLE_PAN, RATE);
 }
 
-/// The menus' music from their start, looping, unless the music is off; the menus' start closes
-/// whatever music played (the sound event (12, 2, 0), `0x67A7A0`).
+/// The menus' music from their start, looping; the menus' start closes whatever music played (the
+/// sound event (12, 2, 0), `0x67A7A0`).
 fn start(
     mut idle: ResMut<Idle>,
     channel: Res<AudioChannel<music::Channel>>,
     index: Option<Res<sound::Index>>,
-    shows: Option<Res<Shows>>,
     assets: Res<AssetServer>,
 ) {
     channel.stop();
-    if shows.is_some_and(|shows| shows.no_music()) {
-        return;
-    }
     let Some(file) = index.as_deref().and_then(|index| {
         index
             .0

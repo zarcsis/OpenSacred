@@ -7,11 +7,15 @@
 //! [`Speech`] and the choice of the hero's introductions at the speech's; the music once at the
 //! music's; and the music's and the ambient loops' channels at the music's or, for a stream whose
 //! name starts with `ATMO`, the effects' (`0x677A60`, `0x677750`). The movies play apart, at no
-//! volume of these (`0x6A0D80`).
+//! volume of these (`0x6A0D80`), through a track of their own whose control stays whole.
 //!
 //! The levels are the settings' 0 to 125 over 128 at the start (`initApp`), and over 126 while a
-//! slider of the options window moves (`0x716E00`); the switch off silences every track (`SOUND`,
-//! `0x6902F0`), the sliders then moving no level.
+//! slider of the options window moves (`0x716E00`); the switch off silences every track but the
+//! movies' (`SOUND`, `0x6902F0`), the sliders then moving no level.
+//!
+//! A run muted (`--mute`, [`Mute`]) holds every track silent from its start, the movies' too,
+//! whatever the levels, so that a game driven in the background is not heard (#3412); the game
+//! plays on as it would, its levels, its music and its sounds as a player's.
 
 use bevy::prelude::*;
 use bevy_kira_audio::effect::{VolumeControlBuilder, VolumeControlHandle};
@@ -32,6 +36,11 @@ pub enum Kind {
 /// the dialogues' voice-overs and the scripts' `PlaySound`s (`0x693FE0`), at the speech's volume.
 #[derive(Resource)]
 pub struct Speech;
+
+/// A run that plays no sound (`--mute`): inserted before the plugins, so that every track starts
+/// silent, and kept for the run.
+#[derive(Resource)]
+pub struct Mute;
 
 /// The levels of the three volumes from 0 to 1, and whether the sound is on.
 #[derive(Resource, Clone, Copy, Debug, PartialEq)]
@@ -101,6 +110,31 @@ enum Lane {
     /// The ambient loops' channel: the effects', or the music's for a music that the place takes
     /// for its loop (the pub's, the undead siege's).
     Atmosphere,
+    /// The movies' channel, whole.
+    Movies,
+}
+
+/// The level of the track of `lane` at `levels`: `music_loop` whether the music's channel plays
+/// an ambient or spot loop, `music_on_loop` whether the ambient loops' channel plays a music; none
+/// in a run `muted`.
+fn level(
+    lane: Lane,
+    levels: &Levels,
+    (music_loop, music_on_loop): (bool, bool),
+    muted: bool,
+) -> f32 {
+    if muted {
+        return 0.0;
+    }
+    let kind = match lane {
+        Lane::Of(kind) => kind,
+        Lane::Music if music_loop => Kind::Effects,
+        Lane::Music => Kind::Music,
+        Lane::Atmosphere if music_on_loop => Kind::Music,
+        Lane::Atmosphere => Kind::Effects,
+        Lane::Movies => return 1.0,
+    };
+    levels.of(kind)
 }
 
 /// The channels' tracks' volume controls, and the level each was set to last.
@@ -108,13 +142,19 @@ enum Lane {
 struct Controls(Vec<(Lane, VolumeControlHandle, Option<f32>)>);
 
 /// A track with a volume control for the channel `T`, its control kept in `controls`, and the
-/// recording's tap after it, which takes the channel's sound at its level (`sound_tap`, #1230).
+/// recording's tap after it, which takes the channel's sound at its level (`sound_tap`, #1230);
+/// silent from the start in a run muted.
 fn track<T: Resource>(app: &mut App, controls: &mut Controls, lane: Lane) {
+    let muted = app.world().contains_resource::<Mute>();
     let mut track = AudioTrack::new();
-    let control = track.add_effect(VolumeControlBuilder::new(Decibels::IDENTITY));
+    let control = track.add_effect(VolumeControlBuilder::new(if muted {
+        Decibels::SILENCE
+    } else {
+        Decibels::IDENTITY
+    }));
     track.add_effect(crate::sound_tap::TapBuilder);
     app.add_audio_channel_with_track::<T>(track);
-    controls.0.push((lane, control, None));
+    controls.0.push((lane, control, muted.then_some(0.0)));
 }
 
 /// The levels at the start, from the settings in force.
@@ -128,12 +168,13 @@ fn start(mut commands: Commands, settings: Option<Res<Settings>>) {
 }
 
 /// Sets each track to its kind's level where it changed: the music's and the ambient loops' by
-/// what plays on them.
+/// what plays on them, every one silent in a run muted.
 fn apply(
     levels: Option<Res<Levels>>,
     mut controls: ResMut<Controls>,
     music: Option<Res<crate::music::Music>>,
     atmosphere: Option<Res<crate::atmosphere::Atmosphere>>,
+    mute: Option<Res<Mute>>,
 ) {
     let Some(levels) = levels else {
         return;
@@ -145,14 +186,7 @@ fn apply(
         .as_deref()
         .is_some_and(crate::atmosphere::Atmosphere::plays_music);
     for (lane, control, set) in &mut controls.0 {
-        let kind = match *lane {
-            Lane::Of(kind) => kind,
-            Lane::Music if music_loop => Kind::Effects,
-            Lane::Music => Kind::Music,
-            Lane::Atmosphere if music_on_loop => Kind::Music,
-            Lane::Atmosphere => Kind::Effects,
-        };
-        let level = levels.of(kind);
+        let level = level(*lane, &levels, (music_loop, music_on_loop), mute.is_some());
         if *set == Some(level) {
             continue;
         }
@@ -183,6 +217,7 @@ impl Plugin for VolumesPlugin {
         track::<crate::music::Once>(app, &mut controls, Lane::Of(Kind::Music));
         track::<crate::music::Channel>(app, &mut controls, Lane::Music);
         track::<crate::atmosphere::Channel>(app, &mut controls, Lane::Atmosphere);
+        track::<crate::movies::Channel>(app, &mut controls, Lane::Movies);
         app.insert_resource(controls)
             .add_systems(Startup, start)
             .add_systems(PostUpdate, apply);
@@ -206,5 +241,47 @@ mod tests {
         levels.moved(Kind::Effects, 10);
         levels.on = true;
         assert_eq!(levels.of(Kind::Effects), 0.5);
+    }
+
+    #[test]
+    fn a_run_muted_silences_every_track_and_the_movies_play_whole_otherwise() {
+        let mut levels = Levels::at_start(&crate::settings::Sound::default());
+        levels.music = 0.25;
+        let lanes = [
+            Lane::Of(Kind::Effects),
+            Lane::Of(Kind::Speech),
+            Lane::Of(Kind::Music),
+            Lane::Music,
+            Lane::Atmosphere,
+            Lane::Movies,
+        ];
+        for lane in lanes {
+            assert_eq!(level(lane, &levels, (false, false), true), 0.0, "{lane:?}");
+        }
+        assert_eq!(level(Lane::Movies, &levels, (false, false), false), 1.0);
+        assert_eq!(level(Lane::Music, &levels, (false, false), false), 0.25);
+        assert_eq!(level(Lane::Music, &levels, (true, false), false), 0.5);
+        assert_eq!(level(Lane::Atmosphere, &levels, (false, true), false), 0.25);
+        // The sound's switch off silences all but the movies.
+        levels.on = false;
+        assert_eq!(
+            level(Lane::Of(Kind::Speech), &levels, (false, false), false),
+            0.0
+        );
+        assert_eq!(level(Lane::Movies, &levels, (false, false), false), 1.0);
+    }
+
+    #[test]
+    fn a_run_muted_starts_its_tracks_silent() {
+        // No audio device: the plugin builds its controls alone.
+        let mut app = App::new();
+        app.insert_resource(Mute).add_plugins(VolumesPlugin);
+        let controls = &app.world().resource::<Controls>().0;
+        assert!(controls.iter().all(|(_, _, set)| *set == Some(0.0)));
+        assert!(controls.iter().any(|(lane, ..)| *lane == Lane::Movies));
+        let mut app = App::new();
+        app.add_plugins(VolumesPlugin);
+        let controls = &app.world().resource::<Controls>().0;
+        assert!(controls.iter().all(|(_, _, set)| set.is_none()));
     }
 }

@@ -378,7 +378,7 @@ Since 2026-10-17 every change reaches `main` through a pull request; the queue o
 * The game draws hidden, outside every monitor and on a locked desktop alike, and its screenshots are read back from the GPU rather than from the screen (observed 2026-10-22, #554, #556: outside the monitors, 60 frames a second through a lock of nearly two minutes, each screenshot of the lock written on time and of a new frame; hidden, the same through a lock of 80 s, and the hero walking on a click), so it needs nothing like the original's dgVoodoo2 (§3.8).
 
   ```bash
-  cargo run --release -p opensacred-game -- --remote --hidden --no-music \
+  cargo run --release -p opensacred-game -- --remote --hidden --mute \
     --settings <scratch>/settings.toml --log-file <scratch>/game.log      # from a worktree also --assets ../../../assets
   uv run python -I tools/game/remote.py wait-state menu
   uv run python -I tools/game/remote.py exec "new-game --class mage"
