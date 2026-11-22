@@ -324,6 +324,25 @@ pub(crate) fn mortar_reaches(
     level == on && (!dungeon || crate::paths::straight(here.xz(), point.xz(), walkable))
 }
 
+/// Whether an art of the launch type 1 may be made at the enemy standing at `target`, made from
+/// `here` on the level `level` (`0x51D840`, its case 1): a line of sight to it, the straight way's
+/// test with the flyer's flag (`0x51DD7B`), else a way to its place (`0x4F7710` at `0x51DDC5`;
+/// docs/re/arts.md, "The special weapon arts", #3361).
+pub(crate) fn enemy_reached(
+    (here, level): (Vec3, crate::terrain::Level),
+    target: Vec3,
+    heights: &crate::terrain::Heights,
+) -> bool {
+    crate::paths::straight(here.xz(), target.xz(), |cell| {
+        heights.flown_onto(cell, level)
+    }) || crate::ai::way_to(
+        here,
+        level,
+        opensacred_rules::minds::Spot::new(target.x, target.z),
+        heights,
+    )
+}
+
 /// Whether an art of the launch type 3 may be made at `point` on the level `on`, made from `here`
 /// on the level `level` (`0x51D840`, its case 3): the point on the maker's floor (`0x6354D0`
 /// against `0x449930`, asked where either stands above the ground), a straight line of cells that
@@ -355,9 +374,10 @@ pub(crate) fn point_reached(
 pub(crate) fn aim(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
-    (pointer, under): (
+    (pointer, under, heights): (
         Res<crate::hud::Pointer>,
         Res<crate::under_cursor::UnderCursor>,
+        Option<Res<crate::terrain::Heights>>,
     ),
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     (selected, arts, pack, mut tramples): (
@@ -480,6 +500,17 @@ pub(crate) fn aim(
             && !arts.on_horseback(art, bow)
         {
             tramples.write(crate::trample::Start);
+            continue;
+        }
+        // An art on an enemy wants a line of sight or a way to it (`0x51DD7B`, `0x51DDC5`,
+        // #3361).
+        if launch == Some(1)
+            && target != hero
+            && heights.as_deref().is_some_and(|heights| {
+                !enemy_reached((at.translation(), body.level()), place, heights)
+            })
+        {
+            info!("making: {art} refused at {target}, no line nor way to it");
             continue;
         }
         // The stone, the cage, 19 and 36 are refused at a creature above their bound of levels
@@ -3369,6 +3400,52 @@ impl Plugin for MakingPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Sector (0, 0) walked on, but for the column of cells 3, open at the row `gap` if any.
+    fn column_walled(gap: Option<usize>) -> crate::terrain::Heights {
+        use opensacred_data::world::{Cell, SIDE, Sector};
+        let cell = |ground| Cell {
+            tile: 0,
+            overlays: Vec::new(),
+            heights: [0; 4],
+            light: [255; 4],
+            heights2: [0; 4],
+            offsets: [0; 2],
+            flags: 0,
+            ground,
+        };
+        let cells = (0..SIDE * SIDE)
+            .map(|k| {
+                let wall = k % SIDE == 3 && Some(k / SIDE) != gap;
+                cell(if wall { 0x41 } else { 0x40 })
+            })
+            .collect();
+        let mut heights = crate::terrain::Heights::default();
+        heights.add(&Sector {
+            x: 0,
+            y: 0,
+            id: 0,
+            liquids: [0; 2],
+            cells,
+            statics: Vec::new(),
+            layers: Vec::new(),
+            buildings: Vec::new(),
+        });
+        heights
+    }
+
+    #[test]
+    fn an_art_on_an_enemy_wants_a_line_of_sight_or_a_way() {
+        let at = |x: f32, y: f32| crate::iso::ground(x + 0.5, y + 0.5);
+        let walled = column_walled(None);
+        // On the same side, the line.
+        assert!(enemy_reached((at(5.0, 5.0), None), at(9.0, 5.0), &walled));
+        // Beyond the wall, neither a line nor a way (#3361).
+        assert!(!enemy_reached((at(1.0, 5.0), None), at(6.0, 5.0), &walled));
+        // A gap down the wall: no line, but a way.
+        let gapped = column_walled(Some(20));
+        assert!(enemy_reached((at(1.0, 5.0), None), at(6.0, 5.0), &gapped));
+    }
 
     #[test]
     fn a_flight_that_a_wall_stops_sparks_at_its_flier() {

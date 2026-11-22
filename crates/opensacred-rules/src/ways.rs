@@ -10,7 +10,7 @@
 //! `opensacred-game` (`paths`, `crowd`) keeps the world's points, the cells that the creatures
 //! stand on and the systems that walk them; this module is the rules alone.
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::Hash;
 
 use crate::Cell;
@@ -310,6 +310,90 @@ pub fn no_way_end(from: Cell, to: Cell, passes: impl Fn(Cell) -> bool) -> Cell {
         last = next;
     }
     last
+}
+
+/// The radius of a walker of the type `creature` (`+0x399`, set by `0x4FABE0` at `0x4FAF13`–
+/// `0x4FAF3C`; docs/re/movement.md, "The wide walkers", #3359): 1 for the flight lizards 35, 57 to
+/// 59 and 96 to 98, the ogres 39, 40 and 77, the trolls 49 and 51, the flight demon 54 and 56; 2
+/// for the dragons 52, 74, 88 and 100 to 103, the big demon 53 and the giant spider 55; 0 for
+/// every other.
+pub fn radius(creature: u32) -> i32 {
+    match creature {
+        35 | 39 | 40 | 49 | 51 | 54 | 56..=59 | 77 | 96..=98 => 1,
+        52 | 53 | 55 | 74 | 88 | 100..=103 => 2,
+        _ => 0,
+    }
+}
+
+/// The cells within `radius` of `cell` along both axes, its square (`0x4FAA60`).
+fn square(cell: Cell, radius: i32) -> impl Iterator<Item = Cell> {
+    (-radius..=radius)
+        .flat_map(move |dy| (-radius..=radius).map(move |dx| (cell.0 + dx, cell.1 + dy)))
+}
+
+/// Whether a wide walker of the radius `radius` passes `cell` on its straight line (`0x4FAA60`):
+/// every cell of its square passes `walkable`, so that it goes straight only along a lane three
+/// cells wide for the radius 1, five for 2.
+pub fn square_passes(cell: Cell, radius: i32, walkable: impl Fn(Cell) -> bool) -> bool {
+    square(cell, radius).all(walkable)
+}
+
+/// Whether a wide walker's search takes a cell that its marks have not taken (`0x4F9410`, at
+/// `0x4F977C`–`0x4F983A`): the cell passes `walkable`, and so does each cell within `radius` that
+/// lies off both its row and its column, the four corner neighbours for the radius 1, sixteen
+/// cells of the five by five for 2; the cells of its row and its column are not tested.
+pub fn wide_passes(cell: Cell, radius: i32, walkable: impl Fn(Cell) -> bool) -> bool {
+    walkable(cell)
+        && square(cell, radius)
+            .filter(|&(x, y)| x != cell.0 && y != cell.1)
+            .all(walkable)
+}
+
+/// The steps that a wide walker's failed line is walked on to before its search
+/// (`0x4FB20A`–`0x4FB280`).
+const MARKED_STEPS: u32 = 4;
+
+/// The cells that a wide walker of the radius `radius` in cell `from` has marked by the single
+/// cell's test before its search toward `to` (`0x4FABE0`; docs/re/movement.md, "The wide
+/// walkers"), which its search then takes by that test alone ([`wide_passes`] for the others):
+/// the squares of its line's cells ([`square_passes`]) up to the first that fails; where that
+/// line failed while its count of steps was below four (the first step and a diagonal one
+/// counting two), the three by three cells about each of its next cells until the count is
+/// four; and the five by five cells about `from`. With the line clear, none: it goes straight.
+pub fn wide_marks(
+    from: Cell,
+    to: Cell,
+    radius: i32,
+    walkable: impl Fn(Cell) -> bool,
+) -> HashSet<Cell> {
+    let mut marks: HashSet<Cell> = square(from, 2).collect();
+    let mut line = Line::new(from, to);
+    let mut count = 0;
+    let mut failed = false;
+    while line.at != to {
+        let before = line.at;
+        let next = line.advance();
+        let diagonal = next.0 != before.0 && next.1 != before.1;
+        count += if count == 0 || diagonal { 2 } else { 1 };
+        let cells: Vec<Cell> = square(next, radius).collect();
+        let passes = cells.iter().all(|&cell| walkable(cell));
+        marks.extend(cells);
+        if !passes {
+            failed = true;
+            break;
+        }
+    }
+    if !failed {
+        return HashSet::new();
+    }
+    while count < MARKED_STEPS && line.at != to {
+        let before = line.at;
+        let next = line.advance();
+        let diagonal = next.0 != before.0 && next.1 != before.1;
+        count += if diagonal { 2 } else { 1 };
+        marks.extend(square(next, 1));
+    }
+    marks
 }
 
 /// Whether a straight way leads from cell `from` to cell `to` by the original's test
@@ -829,6 +913,72 @@ pub fn stated_word(old: u32, word: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_big_types_walk_wide_by_their_radius() {
+        for creature in [35, 39, 40, 49, 51, 54, 56, 57, 58, 59, 77, 96, 97, 98] {
+            assert_eq!(radius(creature), 1, "{creature}");
+        }
+        for creature in [52, 53, 55, 74, 88, 100, 101, 102, 103] {
+            assert_eq!(radius(creature), 2, "{creature}");
+        }
+        // The minotaurs, the second big demon, an orc, and the types above 103 walk narrow.
+        for creature in [38, 41, 42, 43, 94, 104, 0] {
+            assert_eq!(radius(creature), 0, "{creature}");
+        }
+    }
+
+    /// A fence along the row 10, but the cell (13, 10), and a wall from the column 14 on.
+    fn fenced(cell: Cell) -> bool {
+        cell.0 < 14 && (cell.1 != 10 || cell.0 == 13)
+    }
+
+    #[test]
+    fn a_wide_walkers_square_and_corners() {
+        // The square takes the whole five by five, or three by three.
+        assert!(square_passes((5, 5), 2, fenced) && !square_passes((5, 8), 2, fenced));
+        assert!(square_passes((5, 8), 1, fenced) && !square_passes((5, 9), 1, fenced));
+        assert!(square_passes((5, 9), 0, fenced));
+        // The search's cell: the corners off its row and column, not the cells beside it.
+        assert!(!wide_passes((13, 10), 1, fenced));
+        assert!(!wide_passes((12, 11), 1, fenced));
+        // A lone closed cell straight beside a cell closes nothing (the row's and the column's
+        // cells are not tested), its corner does.
+        let lone = |cell: Cell| cell != (6, 5);
+        assert!(wide_passes((5, 5), 1, lone) && wide_passes((5, 5), 2, |c| c != (7, 5)));
+        assert!(!wide_passes((5, 6), 1, lone) && !wide_passes((6, 5), 1, lone));
+        assert!(
+            !wide_passes((5, 5), 2, |c| c != (7, 7)) && wide_passes((5, 5), 1, |c| c != (7, 7))
+        );
+    }
+
+    #[test]
+    fn a_wide_walkers_marks_before_its_search() {
+        // A clear line marks nothing.
+        assert!(wide_marks((5, 4), (5, 2), 1, fenced).is_empty());
+        // Failing at once by the fence: the squares of its line to the fence, the three by three
+        // about its next cells to four steps, and the five by five about it.
+        let marks = wide_marks((5, 8), (5, 14), 1, fenced);
+        for cell in [(3, 6), (7, 10), (4, 9), (6, 9), (4, 11), (6, 12)] {
+            assert!(marks.contains(&cell), "{cell:?}");
+        }
+        assert!(!marks.contains(&(5, 13)) && !marks.contains(&(8, 8)));
+        // Failing far down its line: the squares to the fence, no three by three past it.
+        let far = wide_marks((5, 2), (5, 14), 1, fenced);
+        assert!(far.contains(&(6, 10)) && far.contains(&(3, 0)) && !far.contains(&(5, 11)));
+        // A straight step after the first counts one: failing at the second, one cell more.
+        assert!(wide_marks((5, 7), (5, 14), 1, fenced).contains(&(5, 11)));
+        // Across, the same, the fence turned along a column.
+        let turned = |(x, y): Cell| fenced((y, x));
+        assert!(wide_marks((7, 5), (14, 5), 1, turned).contains(&(11, 5)));
+        assert!(wide_marks((8, 5), (14, 5), 1, turned).contains(&(12, 5)));
+        // A diagonal step counts two, before the line fails and after.
+        let corner = |cell: Cell| cell != (8, 8);
+        assert!(!wide_marks((5, 5), (11, 11), 1, corner).contains(&(9, 9)));
+        let first = |cell: Cell| cell != (7, 7);
+        let after = wide_marks((5, 5), (11, 11), 1, first);
+        assert!(after.contains(&(8, 8)) && !after.contains(&(9, 9)));
+    }
 
     #[test]
     fn a_place_at_the_hero_moves_to_the_first_free_point_about_it() {

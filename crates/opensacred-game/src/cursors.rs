@@ -644,9 +644,25 @@ fn choose(
                     .is_some_and(|dungeons| dungeons.holds(here.x, here.z));
                 crate::making::mortar_reaches((here, level), point, dungeon, flown)
             };
+            // An art on an enemy, a line of sight or a way to it (`0x51DD7B`, #3361).
+            let foe_reached = || {
+                let (Some((_, transform, body, ..)), Some(heights), Some(foe)) =
+                    (hero, heights.as_deref(), foe_under)
+                else {
+                    return false;
+                };
+                creatures.get(foe).is_ok_and(|(_, at, ..)| {
+                    crate::making::enemy_reached(
+                        (transform.translation, body.level()),
+                        at.translation(),
+                        heights,
+                    )
+                })
+            };
             crate::making::may_make(arts, art, (effects, pack.as_deref(), riding)).is_ok()
                 && admits(launch, under)
                 && (!(mortar || launch == Some(3)) || reached())
+                && (launch != Some(1) || foe_reached())
         });
     glow.set_if_neq(Glow(glows));
 }
