@@ -267,7 +267,7 @@ Field names: a0…a5 the attributes `+0x10…+0x1A` (texts 1090–1095); m, m′
 | 52 | 2 | skill 31's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9430}: +5 ; {T9430}: +11 |  |
 | 52 | 3 | a3 (+0x16) | +⌊10·D⌋ (10/13/16/20/23) | {T1093}: +10 ; {T1093}: +23 |  |
 | 52 | 4 | — (text only in 0x571710) | — | {T1130}: +100 ; {T1130}: +233 | Text only here; the map's radius +100·D (M13). |
-| 52 | 6 | flags +0x148 bit(s) | or 0x800 | 33% {K:NOROOT} ; 33% {K:NOROOT} | Bit 0x800 (reader not found). |
+| 52 | 6 | flags +0x148 bit(s) | or 0x800 | 33% {K:NOROOT} ; 33% {K:NOROOT} | Bit 0x800: a magician's plant cage at the bearer turned away one cast in three (the query 0x4F, §5). |
 | 53 | 2 | skill 33's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9432}: +5 ; {T9432}: +11 |  |
 | 53 | 3 | arts 55: bonus byte | +⌊3·D⌋ (3/4/5/6/7) | {T853}: +3 ; {T853}: +7 |  |
 | 53 | 5 | — (text only in 0x571710) | — | 3% {K:TOOLTIP_LEBEN_ABSAUGUNG2} ; 7% {K:TOOLTIP_LEBEN_ABSAUGUNG2} | Text only; its leech's reader never heals (the dead block, §4). |
@@ -282,13 +282,13 @@ Field names: a0…a5 the attributes `+0x10…+0x1A` (texts 1090–1095); m, m′
 | 55 | 3 | skill 25's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9424}: +5 ; {T9424}: +11 |  |
 | 55 | 4 | A multiplier (+0xE6) | +0.15·D (0.15/0.201/0.2505/0.3/0.351) | +15% {T1074} ; +35% {T1074} |  |
 | 55 | 6 | a0 (+0x10) | +⌊10·D⌋ (10/13/16/20/23) | {T1090}: +10 ; {T1090}: +23 |  |
-| 55 | 8 | flags +0x148 bit(s) | or 0x1000 | 66% {K:NOSTUNN} ; 66% {K:NOSTUNN} | Bit 0x1000 (reader not found). |
+| 55 | 8 | flags +0x148 bit(s) | or 0x1000 | 66% {K:NOSTUNN} ; 66% {K:NOSTUNN} | Bit 0x1000: two knockbacks of three refused (the query 0x50, §5). |
 | 55 | 10 | flags +0x148 bit(s) | or 0x40000000 | {T8299} ; {T8299} | New bit 0x40000000 (0x563C29; its clearing removes the effects keyed 0x449 at 0x57C1B3). |
 | 56 | 2 | skill 25's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9424}: +5 ; {T9424}: +11 |  |
 | 56 | 4 | a3 (+0x16) | +⌊10·D⌋ (10/13/16/20/23) | {T1093}: +10 ; {T1093}: +23 |  |
 | 56 | 5 | — (text only in 0x571710) | — | +9% {T1132} ; +21% {T1132} | Text only here; effect 859 + 9·D (M3). |
 | 56 | 6 | poison resistance factor (+0xE2) | +0.25·D (0.25/0.335/0.4175/0.5/0.585) | {K:INVENTAR_RES_POISON}: 25.0% ; {K:INVENTAR_RES_POISON}: 58.5% | The line's format is %3.1f. |
-| 56 | 7 | flags +0x148 bit(s) | or 0x10 | {K:NOPOISEN} ; {K:NOPOISEN} | Bit 0x10 (0x582DA6 in the effects' adder, 0x55DB2D; not read). |
+| 56 | 7 | flags +0x148 bit(s) | or 0x10 | {K:NOPOISEN} ; {K:NOPOISEN} | Bit 0x10 (0x582DA6 in the effects' adder; not read). |
 | 57 | 2 | skill 11's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9410}: +5 ; {T9410}: +11 |  |
 | 57 | 3 | D multiplier (+0xEA) | +0.15·D (0.15/0.201/0.2505/0.3/0.351) | {T1075}: +15.0% ; {T1075}: +35.1% |  |
 | 57 | 4 | a1 (+0x12) | +⌊10·D⌋ (10/13/16/20/23) | {T1091}: +10 ; {T1091}: +23 |  |
@@ -382,14 +382,14 @@ A creature in the water form itself is drawn so by its own state; the effect's d
 |---|---|---|---|
 | `0x1` | 46 ≥ 5 | `GEGNERTELEPORT` | `0x52278F`, `0x543E58` (not read) |
 | `0x2` | 39 ≥ 6 | `SET_SNOWEVER`, `FROSTSCHADEN` | the 0x7C2 group: the strike's whole damage × D (`0x5321AD`, `0x56D0C9`); `0x532237`; the weather event on change (`0x57D21B`) |
-| `0x10` | 56 ≥ 7 | `NOPOISEN` | `0x582DA6` (in the effects' adder `0x582D50`), `0x55DB2D` (not read) |
+| `0x10` | 56 ≥ 7 | `NOPOISEN` | `0x582DA6` (in the effects' adder `0x582D50`; not read) |
 | `0x40` | 44 ≥ 5 | `BLUTSCHADEN` | 0x7C2 group; `0x4E1058` |
 | `0x80` | 49 ≥ 6 | `GOTTSCHADEN` | 0x7C2 group; `0x519A64` |
 | `0x100` | 47 ≥ 5 | `SEELESCHADEN` | 0x7C2 group |
 | `0x200` | 45 ≥ 5 | `GEHEIMSCHADEN` | 0x7C2 group |
 | `0x400` | 41 ≥ 6 | `DUNKELSCHADEN` | 0x7C2 group |
-| `0x800` | 52 ≥ 6 | `NOROOT` | not found |
-| `0x1000` | 55 ≥ 8 | `NOSTUNN` | not found |
+| `0x800` | 52 ≥ 6 | `NOROOT` | the creature's query `0x4F` (`0x55D260` at `0x55DADC`), which five of the creatures' casts ask of their target: the magicians' plant cage (40, `0x4D3524` to `0x4D3573` in the mark 8's chooser) is turned, in one cast of three (`rand() % 3` of 0), by a coin onto the caster itself or onto the first creature of the hero's list of hostiles (`0xAD3CE0`); the other four (`0x4D53F9`, `0x4D619C`, `0x4D7BD5`, `0x4DA6AF`) not read further |
+| `0x1000` | 55 ≥ 8 | `NOSTUNN` | the creature's query `0x50` (`0x55D260` at `0x55DB27`), which the knockback's event 3 asks (`0x531AE8`): with the bit, two knockbacks of three are refused (`rand() % 3` not 0; docs/re/arts.md, "The kicks") |
 | `0x2000` | 40 ≥ 4 | `TIERSCHRECK` | not found |
 | `0x4000` | 58 ≥ 6 | `UI_SET_FLUCHT` | `0x4E1052` (the melee's flight, docs/re/fight.md) |
 | `0x8000` | 59 ≥ 6 | `UI_SET_FLIEGEN` | not found |
@@ -409,8 +409,11 @@ A creature in the water form itself is drawn so by its own state; the effect's d
 | `0x40000000` | 55 ≥ 10 | T8299 | `0x563C29`; its loss removes the effects keyed 1097 (`0x57C1B3`) |
 | `0x80000000` | 3 ≥ 4 | `UI_KNOW_ENEMY` | `0x62737F`, `0x62759D`, `0x6279E8`: the values of the foe that the mouse picks on its label while Alt is held (docs/re/interface.md, "The labels on Alt"; #1425) |
 | creature `+0x1FC` 1 | 23 = 6 | — | `0x63918C`, the step's small fires (M8); `0x57AEE4` is the writer's own test |
-| creature `+0x1FC` 4 | 27 ≥ 6, 31 ≥ 5 | T788 | `0x56E0A4` (the strike; not read) |
+| creature `+0x1FC` 4 | 27 ≥ 6, 31 ≥ 5 | T788 | `0x56E0A4`, in the strike's resolution: a strike of the bearer's, of a hit's kind other than 17 and 18, under a test of two of its values not read, gives the struck creature the effect 38 (`0x26`), keyed by the bearer's id, its values by a share of the strike's held at 20 (`0x56E0B1` to `0x56E158`, not read further); the one giver of that effect, which the Daemon's breath's fires test (docs/re/arts.md, "The Daemon's", 1102) |
 | creature `+0x1FC` 8 | 32 ≥ 7 | T835 | `0x57AF1E` (the Mage's effect 40), `0x586EBC` |
+
+The bits 4 and 8, which the arts' regeneration reads (`0x562470`: the time an art's use adds taken down to 0.8 of it, docs/re/arts.md, "The regeneration"), no case of `0x571710` sets, and nothing else either (read 2026-11-22 for #3112, **confirmed** by a byte scan of the code for every instruction that writes at the displacement `+0x148` or `+0x4F0`: on the stats only the stats' maker `0x55E29E`, the recomputation's clearing `0x57978C`, the serialiser `0x586695`, `0x586878` and `0x586A1C`, and the cases' `or`s of the bits above).
+The creature's query handler (`0x55D260`) reads three bits more as answers: the query `0x4E` the bit `0x2`, which `0x5FCC0F` asks of the local hero (not read further), the query `0x4F` the bit `0x800` and the query `0x50` the bit `0x1000` (the table above).
 
 The flags `+0x148` are cleared at the start of each recomputation for the local hero only; another player's are not (not followed: a network game's).
 
