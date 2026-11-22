@@ -9,7 +9,7 @@ Implemented in `opensacred-game` (`motions`, `npcs`, `crowd`, `hero`, `forms`), 
 ## The slots of the actions
 
 `0x5467A0` gives the motion slot that a creature plays for an action, of six: 0 standing, 1 walking, 2 running, 3 the fight stance, 4 an attack, 5 defending; for another number it gives 0.
-`0x593320` then plays that slot of the creature's model, blending from the clip before; where the model has nothing in the slot, it plays nothing new.
+`0x593320` then plays that slot of the creature's model, blending from the clip before; where the model has nothing in the slot, it plays the stand-in that the models' clip getter gives for an attack's slot, else nothing new ("Where the model lacks the slot" below).
 
 A table at `0x956E40` gives each action a row of 20 slots, one for each class of what the creature holds (below):
 
@@ -22,8 +22,8 @@ A table at `0x956E40` gives each action a row of 20 slots, one for each class of
 
 Class 13 has slots of its own (235 standing, 237 walking, 238 running, 236 the stance, 241 an attack, 239 defending), class 14 takes class 12's, and the rest of each row is 0.
 
-For an NPC (`+0x200` bit `0x40` clear) the attack's slot is the table's for its class whether its model has it or not (`0x5467A0`'s action 4, read 2026-11-13 for #2708, **confirmed** by code): no fallback as for standing and moving; what the attack action then plays where the model lacks the slot is not read.
-A grave's skeleton warrior (`grab_21` and the like: the type 32 holding the dagger 1712, class 5 `DOLCH`) has the bare hands' attack `SKLW_ATTACK_BH_A` alone; the game takes class 0's attacks where a model has none of its class (`motions::Slots::attacks`, docs/decisions/fight.md, "A creature's strike of a class its model has no clip of").
+For an NPC (`+0x200` bit `0x40` clear) the attack's slot is the table's for its class whether its model has it or not (`0x5467A0`'s action 4, read 2026-11-13 for #2708, **confirmed** by code): no fallback as for standing and moving; the models' clip getter then gives the clip of another slot in its place ("Where the model lacks the slot" below, read 2026-11-21 for #3303).
+A grave's skeleton warrior (`grab_21` and the like: the type 32 holding the dagger 1712, class 5 `DOLCH`) has no attack of its dagger's class: its model `SKEL_WARRIOR` fills the slots 79 (`SKLW_ATTACK_BH_A`), 84 and 85 (`SKLW_ATTACK_1H_A`, `_B`), 99 and 114 of the attacks, so that the original's getter gives it the slot 84's clip for the slot 104; the game takes class 0's attacks where a model has none of its class (`motions::Slots::attacks`, docs/decisions/fight.md, "A creature's strike of a class its model has no clip of").
 
 The classes agree with the names of the clips in the slots, over the 231 converted models that have a slot 1: 0 `BH` (bare hands), 1 `1H`, 2 `2H`, 3 `2H_AXT`, 4 `STAB`, 5 `DOLCH`, 6 `WURF`, 7 `BOGEN`, 8 `2WAFFEN`, 9 `1H_KLINGE`, 10 `2H_KLINGE`, 12 `ARMBRUST`; no model has a clip named for class 11.
 Most models fill few slots: a thief's idle `THFM_IDLE_BH` fills 1, 14 and 21, its walk 27, its run 40, and its `THFM_HORSE_IDLE`, a rider's idle in the saddle, 169.
@@ -39,9 +39,45 @@ Most models fill few slots: a thief's idle `THFM_IDLE_BH` fills 1, 14 and 21, it
 
 A creature that walks on a run's clip so moves at its run speed, which `0x4F75F0` takes by the gait (docs/re/movement.md, "The speed").
 
-The actions that play a slot themselves through `0x593320` (a shot's 145, the Seraphim's bolts' 145 and 164) take no stand-in (read 2026-11-21 for #3031, **confirmed** by code): `0x593320` asks the model for the slot's clip (`0x4118B0`), the slot 174 trying 173 after it, and where it has none it only sets the creature's `+0xB0` bit 1 and returns, starting nothing; the clip in play goes on and the slot in play (`+0x64`) stays.
-So an action that times itself by the clip in play times itself by that one: the ice druid's shot of the Seraphim's bolts (its model has no clip in 145 or 164) looses at the fraction of its art's cast, the slot 154 that its executor started before it (docs/re/fight.md, "The archers"), its bolt 0.52 s after the shot asked for 145 (**seen** 2026-11-19).
-The game plays an attack clip at the shot's rate there (#3303).
+The actions that play a slot themselves through `0x593320` (an attack's of the table, a shot's, the Seraphim's bolts' 145 and 164) take none of those stand-ins; the models' clip getter gives one of its own for an attack's slot alone (read 2026-11-21 for #3303, **confirmed** by code and **seen** in the running original the same day, the driver of #448 probing `0x593392`, `0x59374B`, `0x4DCB80`, `0x4DD855` and the shot's makers through 300 shots of three ice druids).
+The reading of the same day for #3031, by which nothing played for any slot the model lacks and the druid's shot took its cast's fraction, had missed the getter's stand-in.
+
+- **The getter** (`cGrannyModelManager::getMotion`, `0x4118B0`): a model's slot table (`ModelDesc +0x70`, docs/02 §4.1) holds 0 for a slot it lacks.
+  For such a slot from 79 to 153 the getter gives the clip of the slot 89 where the model has it (`0x4117B0`), else of 84, else of 79: the first attacks of the classes 2, 1 and 0, `*_ATTACK_2H_A`, `*_ATTACK_1H_A` and `*_ATTACK_BH_A`.
+  It gives no clip where the model has none of the three, and for a slot outside 79 to 153.
+- **The player** (`0x593320`, its arguments the slot, a blend, the loops and a rate): it asks the getter for the slot's clip, the slot 174 trying 173 after it.
+  With a clip it starts a control of it at the call, so that the clip's start on Granny's clock is the call's moment, with its loops and at the speed `GameSpeed` times the rate and the creature's time factor `+0x2C9` (`0x413610`), and blends to it over the blend divided by the rate and that factor, at most 0.2 s.
+  Until the blend's end (`+0x22D` on Granny's clock) the clip in play (the control at `+0x48`) and the slot in play (`+0x64`) are the old ones, the new control waits at `+0x235` and the slot asked at `+0x241`; the creature's animation step (`0x5941A0`, which its render and its update call) then makes the new control the clip in play, `+0x64` the slot asked and `+0x241` 0.
+  A play that comes while a blend runs first ends that blend at once, and one that finds no slot in play (`+0x64` 0) takes its clip into play with no blend.
+  So with a stand-in the slot in play is the slot that was asked, which the model lacks, and the stand-in's own slot is kept nowhere.
+  With no clip it sets the creature's `+0xB0` bit of the value 1 and returns: nothing starts, the clip in play goes on, and `+0x64` and `+0x241` stay.
+- **The bit** (`+0xB0`, the value 1): the three starters of a clip alone write it, setting it where the getter gave no clip and clearing it where one started: `0x593320`, `0x593770` (**hypothesis**: a clip played beside the one in play) and the animation step's start of a queued clip (`0x594BE5`–`0x594C2D`).
+  Nothing reads it: a scan of `.text` for the loads and tests of `+0xB0` finds tests of the values 2, 4, 8, `0x10` and `0x20` and of the high bits, none of the value 1 (**confirmed** by the scan).
+  So it ends no action and sends no creature to its idle; an action goes on as its own states have it.
+- **A queued clip**: `0x5491F0` keeps a clip to come at `+0x214` (its slot, its loops at `+0x218`, its rate at `+0x21D`, its blend over the attack speed at `+0x221`), which the animation step starts once what is left of the clip in play is at most that blend, as `0x593320` starts one; the attack action, the mover and the arts' executors call it.
+- **The fractions**: an action that times itself by the clip in play reads the motions' record of the slot in play (`0x4135D0` with the model, `+0x64` and an index `k`: the record whose number the model's slot table holds, its float `+0x80 + 4k`, so `+0xA0` for 8 and `+0xA4` for 9).
+  For a slot the model lacks that is the record 0, `INVALID_MOTION`, whose `+0xA0` is 0.401854, `+0xA4` 0.508987 and `+0x9C` 0.6 (`tables/motions.ron`, docs/02 §4.1).
+  So a stand-in clip is timed by those two fractions and not by its own record's, and its speed takes no factor of its own, 0.6 lying below the 0.8 from which `0x413610` takes one (docs/re/movement.md, "The speed").
+
+The ice druid (141, the model `ICEELVE_DRUID`, which fills 79, 84 and 89 and neither 145 nor 164) shows both cases (**seen**; the shot's own steps are docs/re/fight.md, "The archers"):
+
+- With the effect 16 its shot asks for the slot 145 at the rate 2.1, and the getter gives `ICEF_ATTACK_2H_A`, the slot 89's clip of 3.26 s, which plays in 1.2419 s (`GameSpeed` 1.25 times 2.1), blended in over 0.119 s; the slot in play is 145 from the blend's end.
+  Its bolt leaves at the first tick at which the clip has played 0.401854 of its length, which is 0.499 s after the shot began, so at the fifth tick: through 194 bolts the least fraction at a bolt's tick was 0.4025 and the greatest at a tick before one 0.3892, where the clip's own record has 0.343319.
+- With the effect 17 its shot asks for the slot 164 at the rate 1.0: the getter gives nothing, the bit is set, and the clip in play stays, the druid's stance (`ICEF_FIDLE_BH`, the slot 14, its hands emptied by the effect) or its walk.
+  The two bolts leave by that clip and its slot's record, whose fractions are 0: the first at the shot's first tick after its start, the second once at most 0.4 of the clip's loop in play is left (through 106 pairs the second's least fraction was 0.6056, the greatest at a tick before one 0.5982).
+- Its first shot after its art's cast is as the later ones: the cast's clip (154) has ended and its stance (18 with the staff of the effect 16) or its walk is in play as the shot starts, and the bolt left 0.53 s after the shot asked for 145 (the 0.52 s **seen** 2026-11-19).
+
+Who else meets a lacking slot (the converted models' slots against the creature types' models, **confirmed** on the data 2026-11-21):
+
+- Every play goes through the getter (the attack action `0x4E4CF0`, the arts' executors, the spells' cast, the shot), so the stand-in serves the attacks and the slots 144 to 153 of the kicks and the specials, and a cast's slot from 154 up that a model lacks plays nothing.
+- The slots 145 and 164 are asked for a shot of the effects 16 and 17 alone (the Seraphim's 1018 and 1019), which of the creatures the ice druid alone orders itself (docs/re/ai.md, "The creatures' spells"); of the creature types' models only the Seraphim's fill both slots (`SERAPHIM`, the types 1 and 132, and `SERAPHIM_HOLO`, 135), so the two cases above are the druid's alone in play.
+- A plain shot asks for its holder's attack slot (`0x5467A0`'s action 4: 114 with a bow, 139 with a crossbow or a musket), and the makers of the creatures' weapons give no ranged weapon to a model without the slot 114, nor a crossbow or a musket to one without 139 (docs/re/spawning.md, "`MakeGroup`"), so a plain archer's model has its shot's clip.
+  A weapon of the kind 13 asks for the slot 241, which the Dwarf's model alone fills and for which the getter has no stand-in; the fills' weapon pools hold no weapon of the kinds 13 and 14 (`tables/weapon_groups.ron`), and the scripts' records were not searched for one.
+- A melee strike of a class the model lacks takes the stand-in: by the code its clip is the slot 89's, 84's or 79's, timed by the record 0, whose second fraction above 0 makes the strike's second hit (`0x4EA1F0`, docs/re/fight.md); so a grave's skeleton warrior with its dagger would swing `SKLW_ATTACK_1H_A` and hit at 0.401854 and again at 0.508987 of it (**hypothesis**: by code, not staged in the original).
+- No model with attack clips lacks all three of 89, 84 and 79 but those of the types 199 and 340 (`STACHELALBAUFBLUTSCHRECKE` and `STACHELALBAUFBLUTSCHRECKE01`, the slots 109 and 114 alone).
+
+`opensacred-game` follows it for the Seraphim's bolts of a creature since #3303 (`npcs::BoltClip`, `opensacred_rules::minds::stand_ins`): a shot of the slot 145 that the model lacks plays the first of 89, 84 and 79 that it has at the shot's rate and looses at the record 0's fraction, and one of the slot 164 plays nothing, its bolts leaving at the first tick after its start as its stance's fraction of 0 lets them and the shot ending at the second tick after.
+The shot of a stand-in ends at its clip's end (#3312), and a melee strike of a class the model lacks takes the class 0's clips (#3314; docs/decisions/fight.md, "A creature's strike of a class its model has no clip of").
 
 ## The class of what a creature holds
 
@@ -80,7 +116,8 @@ The list at `0xAD3CE4` is the hero's, not the standing creature's: the distances
 - It keeps the count apart (`0xAD3BC8`, 0 while the hero is dead), which the AI and the scripts' getters read first; but it writes the values only when it finds a hostile, and nothing else writes or clears them, so the first value is 0 when the process starts and keeps the last distance found when none is near.
 - `0x5467A0` compares that first value with 550 without the count (at `0x546A7E`).
 - Bit 6 of `+0x200` is set by the constructor alone (with `0x80000`) for a creature of the heroes' class (`0x426650`, the class record's `+4` is 1) of id 1, or of id 16 or below in a network game: in the single player's game, the hero only, the NPCs of the heroes' classes not.
-- Bit `0x8000` of `+0x200` is the hero's, set and cleared by `0x547070`: set while the nearest hostile is within 350, or within 1,000 when the hero holds a weapon of the kinds 7, 12, 13 or 14 (`0x427A40`, `0x427ED0`; **hypothesis**: the bows and the crossbows); with it set and the list not empty, `0x5375C0` posts the engine's event `(0x10, 2, 1)`, else `(0x10, 2, 0)` (**hypothesis**: the fight's music).
+- Bit `0x8000` of `+0x200` is the hero's, set and cleared by `0x547070`: set while the nearest hostile is within 350, or within 1,000 when the hero holds a weapon of the kinds 7, 12, 13 or 14 (`0x427A40`, `0x427ED0`; **hypothesis**: the bows and the crossbows); with it set and the list not empty, `0x5375C0` posts the engine's event `(0x10, 2, 1)`, else `(0x10, 2, 0)`.
+  The first sets the engine's mark of the stance (bit `0x80000000` of its `+0x54`) and starts the 5 s of its fight's marks again, the second does nothing (`0x613290`, read 2026-11-21 for #3067, **confirmed** by code): it plays no music, and of the sound it only keeps a strike from taking the sound manager's calm anew (docs/re/sound.md, "The calm").
 - A standing creature's action (`+0x150` 0, `0x544890`) asks `0x5467A0` again on every update (at `0x546579`) and changes its clip when the slot changes, at once where less than 0.15 s of a clip played once is left, else blending over 0.15 s (`0x593320`).
 
 So every standing NPC whose model has the stance's slot for what it holds takes its fight stance while a hostile creature is within about 10 cells of the hero, wherever the NPC stands, and the hero takes its own within 350 (or 1,000 with a bow).
