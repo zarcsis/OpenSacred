@@ -144,7 +144,10 @@ fn show(
 
 /// Dresses each illusion's model in its material, untinted by the night, once its meshes are
 /// there, and plays its clip once at [`ILLUSION_RATE`] once its player is there, its life then
-/// twice the clip's length (`0x7A8550`).
+/// twice the clip's length (`0x7A8550`). Its mesh is drawn once, as the original's (`0x40D310`,
+/// seen, #3318): the copies that the models give a mesh of a translucent texture
+/// ([`model_looks::Fringe`]) and of the big demon's effect ([`model_looks::WithEffect`]) go at
+/// each frame they show up, which would add its veins three times.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
@@ -154,7 +157,10 @@ fn dress(
     mut shown: Query<&mut Shown>,
     (children, meshes, sources): (
         Query<&Children>,
-        Query<(), With<MeshMaterial3d<ModelMaterial>>>,
+        Query<
+            (Has<model_looks::Fringe>, Has<model_looks::WithEffect>),
+            With<MeshMaterial3d<ModelMaterial>>,
+        >,
         Query<&model_looks::Source>,
     ),
     (mut players, gltfs, clips, mut graphs): (
@@ -169,10 +175,22 @@ fn dress(
         let Some(model) = look.model else {
             continue;
         };
+        // The copies go, whenever they come.
+        for entity in children.iter_descendants(model) {
+            if let Ok((fringe, with_effect)) = meshes.get(entity)
+                && (fringe || with_effect)
+            {
+                commands.entity(entity).try_despawn();
+            }
+        }
         if !look.dressed {
             let own: Vec<Entity> = children
                 .iter_descendants(model)
-                .filter(|&entity| meshes.contains(entity))
+                .filter(|&entity| {
+                    meshes
+                        .get(entity)
+                        .is_ok_and(|(fringe, with_effect)| !fringe && !with_effect)
+                })
                 .collect();
             if !own.is_empty() {
                 look.dressed = true;
