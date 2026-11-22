@@ -1115,8 +1115,12 @@ fn raise(world: &mut World, caster: Entity, kind: u32, here: Vec3) {
     else {
         return;
     };
-    for raised in crate::undead::remake(world, corpse, (dead.creature, level, hostile), dead.level)
-    {
+    for raised in crate::undead::remake(
+        world,
+        corpse,
+        (dead.creature, level, hostile),
+        (dead.level, false),
+    ) {
         let Ok(mut risen) = world.get_entity_mut(raised) else {
             continue;
         };
