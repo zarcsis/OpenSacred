@@ -4474,6 +4474,14 @@ pub fn stand_ins(slot: u16) -> &'static [u16] {
     }
 }
 
+/// How many ticks after the hero's look wakes a creature whose shot ended it takes its target up
+/// and shoots again (`0x542B20`, `0x4E0300`, `0x4DBFC0`; seen, #3312): two with a `ranged` weapon
+/// in hand, which takes the AI's state 8 at once, three without, which goes through the melee
+/// state 4 first.
+pub fn shot_wake(ranged: bool) -> u8 {
+    if ranged { 2 } else { 3 }
+}
+
 /// Whether a shot's arrow leaves, `done` of its clip played, `a` the clip's first fraction
 /// (`MotionDesc +0xA0`, `0x4DD90E`): once what is left of the clip is at most `1 − a` of it, at
 /// once for an `a` of 0, at the half for one of 1 or more.
@@ -7364,6 +7372,12 @@ mod tests {
         assert!(looses(0.0, 0.0));
         assert!(!looses(0.4, 0.39) && looses(0.4, 0.4));
         assert!(!looses(1.2, 0.49) && looses(1.2, 0.5));
+    }
+
+    #[test]
+    fn a_shooter_shoots_again_two_ticks_after_its_wake_with_a_bow_three_without() {
+        assert_eq!(shot_wake(true), 2);
+        assert_eq!(shot_wake(false), 3);
     }
 
     #[test]
