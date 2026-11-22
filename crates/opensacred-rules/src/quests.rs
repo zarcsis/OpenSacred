@@ -1202,15 +1202,51 @@ impl Counts {
     }
 }
 
-/// An entry of `ReplaceSpawn` (96, `0x4A79D0`; docs/re/netscript.md, "`ReplaceSpawn` and
-/// `RegionChange`"): the fills of an area that it changes, its pairs of types, each a type
-/// replaced and its replacement, and the side it gives the runs it changes, hostile with `0x08`.
+/// An entry of `ReplaceSpawn` (96, `0x4A79D0`; docs/re/netscript.md, "`ReplaceSpawn`: the fills
+/// of an area"): the fills of an area that it changes, its pairs of types, each a type replaced
+/// and its replacement, the side it gives the runs it changes, hostile with `0x08`, and the flags
+/// word it gives their creatures ([`spawn_word`], `+0x34`; #3073).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Replacement {
     pub area: u8,
     pub pairs: Vec<(u32, u32)>,
     pub hostile: bool,
+    #[serde(default)]
+    pub word: u32,
 }
+
+/// The flags word of a `ReplaceSpawn` record of the tags `tags` (`0x4A7B1D`–`0x4A7B8B`): each tag's
+/// bit OR'd in, `0x46` the guards' mode `0x4000` and `0x12` 1 among them, the only two that the
+/// trees' records carry; `0x14`, which clears the bits of the low half taken before it, the tags'
+/// order unknown here, is left out, as no record carries it (docs/re/netscript.md, #3073).
+pub fn spawn_word(tags: impl IntoIterator<Item = u8>) -> u32 {
+    tags.into_iter()
+        .map(|tag| match tag {
+            0x12 => 0x1,
+            0x13 => 0x2,
+            0x2B => 0x8,
+            0x2E => 0x10,
+            0x30 => 0x20,
+            0x2F | 0x31 => 0x40,
+            0x32 => 0x80,
+            0x42 => 0x400,
+            0x43 => 0x800,
+            0x44 => 0x1000,
+            0x45 => 0x2000,
+            0x46 => 0x4000,
+            0x4C => 0x8000,
+            0x50 => 0x1_0000,
+            0x85 => 0x200_0000,
+            0x74 => 0x800_0000,
+            _ => 0,
+        })
+        .fold(0, |word, bit| word | bit)
+}
+
+/// The tags whose bits [`spawn_word`] takes.
+pub const SPAWN_WORD_TAGS: [u8; 16] = [
+    0x12, 0x13, 0x2B, 0x2E, 0x30, 0x2F, 0x31, 0x32, 0x42, 0x43, 0x44, 0x45, 0x46, 0x4C, 0x50, 0x85,
+];
 
 /// The entries of the scripts' `ReplaceSpawn`s, in order (the interpreter's vector `+0x394`),
 /// which the fills of the sectors read as they come in (#55). Nothing takes one out.
@@ -1239,8 +1275,9 @@ impl Replacements {
 
     /// The fill `fill` of a sector of the area `area` as the entries change it, in their order
     /// (`0x47C610`, while an `Enter` runs): each line of a type that an entry of the area replaces
-    /// takes the new type, its weight and hostility kept, and a run of such a line takes the
-    /// entry's side for all its lines (**hypothesis**: only a run where a line was replaced).
+    /// takes the new type, its weight and hostility kept, and a run where a line was replaced
+    /// takes the entry's side for all its lines and its flags word for its creatures, the last
+    /// such entry's (`0x47D096`–`0x47D152`, #3073).
     pub fn fill(&self, area: u8, fill: &Fill) -> Fill {
         let mut fill = fill.clone();
         for entry in self.0.iter().filter(|entry| entry.area == area) {
@@ -1256,6 +1293,7 @@ impl Replacements {
                 for line in &mut fill.entries {
                     line.hostile = entry.hostile;
                 }
+                fill.word = entry.word;
             }
         }
         fill
@@ -2196,6 +2234,22 @@ mod tests {
     }
 
     #[test]
+    fn a_replace_spawns_word_ors_its_tags_bits() {
+        assert_eq!(spawn_word([0x46]), 0x4000);
+        assert_eq!(spawn_word([0x08, 0x12]), 0x1);
+        assert_eq!(spawn_word([0x0E, 0x46, 0x12]), 0x4001);
+        assert_eq!(spawn_word([0x13, 0x2B, 0x2E, 0x30]), 0x3A);
+        assert_eq!(spawn_word([0x2F, 0x31, 0x32]), 0xC0);
+        assert_eq!(spawn_word([0x42, 0x43, 0x44, 0x45]), 0x3C00);
+        assert_eq!(spawn_word([0x4C, 0x50]), 0x1_8000);
+        assert_eq!(spawn_word([0x85, 0x74]), 0xA00_0000);
+        assert_eq!(spawn_word([]), 0);
+        // Every tag of the list takes a bit.
+        assert!(SPAWN_WORD_TAGS.iter().all(|&tag| spawn_word([tag]) != 0));
+        assert_eq!(spawn_word([0x74]), 0x800_0000);
+    }
+
+    #[test]
     fn a_replace_spawn_swaps_the_types_of_its_areas_fills() {
         use crate::spawning::Entry;
         let line = |creature, hostile| Entry {
@@ -2207,6 +2261,7 @@ mod tests {
             per_area: (1, 2, 100),
             entries: vec![line(279, false), line(35, false)],
             hostile: false,
+            word: 0,
         };
         let mut replacements = Replacements::default();
         // `Init58`'s: the soldier 279 becomes the skeleton warrior 32, hostile, in area 1.
@@ -2214,15 +2269,19 @@ mod tests {
             area: 1,
             pairs: vec![(279, 32)],
             hostile: true,
+            word: 0x4000,
         });
         let changed = replacements.fill(1, &fill);
         assert_eq!(changed.entries, [line(32, true), line(35, true)]);
+        // Its guards' mode to the run's creatures (#3073).
+        assert_eq!(changed.word, 0x4000);
         // Another area's fill, and a fill of none of its types, stay.
         assert_eq!(replacements.fill(2, &fill), fill);
         let other = Fill {
             per_area: (1, 2, 100),
             entries: vec![line(35, false)],
             hostile: false,
+            word: 0,
         };
         assert_eq!(replacements.fill(1, &other), other);
         // A later entry swaps back; the same types again take the first's place and append.
@@ -2230,6 +2289,7 @@ mod tests {
             area: 1,
             pairs: vec![(32, 279)],
             hostile: false,
+            word: 0,
         });
         assert_eq!(
             replacements.fill(1, &fill).entries,
@@ -2238,6 +2298,7 @@ mod tests {
         replacements.add(Replacement {
             area: 1,
             pairs: vec![(279, 33)],
+            word: 0,
             hostile: true,
         });
         assert_eq!(replacements.0.len(), 3);

@@ -1327,8 +1327,10 @@ impl Mind {
                 }
             }
         }
-        // Held, it thinks nothing (`0x542B20`).
-        if self.held {
+        // Held, it thinks nothing (`0x542B20`); nor a hostile one on guard (the AI's state 2,
+        // which the look, the idle action and its group's alarm, all of the state 0, do not
+        // reach; #3073).
+        if self.held || self.on_guard() {
             return thought;
         }
         let distance = (here - hero).length();
@@ -1403,6 +1405,9 @@ impl Mind {
         }
         if idle && !walking && !self.fighting && !self.to_door {
             match idle_action(self, here, hero, rng) {
+                // A hostile one of the guards' mode takes its behaviour instead, its home moved
+                // to the step (#3073).
+                Some(Idle::Step(step)) if self.guards_instead() => self.home = step,
                 Some(Idle::Step(step)) => {
                     thought.step = Some(step);
                     if self.enter {
@@ -1440,6 +1445,28 @@ impl Mind {
         } else {
             false
         }
+    }
+
+    /// Whether a hostile creature of the guards' mode `0x4000` (a fill's run that a `ReplaceSpawn`
+    /// of `0x46` changed, `0x4001`) takes its guards' behaviour in place of the walk of an idle
+    /// step, its own or its group fellow's, which takes it: an order to walk sets its AI's state 2
+    /// (`0x52F142`), whose behaviour runs for the mode whatever its bit 0 (`0x4EE030` at
+    /// `0x4EE1A4`; docs/re/ai.md, "The guards' mode on a hostile creature", #3073).
+    pub fn guards_instead(&mut self) -> bool {
+        if self.hostile() && self.is_guard() && !self.fighting {
+            self.active = true;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Whether it is a hostile creature on guard, its guards' behaviour running in the AI's state
+    /// 2 ([`Self::guards_instead`]) until a walk of its behaviour, back to its post or a stroll,
+    /// takes it back to the state 0, a foe within 500 takes it into its fight, or the hero beyond
+    /// 1,500 leaves it dormant.
+    pub fn on_guard(&self) -> bool {
+        self.active && self.hostile()
     }
 
     /// Whether it is idle for its group's alarm: in the AI's state 0, neither fighting, going for
@@ -8406,6 +8433,62 @@ mod tests {
         // The heroes' hostility is the same table's.
         assert_eq!(hostile_to_heroes(2, 76), hostile(2, 76, HEROES, 0));
         assert!(hostile_to_heroes(6, 75) && !hostile_to_heroes(3, 689));
+    }
+
+    #[test]
+    fn a_hostile_guard_of_a_fill_stands_on_guard_where_it_would_step() {
+        let senses = Senses {
+            dt: 0.1,
+            seen: true,
+            here: Spot::default(),
+            hero: at(1_000.0, 0.0),
+            hero_moves: false,
+            takes_on: true,
+            walking: false,
+            sliding: false,
+            hero_size: SIZE,
+            foes: &[],
+            listed: &[],
+            own: 0.0,
+        };
+        // A plain hostile one steps about, beyond its wake's reach.
+        let mut rng = Rng::of(30, 73, 1);
+        let mut plain = Mind::new(at(0.0, 0.0), 0x1, (false, true), None, SPEEDS, (32, 2));
+        let stepped = (0..400).any(|_| {
+            plain
+                .think(&senses, |_| true, || true, &mut rng)
+                .step
+                .is_some()
+        });
+        assert!(stepped && !plain.on_guard());
+        // A fill's skeleton of the word `0x4001` stands on guard instead, its home moved, and
+        // thinks nothing more there (#3073).
+        let mut rng = Rng::of(30, 73, 1);
+        let mut guard = Mind::new(at(0.0, 0.0), 0x4001, (false, true), None, SPEEDS, (32, 2));
+        let mut steps = 0;
+        for _ in 0..400 {
+            steps += usize::from(
+                guard
+                    .think(&senses, |_| true, || true, &mut rng)
+                    .step
+                    .is_some(),
+            );
+            if guard.on_guard() {
+                break;
+            }
+        }
+        assert!(guard.on_guard() && steps == 0 && guard.home != at(0.0, 0.0));
+        let near = Senses {
+            hero: at(100.0, 0.0),
+            ..senses
+        };
+        let thought = guard.think(&near, |_| true, || true, &mut rng);
+        assert!(!thought.attacks && thought.step.is_none() && !guard.fighting());
+        // A foe within 500 takes it into its fight.
+        assert!(guard.guards(Spot::default(), at(400.0, 0.0)) && !guard.on_guard());
+        // Fighting, or peaceful, or of no guards' mode, it does not.
+        assert!(!guard.guards_instead() && !on_guard().guards_instead());
+        assert!(!plain.guards_instead());
     }
 
     /// A guard of the start's kind, peaceful on the side 7, awake by its behaviour.

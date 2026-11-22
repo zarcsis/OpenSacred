@@ -34,6 +34,10 @@ pub struct Fill {
     /// Whether the record has `08`, every entry hostile, which keeps its animals at the detail 0
     /// ([`at_detail`]).
     pub hostile: bool,
+    /// The flags word that its creatures take, 0 for none: no `FillSector` carries one, a
+    /// `ReplaceSpawn` that changes the run gives it its own ([`crate::quests::Replacement`];
+    /// `0x47D096`, `0x480FBE`; #3073).
+    pub word: u32,
 }
 
 /// The farm and wild animals that a fill leaves out at the detail 0 (`DETAILLEVEL`, the table at
@@ -763,6 +767,7 @@ mod tests {
                 hostile: false,
             }],
             hostile: false,
+            word: 0,
         }
     }
 
@@ -1000,6 +1005,7 @@ mod tests {
                 hostile: true,
             }],
             hostile: true,
+            word: 0,
         };
         let mut rng = Rng::of(48, 39, 0);
         let made = make(&thieves, 12, &open_ground(14), &mut rng);

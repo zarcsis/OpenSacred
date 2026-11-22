@@ -2161,8 +2161,9 @@ impl Host for Recorder<'_> {
                 Handled::Done
             }
             // A pair of types for the fills of an area (`0x4A79D0`, #55): exactly two `0x02`s
-            // and no `0x19`, its area `0x69`'s number, hostile with `0x08`; any other record
-            // stores nothing (`0x4A7BC8`).
+            // and no `0x19`, its area `0x69`'s number, hostile with `0x08`, and the flags word of
+            // its tags (`quests::spawn_word`, #3073); any other record stores nothing
+            // (`0x4A7BC8`).
             "replace_spawn" => {
                 if let ([from, to], Some(area)) = (
                     tags.numbers("_02").as_slice(),
@@ -2172,10 +2173,16 @@ impl Host for Recorder<'_> {
                 ) && tags.values("_19").is_empty()
                     && let (Ok(from), Ok(to)) = (u32::try_from(*from), u32::try_from(*to))
                 {
+                    let word = quests::spawn_word(
+                        quests::SPAWN_WORD_TAGS
+                            .into_iter()
+                            .filter(|tag| !tags.values(&format!("_{tag:02X}")).is_empty()),
+                    );
                     self.state.replacements.add(quests::Replacement {
                         area,
                         pairs: vec![(from, to)],
                         hostile: !tags.values("_08").is_empty(),
+                        word,
                     });
                 }
                 Handled::Done
