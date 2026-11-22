@@ -501,6 +501,27 @@ pub fn swing_profile(class: u8) -> Option<u32> {
     }
 }
 
+/// The class of two weapons in hand, whose swing in the air plays [`WOOSH_TWO`] (`0x682757`).
+const TWO_WEAPONS: u8 = 8;
+/// `woosh_2h`, two weapons' swing in the air.
+const WOOSH_TWO: u32 = 516;
+/// The attack speed at which two weapons' swing in the air plays at the plain swing's rate, never
+/// reached (the float `0x890E78`; the attack speed is at most 220).
+const WOOSH_TWO_SPEED: f32 = 300.0;
+
+/// The profile and the rate's factor (`playSFX`'s third argument) of the swing of a striker
+/// holding what is of the class `class`, `air` the attack speed of a strike's start without a
+/// target (the post `0x4E52B7`, its fourth value 6) and none at a hit within reach
+/// (`0x4EA6FD`), at the roll `w` of 0.975 to 1.0194: the class's profile at `w` × 0.5, but two
+/// weapons' in the air, `woosh_2h` at the attack speed over 300 times that (`0x68266C`–
+/// `0x6828DB`; docs/re/sound.md, "The weapons", #3346).
+fn swing(class: u8, air: Option<f32>, w: f32) -> Option<(u32, f32)> {
+    match (class, air) {
+        (TWO_WEAPONS, Some(speed)) => Some((WOOSH_TWO, speed / WOOSH_TWO_SPEED * w * 0.5)),
+        _ => swing_profile(class).map(|profile| (profile, w * 0.5)),
+    }
+}
+
 /// The objects' groups: a door's opening and closing (`0x695800`, from `0x44BCD0`).
 pub const OPEN: u8 = 1;
 pub const CLOSE: u8 = 3;
@@ -588,14 +609,17 @@ impl Armed {
     }
 }
 
-/// A weapon's sound: a strike's swing by its striker, the sound at a hit's target by its
-/// striker's weapon (`landed` whether the hit did damage), or a shot by its shooter's; a plain
+/// A weapon's sound: a strike's swing by its striker, at a hit within reach or, `air` its attack
+/// speed, at the start of the hero's strike without a target ([`swing`]), the sound at a hit's
+/// target by its striker's weapon (`landed` whether the hit did damage), or a shot by its
+/// shooter's; a plain
 /// arrow's own hit at the arrow is not heard in the original, which holds no record of an arrow,
 /// and is not played (`0x5BBE00`, `0x693D8C`; docs/re/sound.md, "The weapons", #3343).
-#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Message, Clone, Copy, Debug, PartialEq)]
 pub enum Blow {
     Swing {
         striker: Entity,
+        air: Option<f32>,
     },
     Target {
         striker: Entity,
@@ -724,9 +748,9 @@ fn blows(
         // share of the volume (`0x68266C`–`0x6828DB`, `0x5320E6`–`0x5329D0`, `0x4DF047`).
         let mut also = None;
         let (at, profile, group, factor) = match blow {
-            Blow::Swing { striker } => {
+            Blow::Swing { striker, air } => {
                 let class = armed(striker).class;
-                let Some(profile) = swing_profile(class) else {
+                let Some((profile, factor)) = swing(class, air, 0.975 + sfx.roll(5) / 90.0) else {
                     continue;
                 };
                 if minds.get(striker).is_ok_and(|mind| {
@@ -734,7 +758,7 @@ fn blows(
                 }) {
                     also = Some(ICE_ELF_SWING);
                 }
-                (striker, profile, WOOSH, (0.975 + sfx.roll(5) / 90.0) * 0.5)
+                (striker, profile, WOOSH, factor)
             }
             Blow::Target {
                 striker,
@@ -993,6 +1017,21 @@ mod tests {
         // Not with another class, not of another type, nor of a peaceful one.
         assert!(!swings_lightning(0, ICE_ELF, true) && !swings_lightning(3, ICE_ELF, true));
         assert!(!swings_lightning(1, 139, true) && !swings_lightning(1, ICE_ELF, false));
+    }
+
+    #[test]
+    fn two_weapons_swing_in_the_air_by_the_attack_speed() {
+        let close = |a: Option<(u32, f32)>, b: (u32, f32)| {
+            let (profile, factor) = a.unwrap();
+            assert!(profile == b.0 && (factor - b.1).abs() < 1e-5, "{a:?} {b:?}");
+        };
+        // The original's factors seen (#3346): 0.16435 at the speed 100, 0.37380 at 220.
+        close(swing(8, Some(100.0), 0.986_111), (516, 0.164_352));
+        close(swing(8, Some(220.0), 1.019_444), (516, 0.373_796));
+        // Within reach, and the other classes in the air, the class's profile at w × 0.5.
+        close(swing(8, None, 1.0), (500, 0.5));
+        close(swing(1, Some(140.0), 0.975), (500, 0.4875));
+        assert_eq!(swing(7, Some(140.0), 1.0), None);
     }
 
     #[test]

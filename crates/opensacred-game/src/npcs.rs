@@ -13000,7 +13000,10 @@ fn strike(
                 });
             if reaches {
                 // The swing within reach (`0x4EA6FD`, #712).
-                blows.write(crate::sfx::Blow::Swing { striker: entity });
+                blows.write(crate::sfx::Blow::Swing {
+                    striker: entity,
+                    air: None,
+                });
                 hits.write(fight::Hit {
                     fixed: None,
                     sure: false,
