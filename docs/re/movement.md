@@ -346,7 +346,33 @@ In the Seraphim's start script, the monsters have bit 0 (2,411 records with `08 
 The creatures that the game makes otherwise (`0x480D40`, the spawners `0x4A02A0`, `0x4E4CF0`, `0x5B2600`, `0x53ECA0`) get bit 0 when hostile to the heroes, and `sdk_HIRE` clears bits 0 and 1 of a creature a hero hires.
 So the hero passes through the soldiers and the citizens of the start, as the maintainer saw (2026-10-19), and the monsters, the captain and the hostile spawns stop it (**confirmed** by code; not checked in the game).
 Every other creature, of an id above 16, is stopped by every live creature that passes the conditions above, the hero among them: the NPCs stop at the hero and at one another, and go round them (**confirmed** by code; not checked in the game).
-`0x54A6D0`, which skips the walk of the cell's objects altogether, holds for a creature in a visual state 1 to 3 (`+0x60`, **hypothesis**: fading or invisible) and for the Dark Elf in some states of its own, not in an ordinary walk.
+
+**The unseen walker** (read again 2026-11-22 for #3084, **confirmed** by code).
+The test of a step asks the query `0x54A6D0` of the stepper itself, once the cell's own test `0x4EBCA0` has passed and before the walk of the cell's objects, in both its branches (`0x4F7F0E` on a building's cell, `0x4F81B3` on another), and where the query holds it skips that walk whole.
+No creature in the cell then stops the step, whatever its flags, its size, its master or the stepper's goal, nor, for a stepper of an id above 16, an object of the category 4, which stops no hero anyway.
+The cell's own test stands, so that such a walker passes through the creatures and through nothing else: the walls, the water, the closed doors and, for a hero, the chests' closed cells stop it as ever.
+The query holds for two kinds of creature (`0x54A6D0`):
+
+- one whose overlay's state `+0x60` is 1, 2 or 3, whose AI's state `+0xFC` is none of 4, 6 and 8 (the melee, a cast, the fight at range) and whose action `+0x150` is none of 3, 4 and 5 (a strike, a cast, a shot): the water form, which holds the state 1 and, for its last 2 s, 3 (docs/re/arts.md, "The Mage's other spells"; docs/re/effects.md, "The light strikes"); what sets the state 2 is not read;
+- the Dark Elf (the type 4) of at least seven pieces of set 26 (the byte 26 of the sets' counts at `+0x4F8`, 0 where their array's length `+0x4F4` is below 27), whose action is 0, 1 or 2 (standing or moving) and whose AI's state is none of 4, 6, 8 and 11, the last a weapon art ordered (docs/re/sets.md §4, M9).
+
+The creatures' fights ask the same query of their target, and pass over one for which it holds (`0x4DB8F8`, `0x4DC414`, `0x4DCA05`, `0x4E0A18`): the walker that the creatures do not see is the one that their bodies do not stop.
+A click on a foe gives the hero its fight's state at once (the AI's state 4, or 8 with a ranged weapon: docs/re/fight.md, "The hero's attack"), so the query fails from the attack's order to the end of its strike, and on the way to its target every creature that stops a hero's steps does so again, all but that target, its goal; a walk, and the going to an item, a container or a talk (the AI's states 0, 1 and 10), leave it holding.
+The query is the stepper's alone: an unseen hero in a cell stops the other creatures' steps as it does seen.
+
+The test of a step is the one test of every way, so the query reaches them all: the search (`0x4F8AF0`, `0x4F9410`) and its goal (`0x4F8560`), the search's straight line (`0x4FAA60`), the straight mode's line (`0x4FB7E0`, through `0x4F7CE0`), the straight way (`0x4FCC80`, through `0x4F7DD0`) and the cells of the walk's own step at each frame (`0x5941A0` at `0x5961F5`, "The objects in the way" above).
+Each asks it as it runs, by the stepper's states of that moment: a way searched while the query holds leads through the creatures' cells, and a step taken while it holds enters them; where it stops holding on the way, the next cell that a creature holds stops the step as ever.
+
+**Seen** 2026-11-22 in the running original (the driver of #448, #3084): the Mage of level 15 on the open grass of 3190,2512, a hostile goblin warrior of level 1 made 4 cells east of her and held there by the effect 15, the walks ordered by clicks on the ground 8 cells beyond it; the query's calls for the hero traced with their answers (`0x54A6D0`), and the reaches of the step's test's refusal for a creature (`0x4F83D3`) with their stepper.
+
+- Without the water form the query answered 0 at every call, 291 in the walk, the refusal was reached for the hero as her line met the goblin's cell, and she went round it: from 3193,2512 by 3193,2513 along the row 2513 to 3196,2513 and back to 3196,2512.
+- In the water form (the spell 4 at level 20, her model the translucent figure) it answered 1 at every call, 95, 78 and 67 in three walks, the refusal was not reached once, and she walked the row 2512 straight through the goblin's cell 3194,2512 each time, the goblin standing in it before and after.
+  The form begins some seconds after the cast: a walk ordered 3 s after the click had the query answer 0 for its first calls, with two refusals, and 1 from then on, and passed through the cell all the same.
+- A click on a goblin, her attack, had the query answer 0 at once and through the approach and the strike, 29 calls of 29 and 318 of 318, the form still on her.
+  With a second goblin 8 cells off and the first on her line to it, her approach was refused eight times and bent round the first, along the row 2513 beside its cell, and the goblin attacked took her for its target.
+- The query is asked for the hero at every frame of a walk, by the walk's own step, and several times in the frame of an order.
+
+`opensacred-game` follows it since #3084 (`ai::unseen_hero`, `hero::run`): the hero in the water form once it starts (`spells::Unseen`), or the Dark Elf of seven pieces of set 26 (`set_bonuses::Stats::unseen`), with no attack ordered and no strike, art or cast playing, steps through the creatures and searches its ways through their cells, the cells' own tests standing; the creatures' look and fights ask the same, so that a water form that attacks is seen again at once, where before it went unseen while its form held.
 
 ## The height
 

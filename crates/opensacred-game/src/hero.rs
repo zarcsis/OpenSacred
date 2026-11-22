@@ -1097,6 +1097,8 @@ pub fn run(
         (
             Option<&crate::effects::Effects>,
             Option<&crate::fight::Holding>,
+            Option<&crate::spells::Unseen>,
+            Option<&crate::attack::Attack>,
         ),
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
@@ -1111,7 +1113,7 @@ pub fn run(
         (making, picking, collects, (held, seat, (downed, pushed))),
         dying,
         flies,
-        (effects, holding),
+        (effects, holding, unseen, attack),
     ) in &mut bodies
     {
         // Held, it stands still, its clip too (`hero_held`); mounting a horse or getting off,
@@ -1130,6 +1132,13 @@ pub fn run(
         let charging = seat
             .and_then(crate::riding::Seat::ridden)
             .is_some_and(|horse| tramplers.contains(horse));
+        // Unseen, in the water form or the Dark Elf in his set, and attacking nothing, it steps
+        // through the creatures, its ways through their cells too (`0x4F7E10` asking
+        // `0x54A6D0`, #3084).
+        let attacking =
+            striking || making || attack.and_then(crate::attack::Attack::target).is_some();
+        let through =
+            charging || crate::ai::unseen_hero(Some(hero.creature), (unseen, holding), attacking);
         let pace = mount.map_or_else(
             || hero.speed(),
             |[walk, run]| match hero.gait {
@@ -1229,7 +1238,7 @@ pub fn run(
                         && !(riding && heights.barred_to_riders(cell, at))
                 };
                 let free =
-                    |cell, at| open(cell, at) && !(!charging && crowd.stops(cell, at, me, !riding));
+                    |cell, at| open(cell, at) && !(!through && crowd.stops(cell, at, me, !riding));
                 let walkable = |cell| free(cell, level);
                 // Round what blocks the way and through the doors, on the course found as it took
                 // its order, found anew off it (a stair's landing); straight on toward a target
@@ -1277,7 +1286,7 @@ pub fn run(
                     let neighbours = |place| {
                         let mut next = heights.floored_neighbours(place, (start.1, goal), open);
                         next.retain(|&(cell, (at, ..))| {
-                            !(!charging && crowd.stops(cell, at, me, !riding))
+                            !(!through && crowd.stops(cell, at, me, !riding))
                         });
                         next
                     };
