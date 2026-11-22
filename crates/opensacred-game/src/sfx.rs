@@ -259,10 +259,6 @@ pub fn placed_by(x: i32, y: i32, listener: Listener, factor: f32) -> (f32, f32) 
 
 /// The volume's factor and the panning of a sound at `at`, by the listener's place, the hero's:
 /// its offset in the original's screen pixels, `48 (cx − cy)` right and `24 (cx + cy)` down.
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "an offset in pixels within the world, far below 2^31"
-)]
 pub fn placed_at(at: Vec3, listener: Option<Vec3>, volume: Listener) -> (f32, f32) {
     placed_at_by(at, listener, volume, 1.0)
 }
