@@ -405,7 +405,7 @@ Every place above is **confirmed** in `0x718CA0` and agrees with the frame (the 
 - **`EXPLOREMAP`** (the minimap's fog of war): `0x638F30`; the overview's unexplored ground opaque black with 1, half black with 0 (docs/re/maps.md).
 - **`FSAA_FILTER`**: cached at the settings object's `+2` (`0x81C870`, read by `0x81CA30`), read by two draws of the client (`0x62E410` at `0x62EC75`, `0x62FF60` at `0x6308AD`); when on, they move a quad's texture coordinates in by 1/256 at each edge (`0x89208C`) (**confirmed**; **hypothesis**: the ground's tiles, against the seams that the anti-aliasing shows, docs/09-ecosystem.md).
 - **`SOUND`**: read at the start (`loadSettings` `0x81520B`, `initApp` `0x817285`) and given to the sound system as a mute (`0x6902F0`); the tick acts at once ("What each control reads and writes" above).
-- **`SOUNDQUALITY`**: given to the sound system at the start and at OK (`0x6780C0`) and read by its start (`0x676200`, which logs it); 2 with the DirectSound3D hardware provider places the samples in 3D (docs/re/sound.md); what tells 0 from 1 is not read.
+- **`SOUNDQUALITY`**: given to the sound system at the start and at OK (`0x6780C0`) and read by its start (`0x676200`, which logs it); 2 with the DirectSound3D hardware provider places the samples in 3D (docs/re/sound.md); at 0 the sound system keeps silent the creatures' voices and idle noises, the footsteps, the objects' opening and closing, the fires' and the water's loops, the quake's rumble, the hero's breath, its comments in the fight and its line of a quest refused, all of which it plays at 1 (docs/re/sound.md, "The quality"; read 2026-11-21 for #3068, **confirmed** by code).
 - **`NETWORK_SPEEDSETTINGS`**: read by the network's `0x7EDEA0`, set by `setNetSpeedMode` at OK (not followed).
 - **`AUTOSAVE`** and **`VIOLENCE`**: docs/re/saves.md and docs/re/effects.md, "The blood fountain".
 
@@ -430,7 +430,7 @@ Every place above is **confirmed** in `0x718CA0` and agrees with the frame (the 
 - The hover glow's blend (the engine's state `0x10`, **hypothesis** additive) and its alpha on a 32-bit display (3 per copy).
 - What the engine event `0x12` sent at the show and hide where `0xAD6EF8` is set does.
 - The byte `0x17EA344` that keeps the key O (and the others of the switch) from the manager.
-- `0x692B60`'s test for the 3D choice, and what `SOUNDQUALITY` 0 changes against 1.
+- `0x692B60`'s test for the 3D choice.
 - The effects' range `0x76B896`–`0x7C71C0` of `DETAILLEVEL`'s readers, taken as the effects' intervals.
 - `NETWORK_SPEEDSETTINGS`' reader `0x7EDEA0` and `setNetSpeedMode`.
 - The fonts 1, 3 and 7's pixel sizes as GDI makes them (font 1 as the choice of the hero's buttons, docs/re/menus.md).
