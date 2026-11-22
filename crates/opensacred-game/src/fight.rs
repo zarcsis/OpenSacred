@@ -809,6 +809,16 @@ pub(crate) fn resolve(
                         "fight: {} strikes {} critically: {damage} to {critical}",
                         hit.attacker, hit.target
                     );
+                    // Its red flash at the defender, at every critical hit (`0x56EF58`; docs/
+                    // decisions/drawing.md, "A critical hit flashes every time", #3081).
+                    let target = hit.target;
+                    commands.queue(move |world: &mut World| {
+                        crate::group_looks::flash(
+                            world,
+                            target,
+                            opensacred_rules::particles::CRITICAL_FLASH,
+                        );
+                    });
                     critical
                 }
                 None => damage,
@@ -846,8 +856,9 @@ pub(crate) fn resolve(
         // The attacker's effect 842 then raises the damage that the resolution returns by what it
         // pays of its own health, keeping 1 (`0x5706F8`–`0x5707F1`, #1366): the struck one's
         // health has fallen already, so the raise takes none of it, while the wound and the
-        // number shown take it. Its red flash (856) is not drawn. The hero's sets add their part
-        // to its items' value (M21, `0x570721`).
+        // number shown take it, and it flashes red at the attacker where it pays (856,
+        // `0x570803`, #3081). The hero's sets add their part to its items' value (M21,
+        // `0x570721`).
         let pain =
             opensacred_rules::fight::item_effect(items, opensacred_rules::fight::PAINKILLER, None);
         let pain = match holding.filter(|_| hero) {
@@ -855,6 +866,16 @@ pub(crate) fn resolve(
             None => pain,
         };
         let cost = opensacred_rules::fight::painkiller(damage, pain, &rules);
+        if cost > 0 {
+            let attacker = hit.attacker;
+            commands.queue(move |world: &mut World| {
+                crate::group_looks::flash(
+                    world,
+                    attacker,
+                    opensacred_rules::particles::PAINKILLER_FLASH,
+                );
+            });
+        }
         let damage = damage + cost;
         // Its life leech takes back a share of the raised damage, held at what the struck one's
         // health held before, by their distance, but from a poison's strike
@@ -927,10 +948,15 @@ pub(crate) fn resolve(
             );
         }
         // A creature that the strike stuns and that lives through it leaves its swing or its
-        // walk and stands, held for half a second (`0x56D70A`–`0x56D750`); its sparks (816) are
-        // not drawn.
+        // walk and stands, held for half a second (`0x56D70A`–`0x56D750`), the burning light's
+        // sparks at its neck the while (816, `0x56D739`; #3081).
         if landed.stunned && health.current > 0 && victim.is_some() {
             debug!("fight: {} stuns {}", hit.attacker, hit.target);
+            crate::holding_sights::burn(
+                &mut commands,
+                hit.target,
+                opensacred_rules::particles::STUN_LIGHT,
+            );
             let mut stunned = commands.entity(hit.target);
             stunned.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
             stunned

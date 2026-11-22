@@ -3049,6 +3049,65 @@ Read 2026-11-17 for #2767 off `Sacred.exe`; **confirmed** by code unless marked,
   **Seen** 2026-11-17 beside the original: the statue's green aura and the blue potion's orange one about the Seraphim's head, the orange about 140 pixels across at 1,080 lines against the original's 134 there.
   Not followed: the style 7 of the bit `0x10000000`, which a game of one player never sets, and the turns' sense in the screen's plane (**estimate**: the game's, counter-clockwise for a positive turn).
 
+## The generic system's flashes
+
+Read 2026-11-22 for #3081 in Ghidra and in a disassembly of the executable (capstone, scratch scripts); **confirmed** by code unless marked otherwise, and the sights of the variants 0, 6 and 8 **seen** in the running original the same day ("Seen" below).
+The class is the 856's, `cParticleSystem_generic` (its constructor `0x796150`, start `0x796E10`, update `0x7962F0`, draw `0x7967B0`); its variants 0, 2, 3, 5, 7, 8 and 10 to 12 are told with the game's bursts ("In `opensacred-game`" below).
+
+- **The event**: the type's number is pushed before `sdk_CREATE` (`0x5FBA40`) at 33 places of the code (a scan), and each then sends the object the FX event `0x50`, whose `+0x38` is the colour and whose byte `+0x3C` the variant (the fifteenth and sixteenth arguments of `0x41E1D0`).
+  Where the event's target `+0x0C` is a creature, the variants 0, 2, 5, 6 and 9 burst at the vertices of its model as last drawn (`0x44FC30`, `0x767FB0`), and stand where they were made.
+- **The variant 0's colour**: the start copies the event's colour into the ramp's first four words, the quads' four corners, and the draw's flags `0x11` take the corners as they are and add the quads whole (`ONE`, `ONE`; "The billboards"), so that the colour's red, green and blue are the sparks' and its alpha has no part.
+  `PARTICLE_SPARK06` is opaque in every texel (the converter's master), so a colour of a whole alpha added by its alpha comes to the same picture.
+  The billboards' draw leaves the alpha test as it finds it (`0x761B00` sets the states 1, 4, 8, `0x10`, `0x20`, `0x100` and `0x800` alone), and the models' draws turn it off after them (**hypothesis**: off at the sparks, as the ramps of an alpha of 0 that are seen, a fire's on the ground among them, could not show under it; 842's sparks of an alpha of 25 of 255 show whole, "Seen" below).
+- **The variant 6**, the green glows (`0x79727E`–`0x79738A`, its update `0x7640C0` alone): its target must be a creature, `s` its type's size (`items.pak +0x14`, 50 for 0, `0x428CE0`).
+  One burst of the least of 300 and the model's vertices `V`, a glow at every `⌊V/300⌋`th vertex of each mesh in turn (`0x767FB0`), each of the size `0.03·s`, still, of the buoyancy `−5·s`, with no spread and no angle; the layer's rates of the life −512 a second and of the size `+0.3·s`.
+  So each glow lives 0.498 s, grows sixfold and rises ever faster, `0.62·s` in its life.
+  Its ramp at the entry `k` is `(⌊20·k/256⌋, ⌊127·k/256⌋, ⌊25·k/256⌋)` of 255 at an alpha of 0 (the floats at `0x89208C`, `0x890798`, `0x89075C` and `0x890764`): (19, 126, 24) at the birth, darkening evenly to black at the death.
+  Its draw: billboards of `PARTICLE_GLOW03`, opaque in every texel, of the flags `0x19` (the ramp's colour, added whole), the grid 1, unturned, untinted by the night; no light (`+0x9C` stays the constructor's 0); the system's flags `0x40`.
+  For a hero's size of 50 that is 300 glows of a half side of 1.5 growing to 9 and rising 31; for a goblin warrior's 25, half of each.
+  So green glows over the whole figure that swell, lift off it and are gone in half a second; each is dim, and the 300 added over one another are not (**seen**, "Seen" below).
+- **The variant 9**, a dark smoke (`0x796E10`'s case 9, read for its makers alone): 300 puffs at the creature's vertices, of the size 5 growing by 10 a second, the buoyancy −20, turned at random, living 0.73 s (the life's rate −350), in a ramp of the grey `0x222222` whose alpha alone changes, laid over by their alpha and turned (the flags `0x0C`); its alpha's course and its texture are not read.
+- **Who makes which**, the colour as the event carries it:
+
+| Maker | Variant | Colour | At |
+|---|---|---|---|
+| 859's critical hit (`0x56EF58`) | 0 | `0xFFFF2020` | the defender, once an id (docs/re/fight.md, "The rare effects") |
+| 842's strike paid with health (`0x570803`) | 0 | `0xF04040` under an alpha by its value | the attacker |
+| 846's split (`0x56F530`, `0x56F5E1`) | 0 | `0xFFFFFFFF` | the struck creature and the one made beside it |
+| A poison's strike (`0x560872`, `0x560968`) | 6 | 0 | the bearer, and its mount where it rides (docs/re/fight.md, "The poison") |
+| The effect 62's blow of the poison's kind (`0x563A4B`, `0x563B36`) | 6 | 0 | the burning target, and its mount (docs/re/arts.md) |
+| The effect 31 in the stats' update, where its whole value is a multiple of 10 (`0x562F0B`) | 6 | 0 | its bearer; not read further |
+| The effect 22's block of the effects' update (`0x560CD4`, the block `0x560A16`–`0x560DAD`) | 9 | 0 | its bearer; not read further (**hypothesis**: the night form's burn by day) |
+| The death of a player's hero that rides, in the creature's events' handler (`0x5336D2`) | 9 | 0 | its mount (docs/re/fight.md, "The undead that rise again") |
+| A level's rise (`0x57F4FF`) | 2 | gold, dark gold or red | the creature (docs/re/fight.md, "The hero's levels") |
+| The Seraphim's energy bolts' effect 17 (`0x583B8E`, `0x583C46`) | 2 | `0xFF8080FF` | each weapon it takes out of her hands |
+| A statue's power-up (`0x4A958D`) | 2 | `0xFFD0A527` | the hero |
+| `SetGroupState`'s and `SetNPCState`'s change of a side (`0x49F172`, `0x49F276`; `0x461969`, `0x461A50`) | 0 | `0xFFFF4040` hostile, `0xFFF0F0F0` peaceful | the creature |
+| The black magician's blink (`0x4D72F5`) | 0 | `0xFF80FF80` | where it stood |
+| The last deaths' burnings (`0x541BB2`, `0x5416FD`, `0x542035`) | 0, 7, 8 | `0xFFFF4040` for 0 | the corpse |
+| `Partikel` (`0x4A91F6`, `0x4A9385`) | the record's | the record's | docs/re/netscript.md |
+| `0x4A0120`, in `0x49FC50` | 1 | `0x000080FF` | not read |
+| `0x4E1A1F`, in the melee state `0x4E0300`; `0x50F857`, in the Vampiress's executor `0x50E6C0` | 0 | `0xFF842222` | not read |
+| `0x545157`, in the standing action `0x544890` | 0 | `0xFF804020` | not read |
+| `0x483757` in `CreateNPC`, `0x487941` in `CreateObj`, `0x59DF56` and `0x59E054` in the queue's step `0x59A840` | not read | not read | not read |
+
+- **Seen** 2026-11-22 in the running original (the driver of #448: the Seraphim's new game, the view at its closest, `zoom 0.5`, frames at set times after a probe's record; the probes, the items worn and the counts are in docs/re/fight.md, "The poison", "The rare effects" and "The undead that rise again").
+  - The variant 6 at a poison's strike, on the hero and on a goblin warrior of the size 25: at 0.03 s small bright green glints all over the figure; they swell and climb, a green rim about the whole outline at 0.13 s, a halo about the upper body at 0.27 s and 0.37 s, near white where the glows crowd, a green cloud over the head at 0.45 s, and nothing left at 0.53 s.
+    The body hides the glows behind it and stands dark within its halo.
+    It is not dim: of the 12,000 pixels that the hero's halo turned greener at 0.37 s, 7,000 held a green of 250 or more, and its top climbed 93 pixels in 0.42 s; the goblin's halo is half as large, 5,900 pixels, and climbed 40.
+    At 00:00 the ground is dark and the halo as bright as at 12:00, 12,900 pixels with 6,800 of them whole: untinted by the night.
+  - The variant 0 in the critical hit's red, (255, 32, 32): sparks over the goblin's whole figure from 0.03 s, red at their rim and yellow-white where they crowd; they stay at their place as the goblin is knocked aside, lie in a bright heap on the ground at 0.6 s, are up again about the figure's middle at 0.9 s and at 1.4 s, smaller, a few left at the feet at 2.4 s and none at 3.2 s, the object ending 3.4 s and 3.5 s after its making.
+  - The variant 0 in 842's red, (240, 64, 64), at an alpha of 38 and of 25 of 255: over the hero's own figure, as bright as the critical hit's of a whole alpha, the same red rim and yellow-white middle, so that the alpha has no part; a flash at every strike, the sparks of one still falling as the next is made.
+  - The stun's burning light (862, "The burning light and the holy conversion"): three bursts beside the goblin's head and shoulders at 0.05 s, 0.22 s and 0.40 s, each a white ball as it is made, which scatter into small pale blue sparks, fall, and are gone 1.2 s after the stun.
+  - The variant 8 at three magic skeletons 48 that died their last death in one frame: pale blue-white flames taller than a skeleton from 0.5 s to 1.0 s after the death, gone at 1.6 s, a black scorch left under each and no corpse.
+  - Not seen: 846's white flash, the variant 9, the glows of the effects 62 and 31, and a rider's second flash at its mount.
+
+`opensacred-game` draws the variant 0 at a creature's figure in any colour (`group_looks::flash`, `opensacred_rules::particles::generic_sparks`, drawn by `puffs`) and the variant 2 (`level_sparks`, `particles::vertex_sparks`).
+Since #3081 the fight draws its flashes so (`fight`): a critical hit's at its defender in `particles::CRITICAL_FLASH`, at every one (docs/decisions/drawing.md, "A critical hit flashes every time"), and 842's at its attacker where it pays, in `particles::PAINKILLER_FLASH` of the alpha 255, whatever the value, as the original's adds whole; and a stun's sparks are the burning light's for 0.5 s (`holding_sights::burn`, `particles::STUN_LIGHT`).
+The variant 6 is a poison's strike's since #3081 (`effects`, `group_looks::poison_glow`, `particles::poison_glows`), at the bearer's figure by its type's size, and at the horse of a riding hero.
+**Seen** 2026-11-22 in the game, the Seraphim under the effect 30 of the value 8: at each strike a green halo about her outline, rising over her head and gone within half a second.
+Not followed: the split's flash (846's split itself not read), the variant 9 and the effect 62's poison.
+
 ## In `opensacred-game`
 
 The world's fires burn (#1092): `opensacred_rules::particles` holds the machinery (the particles, the layers' rates, the emission blocks with their spreads, the ramps, the update of `0x7640C0` and the steady emission of `0x764760` with its pick of a layer for two) and the smoke class's variants 4 to 6 and 10 to 12, and 13 since #2070 (the magic fire, with the pick of a block among three and every particle at the first block's offset); the scripts' `CreateObj` of `FX_FIRE_L` (884 to 886), `FX_FI_SMOKE_*` (812, 813, 876) and `FX_FIRE_MAGIC` (904) places a fire at its `0x20` and its height `0x7E` over the plane of height 0, raised by the 1.7173 pixels a unit of the original's view since #2728 (`npcs`, `iso::PIXELS_PER_MODEL_HEIGHT`; "Who makes them"), and `fx` runs its particles at the frame's time and draws each layer as camera-facing quads of `PARTICLE_FIRE03` (sampled without its smaller levels), the flames added by their alpha and the smoke laid over by its alpha, their ramps' colours written as they are into the frame of sRGB values; each fire lights the night by its radius (280, 370, 530).
@@ -3068,8 +3127,8 @@ The last burnings of the 856 (`cParticleSystem_generic`, its virtual table `0x89
 - The variants 7 and 8 (`0x797394`, `0x79749F`) emit every 0.003 s for their first second `PARTICLE_CLOUD01` of a half side of 20, turned at random, shot up at 350 ± 130 (± 15 across) from within 8 of the place, living 0.34 s, added by their alpha: white to orange to a fading red for 7, a pale cyan to blue for 8.
   Under them lies the scorch (`0x7631E0`), a flat quad of a half side of 50 of `FX_STREAKS02` where the start's `rand()` is even, else `FX_STREAKS01`, laid over by its alpha, whole for 10 s and fading by 0.5 a second after; the system ends with it.
 - The game draws them (`undead::burn`, `undead::burn_after_clip`): the goblins' sparks by `puffs` from the corpse's skinned vertices as last posed since #2859 (`vertices::ModelPoints::picked`; its bones before it), the ghoul's and the skeletons' flames and scorch by `fx::last_burning` on the corpse's floor, untinted by the night; **seen** 2026-11-02 in the game (a fire ghoul's in the chapel of 50,39, a magic skeleton's and a goblin's in 52,40), not yet beside the original's.
-- An earlier note (#1202) saw red-orange flames and a white flash at a magic skeleton's last death in the original, against the variant 8's pale cyan that the code reads; which creature showed which colour is a **hypothesis** until both are seen in the original.
-- Not followed: whether the tick and the draw both update the class in one frame, and the 856's other variants (the poison's at a burning target, #3081); the detail's factor of the flames' interval (1.5 at `DETAILLEVEL` 1, 2.2 at 0) follows since #2352 ("The emission").
+- An earlier note (#1202) saw red-orange flames and a white flash at a magic skeleton's last death in the original, against the variant 8's pale cyan that the code reads; which creature showed which colour is a **hypothesis** until both are seen in the original; the magic skeleton 48's last death burns pale blue-white (**seen** 2026-11-22, "The generic system's flashes"), and the fire ghoul's is not seen.
+- Not followed: whether the tick and the draw both update the class in one frame, and the 856's variant 9 ("The generic system's flashes" above); the detail's factor of the flames' interval (1.5 at `DETAILLEVEL` 1, 2.2 at 0) follows since #2352 ("The emission").
 - The variant 10 (`0x796E10`'s case 10, its update `0x7962F0`; read 2026-11-03 for #1846, **confirmed** by code and in the running original), a script's smoke (quests 10251 and 10252, `Partikel` in red at a grave): at its clock's 0 one burst of 25 particles (`0x764760`, the block's interval 0 and its count `+0x5C` 25) within ± (15, 15, 4) of the system's place, each of a velocity of (0, 0, 5) ± (15, 15, 0), a buoyancy of −60 ± 10, a size of 8 ± 1 that grows by 10 a second and an angle of π ± π, living 1.275 s (−200); then only the update (`0x7640C0`), the system ending as its last particle dies.
   Its ramp is the event's colour, each byte over 256, from an alpha of 0.996 through 0.39 over 60 entries to 0 over 196 (`0x763F50`); drawn as `PARTICLE_SMOKE04` with the flags `0x4C`: laid over by its alpha, turned, and tinted by the light at it, so that it darkens by night.
   **Seen** 2026-11-03 with the driver at 1509,1216 (`script OMO10251GrabTriggerArea_10251`): a bright red puff over the grave by noon, a dark red one by night.
