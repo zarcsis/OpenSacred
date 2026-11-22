@@ -372,10 +372,9 @@ fn engage(
         };
         // At its attack speed (`0x4E4CF0`): the hero's `+0x210` stays 1, held or clicked (#704).
         // Quickened by the Dwarf's frenzy (`0x584FE0`).
-        let attack_speed = combat.map_or(1.0, |combat| {
+        let attack_speed = combat.map_or(100.0, |combat| {
             opensacred_rules::arts::quickened(combat.speed, frenzy.map_or(0.0, |frenzy| frenzy.0))
-                / 100.0
-        });
+        }) / 100.0;
         // A shot of bolts at its own rate by the attack speed (`0x4DCB80`).
         let rate = |bolt: Option<Bolt>| bolt.map_or(attack_speed, |bolt| bolt.rate(attack_speed));
         let ticked = tick.seconds.is_some();
@@ -394,10 +393,6 @@ fn engage(
             // #2748).
             if ticked && minds::hit_due(striking.fractions, striking.struck, done, class) {
                 striking.struck += 1;
-                // The swing within reach or in the air (`0x4EA6FD`, #712).
-                if attack.target.is_none() {
-                    blows.write(crate::sfx::Blow::Swing { striker: hero });
-                }
                 if let Some(bolt) = striking.bolt {
                     // Its bolts leave at the clip's first hit toward its target, or the point it
                     // strikes (`0x4DDD2A`, `0x4DE162`, `0x4DE5EC`), which the bolts fly and hit.
@@ -423,7 +418,11 @@ fn engage(
                 } else if let (Some(entity), Some(at)) = (attack.target, target)
                     && minds::hero_hits((at - here).with_y(0.0).length(), reach)
                 {
-                    blows.write(crate::sfx::Blow::Swing { striker: hero });
+                    // The swing at a hit within reach (`0x4EA6FD`, #712).
+                    blows.write(crate::sfx::Blow::Swing {
+                        striker: hero,
+                        air: None,
+                    });
                     hits.write(fight::Hit {
                         fixed: None,
                         sure: false,
@@ -581,9 +580,16 @@ fn engage(
         attack.asked = false;
         attack.phase = Phase::Deciding;
         // The attack's first strike speaks (`0x4E52D1`, the action's sub-state 0); the strikes it
-        // chains do not (#711).
+        // chains do not (#711). A strike in the air swings there, once, by its attack speed
+        // (`0x4E52B7`, #3346).
         if !attack.spoke {
             attack.spoke = true;
+            if attack.target.is_none() {
+                blows.write(crate::sfx::Blow::Swing {
+                    striker: hero,
+                    air: Some(attack_speed * 100.0),
+                });
+            }
             lines.write(crate::voices::Speak {
                 speaker: hero,
                 group: crate::voices::ATTACK,
