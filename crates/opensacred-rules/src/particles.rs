@@ -16934,9 +16934,69 @@ impl DemonDeath {
     }
 }
 
+/// The big demon's illusion of side quest 402 (917, `FX_BIG_DEMON_ILLUSION`,
+/// `cParticleSystem_big_demon_illusion`, its constructor `0x7A8550`, start `0x7A8A40`, run
+/// `0x7A8780` and draw `0x7A87B0`; docs/re/effects.md, "The big demon's illusion"; #3059).
+pub const BIG_DEMON_ILLUSION: u32 = 917;
+/// Its model and the slot of the clip it plays once, `BDMN_CAST_MAGIC01`, and the texture it is
+/// drawn in (`0x7A8550`).
+pub const ILLUSION_MODEL: &str = "BIG_DEMON.GRN";
+pub const ILLUSION_SLOT: u16 = 154;
+pub const ILLUSION_TEXTURE: &str = "BIG_DEMON_TEX_FX";
+/// The rate its clip plays at, Granny's parameter 2, without the game's speed (`0x7A8550`).
+pub const ILLUSION_RATE: f32 = 0.5;
+/// Its world light's radius (`+0x9C`, `0x7A8A40`), the same through its life.
+pub const ILLUSION_LIGHT: f32 = 200.0;
+/// Where its model's `x`, a creature's front, points in the models' frame: a turn of 5π/4 about
+/// the upright, its matrix's rows taken as a row vector's (`0x653790`, probed at `0x7A8826`), so
+/// that it faces the screen's left a little downward, as a creature of the heading 156° does
+/// (seen).
+pub const ILLUSION_FRONT: [f32; 3] = [
+    -std::f32::consts::FRAC_1_SQRT_2,
+    std::f32::consts::FRAC_1_SQRT_2,
+    0.0,
+];
+
+/// The illusion's life, its clip's `length` played once at [`ILLUSION_RATE`]: the control's end
+/// less its start (`0x7A8550`).
+pub fn illusion_life(length: f32) -> f32 {
+    length / ILLUSION_RATE
+}
+
+/// The illusion's grey at its clock `t` of its `life` (`0x7A87B0`): `⌊255·min(1, 3·sin(π·t/T))⌋`
+/// of 255, so that it grows in over its first ninth and fades over its last; 0 past its life.
+pub fn illusion_grey(t: f32, life: f32) -> f32 {
+    if life <= 0.0 {
+        return 0.0;
+    }
+    let grey = (3.0 * (std::f32::consts::PI * t / life).sin()).clamp(0.0, 1.0);
+    (255.0 * grey).floor() / 255.0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_illusion_grows_in_casts_and_fades_over_twice_its_clip() {
+        // `BDMN_CAST_MAGIC01`'s 8.9667 s at half speed.
+        let life = illusion_life(8.9667);
+        assert!((life - 17.9334).abs() < 1e-3);
+        assert_eq!(illusion_grey(0.0, life), 0.0);
+        // A third of the sine at 0.108 of its life: full from about 1.94 s to its last 1.94 s.
+        assert_eq!(illusion_grey(1.0, life), 133.0 / 255.0);
+        assert_eq!(illusion_grey(2.0, life), 1.0);
+        assert_eq!(illusion_grey(life / 2.0, life), 1.0);
+        assert_eq!(illusion_grey(life - 2.0, life), 1.0);
+        assert!(illusion_grey(life - 1.0, life) < 1.0);
+        // Floored to a 255th: 3·sin of 0.01 of π is 0.0942, 24.02 of 255.
+        assert_eq!(illusion_grey(0.01 * life, life), 24.0 / 255.0);
+        assert_eq!(illusion_grey(life + 1.0, life), 0.0);
+        assert_eq!(illusion_grey(1.0, 0.0), 0.0);
+        // It faces the screen's left a little downward: the models' `−x` and `+y`.
+        let half = std::f32::consts::FRAC_1_SQRT_2;
+        assert_eq!(ILLUSION_FRONT, [-half, half, 0.0]);
+    }
 
     /// Dice that roll `0` alone, or the highest roll of 0 to 0x7FFF.
     struct Ends(bool);

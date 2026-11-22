@@ -406,8 +406,9 @@ struct Placement {
     /// (891, `pill_fields`) and the maker of the fences of lightning (894, `laser_fences`; #2916),
     /// a hell gate (1160, 1161, 1181, `hell_gates`; #2917), the Underworld's glyphs, their fire
     /// and the temple door's spikes (1174 to 1179, `underworld_glyphs`; #2918), Shaddar's slaves
-    /// (921, `shaddar_slaves`; #2919), the sword's zhadum (1165, `zhadums`; #2920): its type and
-    /// its height in the models' units, the record's `0x7E`; it has no model of its item's.
+    /// (921, `shaddar_slaves`; #2919), the sword's zhadum (1165, `zhadums`; #2920), the big
+    /// demon's illusion (917, `demon_illusions`; #3059): its type and its height in the models'
+    /// units, the record's `0x7E`; it has no model of its item's.
     scripted: Option<(u32, f32)>,
     /// An NPC's creature, its `Creature.pak` record's flags and the flags word its record's tags
     /// make (`crowd::flags_word`): how it stands in the others' way.
@@ -3886,7 +3887,8 @@ impl Makers {
                 || crate::hell_gates::Gate::is(creature)
                 || crate::underworld_glyphs::Underworld::is(creature)
                 || creature == opensacred_rules::shaddar::SLAVE
-                || creature == opensacred_rules::zhadum::ZHADUM))
+                || creature == opensacred_rules::zhadum::ZHADUM
+                || creature == opensacred_rules::particles::BIG_DEMON_ILLUSION))
             .then(|| {
                 let height = ops.iter().find_map(|o| match (o.tag, &o.value) {
                     (FX_HEIGHT, Value::I32(h)) => i16::try_from(*h).ok().map(f32::from),
@@ -5839,11 +5841,12 @@ fn place_index(
         ),
     };
     // A slave of Shaddar's lives while its sector is in the world, never made again
-    // (docs/re/effects.md, "Shaddar's slaves").
-    if placement
-        .scripted
-        .is_some_and(|(kind, _)| kind == opensacred_rules::shaddar::SLAVE)
-    {
+    // (docs/re/effects.md, "Shaddar's slaves"), and the big demon's illusion so, which ends of
+    // itself (#3059).
+    if placement.scripted.is_some_and(|(kind, _)| {
+        kind == opensacred_rules::shaddar::SLAVE
+            || kind == opensacred_rules::particles::BIG_DEMON_ILLUSION
+    }) {
         npcs.removed.insert(index);
     }
     // A loaded save's queue of it, which it takes on again (#2890).
@@ -7461,6 +7464,8 @@ fn spawn(
             made.insert(crate::shaddar_slaves::Slave);
         } else if kind == opensacred_rules::zhadum::ZHADUM {
             made.insert(crate::zhadums::Zhadum);
+        } else if kind == opensacred_rules::particles::BIG_DEMON_ILLUSION {
+            made.insert(crate::demon_illusions::Illusion);
         } else if crate::underworld_glyphs::Underworld::is(kind) {
             made.insert(crate::underworld_glyphs::Underworld {
                 kind,
