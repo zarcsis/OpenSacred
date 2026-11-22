@@ -435,8 +435,8 @@ pub(crate) fn resolve(
             }
         }
         // A defender in its defending clip, a parry's or a script's (the slots 53 to 65), doubles
-        // its defence (`0x56B96A`–`0x56B9A5`, #2487); a hero's eight times, which the game's hero,
-        // with no such clip, never takes.
+        // its defence (`0x56B96A`–`0x56B9A5`, #2487); a hero's eight times, with its resistances
+        // twice, under Shift, which the game's hero, playing no such clip, never takes (#3392).
         let mut defending = defender.0;
         if clip.is_some_and(crate::npcs::ScriptClip::defends) {
             defending.defence *= opensacred_rules::fight::PARRY_DEFENCE;
@@ -2326,6 +2326,13 @@ mod tests {
     /// The attacker's health and the health that the struck one lost after one sure strike of
     /// 100 by a hero holding an item of the effect `effect` of the value `value`.
     fn after_a_strike_with(effect: u32, value: i16) -> (u32, u32) {
+        after_a_hit_with(effect, value, false)
+    }
+
+    /// The attacker's health and what the struck one lost after a hit of 100 fixed damage, a
+    /// poison's own strike where `poison`, by an attacker of an item of the effect `effect` of
+    /// the value `value`.
+    fn after_a_hit_with(effect: u32, value: i16, poison: bool) -> (u32, u32) {
         let combat = Combat(opensacred_rules::fight::Combat {
             attack: 200.0,
             defence: 10.0,
@@ -2384,12 +2391,22 @@ mod tests {
             art: None,
             fixed: Some([100.0, 0.0, 0.0, 0.0]),
             sure: true,
-            poison: false,
+            poison,
             ward: false,
         });
         app.update();
         let current = |entity| app.world().get::<Health>(entity).unwrap().current;
         (current(hero), 1_000 - current(target))
+    }
+
+    #[test]
+    fn a_poisons_strike_pays_for_its_poisoners_842_and_leeches_nothing() {
+        // As the original's, every strike of the poison that the wearer's weapon left reaches
+        // 842's block (seen, #3081, #3373), and none its 841 (`0x5708D3`).
+        let (paid, _) = after_a_hit_with(opensacred_rules::fight::PAINKILLER, 20, true);
+        assert!((1..40).contains(&paid), "{paid}");
+        let (leeched, _) = after_a_hit_with(opensacred_rules::fight::LEECH, 50, true);
+        assert_eq!(leeched, 50);
     }
 
     #[test]

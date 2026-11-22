@@ -84,10 +84,10 @@ impl Default for Dice {
 
 /// Whether `mind`'s creature of `rank`, falling to a strike (`plain`: no art's nor shot's),
 /// rises again, by a roll of `R(0, 100)` on `dice`, and, a skeleton warrior, the type it changes
-/// into, by two draws of `rand() % 3`: no boss nor champion, which its first fight marks as a
-/// rise does (`0x532E5A`, `0x532E8D`); a magic skeleton or an undead goblin not risen yet, or a
-/// skeleton warrior that has a part to lose (`0x532E3C`'s cases, #1260; **hypothesis** that the
-/// warriors' bosses and champions do not change either); never where its killer is `banished`,
+/// into, by two draws of `rand() % 3`: a magic skeleton or an undead goblin not risen yet and
+/// neither a boss nor a champion, which its first fight marks as a rise does (`0x532E5A`,
+/// `0x532E8D`), or a skeleton warrior of any rank that has a part to lose (`0x532E3C`'s cases,
+/// #1260, none of which tests the mark, #3386); never where its killer is `banished`,
 /// under a purple potion's effect (#1353); the chance cut by the hero's `sets` where it kills
 /// (`set_bonuses::Stats::rising`, #1727); and never where the killer's exorcism of the value and
 /// the parameters `exorcism` lays it to rest for good first (`undead::exorcised`, a roll of
@@ -104,7 +104,7 @@ pub fn rolls(
 ) -> Option<Rises> {
     let kind = mind.creature;
     let warrior = undead::warrior(kind);
-    if rank != Rank::Common || !(warrior || undead::rises(kind) && mind.flags & RISEN == 0) {
+    if !(warrior || rank == Rank::Common && undead::rises(kind) && mind.flags & RISEN == 0) {
         return None;
     }
     let chance = undead::chance(plain, banished);
@@ -182,12 +182,14 @@ fn rise(
 
 /// Makes a creature of the type `kind` and the level `level`, hostile as `hostile`, on the cell
 /// of `old` on the level `on`, with `old`'s names, dialogue, trades and death's functions, and
-/// takes `old` away: the creatures made, none where `old` is gone.
+/// takes `old` away: the creatures made, none where `old` is gone. Where it is the `same` object
+/// as `old`, an undead that rises or changes its type (`0x541E8D`, `0x532E3C`), it keeps `old`'s
+/// rank, most health and flags word too, as the original's object keeps its own (#3386).
 pub(crate) fn remake(
     world: &mut World,
     old: Entity,
     (kind, level, hostile): (u32, u32, bool),
-    on: Level,
+    (on, same): (Level, bool),
 ) -> Vec<Entity> {
     let Some(at) = world.get::<Transform>(old).map(|at| at.translation) else {
         return Vec::new();
@@ -206,13 +208,14 @@ pub(crate) fn remake(
         world.get::<Trades>(old).copied(),
         world.get::<OnDeath>(old).cloned(),
     );
+    let itself = same.then(|| itself(world, old));
     world.entity_mut(old).despawn();
     let request = crate::npcs::Spawn {
         creature: kind,
         cells: vec![(x, y)],
         floor,
         level: Some(level),
-        rank: Rank::Common,
+        rank: itself.map_or(Rank::Common, |itself| itself.rank),
         hostile: Some(hostile),
         immortal: false,
         roams: false,
@@ -245,8 +248,41 @@ pub(crate) fn remake(
         if let Some(on_death) = on_death {
             new.insert(on_death);
         }
+        let Some(itself) = itself else {
+            continue;
+        };
+        if let (Some(most), Some(mut health)) = (itself.most, new.get_mut::<Health>()) {
+            health.current = most;
+            health.most = most;
+        }
+        if let (Some(flags), Some(mut mind)) = (itself.flags, new.get_mut::<Mind>()) {
+            mind.flags = flags;
+        }
     }
     made
+}
+
+/// What an undead keeps of itself as it rises or changes its type ([`remake`]): its rank, its
+/// most health and its flags word, the last its mind's while it lives, else its body's.
+#[derive(Clone, Copy, Debug)]
+struct Itself {
+    rank: Rank,
+    most: Option<u32>,
+    flags: Option<u32>,
+}
+
+/// What `old` keeps of itself ([`Itself`]).
+fn itself(world: &World, old: Entity) -> Itself {
+    Itself {
+        rank: world
+            .get::<crate::fight::Ranked>(old)
+            .map_or(Rank::Common, |ranked| ranked.0),
+        most: world.get::<Health>(old).map(|health| health.most),
+        flags: world
+            .get::<Mind>(old)
+            .map(|mind| mind.flags)
+            .or_else(|| world.get::<Corpse>(old).map(|corpse| corpse.flags)),
+    }
 }
 
 /// Raises the undead `corpse` (`0x541E8D`, `0x541A0D`): the corpse goes and a creature of its
@@ -260,7 +296,12 @@ fn stand(world: &mut World, corpse: Entity, hostile: bool) {
     ) else {
         return;
     };
-    for entity in remake(world, corpse, (dead.creature, level, hostile), dead.level) {
+    for entity in remake(
+        world,
+        corpse,
+        (dead.creature, level, hostile),
+        (dead.level, true),
+    ) {
         let roll = world
             .get_resource_mut::<Dice>()
             .map_or(0, |mut dice| dice.0.below(3));
@@ -309,7 +350,7 @@ pub fn change(world: &mut World, fallen: Entity, rises: Rises, (choice, by_creat
             warn!("undead: no head thrown off: {e}");
         }
     }
-    for entity in remake(world, fallen, (into, level, rises.hostile), on) {
+    for entity in remake(world, fallen, (into, level, rises.hostile), (on, true)) {
         let Ok(mut changed) = world.get_entity_mut(entity) else {
             continue;
         };
@@ -603,5 +644,55 @@ impl Plugin for UndeadPlugin {
                 .after(Step::Npcs)
                 .in_set(Playing),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The mind of a creature of the type `kind` and the class 5.
+    fn undead(kind: u32) -> Mind {
+        Mind::new(
+            Vec3::ZERO,
+            0,
+            (false, true),
+            None,
+            [70.0, 180.0],
+            (kind, undead::CLASS),
+        )
+    }
+
+    /// Whether `kind` of `rank` rises at a strike's death in any of twenty games' dice.
+    fn ever_rises(kind: u32, rank: Rank) -> bool {
+        (0..20).any(|game| {
+            let mut dice = Rng::of(game, 0, 0x1199);
+            rolls(
+                &mut dice,
+                &undead(kind),
+                rank,
+                (true, false),
+                (None, (0.0, [0.0; 3])),
+            )
+            .is_some()
+        })
+    }
+
+    #[test]
+    fn a_skeleton_warrior_changes_whatever_its_rank_and_a_magic_skeleton_only_common() {
+        // None of the warriors' cases of `0x532E3C` tests the mark of a boss's or a champion's
+        // first fight, which keeps a magic skeleton and an undead goblin from rising (#3386).
+        for rank in [Rank::Common, Rank::Champion, Rank::Boss] {
+            assert!(ever_rises(32, rank), "{rank:?}");
+            assert!(ever_rises(113, rank), "{rank:?}");
+        }
+        assert!(ever_rises(48, Rank::Common));
+        assert!(ever_rises(142, Rank::Common));
+        for rank in [Rank::Champion, Rank::Boss] {
+            assert!(!ever_rises(48, rank), "{rank:?}");
+            assert!(!ever_rises(142, rank), "{rank:?}");
+        }
+        // The last of the warriors' changes, 115, has no part left to lose.
+        assert!(!ever_rises(115, Rank::Boss));
     }
 }
