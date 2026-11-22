@@ -143,7 +143,7 @@ It answers nothing for an object of which the manager holds no record.
   Its hearing distance takes the factor on the zoom's term alone, `+0xB790` × (0.75 − (`+0x84` − 0.75) × `f`), 900 at the zoom 1 whatever the factor.
 
 `opensacred-game` places the voices and the weapons' sounds so (`sfx::placed`, #731): the offset from the hero in those pixels, the distance as the integers give it, the three lines over the same values, divided by the 0.75 at the listener so that a sound there plays at its own volume, and the pan from −1 to 1.
-It places a sample once as it starts and a loop at each frame (`hums`, `fx::crackle`), with no silence at a sample's head.
+It places a loop at each frame (`hums`, `fx::crackle`), and since #3334 a placed sample too, from its start, at its entity or its point (`sfx::Placed`): the asked sounds and the weapons' (`sfx`), the creatures' voices and idle noises and the hero's lines and breath (`voices`, `remarks`), the entity's last place kept once it is gone, and beyond the records' 1,200 pixels the sample left as it is, a gone entity's let go; with no silence at a sample's head.
 Since #3330 it takes the place's factor (`sfx::placed_by`, `sfx::PlayAt::factor`): the gun's fire's 5 from its start, louder with its distance, none placed beyond the records' 1,200 pixels, and its volume times the effects' level held at 1, as the original's samples; every other sound at the factor 1.
 Since #3331 it takes the fires' and the torches' factors as the place's too (`fx::crackle`, `hums::Loudness`): as loud as any sample at the fire or the torch, silent from 270, 360 or 540 pixels for the fires and 360 for a torch.
 

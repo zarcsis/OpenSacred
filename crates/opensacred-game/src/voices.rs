@@ -791,7 +791,11 @@ fn speak(
     )>,
     heroes: Query<(Entity, &GlobalTransform), With<Body>>,
     assets: Res<AssetServer>,
-    (audio, speech): (Res<Audio>, Res<AudioChannel<crate::volumes::Speech>>),
+    (audio, speech, mut placed): (
+        Res<Audio>,
+        Res<AudioChannel<crate::volumes::Speech>>,
+        ResMut<sfx::Placed>,
+    ),
     mut instances: ResMut<Assets<AudioInstance>>,
     mut named_line: ResMut<NamedLine>,
     time: Res<Time>,
@@ -1007,6 +1011,11 @@ fn speak(
             .with_panning(pan)
             .with_playback_rate(f64::from(rate))
             .handle();
+        placed.follow(sfx::Following::new(
+            instance.clone(),
+            Some(line.speaker),
+            at.translation(),
+        ));
         if let Some(wait) = line.wait {
             voices.waits.insert(line.id, now + f64::from(wait));
         }
@@ -1160,7 +1169,7 @@ fn flight(
         Res<AudioChannel<crate::volumes::Speech>>,
         ResMut<NamedLine>,
     ),
-    (time, mut most_engaged): (Res<Time>, ResMut<Engaged>),
+    (time, mut most_engaged, mut placed): (Res<Time>, ResMut<Engaged>, ResMut<sfx::Placed>),
 ) {
     let (Some(hero), Ok((entity, body, at, health, (striking, rides)))) = (hero, heroes.single())
     else {
@@ -1258,6 +1267,7 @@ fn flight(
         .with_panning(pan)
         .with_playback_rate(f64::from(rate))
         .handle();
+    placed.follow(sfx::Following::new(instance.clone(), Some(entity), hero_at));
     // No line by name plays: the slot only takes it.
     named_line.0 = Some(instance.clone());
     commands.entity(entity).insert(Speaking(instance, true));
@@ -1321,7 +1331,7 @@ fn breathe(
         ),
         Without<Dies>,
     >,
-    (mut sfx, named_line): (ResMut<Sfx>, Res<NamedLine>),
+    (mut sfx, named_line, mut placed): (ResMut<Sfx>, Res<NamedLine>, ResMut<sfx::Placed>),
     heard: Res<sfx::Listener>,
     (assets, audio, mut instances): (Res<AssetServer>, Res<Audio>, ResMut<Assets<AudioInstance>>),
     (time, speech): (Res<Time>, Res<AudioChannel<crate::volumes::Speech>>),
@@ -1371,9 +1381,9 @@ fn breathe(
             let again = play_breath(
                 &mut sfx,
                 sound.clone(),
-                at.translation(),
+                (entity, at.translation()),
                 *heard,
-                (&assets, &audio),
+                (&assets, &audio, &mut placed),
             );
             state.playing = again.map(|handle| (handle, plays - 1, sound));
             return;
@@ -1402,21 +1412,21 @@ fn breathe(
     let handle = play_breath(
         &mut sfx,
         sound.clone(),
-        at.translation(),
+        (entity, at.translation()),
         *heard,
-        (&assets, &audio),
+        (&assets, &audio, &mut placed),
     );
     state.playing = handle.map(|handle| (handle, plays, sound));
 }
 
-/// Plays the breath `sound` at the hero at `at`, at a rate's factor of 0.4 to 0.6 of its sample's
-/// (`playSFX`'s, and 0.5).
+/// Plays the breath `sound` at the hero `hero` at `at`, at a rate's factor of 0.4 to 0.6 of its
+/// sample's (`playSFX`'s, and 0.5), placed again as it plays.
 fn play_breath(
     sfx: &mut Sfx,
     (id, file): (u32, String),
-    at: Vec3,
+    (hero, at): (Entity, Vec3),
     heard: sfx::Listener,
-    (assets, audio): (&AssetServer, &Audio),
+    (assets, audio, placed): (&AssetServer, &Audio, &mut sfx::Placed),
 ) -> Option<Handle<AudioInstance>> {
     let (volume, pan) = sfx::placed_at(at, Some(at), heard);
     if volume <= 0.0 {
@@ -1424,14 +1434,14 @@ fn play_breath(
     }
     let rate = 0.4 + 0.2 * sfx.share() + 0.5;
     let sample = sfx.sample(id, file, assets);
-    Some(
-        audio
-            .play(sample)
-            .with_volume(sfx::decibels(volume))
-            .with_panning(pan)
-            .with_playback_rate(f64::from(rate))
-            .handle(),
-    )
+    let handle = audio
+        .play(sample)
+        .with_volume(sfx::decibels(volume))
+        .with_panning(pan)
+        .with_playback_rate(f64::from(rate))
+        .handle();
+    placed.follow(sfx::Following::new(handle.clone(), Some(hero), at));
+    Some(handle)
 }
 
 /// The creatures near the hero make their idle noises at the world's tick: those not hostile to
@@ -1458,7 +1468,7 @@ fn idle(
     heroes: Query<&GlobalTransform, With<Body>>,
     assets: Res<AssetServer>,
     audio: Res<Audio>,
-    (time, heard): (Res<Time>, Res<sfx::Listener>),
+    (time, heard, mut placed): (Res<Time>, Res<sfx::Listener>, ResMut<sfx::Placed>),
 ) {
     let Some(listener) = heroes.iter().next().map(GlobalTransform::translation) else {
         return;
@@ -1495,6 +1505,11 @@ fn idle(
             .with_panning(pan)
             .with_playback_rate(f64::from(rate))
             .handle();
+        placed.follow(sfx::Following::new(
+            instance.clone(),
+            Some(creature),
+            at.translation(),
+        ));
         voices.waits.insert(id, now + f64::from(wait));
         debug!(
             "voices: {creature} makes the idle noise {id}, at {near:.2}, panned {pan:.2}, at a \
