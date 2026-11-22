@@ -531,13 +531,23 @@ fn open(
 /// The Dark Elf (the type 4).
 const DARK_ELF: u32 = 4;
 
-/// Whether the hero of the type `kind` that holds `holding` goes unseen by the creatures by its
-/// sets (`0x54A6D0`'s second case, #1727's M9): the Dark Elf of seven pieces of set 26
-/// (`set_bonuses::Stats::unseen`) out of a fight, `attacking` nothing (its action 0, 1 or 2 and
-/// its AI's state not 4, 6, 8 or 11; **hypothesis** that the game's hero's attack and strike
-/// stand for those).
-fn shadowed(kind: Option<u32>, holding: Option<&crate::fight::Holding>, attacking: bool) -> bool {
-    kind == Some(DARK_ELF) && !attacking && holding.is_some_and(|holding| holding.0.sets.unseen())
+/// Whether the hero of the type `kind` goes unseen by the creatures and steps through them
+/// (`0x54A6D0`; docs/re/movement.md, "The unseen walker", #3084), `attacking` nothing (no attack
+/// ordered and no strike, cast or shot playing: the water form's AI's state not 4, 6 or 8 and its
+/// action not 3, 4 or 5, the Dark Elf's action 0, 1 or 2 and its AI's state not 4, 6, 8 or 11):
+/// in the water form (`spells::Unseen`), or the Dark Elf of seven pieces of set 26
+/// (`set_bonuses::Stats::unseen`, #1727's M9) that `holding` gives.
+pub(crate) fn unseen_hero(
+    kind: Option<u32>,
+    (unseen, holding): (
+        Option<&crate::spells::Unseen>,
+        Option<&crate::fight::Holding>,
+    ),
+    attacking: bool,
+) -> bool {
+    !attacking
+        && (unseen.is_some_and(|unseen| unseen.holds())
+            || kind == Some(DARK_ELF) && holding.is_some_and(|holding| holding.0.sets.unseen()))
 }
 
 /// Runs the creatures' timers, the wakes of the hero's look (`crowd::look`), and the awake
@@ -599,12 +609,11 @@ fn think(
         return;
     };
     let attacking = striking || attack.and_then(crate::attack::Attack::target).is_some();
-    let unseen = unseen.is_some_and(|unseen| unseen.holds())
-        || shadowed(
-            kind.as_deref().map(|hero| hero.creature),
-            holding,
-            attacking,
-        );
+    let unseen = unseen_hero(
+        kind.as_deref().map(|hero| hero.creature),
+        (unseen, holding),
+        attacking,
+    );
     // The creatures that fight, which an idle hostile creature of their sector may take for its
     // foe (`0x54338B`).
     let fighters: Vec<Other> = creatures
@@ -995,12 +1004,11 @@ fn pursue(
     };
     let hero_health = hero_health.map(|health| (health.current, health.most));
     let attacking = hero_strikes || attack.and_then(crate::attack::Attack::target).is_some();
-    let unseen = unseen.is_some_and(|unseen| unseen.holds())
-        || shadowed(
-            kind.as_deref().map(|hero| hero.creature),
-            holding,
-            attacking,
-        );
+    let unseen = unseen_hero(
+        kind.as_deref().map(|hero| hero.creature),
+        (unseen, holding),
+        attacking,
+    );
     let hero = hero.translation;
     // The creature the hero attacks.
     let attacked = attack.and_then(crate::attack::Attack::target);
@@ -3251,6 +3259,21 @@ impl Plugin for AiPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_hero_goes_unseen_in_the_water_form_or_the_dark_elfs_set_while_it_attacks_nothing() {
+        let water = |after| crate::spells::Unseen { after, left: 10.0 };
+        // The water form once it starts, attacking nothing, whatever the hero's type (#3084).
+        assert!(unseen_hero(Some(3), (Some(&water(0.0)), None), false));
+        assert!(!unseen_hero(Some(3), (Some(&water(0.5)), None), false));
+        // Attacking, it is seen and stopped at once, the form still on it.
+        assert!(!unseen_hero(Some(3), (Some(&water(0.0)), None), true));
+        // The Dark Elf without his set's seven pieces, and the others, go seen.
+        let holding = crate::fight::Holding::default();
+        assert!(!unseen_hero(Some(DARK_ELF), (None, Some(&holding)), false));
+        assert!(!unseen_hero(Some(3), (None, Some(&holding)), false));
+        assert!(!unseen_hero(None, (None, None), false));
+    }
 
     #[test]
     fn a_creature_of_a_dialogue_that_stands_turns_to_the_hero_but_a_horse() {
