@@ -12715,6 +12715,17 @@ impl Strikes {
     pub fn bolts(self, bolt: Option<opensacred_rules::arts::Bolt>) -> Self {
         Self { bolt, ..self }
     }
+
+    /// Whether it is a shot, which a call to fight may reach in its course (`ai`, #3313).
+    pub fn is_shot(&self) -> bool {
+        self.shot.is_some()
+    }
+
+    /// Its target `target` from now, an arrow not loosed yet flying at it (`+0x158 := +0x104`,
+    /// `0x4DC503`–`0x4DC577`, #3313).
+    pub fn retarget(&mut self, target: Entity) {
+        self.target = target;
+    }
 }
 
 /// The name of `MOTIONS.PAK`'s record 0, whose fractions a slot that a model lacks takes, its

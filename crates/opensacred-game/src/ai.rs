@@ -582,7 +582,7 @@ fn think(
         ),
         (Without<Body>, Without<crate::npcs::Dies>),
     >,
-    (queued, npcs): (
+    (queued, npcs, mut shots, heroes): (
         Query<
             (),
             Or<(
@@ -591,6 +591,8 @@ fn think(
             )>,
         >,
         Query<&crate::npcs::Npc>,
+        Query<&mut Strikes>,
+        Query<Entity, With<Body>>,
     ),
 ) {
     let Some((hero, body, size, unseen, (striking, attack, holding))) = hero.iter().next() else {
@@ -836,10 +838,25 @@ fn think(
                 .insert(walk(target, mind.speed, way));
         }
     }
-    // The alarm sends a group's idle hostile members at the hero too.
+    // The alarm sends a group's idle hostile members at the hero too; a member in mid-shot
+    // takes it in its shots' chain and aims its playing shot at the hero (docs/re/fight.md,
+    // "The shots' chain", #3313).
+    let the_hero = heroes.iter().next();
     for group in alarms {
-        for (_, _, _, mut mind, ..) in &mut creatures {
-            if !mind.fighting() {
+        for (entity, _, _, mut mind, ..) in &mut creatures {
+            if let Ok(mut strikes) = shots.get_mut(entity)
+                && strikes.is_shot()
+            {
+                if mind.called_mid_shot(group)
+                    && let Some(the_hero) = the_hero
+                {
+                    debug!(
+                        "ai: {entity} is called in mid-shot, its chain {}",
+                        mind.chain()
+                    );
+                    strikes.retarget(the_hero);
+                }
+            } else if !mind.fighting() {
                 mind.hears_alarm(group);
                 mind.foe = None;
             }
@@ -2912,12 +2929,16 @@ fn behave(
 /// members (`minds::Mind::idle`) take its foe for theirs where it fights a creature, come at the
 /// hero where it fights the hero, and else wake, to decide at their next tick (#669); so the
 /// start's bears by the boss 689, hostile guards without the flags' bit 0 that the hero's look
-/// does not wake, wake as the boss strikes one of them and take their guards' behaviour.
+/// does not wake, wake as the boss strikes one of them and take their guards' behaviour. A
+/// member in mid-shot that the alarm of a member that fights reaches takes it in its shots' chain
+/// and aims its playing shot at that member's foe (docs/re/fight.md, "The shots' chain", #3313).
 fn alarm(
     mut hits: MessageReader<crate::fight::Hit>,
     mut creatures: Query<(Entity, &mut Mind)>,
     ridden: Query<&crate::riding::Ridden>,
+    (mut shots, heroes): (Query<&mut Strikes>, Query<Entity, With<Body>>),
 ) {
+    let the_hero = heroes.iter().next();
     // The struck members, their groups and whom they fight: a creature, the hero, or no one.
     let mut alarms: Vec<(Entity, u32, Option<Option<Entity>>)> = Vec::new();
     for hit in hits.read() {
@@ -2935,6 +2956,20 @@ fn alarm(
         let mut forwarded: Vec<(Entity, Option<Entity>)> = Vec::new();
         for (entity, mut mind) in &mut creatures {
             if entity == struck {
+                continue;
+            }
+            if let (Some(foe), Ok(mut strikes)) = (fights, shots.get_mut(entity))
+                && strikes.is_shot()
+            {
+                if let Some(target) = foe.or(the_hero).filter(|&target| target != entity)
+                    && mind.called_mid_shot(group)
+                {
+                    debug!(
+                        "ai: {entity} is called in mid-shot, its chain {}",
+                        mind.chain()
+                    );
+                    strikes.retarget(target);
+                }
                 continue;
             }
             // A ridden horse in the world sends the event `0x100` on to its rider, a creature
