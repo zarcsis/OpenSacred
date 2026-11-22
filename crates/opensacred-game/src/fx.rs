@@ -134,7 +134,7 @@ pub struct SmallFire {
 /// not cover it where the original draws it at the ground's height with its depth test
 /// (docs/decisions/drawing.md, "Small fire's burnt ground lifted").
 const GROUND_LIFT: f32 = 0.5;
-/// The fires' loop's volume of a step's small fire (`0x690630`, 0.6).
+/// The fires' loop's place's factor of a step's small fire (`0x690630`, 0.6).
 const STEP_FIRE_VOLUME: f32 = 0.6;
 
 /// The last burnings' flames of the variants 7 and 8 and their materials, and the scorches'
@@ -1797,7 +1797,8 @@ const FIRE_LOOP: u32 = 210;
 const LOOPS: usize = 4;
 const NEAR: i32 = 300;
 
-/// The loop's volume of a fire of the variant `variant`, by its type: 0.3 for `FX_FI_SMOKE_S`
+/// The loop's place's factor of a fire of the variant `variant` (`0x690587`, `playSFX`'s seventh
+/// argument, `sfx::placed_by`, #3331), by its type: 0.3 for `FX_FI_SMOKE_S`
 /// and the smallest `FX_FIRE_L`, 0.4 for the middle ones and the magic fire 904 (the variant 13,
 /// #2830), 0.6 for the largest; none for a smoke.
 fn crackle_volume(variant: u8) -> Option<f32> {
@@ -1809,8 +1810,8 @@ fn crackle_volume(variant: u8) -> Option<f32> {
     }
 }
 
-/// The loop's volume of a fire, a world's of its variant ([`crackle_volume`]) or a step's small
-/// fire's ([`STEP_FIRE_VOLUME`]).
+/// The loop's place's factor of a fire, a world's of its variant ([`crackle_volume`]) or a step's
+/// small fire's ([`STEP_FIRE_VOLUME`]): as loud as any sample at the fire, silent sooner.
 fn volume_of(burning: Option<&Burning>) -> Option<f32> {
     match burning {
         Some(burning) => crackle_volume(burning.variant),
@@ -1825,8 +1826,8 @@ struct Crackles(Vec<(Entity, Handle<bevy_kira_audio::AudioInstance>)>);
 /// The fires' loop near the hero (`0x690420`): at each frame, while fewer than four play, one
 /// more starts at the nearest fire within 300 pixels, looping at the sample's rate, without
 /// asking whether that fire has one already, so that four play at one fire as the original's do;
-/// each plays at its fire's place by its volume, and stops when its fire goes or is further than
-/// 300.
+/// each plays at its fire's place by its factor ([`volume_of`]), and stops when its fire goes or is
+/// further than 300.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -1887,8 +1888,8 @@ fn crackle(
         else {
             continue;
         };
-        let (volume, pan) = crate::sfx::placed_at(at.translation(), Some(hero), *heard);
-        let volume = volume * volume_of(burning).unwrap_or(0.0);
+        let factor = volume_of(burning).unwrap_or(0.0);
+        let (volume, pan) = crate::sfx::placed_at_by(at.translation(), Some(hero), *heard, factor);
         instance.set_decibels(crate::sfx::decibels(volume), AudioTween::default());
         instance.set_panning(pan, AudioTween::default());
     }

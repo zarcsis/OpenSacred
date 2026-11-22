@@ -1,7 +1,7 @@
 //! The loops that the spells' and arts' objects hold while they live (#1173; docs/re/sound.md,
 //! "Spells and arts"): an object's particle system starts its loop as it starts (`0x6934E0`),
-//! keeps its channel (`+0xB0`) and stops it as it ends; each at the object, at the volume 1 (a
-//! torch's 0.4, [`Loudness`]) and the sample's own rate. An entity that carries a [`Hum`] loops
+//! keeps its channel (`+0xB0`) and stops it as it ends; each at the object, at the place's factor 1
+//! (a torch's 0.4, [`Loudness`]) and the sample's own rate. An entity that carries a [`Hum`] loops
 //! its sound at its place, panned and fading by it, until it goes or the hum is taken from it.
 
 use bevy::prelude::*;
@@ -14,8 +14,9 @@ use crate::hero::Body;
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Hum(pub u32);
 
-/// A hum's volume where it is not 1: the torches' 0.4 (`torches`), which the original passes as the
-/// place's factor rather than a share of the volume (#3331).
+/// A hum's place's factor where it is not 1 (`playSFX`'s seventh argument, `sfx::placed_by`): the
+/// torches' 0.4 (`torches`, `0x7753CB`, #3331), as loud as any sample at the torch and silent
+/// from 360 pixels.
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Loudness(pub f32);
 
@@ -70,8 +71,8 @@ fn hum(
         else {
             continue;
         };
-        let (volume, pan) = crate::sfx::placed_at(at.translation(), hero, *heard);
-        let volume = volume * loudness.map_or(1.0, |&Loudness(loudness)| loudness);
+        let factor = loudness.map_or(1.0, |&Loudness(loudness)| loudness);
+        let (volume, pan) = crate::sfx::placed_at_by(at.translation(), hero, *heard, factor);
         instance.set_decibels(crate::sfx::decibels(volume), AudioTween::default());
         instance.set_panning(pan, AudioTween::default());
     }
