@@ -254,6 +254,38 @@ Read 2026-11-08 for #2288 in the code (**confirmed** where not marked), and seen
   **Seen** 2026-11-22 in the running original (the driver of #448, bronze, #3097): a hero of 101 of 1,444 health riding a horse of 5 of 75, one small healing potion (5171) took both to their most; with the hero at 700 of 1,444 the horse still went from 5 to 75, so the potion's share, not the rider's gain; a rider whole and a horse hurt, nothing drunk and the horse not healed; an owned horse not ridden, not healed (5 of 75 stayed, the hero from 300 to 1,423).
   On bronze every healing potion's share is 100, so a share below it is not seen (the driver's silver game did not start, #3374).
 - A horse with a rider is a foe of whoever is hostile to its rider (`0x423580`); an unridden horse keeps the horses' side 4, which the hostile sides take for a friend, so monsters leave it alone; a purchase changes no side.
+- **What strikes a ridden horse** (read 2026-11-22 for #3083, **confirmed** by code and **seen** in the running original, below): nothing takes its health while a hero rides it, and every hit that reaches it strikes its rider.
+  - **The side.**
+    The side is the rider's only where the horse is the one asked about; where it asks, it answers by its own side 4, whose row is the heroes' (docs/re/fight.md, "Sides", "A ridden horse's side").
+  - **The hit's gate.**
+    A hit is the event 5 at the struck creature, and its handler drops it at once (the case 5 of `0x52E590`, `0x531DC8`–`0x531E9A`) for a struck one without health, dead or dying (the AI's state 9, the action 6), in the action 7 (not read) or in a talk (the AI's state 10), for an attacker farther than 1,500 (`0x5370B0`), and for an attacker, another creature than itself, that is not hostile to it (`0x548F60` of the attacker, at `0x531E62`), which it tells the log.
+    So a hit of the heroes' foe that reaches an unridden horse comes to nothing, that foe a friend of the side 4, and one that reaches a ridden horse stands, by its rider's side: the rule of the sides is what lets a hit at the horse through.
+  - **The hit handed on.**
+    Then a struck creature of `+0x200` bit 8 that is a horse, or the boat 1879, with a creature in its slot 18 gives the event to that creature's handler and takes nothing of it (`0x531FC0`–`0x532025`, where the hit is resolved on this machine).
+    The rider's handler runs it from its head, so the strike's resolution `0x56B130` is the rider's: its defence, its resistances, its health.
+    A lethal blow there leaves the rider 1 health and fells the horse ("Getting off and being thrown off" above): the one way a ridden horse dies.
+  - **Where the rider is found.**
+    The rider is out of the world's cells from the mount on (`+0x14` bit 2), and what gathers creatures goes by the sectors' lists and not by the cells, testing no bit 2: an arrow's way (`0x5FFC70`), a place's reach (`0x5FF7C0`), the guards' nearest foe (`0x4EEE40`).
+    The mount leaves him in the list of the sector he mounted in, the take-out `0x5FC8B0` unlinking the cell's chain alone, and the horse's update copies its place into him at each move (`0x596E0B`).
+    At the first move that takes the horse into another sector that update takes him out of his sector's list (`0x5FEFF0` at `0x596DD4`) and asks the new sector's list for him (`0x5FEE50` at `0x596E02`), which refuses an object out of the world: from then until he gets off, he is in no sector's list.
+    So in the sector of the mount both are found, at one place, and after the first crossing of a sector's border the horse alone.
+  - **What follows.**
+    A foe's strike at its target, the hero by his id, lands on the rider himself, whichever holds.
+    A spell's object gathers every creature in its reach that is hostile to its caster (`0x5AB490`: `0x548F30` of the creature, so the horse by its own side) and sends each its hit: in the sector of the mount the rider's own and the horse's, handed on to him, so two strikes on the rider for one hit, and after a crossing the horse's alone, one.
+    An arrow takes its target of those on its way, else the first found (docs/re/fight.md, "The archers"): the rider where he is listed, else his horse, and either way the rider takes the hit; the arrow's turning aside (`0x561090`) is asked of the one it found, so of the horse's stats after a crossing.
+  - **A foe's own choice of a target** names the hero and never his horse: the idle hostile's is the local hero, and its look among the creatures of its sector takes only one that fights, which a horse never does (docs/re/ai.md, "Foes among the creatures").
+    The guards' behaviour alone may take the horse, the nearest creature hostile to the guard, the first listed of two at one distance (`0x4EEE40`, its test `0x548F60` of the guard, so the horse by its rider's side); its strikes at the horse then land on the rider (**hypothesis**: by the code above, not seen).
+  - The fill's black horse has no `+0x200` bit 8 unless something sets it ("The black riders", "The pair's making"), so a hit on it is its own, by its own side 5.
+  - **Seen** 2026-11-22 (the driver of #448, bronze, the god mode on; the Mage of level 15 on a 551 of level 1 mounted at 3188,2511 in the sector 49,39; the strike's resolution `0x56B130` traced with its attacker and defender, the handing on by its reach `0x532016` with the horse, the gate's refusal by its reach `0x531E6B`).
+    - The cell under the pair held the horse alone in its chain, the hero in none.
+    - Three goblin warriors, three soldiers 279 and five thieves 304 of level 15 made hostile beside her, all hand to hand: 100 strikes, each with the hero the defender, none handed on, none refused.
+    - Three ice druids 141 shooting their bolts in the sector of the mount: 46 strikes on the hero, 4 of them through the horse, each of those in one frame with a strike of the same druid on the hero himself.
+    - After a ride into the sector 50,39, three ice druids: every strike on the hero came through the horse, one handing on to a strike, 57 frames of one each; three orc shamans 67: their spells' 16 hits each through the horse, one strike each, their hand-to-hand strikes on the hero himself.
+    - Got off and mounted again in that sector, without a crossing, three orc shamans: 26 of their spells' hits struck the hero twice in a frame, once himself and once through the horse, in 18 frames of one hit and 4 of two.
+    - The horse's health never fell: 48 of 48 at its level 1, whole at each reading to its 95 of 95 at the level 5.
+    - Not seen: an arrow, the driver's creatures holding no bows; the guards' choice of the horse; the strikes' damage, the god mode sparing the hero each.
+- A ridden horse takes the experience its rider earns: the creature's handler gives the points of its experience's event to its mount's stats too (`0x531664`–`0x5316EE`, `0x57E160`; the amounts not read).
+  **Seen** 2026-11-22 in the same run: the horse of level 1 stood at the level 4 with 3,058 experience after its rider's kills of eleven creatures of level 15, and at 5 after seventeen, its most health rising with it, 48, 55, 66, 75 and 95.
 - A ridden horse dead throws its rider off and both lose the link: the horse is lost.
   An unridden owned horse that dies keeps the link (**hypothesis**: no code clears it), and the call refuses a dead horse.
 - The hero's death dismounts him (`0x552050`), the link kept.
@@ -281,6 +313,7 @@ Read 2026-11-08 for #2288 in the code (**confirmed** where not marked), and seen
 - `0x52D7A0` and `0x52D610`, which the creatures' update calls for a rider and his horse.
 - The word `+0x94` and the table `0xAAD29C` that refuse a horse; `+0x263` and `+0x13C` 1234.
 - Where a horse stands after a load, and what becomes of an unregistered one.
+- An arrow at a rider, and a guard's choice of a ridden horse for its nearest foe, neither seen ("Health, harm and death", "What strikes a ridden horse"); how much of its rider's experience a horse takes.
 - The horse models' own slots and the rider models' slots 165 to 169 and 193 to 234, on the files.
 
 ## In `opensacred-game`
