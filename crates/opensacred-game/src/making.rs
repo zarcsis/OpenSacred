@@ -327,7 +327,7 @@ pub(crate) fn mortar_reaches(
 /// Whether an art of the launch type 1 may be made at the enemy standing at `target`, made from
 /// `here` on the level `level` (`0x51D840`, its case 1): a line of sight to it, the straight way's
 /// test with the flyer's flag (`0x51DD7B`), else a way to its place (`0x4F7710` at `0x51DDC5`;
-/// docs/re/arts.md, "The launch's test", #3361).
+/// docs/re/arts.md, "The special weapon arts", #3361).
 pub(crate) fn enemy_reached(
     (here, level): (Vec3, crate::terrain::Level),
     target: Vec3,
