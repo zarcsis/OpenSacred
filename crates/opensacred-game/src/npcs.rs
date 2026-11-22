@@ -2418,6 +2418,7 @@ fn fill_of(ops: &[opensacred_data::netscript::Operand]) -> Option<spawning::Fill
         per_area,
         entries,
         hostile: forced == Some(true),
+        word: 0,
     })
 }
 
@@ -6243,12 +6244,15 @@ pub fn place(
                 // A random heading, as the creature maker gives one (`rand() % 361`).
                 placement.heading = f32::from(u16::try_from(rng.below(361)).unwrap_or(0));
                 // A hostile one bit 0, a peaceful one its type's behaviour (`0x480D40`), and a
-                // critter its constructor's bit (`0x52DE40`), which no `CreateNPC` writes over.
+                // critter its constructor's bit (`0x52DE40`), which no `CreateNPC` writes over;
+                // the run's flags word that a `ReplaceSpawn` gave it OR'd in, bit 0 by its
+                // hostility, a peaceful one of a word taking no behaviour of its type
+                // (`0x480FBE`, `0x481048`; #3073).
                 placement.creature.2 |= crowd::constructed(made.creature, placement.creature.1)
-                    | if made.hostile {
-                        crowd::HOSTILE
-                    } else {
-                        ai::of_type(made.creature)
+                    | match (made.hostile, fill.word) {
+                        (true, word) => word | crowd::HOSTILE,
+                        (false, 0) => ai::of_type(made.creature),
+                        (false, word) => word & !crowd::HOSTILE,
                     };
                 // Its side as the creature maker leaves it for the entry's hostility (#580).
                 placement.side = minds::made_side(placement.class, made.creature, made.hostile);
