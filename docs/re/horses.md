@@ -267,7 +267,7 @@ Read 2026-11-08 for #2288 in the code (**confirmed** where not marked), and seen
   They serve the classes of the creatures' motions at the weighing's head, neither the creatures' voices nor the footsteps: a record whose motion slot's name begins `MOTION_H`, as every rider's slot does (`MOTION_HORSE_RIDE` 166, `MOTION_HORSE_IDLE` 169, the attacks from the saddle), takes the class of its horse's own slot instead, the stand, the walk or the run, by the horse's sound record; without the flag such a slot takes no class (docs/re/sound.md, "The hero's comments", "The rider").
   So the manager weighs a rider by what its horse does: it breathes after 15 s on a standing horse as on foot, it never breathes hard from riding, since that breath is chosen by the hero's own walking or running slot, and its foes' states and the comment on their flight take its horse's run for its own.
   The case asks no record's owner, so that a creature in a hit's clip (`MOTION_HIT_A`, `_B`) takes the horse's class too while the hero rides.
-  `opensacred-game` keeps no riding flag in its sounds: its rider counts as walking or running by the hero's gait, and breathes hard after 20 s of riding (`voices::breathe`).
+  `opensacred-game` weighs its rider so since #3332 (`voices::breathe`, `voices::flight`): no hard breath from riding, its horse's motions for its class.
   The horse's own steps are its type's `NATURE_HORSE` profile 105.
 
 ## Open
