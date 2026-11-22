@@ -183,7 +183,7 @@ Deciding (its sub-state `+0xFE` 0, `0x4F0D66`) takes the evening's way at dusk, 
 - 5, 8: one of `0x400`, and one of 8 in one case of three, visits a trader: the nearest creature of the 3 × 3 sectors whose `+0x200` has the bits `0x1000` (the smiths, `CreateNPC`'s tag `0x23`), `0x2000` (the merchants, `0x24`), `0x4000` (the wizards, `0x25`) or `0x4000000` (`0x64`), the second nearest if within 800 (`0x4EE660`); it walks to within 150 of it, plays its slot 177 (`*_TALK_A`) once and goes into a house.
   In the other two cases of three one of 8 looks for a field (`SetRG`'s regions of kind 1, `0xAAD2C8`, three in each tree, at the start's farmland) to work along it; the measure of the field's distance takes its cells for world units (`0x4B2350`), finds none, and it rolls again at the next frame: the branch is dead.
 - 9: a juggler plays (below).
-- 10 to 25: it stops, in its idle; standing within 24 of a door's point, it walks off to a point within 250 of itself.
+- 10 to 25: it stops, in its idle; standing within 24 of a door's point, it walks off to a point within 250 of itself, its doing 27, and as its walk takes the sub-state 12 of a trader's visit (`0x4F3326`), it then plays its `*_TALK_A` once and goes into a house (read 2026-11-22 for #3111, **confirmed** by code).
 
 So an ordinary townsperson: in 26 rolls one partner, one animal, one partner and home, one home, three houses, two traders (one of 8 rolls again instead in two cases of three), and 17 stops.
 

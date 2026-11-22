@@ -92,7 +92,7 @@ Read 2026-10-30 for #1525 by code (`0x6A9F20`'s callees, capstone scans), and **
 
 ## Open questions
 
-- The fonts' heights (the "+"'s step `h + 9` with `h` the font's at `0x182EE2C`, **hypothesis** 10) and the flag `0x40000` of the headers.
+- The flag `0x40000` of the headers; the "+"'s step `h + 9` is 19, `h` the system font's line of 10 (docs/re/questbook.md, "The statistics' book (type 3, `cUI_StatsTab`)"; #3101).
 - The font 7's size.
 - `0x75AA30` and what `cCommand_onInvClose` does while it holds; the region (680..780, 50..70) that a click also toggles the header by.
 
