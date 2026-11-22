@@ -1186,10 +1186,9 @@ pub fn build(
         let (back, layer) = if object.type_flags & OVERLAY != 0 {
             (-LIST_4_FORWARD, Layer::Objects)
         } else if object.type_flags & UNDERLAY != 0 {
-            // A liquid cell's miniatures go under the surface (`0x62AE90`); the exception of
-            // liquid material 13 while the building at (3563, 1336) has the state 2 is not
-            // followed (#3021).
-            if object.flags & MINIATURE != 0 && liquids::liquid(cell) {
+            // A liquid cell's miniatures go under the surface (`0x62AE90`), but a drained one's
+            // (`liquids::wet`, #3021).
+            if object.flags & MINIATURE != 0 && liquids::wet(sector, cell) {
                 (UNDER_LIQUIDS_BACK, Layer::UnderLiquids)
             } else if object.flags & MINIATURE != 0 || object.mask == 1 {
                 (LIST_0_BACK, Layer::Underlays)
