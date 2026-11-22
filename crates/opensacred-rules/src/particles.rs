@@ -16806,7 +16806,8 @@ mod tests {
         assert_eq!(illusion_grey(life + 1.0, life), 0.0);
         assert_eq!(illusion_grey(1.0, 0.0), 0.0);
         // It faces the screen's left a little downward: the models' `−x` and `+y`.
-        assert!(ILLUSION_FRONT[0] < 0.0 && ILLUSION_FRONT[1] > 0.0 && ILLUSION_FRONT[2] == 0.0);
+        let half = std::f32::consts::FRAC_1_SQRT_2;
+        assert_eq!(ILLUSION_FRONT, [-half, half, 0.0]);
     }
 
     /// Dice that roll `0` alone, or the highest roll of 0 to 0x7FFF.
