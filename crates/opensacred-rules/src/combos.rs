@@ -108,9 +108,14 @@ impl Combo {
         }
     }
 
-    /// The time its tooltip gives (`0x581550`, the mode 3): its time over its speed.
+    /// The time its tooltip gives (`0x581550`, the mode 3): its time over its speed, its time
+    /// alone where its speed is 0.
     pub fn shown_time(&self) -> f32 {
-        self.time / self.speed
+        if self.speed == 0.0 {
+            self.time
+        } else {
+            self.time / self.speed
+        }
     }
 }
 
@@ -252,6 +257,12 @@ mod tests {
         combo.speed = combo.speed_of(37.0, 37.0);
         assert!((combo.speed - 1.37).abs() < 1e-5);
         assert!((combo.shown_time() - 79.0 / 1.37).abs() < 1e-3);
+        // Of no speed, its time alone (`0x581550`).
+        let still = Combo {
+            speed: 0.0,
+            ..combo
+        };
+        assert!((still.shown_time() - 79.0).abs() < 1e-4);
         combo.regenerate(10.0);
         assert!((combo.regenerated - 13.7).abs() < 1e-4 && !combo.ready());
         combo.regenerate(100.0);
