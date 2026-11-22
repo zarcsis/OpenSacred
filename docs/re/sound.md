@@ -144,6 +144,7 @@ It answers nothing for an object of which the manager holds no record.
 
 `opensacred-game` places the voices and the weapons' sounds so (`sfx::placed`, #731): the offset from the hero in those pixels, the distance as the integers give it, the three lines over the same values, divided by the 0.75 at the listener so that a sound there plays at its own volume, and the pan from −1 to 1.
 It places a loop at each frame (`hums`, `fx::crackle`), and since #3334 a placed sample too, from its start, at its entity or its point (`sfx::Placed`): the asked sounds and the weapons' (`sfx`), the creatures' voices and idle noises and the hero's lines and breath (`voices`, `remarks`), the entity's last place kept once it is gone, and beyond the records' 1,200 pixels the sample left as it is, a gone entity's let go; with no silence at a sample's head.
+Since #3344 a placed sample starts within the records' reach whatever its volume, at 0 beyond its hearing, so that it comes in as its object comes near (`sfx::within_reach`); one asked beyond the reach does not start (docs/decisions/sound.md, "No sound started beyond the records' reach").
 Since #3330 it takes the place's factor (`sfx::placed_by`, `sfx::PlayAt::factor`): the gun's fire's 5 from its start, louder with its distance, none placed beyond the records' 1,200 pixels, and its volume times the effects' level held at 1, as the original's samples; every other sound at the factor 1.
 Since #3331 it takes the fires' and the torches' factors as the place's too (`fx::crackle`, `hums::Loudness`): as loud as any sample at the fire or the torch, silent from 270, 360 or 540 pixels for the fires and 360 for a torch.
 
@@ -165,7 +166,7 @@ Recovered 2026-10-23 (#714) from the sound manager's update (`0x69B770`) and its
   **Checked** at the start (the trace of `0x4261D0`, `sound-pick`): three pigs made 11 picks of 2011's group 0 in 64 s against 12.6 by these rolls, three thieves 38 of 2023 against about 30.
   `opensacred-convert tables` holds the cases as a table and writes `tables/idle_noises.ron` (`opensacred_data::tables::IdleNoises`).
 
-`opensacred-game` makes them so (`voices`, #714): at each world tick a creature within the hearing rolls one in 70, or one in 20 if it is hostile to the hero and does not fight, then its type's noise, at the volume of its place and the voices' rate with its case's value added (#1140); docs/decisions/sound.md, "Hostile creatures' idle noises at rest" says what it leaves out.
+`opensacred-game` makes them so (`voices`, #714): at each world tick a creature within the hearing rolls one in 70, or one in 20 if it is hostile to the hero and does not fight and within the records' 1,200 pixels, silent beyond the hearing (#3344), then its type's noise, at the volume of its place and the voices' rate with its case's value added (#1140); docs/decisions/sound.md, "Hostile creatures' idle noises at rest" says what it leaves out.
 
 ## Footsteps by the ground
 

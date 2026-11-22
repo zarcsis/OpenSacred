@@ -408,13 +408,21 @@ enum Again {
 }
 
 fn again(at: Vec3, listener: Vec3, gone: bool) -> Again {
-    if f64::from(screen_distance(at, listener)) <= f64::from(HEARING) {
+    if within_reach(at, Some(listener)) {
         Again::Placed
     } else if gone {
         Again::Dropped
     } else {
         Again::Kept
     }
+}
+
+/// Whether a sound at `at` lies within the sound manager's records' reach of the listener at
+/// `listener`, 1,200 pixels whatever its factor (`+0xB790`, `0x68407F`), so that it starts, at
+/// the volume 0 where it lies beyond its hearing, and is placed again as it plays (`0x693D8C`,
+/// `0x6A0035`; #3344); with no listener, always.
+pub fn within_reach(at: Vec3, listener: Option<Vec3>) -> bool {
+    listener.is_none_or(|listener| f64::from(screen_distance(at, listener)) <= f64::from(HEARING))
 }
 
 /// Places the placed sounds again by their entities' places and the hero's, and lets go of those
@@ -744,11 +752,12 @@ fn blows(
         let Some((id, file)) = sfx.pick(profile, group) else {
             continue;
         };
-        let (near, pan) = placed_at(place.translation(), listener, *volume);
-        let volume = loud * near;
-        if volume <= 0.0 {
+        // Silent where it lies beyond its hearing, but within the records' reach.
+        if !within_reach(place.translation(), listener) {
             continue;
         }
+        let (near, pan) = placed_at(place.translation(), listener, *volume);
+        let volume = loud * near;
         let sample = sfx.sample(id, file, &assets);
         let handle = audio
             .play(sample)
@@ -815,7 +824,8 @@ fn plays(
             None => placed(0, 0, *volume),
         };
         let volume = volume.min(most);
-        if volume <= 0.0 {
+        // A placed one silent where it lies beyond its hearing, but within the records' reach.
+        if place.is_some_and(|(_, at)| !within_reach(at, listener)) {
             continue;
         }
         let picked = match sound {
@@ -949,6 +959,10 @@ mod tests {
         // Beyond it a living thing's sound keeps where it is, a thing's gone is let go.
         assert_eq!(again(cells(25.5), listener, false), Again::Kept);
         assert_eq!(again(cells(25.5), listener, true), Again::Dropped);
+        // A sound starts within the reach, and anywhere with no listener.
+        assert!(within_reach(cells(25.0), Some(listener)));
+        assert!(!within_reach(cells(25.5), Some(listener)));
+        assert!(within_reach(cells(25.5), None));
     }
 
     #[test]
