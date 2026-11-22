@@ -2215,7 +2215,7 @@ function nearestHostile(h) {
 // The hero's strike at a creature as 0x4EA3F0 sends it, unarmed: the event 5 from the attacker to the target, the
 // strike's record of no weapon and a factor of 1, through the target's handler (+0x18 of its vtable).
 function strike(attacker, target) {
-  const event = Memory.alloc(0x40);
+  const event = Memory.alloc(0x44);        // the game's cEvent_creature, made on 0x4EA3F0's stack
   const attackerId = attacker.add(CREATURE.id).readU32();
   const targetId = target.add(CREATURE.id).readU32();
   event.writePointer(WORLD.strikeEvent);
