@@ -1429,6 +1429,7 @@ fn pursue(
                     sure: true,
                     poison: false,
                     ward: false,
+                    hurled: false,
                 });
             }
             Pursues::Flees(to) => {
@@ -1525,6 +1526,7 @@ fn pursue(
                         sure: false,
                         poison: false,
                         ward: false,
+                        hurled: false,
                     });
                     world.write_message(crate::hit_sparks::Spark {
                         art: crate::trample::TRAMPLE_SPARKS,
@@ -3397,6 +3399,7 @@ mod tests {
             sure: false,
             poison: false,
             ward: false,
+            hurled: false,
         });
         app.update();
         // The fellow comes at the hero; the archer, of no group, keeps its foe.
@@ -3448,6 +3451,7 @@ mod tests {
             sure: false,
             poison: false,
             ward: false,
+            hurled: false,
         });
         app.update();
         // The event goes on to the rider, which fights the skeleton's foe; the horse fights not.

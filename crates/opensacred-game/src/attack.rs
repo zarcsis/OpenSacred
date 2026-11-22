@@ -429,6 +429,7 @@ fn engage(
                         sure: false,
                         poison: false,
                         ward: false,
+                        hurled: false,
                         attacker: hero,
                         target: entity,
                         share,

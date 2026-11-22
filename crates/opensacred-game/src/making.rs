@@ -1318,6 +1318,7 @@ fn make(
             sure: false,
             poison: false,
             ward: false,
+            hurled: false,
             attacker: hero,
             target,
             share: playing.factor,
@@ -1972,6 +1973,7 @@ fn make(
                     at,
                     level: playing.level,
                     factor: playing.factor,
+                    clip_left: playing.seconds * (1.0 - done.clamp(0.0, 1.0)),
                 });
                 arts.start(making.art);
                 end(&mut commands);
@@ -2254,6 +2256,7 @@ fn make(
                                 sure: true,
                                 poison: false,
                                 ward: false,
+                                hurled: false,
                             });
                             if !mind.big && knocks_back(&mut dice.0, playing.level, mind) {
                                 commands
@@ -3103,6 +3106,7 @@ fn blades(
                 sure: false,
                 poison: false,
                 ward: false,
+                hurled: false,
                 attacker: hero,
                 target: entity,
                 share: playing.factor,
@@ -3293,6 +3297,7 @@ fn knock(
                     sure: true,
                     poison: false,
                     ward: false,
+                    hurled: false,
                 });
                 commands
                     .entity(other)

@@ -109,6 +109,7 @@ fn explode(
                     sure: true,
                     poison: false,
                     ward: true,
+                    hurled: false,
                 });
             }
         }

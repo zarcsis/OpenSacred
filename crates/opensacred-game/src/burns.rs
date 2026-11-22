@@ -55,6 +55,7 @@ fn burn(
                     sure: true,
                     poison: false,
                     ward: false,
+                    hurled: false,
                 });
             }
             !burn.over()

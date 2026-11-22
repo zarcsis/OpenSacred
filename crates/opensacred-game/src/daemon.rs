@@ -182,6 +182,7 @@ fn drown(
                 sure: true,
                 poison: false,
                 ward: false,
+                hurled: false,
             });
         }
     }
