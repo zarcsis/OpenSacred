@@ -12715,6 +12715,17 @@ impl Strikes {
     pub fn bolts(self, bolt: Option<opensacred_rules::arts::Bolt>) -> Self {
         Self { bolt, ..self }
     }
+
+    /// Whether it is a shot, which a call to fight may reach in its course (`ai`, #3313).
+    pub fn is_shot(&self) -> bool {
+        self.shot.is_some()
+    }
+
+    /// Its target `target` from now, an arrow not loosed yet flying at it (`+0x158 := +0x104`,
+    /// `0x4DC503`–`0x4DC577`, #3313).
+    pub fn retarget(&mut self, target: Entity) {
+        self.target = target;
+    }
 }
 
 /// The name of `MOTIONS.PAK`'s record 0, whose fractions a slot that a model lacks takes, its
@@ -12766,6 +12777,13 @@ fn bolt_clip(
 #[derive(Component)]
 pub struct StrikeEnded;
 
+/// An NPC whose shot has just ended, standing dormant until the hero's look wakes it and its
+/// decisions take it up again (`ai::pursue`; the ticks since its wake, none before it).
+#[derive(Component, Default)]
+pub struct ShotEnded {
+    pub woken: Option<u8>,
+}
+
 /// How far a strike reaches when it hits, times the reach of the striker and its target, the mean
 /// of their sizes (`0x4EA1F0`, `0x4DBC60`, #677; **hypothesis** that the base is the reach of the
 /// fight's band).
@@ -12786,8 +12804,9 @@ fn hits_within(size: u32, other: u32) -> f32 {
 /// a shot of bolts plays its bolt's clip at its own rate, its stand-in where the model lacks it,
 /// and sends its bolts in place of the arrow (`bolts::Fire`, `0x4DCB80`, #2899); one whose model
 /// has neither plays nothing, the clip in play going on: the creature's stance, whose fraction is
-/// 0, so that its bolts leave at the first tick after its start and it ends at the second tick
-/// after them (`0x4DCB80`'s sub-states 1 and 2; #3303).
+/// 0, so that its bolts leave at the first tick after its start (#3303). A shot ends at the
+/// second tick after its arrow or its bolts, whatever is left of its clip (`0x4DCB80`'s
+/// sub-state 2; seen, #3312), its creature then dormant ([`ShotEnded`]).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -12868,7 +12887,10 @@ fn strike(
                 } else {
                     strikes.after += 1;
                     if strikes.after >= 2 {
-                        commands.entity(entity).remove::<Strikes>();
+                        commands
+                            .entity(entity)
+                            .remove::<Strikes>()
+                            .insert(ShotEnded::default());
                     }
                 }
                 continue;
@@ -12968,10 +12990,17 @@ fn strike(
                 });
             }
         }
-        if active.is_finished() {
+        // A shot's ticks after its arrow, the tick that loosed it aside.
+        let shot = strikes.shot.is_some();
+        if shot && strikes.struck > 0 && !due && tick.seconds.is_some() {
+            strikes.after += 1;
+        }
+        if active.is_finished() || (shot && strikes.after >= 2) {
             let mut ended = commands.entity(entity);
             ended.remove::<Strikes>();
-            if strikes.shot.is_none() {
+            if shot {
+                ended.insert(ShotEnded::default());
+            } else {
                 ended.insert(StrikeEnded);
             }
         }

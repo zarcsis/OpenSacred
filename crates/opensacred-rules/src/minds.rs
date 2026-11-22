@@ -889,9 +889,11 @@ pub struct Mind {
     pub rides: Option<bool>,
     /// Its charge's step, a riding black rider's (#2288) or the hornet hunter's (#2562).
     charge: Charge,
-    /// At range: whether it moves at a run (`+0x1F8`), and the chain of its shots (`+0x210`).
+    /// At range: whether it moves at a run (`+0x1F8`), the chain of its shots (`+0x210`), and
+    /// whether a call to fight reached it in mid-shot since its last update.
     runs_at_range: bool,
     shots: Chain,
+    called: bool,
     /// Whether it went to melee from its bow and takes one again (`+0x2B8` bit `0x10`, which only
     /// the switch to melee sets, `0x4D4D85`, and the bow-taking clears, `0x4D4A80`).
     takes_bow: bool,
@@ -1008,6 +1010,7 @@ impl Mind {
             charge: Charge::None,
             runs_at_range: false,
             shots: Chain::default(),
+            called: false,
             takes_bow: false,
             first,
             awake: woken,
@@ -1166,14 +1169,36 @@ impl Mind {
     /// ([`marked`]) chains on a `roll` of 0 of `0..4`, any other always; one that does not chain
     /// waits [`RESTS`] before it strikes again, while its AI decides again. Whether it chains.
     pub fn ends_strike(&mut self, roll: u32) -> bool {
+        self.shots.reset();
         let chains = self.class != 1 && (!marked(self.creature) || roll == 0);
         self.rests = if chains { 0.0 } else { RESTS };
         chains
     }
 
-    /// The time `dt` gone by of its wait before its next strike.
+    /// The time `dt` gone by of its wait before its next strike, at its update, after which it
+    /// hears a call to fight again ([`Self::called_mid_shot`]).
     pub fn rest(&mut self, dt: f32) {
         self.rests = (self.rests - dt).max(0.0);
+        self.called = false;
+    }
+
+    /// A call to fight of its group `group` that carries a foe (the event `0x100` of its group's
+    /// alarm, `0x46AE70`, `0x52FA63`) reaching it while its shot plays, which sends it to the AI's
+    /// state 8's decision (`0x4DC503`–`0x4DC577`; docs/re/fight.md, "The shots' chain"): its
+    /// shots' chain 0.1 faster while below 1.7, at most once until its next update; whether it
+    /// took the call, whose foe its playing shot then aims at.
+    pub fn called_mid_shot(&mut self, group: u32) -> bool {
+        if self.group != Some(group) || self.called {
+            return false;
+        }
+        self.called = true;
+        self.shots.raise();
+        true
+    }
+
+    /// Its shots' chain (`+0x210`).
+    pub fn chain(&self) -> f32 {
+        self.shots.factor
     }
 
     /// Whether it is a guard by its behaviour (`0x4000`).
@@ -2309,6 +2334,8 @@ impl Mind {
         if self.ranged {
             return self.at_range(sight, clear, rng);
         }
+        // Every decision in melee sets its shots' chain back (`0x4E1443`, `0x4E0E45`).
+        self.shots.reset();
         // In melee a flyer is no flyer at each decision, but in its flight from the fight (its
         // sub-state 3: a fled one walking), and the hornets take it again at once
         // (`0x4E05DE`–`0x4E062F`, #2577); it comes down from where it is.
@@ -2750,7 +2777,7 @@ impl Mind {
         self.backs = 0;
         Pursues::Shoots {
             choice: rng.below(5),
-            chain: self.shots.strike(),
+            chain: self.shots.factor,
         }
     }
 
@@ -4389,7 +4416,8 @@ fn behaviour(
 /// `R` the reach of the hero and its target ([`reach`]).
 const HERO_BAND: f32 = 45.0;
 const HITS_WITHIN: f32 = 1.5;
-/// How much each shot raises the speed of the next, and the most (`0x4DBFC0`).
+/// How much a call to fight in mid-shot raises the speed of the shots, and below what
+/// (`0x4DC51A`, the floats `0x890ED8` and `0x8907DC`).
 const CHAIN_STEP: f32 = 0.1;
 const CHAIN_MOST: f32 = 1.7;
 
@@ -4474,6 +4502,14 @@ pub fn stand_ins(slot: u16) -> &'static [u16] {
     }
 }
 
+/// How many ticks after the hero's look wakes a creature whose shot ended it takes its target up
+/// and shoots again (`0x542B20`, `0x4E0300`, `0x4DBFC0`; seen, #3312): two with a `ranged` weapon
+/// in hand, which takes the AI's state 8 at once, three without, which goes through the melee
+/// state 4 first.
+pub fn shot_wake(ranged: bool) -> u8 {
+    if ranged { 2 } else { 3 }
+}
+
 /// Whether a shot's arrow leaves, `done` of its clip played, `a` the clip's first fraction
 /// (`MotionDesc +0xA0`, `0x4DD90E`): once what is left of the clip is at most `1 − a` of it, at
 /// once for an `a` of 0, at the half for one of 1 or more.
@@ -4498,34 +4534,34 @@ pub fn attack_ends(at_once: bool, ends: bool, alive: bool, asked: bool) -> bool 
     at_once || ends || !alive || !asked
 }
 
-/// The chain of an archer's shots (`+0x210`, `0x4DBFC0`): the factor of the speed of its last
-/// shot, and the count of its shots. The hero's strikes keep its attack speed: its `+0x210` stays
-/// 1 in the original, its button held or clicked (#704).
+/// The chain of an archer's shots (`+0x210`; docs/re/fight.md, "The shots' chain"): the factor
+/// of a shot's speed as the shot starts (`0x4DCCFD`), 1 as the creature is made (`0x52DFB6`),
+/// raised by a call to fight that reaches it in mid-shot and set back by its melee, never by a
+/// shot itself (#3313). The hero's strikes keep its attack speed: its `+0x210` stays 1 in the
+/// original, its button held or clicked (#704).
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Chain {
     factor: f32,
-    strikes: u32,
 }
 
 impl Default for Chain {
     fn default() -> Self {
-        Self {
-            factor: 1.0,
-            strikes: 0,
-        }
+        Self { factor: 1.0 }
     }
 }
 
 impl Chain {
-    /// The factor of the next shot: 1 for the first, else the last's raised by 0.1, at most 1.7.
-    fn strike(&mut self) -> f32 {
-        self.factor = if self.strikes == 0 {
-            1.0
-        } else {
-            (self.factor + CHAIN_STEP).min(CHAIN_MOST)
-        };
-        self.strikes += 1;
-        self.factor
+    /// A call to fight in mid-shot (`0x4DC51A`–`0x4DC577`): 0.1 more while below 1.7.
+    fn raise(&mut self) {
+        if self.factor < CHAIN_MOST {
+            self.factor += CHAIN_STEP;
+        }
+    }
+
+    /// Its melee: back to 1 (`0x4E1443`, `0x4E14EF`, `0x4E0E45`, `0x4E12B3`, `0x4E728D`,
+    /// `0x4E8203`).
+    fn reset(&mut self) {
+        self.factor = 1.0;
     }
 }
 
@@ -6481,8 +6517,8 @@ mod tests {
             ..at_range(400.0, None)
         };
         assert_eq!(bandit.pursue(&playing, || true, &mut rng), None);
-        // Each shot is 0.1 faster than the last, up to 1.7 times.
-        let chains: Vec<f32> = (0..10)
+        // A shot leaves its chain as it is; a call of its group in mid-shot raises the next.
+        let mut chains: Vec<f32> = (0..10)
             .filter_map(
                 |_| match bandit.pursue(&at_range(400.0, None), || true, &mut rng) {
                     Some(Pursues::Shoots { chain, .. }) => Some(chain),
@@ -6491,7 +6527,17 @@ mod tests {
             )
             .collect();
         assert_eq!(chains.len(), 10);
-        assert!((chains[0] - 1.1).abs() < 1e-5 && (chains[9] - 1.7).abs() < 1e-5);
+        assert!(chains.iter().all(|&chain| chain == 1.0), "{chains:?}");
+        bandit.group = Some(1);
+        bandit.called_mid_shot(1);
+        chains.clear();
+        if let Some(Pursues::Shoots { chain, .. }) =
+            bandit.pursue(&at_range(400.0, None), || true, &mut rng)
+        {
+            chains.push(chain);
+        }
+        assert_eq!(chains.len(), 1);
+        assert!((chains[0] - 1.1).abs() < 1e-5, "{chains:?}");
     }
 
     #[test]
@@ -7364,6 +7410,12 @@ mod tests {
         assert!(looses(0.0, 0.0));
         assert!(!looses(0.4, 0.39) && looses(0.4, 0.4));
         assert!(!looses(1.2, 0.49) && looses(1.2, 0.5));
+    }
+
+    #[test]
+    fn a_shooter_shoots_again_two_ticks_after_its_wake_with_a_bow_three_without() {
+        assert_eq!(shot_wake(true), 2);
+        assert_eq!(shot_wake(false), 3);
     }
 
     #[test]
@@ -8284,11 +8336,34 @@ mod tests {
     }
 
     #[test]
-    fn a_chain_of_shots_grows_faster_by_a_tenth_up_to_1_7() {
+    fn a_chain_of_shots_grows_by_a_tenth_up_to_1_7_and_falls_back_in_melee() {
         let mut chain = Chain::default();
-        let factors: Vec<f32> = (0..10).map(|_| chain.strike()).collect();
-        assert!((factors[0] - 1.0).abs() < 1e-6 && (factors[1] - 1.1).abs() < 1e-6);
-        assert!((factors[7] - 1.7).abs() < 1e-5 && (factors[9] - 1.7).abs() < 1e-5);
+        assert_eq!(chain.factor, 1.0);
+        chain.raise();
+        assert!((chain.factor - 1.1).abs() < 1e-6);
+        for _ in 0..10 {
+            chain.raise();
+        }
+        // Seven raises, the last from just below 1.7 to just above it.
+        assert!((chain.factor - 1.7).abs() < 1e-5, "{}", chain.factor);
+        chain.reset();
+        assert_eq!(chain.factor, 1.0);
+    }
+
+    #[test]
+    fn a_call_to_fight_in_mid_shot_raises_the_chain_once_until_the_next_update() {
+        let mut mind = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (75, 2));
+        mind.group = Some(4);
+        assert!(!mind.called_mid_shot(5));
+        assert!(mind.called_mid_shot(4));
+        assert!(!mind.called_mid_shot(4));
+        assert!((mind.chain() - 1.1).abs() < 1e-6);
+        mind.rest(0.1);
+        assert!(mind.called_mid_shot(4));
+        assert!((mind.chain() - 1.2).abs() < 1e-6);
+        // A strike's end sets it back.
+        mind.ends_strike(0);
+        assert_eq!(mind.chain(), 1.0);
     }
 
     #[test]

@@ -77,7 +77,7 @@ Who else meets a lacking slot (the converted models' slots against the creature 
 - No model with attack clips lacks all three of 89, 84 and 79 but those of the types 199 and 340 (`STACHELALBAUFBLUTSCHRECKE` and `STACHELALBAUFBLUTSCHRECKE01`, the slots 109 and 114 alone).
 
 `opensacred-game` follows it for the Seraphim's bolts of a creature since #3303 (`npcs::BoltClip`, `opensacred_rules::minds::stand_ins`): a shot of the slot 145 that the model lacks plays the first of 89, 84 and 79 that it has at the shot's rate and looses at the record 0's fraction, and one of the slot 164 plays nothing, its bolts leaving at the first tick after its start as its stance's fraction of 0 lets them and the shot ending at the second tick after.
-The shot of a stand-in ends at its clip's end (#3312), and a melee strike of a class the model lacks takes the class 0's clips (#3314; docs/decisions/fight.md, "A creature's strike of a class its model has no clip of").
+A melee strike of a class the model lacks takes the class 0's clips (#3314; docs/decisions/fight.md, "A creature's strike of a class its model has no clip of").
 
 ## The class of what a creature holds
 

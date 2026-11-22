@@ -18,4 +18,8 @@ exclude_re = [
     # Equivalent: `weighing`'s `r > upper` as `>=` gives `upper/r` at `r == upper`, exactly 1, as
     # the next branch does (#1454, #1472); the function's one `>`.
     'replace > with >= in weighing$',
+    # Equivalent: the shots' chain's `factor < CHAIN_MOST` as `<=` differs only at a factor of
+    # exactly 1.7, which raises of 0.1 in f32 from 1.0 never reach (1.6000001, then 1.7000002;
+    # #3313).
+    'replace < with <= in Chain::raise$',
 ]
