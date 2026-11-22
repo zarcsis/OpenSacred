@@ -49,7 +49,6 @@ HEROES = {                      # the figures of the hero's choice, left to righ
     'wood-elf': (620, 330), 'mage': (735, 400), 'dark-elf': (805, 330), 'vampiress': (890, 480),
 }
 HERO_NAME = (510, 586)          # the name's field, under the figures
-DIFFICULTY_NEXT = (593, 621)    # the difficulty's right arrow; the original offers the levels unlocked alone
 DIFFICULTIES = ['bronze', 'silver', 'gold', 'platinum', 'niobium']
 START_GAME = (607, 714)
 # The first window of a new game, of a height that depends on its text: Enter is its OK, and its Skip Tutorial and the
@@ -619,6 +618,8 @@ class Host:
         """The world's snapshot of the agent in the fields of opensacred-game's state."""
         fields = {'npcs': world['creatures'], 'objects': world['objects'], 'entities': world['objects'],
                   'zoom': world['zoom']}
+        if isinstance(world.get('difficulty'), int) and 0 <= world['difficulty'] < len(DIFFICULTIES):
+            fields['difficulty'] = DIFFICULTIES[world['difficulty']]
         if world.get('clock'):
             fields['clock'] = [world['clock']['time'], world['clock']['phase']]
             fields['day_rates'] = world['clock']['rates']
@@ -671,7 +672,7 @@ class Host:
                 'help: these lines',
                 'new-game [--class CLASS] [--difficulty LEVEL] [--name NAME] [--skip-tutorial|--leave-open]: from the '
                 'main menu, a new game of the Ancaria campaign (classes: ' + ', '.join(HEROES) + '; the Seraphim by '
-                'default; levels: ' + ', '.join(DIFFICULTIES) + ', as far as the hero has unlocked them), its first '
+                'default; bronze alone, the level a new hero starts on), its first '
                 'window and the tutorial\'s first tip closed unless --leave-open leaves them to ui press; then '
                 'wait-ready',
                 "save NAME: in a game, saves through the original's menu into the save of that name, or a new one",
@@ -791,6 +792,11 @@ class Host:
             raise ValueError(f'new-game: {e}') from None
         if unknown:
             raise ValueError(f"new-game: unknown {' '.join(unknown)}")
+        # The menu's arrows choose among the levels that an imported hero has unlocked: a new hero starts on bronze
+        # alone, an arrow's click choosing nothing and the next click lost (seen 2026-11-22, #3374).
+        if options.difficulty != 'bronze':
+            raise ValueError(f'new-game: the original starts a new hero on bronze alone, not {options.difficulty}: its '
+                             'menu offers the levels that an imported hero has unlocked')
         if self.agent_state().get('screen') != 'menu':
             raise RuntimeError('new-game starts from the main menu')
         return options
@@ -873,13 +879,18 @@ class Host:
                 time.sleep(0.05)
             self.agent.input({'text': options.name})
             time.sleep(0.5)
-        for _ in range(DIFFICULTIES.index(options.difficulty)):
-            self.click(DIFFICULTY_NEXT, 0.5)
         step('Start Game')
         self.click(START_GAME, 0.5)
         self.wait_screen({'loading', 'game', 'paused'}, 120)
         self.wait_screen({'game', 'paused'}, 300)
         time.sleep(2)
+        # The menu offers the levels unlocked alone, so that an arrow's click may choose nothing: the game's own word
+        # tells what was chosen (#3374).
+        chosen = self.world('snapshot', {}).get('difficulty')
+        if chosen != DIFFICULTIES.index(options.difficulty):
+            got = DIFFICULTIES[chosen] if isinstance(chosen, int) and 0 <= chosen < len(DIFFICULTIES) else chosen
+            raise RuntimeError(f'new-game: the game runs on {got}, not {options.difficulty}: the original offers a new '
+                               'hero the levels unlocked alone')
         if options.leave_open:
             # The first window stays for `ui` and `ui press` (#1340), its button pressed as a player presses it.
             step('the first window left open')
