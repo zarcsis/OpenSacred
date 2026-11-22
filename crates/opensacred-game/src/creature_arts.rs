@@ -344,6 +344,7 @@ pub(crate) fn stare(
             sound: crate::sfx::Of::Id(casts::STARE_SOUND),
             point: at,
             rate: (1.0, crate::sfx::Roll::None),
+            factor: 1.0,
         });
     }
     // The drain is the hero's alone, its arts' and its combos' regeneration.

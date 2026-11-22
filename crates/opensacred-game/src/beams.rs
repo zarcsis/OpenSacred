@@ -297,6 +297,7 @@ fn place(
                     sound: crate::sfx::Of::Id(sound),
                     point: start,
                     rate: (0.5, crate::sfx::Roll::None),
+                    factor: 1.0,
                 });
             }
         }

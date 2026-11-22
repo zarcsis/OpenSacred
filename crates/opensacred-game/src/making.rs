@@ -1546,6 +1546,7 @@ fn make(
                         sound: crate::sfx::Of::Id(RAISE_SOUND),
                         point: corpse.translation(),
                         rate: (0.5, crate::sfx::Roll::None),
+                        factor: 1.0,
                     });
                     crate::vamp_sights::raise(&mut commands, playing.target, corpse.translation());
                     crate::followers::raise(
@@ -2606,6 +2607,7 @@ fn make(
                             sound: crate::sfx::Of::Id(id),
                             point: transform.translation,
                             rate: (0.5, crate::sfx::Roll::None),
+                            factor: 1.0,
                         });
                     }
                     let boon = arts
@@ -3322,6 +3324,7 @@ fn gun_sound(points: &mut MessageWriter<crate::sfx::PlayAt>, sound: u32, at: Vec
         sound: crate::sfx::Of::Id(sound),
         point: at,
         rate: (0.5, crate::sfx::Roll::None),
+        factor: 1.0,
     });
 }
 

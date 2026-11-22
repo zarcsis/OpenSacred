@@ -86,6 +86,7 @@ fn explode(
             sound: crate::sfx::Of::Id(IMPACT_SOUND),
             point,
             rate: (0.5, crate::sfx::Roll::None),
+            factor: 1.0,
         });
         // Its look at the point on the ground (1020, `grenade_impacts`).
         crate::grenade_impacts::land(&mut commands, point);
