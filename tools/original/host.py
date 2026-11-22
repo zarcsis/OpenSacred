@@ -417,6 +417,8 @@ class Host:
         self.shots = queue.Queue()  # the paths asked for, in order
         self.ended = threading.Event()
         self.exit_code = None
+        # Whether a `quit` asked the game to end, after which its own end's faults are told apart (#3183).
+        self.quitting = False
         self.fatal = None
         self.scripted = None  # what the host clicks through now, as `new-game`
 
@@ -769,6 +771,7 @@ class Host:
         if word == 'quit':
             if self.ended.is_set():
                 return {'output': ['the game has ended']}
+            self.quitting = True
             closed = self.agent.close()
             threading.Thread(target=self.quit_later, daemon=True).start()
             return {'output': ['closing the game' if closed else 'no window yet: ending the game']}
@@ -1655,7 +1658,19 @@ def main():
     while not host.ended.wait(0.5):
         pass
     server.shutdown()
-    sys.exit(host.exit_code if host.exit_code is not None else 1)
+    code = host.exit_code if host.exit_code is not None else 1
+    # After a `quit`, the game's own end that hung (ended by the host) or crashed past its WinMain is a fault of its
+    # end, not of its play: since #3183 seen after the driver's `kill` above all, its root not found.
+    if host.quitting and code != 0:
+        journal.push('WARN', 'host', f"the game's end after the quit did not finish cleanly (code {code}): a fault of "
+                     'its end, not of its play (#3183)')
+        code = 0
+    # Out at once, past the interpreter's finalizers: frida's binding, its target crashed in its end, crashed the host
+    # in them (its exit 139, #3183).
+    release(record, HOLDER)
+    if journal.file:
+        journal.file.flush()
+    os._exit(code)
 
 
 if __name__ == '__main__':
