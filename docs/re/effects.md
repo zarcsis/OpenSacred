@@ -1924,6 +1924,7 @@ Its FX event (`0x5D`) follows its target, the Dark Elf, at his neck (`0x44CB80`:
 **Seen** 2026-11-05 beside the original: the Dark Elf's soulcatcher of the level 5, a gold vortex over his head alike in its place, its colour and its spiral, a little smaller; the swelling and the flash at a soul in the game.
 Not followed: the order of the twirls' slots, which reuses the dead ones (ours their births', docs/decisions/drawing.md, "Soulcatcher's twirls in the order of their births"), so that its fully dark moments are rarer.
 In the original a creature's ordinary death makes no soul (780): a goblin killed by the Dark Elf without his soulcatcher started none (the trace of `0x76CD50`), one killed with it one; its body makes one 20 s later as it vanishes, homing on nothing (#2501, "The souls" below).
+Beside a soulcatcher a body vanishes 2 s after its death, its death's stamp put back, and its soul homes (read and seen 2026-11-22 for #3076, docs/re/fight.md, "The bodies' end").
 
 ## The souls
 
