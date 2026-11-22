@@ -1138,7 +1138,7 @@ fn flight(
             &Body,
             &GlobalTransform,
             &crate::fight::Health,
-            Has<crate::attack::Striking>,
+            (Has<crate::attack::Striking>, Has<crate::riding::Saddle>),
         ),
         Without<Dies>,
     >,
@@ -1162,12 +1162,15 @@ fn flight(
     ),
     (time, mut most_engaged): (Res<Time>, ResMut<Engaged>),
 ) {
-    let (Some(hero), Ok((entity, body, at, health, striking))) = (hero, heroes.single()) else {
+    let (Some(hero), Ok((entity, body, at, health, (striking, rides)))) = (hero, heroes.single())
+    else {
         return;
     };
     let now = time.elapsed_secs_f64();
     let hero_at = at.translation();
-    let class = match (striking, body.moving()) {
+    // A rider's class is its horse's stand, walk or run, whatever it does (the case of a slot
+    // named `MOTION_H`, `0x68C1A6`, #3332).
+    let class = match (striking && !rides, body.moving()) {
         (true, _) => STRIKES,
         (false, Some(hero::Gait::Walk)) => WALKS,
         (false, Some(hero::Gait::Run)) => RUNS,
@@ -1297,7 +1300,10 @@ fn breath(creature: u32, gait: Option<hero::Gait>, n: u32) -> u32 {
 /// of its sample, by its sound id (`SOUND_FX_BREATHINGnn_<CLASS>`). A breath that ends rests the
 /// next 10 s; a hero's line by name stops it at once, without the rest. A strike or an art's
 /// action breaks both runs, as the original's motions' shares of their last 16 updates do
-/// (**hypothesis** for their span, a frame each).
+/// (**hypothesis** for their span, a frame each). A rider breathes hard never, the hard breath
+/// asking for the hero's own walking or running slot, which a rider never holds, and its standing
+/// run counts while its horse stands, whatever it does from the saddle (`0x68C1A6`, `0x68D677`,
+/// `0x68D73F`, #3332).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -1311,7 +1317,7 @@ fn breathe(
             &Body,
             &GlobalTransform,
             Has<crate::attack::Striking>,
-            Has<crate::making::Playing>,
+            (Has<crate::making::Playing>, Has<crate::riding::Saddle>),
         ),
         Without<Dies>,
     >,
@@ -1320,7 +1326,8 @@ fn breathe(
     (assets, audio, mut instances): (Res<AssetServer>, Res<Audio>, ResMut<Assets<AudioInstance>>),
     (time, speech): (Res<Time>, Res<AudioChannel<crate::volumes::Speech>>),
 ) {
-    let (Some(hero), Ok((entity, body, at, striking, acting))) = (hero, heroes.single()) else {
+    let (Some(hero), Ok((entity, body, at, striking, (acting, rides)))) = (hero, heroes.single())
+    else {
         return;
     };
     let state = &mut *breath_of;
@@ -1332,8 +1339,8 @@ fn breathe(
     }
     let dt = time.delta_secs();
     let gait = body.moving();
-    let busy = striking || acting;
-    state.moved = if gait.is_some() && !busy {
+    let busy = (striking || acting) && !rides;
+    state.moved = if gait.is_some() && !busy && !rides {
         state.moved + dt
     } else {
         0.0
