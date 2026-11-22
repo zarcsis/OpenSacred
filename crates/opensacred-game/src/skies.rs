@@ -369,7 +369,11 @@ fn draw(
     }
     // A quake's sound, at most once in its time (`0x697220`).
     layer.rumble = (layer.rumble - dt).max(0.0);
-    if std::mem::take(&mut weather.quakes) > 0 && layer.rumble <= 0.0 {
+    if std::mem::take(&mut weather.quakes) > 0
+        && layer.rumble <= 0.0
+        // None at the lowest sound quality (`0x697264`).
+        && !crate::settings::low_sound(settings.as_deref())
+    {
         let (soonest, more) = QUAKE_SOUND_AGAIN;
         layer.rumble = soonest + more * sfx.roll(1000) / 1000.0;
         play(QUAKE_SOUND, &mut sfx);

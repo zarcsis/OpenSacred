@@ -9819,10 +9819,15 @@ fn swing(
     mut npcs: ResMut<Npcs>,
     mut heights: ResMut<Heights>,
     speed: Res<hero::GameSpeed>,
-    mut sounds: MessageWriter<sfx::Play>,
+    (mut sounds, settings): (
+        MessageWriter<sfx::Play>,
+        Option<Res<crate::settings::Settings>>,
+    ),
 ) {
+    // No door's sound at the lowest sound quality (`0x695865`).
+    let quiet = crate::settings::low_sound(settings.as_deref());
     let mut sound = |entity, door: &Door, open: bool| {
-        if door.open == open {
+        if door.open == open || quiet {
             return;
         }
         let Some(profile) = sfx::door_profile(door.kind) else {
