@@ -101,7 +101,7 @@ NIBBLES = {1: 'a mass', 2: 'a wall or water', 3: 'a teleport', 5: 'a stair up 1'
 # The keys of Settings.cfg the host sets before each start, and nothing else (#448, decision 2).
 SETTINGS = {'FULLSCREEN': '0', 'SHOWMOVIE': '0'}
 VOLUMES = {'MUSICVOLUME': '0', 'SFXVOLUME': '0', 'VOICEVOLUME': '0'}
-# With --muted the game plays its sounds at the installation's volumes, for the sound traces, and the agent silences
+# With --mute the game plays its sounds at the installation's volumes, for the sound traces, and the agent silences
 # mss32.dll's output.
 MUTED_VOLUMES = {'MUSICVOLUME': '64', 'SFXVOLUME': '64', 'VOICEVOLUME': '64'}
 # The volumes that the host replaced, which --sound writes back (#1383), else the installation's: kept outside the
@@ -433,7 +433,7 @@ class Host:
             raise SystemExit(f'error: a Sacred.exe runs already (pid {running[0]}) under no host that recorded its '
                              'holder; one original runs at a time')
         set_dgvoodoo(self.game_dir, self.args.interactive, self.journal)
-        set_settings(self.game_dir, self.args.sound, self.args.muted, self.args.interactive, self.journal)
+        set_settings(self.game_dir, self.args.sound, self.args.mute, self.args.interactive, self.journal)
         with open(self.args.agent, encoding='utf-8') as f:
             source = f.read()
         self.pid = frida.spawn([exe] + self.args.arg, cwd=self.game_dir)
@@ -447,7 +447,7 @@ class Host:
             self.script.load()
             self.agent = self.script.exports_sync
             report = self.agent.init({'place': self.args.place, 'heartbeatTimeout': 5000,
-                                      'gameLog': not self.args.no_game_log, 'muted': self.args.muted,
+                                      'gameLog': not self.args.no_game_log, 'muted': self.args.mute,
                                       'interactive': self.args.interactive, 'monitor': self.args.monitor})
             missing = [name for name, ok in report['guards'].items() if not ok]
             if missing:
@@ -1622,7 +1622,7 @@ def main():
                         help="with --interactive, the monitor: 0 the primary (by default), else the n-th the log lists")
     parser.add_argument('--sound', action='store_true',
                         help="audible: the volumes that the host replaced written back, else the installation's 64")
-    parser.add_argument('--muted', action='store_true',
+    parser.add_argument('--mute', action='store_true',
                         help="the game's volumes 64, so that it plays its sounds for the sound traces, while the agent "
                              "silences mss32.dll's output")
     parser.add_argument('--log-file', help='also append the records to this file')

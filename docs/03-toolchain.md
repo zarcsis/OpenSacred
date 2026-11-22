@@ -421,7 +421,7 @@ uv run python -I tools/game/remote.py --port 15703 exec "ui press UI_WND_TASKBAR
 uv run python -I tools/game/remote.py --port 15703 exec "god on"             # or: heal, level 10, experience +500, pause
 uv run python -I tools/game/remote.py --port 15703 exec "arts learn 1071 2"  # or: arts, arts ready, arts use 1071
 uv run python -I tools/game/remote.py --port 15703 exec "spawn 76 --count 3"   # or: kill 10, drop 20, item 5171
-uv run python -I tools/game/remote.py --port 15703 exec "trace fight"        # or drops, ai, doors, sound (with --muted), an address
+uv run python -I tools/game/remote.py --port 15703 exec "trace fight"        # or drops, ai, doors, sound (with --mute), an address
 uv run python -I tools/game/remote.py --port 15703 wait-log "trace: drop: "
 uv run python -I tools/game/remote.py --port 15703 shell                    # by hand: a command a line, ":help" the client's own
 uv run python -I tools/game/remote.py --port 15703 screenshot <scratch>/menu.png
@@ -499,7 +499,7 @@ What the first step found (2026-10-21, Windows 11, #449):
   A function the agent calls from inside a hook's callback runs past every hook of the agent, the traces too (Frida's guard against recursion), so the agent replaces the frame's function, calling the original at its end, rather than hooking it, and the traces see what the commands make the game do.
 * The traces (#452, docs/re/traces.md): presets for the fight's strikes, chances and damage, deaths and experience, the drops and the items made, the regeneration, the creatures' waking and idle rolls, the doors, the sounds; any address with the kinds of its arguments.
 * A cell (#568, docs/re/movement.md, "Positions and layers"): `cell-info` builds a cell's position as the scripts' teleport does and asks the original's own functions of the world, on the ground and on each floor of the building there: the cell's bytes, whether it may be walked on (`0x636C10`), whether the hero may stand there (its own test, `0x4EBCA0`, the teleport's), the height it stands at (`0x636520`), a door's trigger and its state, and the objects of the cell's chain, to set beside opensacred-game's `cell-info`.
-  The sounds play only at volumes above 0, so their traces take `--muted`: the game's volumes, and every volume of mss32.dll set to 0 by the agent.
+  The sounds play only at volumes above 0, so their traces take `--mute`: the game's volumes, and every volume of mss32.dll set to 0 by the agent.
   A stream's volume read back (`_AIL_stream_volume_pan`) answers the volume the game asked for, as the music's crossfades weigh the streams' own levels and, read back as 0, never ended: the music never came back after the ambient loop (#1213).
 * The hero's gold, home and items (#973): `gold` reads the word `+0x46` of the hero's stats (`+0x3EE`), and `state` shows it.
   `gold N` brings it to N through the gold's handler `0x57FD80`, as a pile picked up or a price paid changes it: the handler first runs the original's integrity test (`0x590730`), and a gold written directly fails it, so that the next change kills the hero for good (seen: its gold left at 1 and no rise).
