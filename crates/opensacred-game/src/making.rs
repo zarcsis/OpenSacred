@@ -326,17 +326,21 @@ pub(crate) fn mortar_reaches(
 
 /// Whether an art of the launch type 3 may be made at `point` on the level `on`, made from `here`
 /// on the level `level` (`0x51D840`, its case 3): the point on the maker's floor (`0x6354D0`
-/// against `0x449930`, asked where either stands above the ground), a straight way of cells that
-/// `walkable` takes to it (`0x4FCC80`) and a cell there that it takes (`0x636890`); a jump's and
-/// the Daemon's charge's start too, on the maker's own floor (`0x505B6E`, `0x51B65D`).
+/// against `0x449930`, asked where either stands above the ground), a straight line of cells that
+/// `flown` takes to it, the test with the flyer's flag, over the water and the fences
+/// (`0x4FCC80`, #3358), and a cell there that `stands` takes (`0x636890`); a jump's and the
+/// Daemon's charge's start too, on the maker's own floor (`0x505B6E`, `0x51B65D`).
 pub(crate) fn point_reached(
     (here, level): (Vec3, crate::terrain::Level),
     (point, on): (Vec3, crate::terrain::Level),
-    walkable: impl Fn(crate::paths::Cell) -> bool,
+    (flown, stands): (
+        impl Fn(crate::paths::Cell) -> bool,
+        impl Fn(crate::paths::Cell) -> bool,
+    ),
 ) -> bool {
     level == on
-        && crate::paths::straight(here.xz(), point.xz(), &walkable)
-        && walkable(crate::paths::cell_of(point.x, point.z))
+        && crate::paths::straight(here.xz(), point.xz(), &flown)
+        && stands(crate::paths::cell_of(point.x, point.z))
 }
 
 /// On a press of the right button on a hostile creature alive that the cursor picks
@@ -732,7 +736,8 @@ fn make(
             {
                 let level = body.level();
                 let walkable = |cell| heights.walkable_on(cell, level);
-                if !point_reached((here, level), (point, level), walkable) {
+                let flown = |cell| heights.flown_onto(cell, level);
+                if !point_reached((here, level), (point, level), (flown, walkable)) {
                     info!(
                         "making: no straight way leads to {}'s point, or it may not be stood on",
                         making.art
@@ -868,7 +873,7 @@ fn make(
                     .is_some_and(|dungeons| dungeons.holds(here.x, here.z));
                 let reaches = point.is_some_and(|point| {
                     mortar_reaches((here, level), point, dungeon, |cell| {
-                        heights.walkable_on(cell, level)
+                        heights.flown_onto(cell, level)
                     })
                 });
                 if !reaches {
@@ -1158,7 +1163,8 @@ fn make(
                 // `0x51B65D`, #3173).
                 let level = body.level();
                 let walkable = |cell| heights.walkable_on(cell, level);
-                if !point_reached((here, level), (point, level), walkable) {
+                let flown = |cell| heights.flown_onto(cell, level);
+                if !point_reached((here, level), (point, level), (flown, walkable)) {
                     info!("making: no straight way for the jump or the charge to its target");
                     end(&mut commands);
                     continue;
@@ -3540,13 +3546,28 @@ mod tests {
         let here = Vec3::new(0.5, 0.0, 0.5) * cell;
         let point = Vec3::new(6.5, 0.0, 0.5) * cell;
         let floor = Some((1, 2, 0));
-        assert!(point_reached((here, None), (point, None), |_| true));
+        let open = |_| true;
+        assert!(point_reached((here, None), (point, None), (open, open)));
         // A wall across the line at the cell 3, wherever.
-        assert!(!point_reached((here, None), (point, None), |(x, _)| x != 3));
+        assert!(!point_reached(
+            (here, None),
+            (point, None),
+            (|(x, _)| x != 3, open)
+        ));
+        // The water there, which the line flies over and nothing stands on (#3358).
+        assert!(point_reached(
+            (here, None),
+            (point, None),
+            (open, |(x, _)| x != 3)
+        ));
         // The point's own cell not to be stood on.
-        assert!(!point_reached((here, None), (point, None), |(x, _)| x != 6));
+        assert!(!point_reached(
+            (here, None),
+            (point, None),
+            (open, |(x, _)| x != 6)
+        ));
         // Another floor than the maker's.
-        assert!(!point_reached((here, None), (point, floor), |_| true));
-        assert!(point_reached((here, floor), (point, floor), |_| true));
+        assert!(!point_reached((here, None), (point, floor), (open, open)));
+        assert!(point_reached((here, floor), (point, floor), (open, open)));
     }
 }

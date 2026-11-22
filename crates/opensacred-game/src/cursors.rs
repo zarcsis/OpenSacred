@@ -623,8 +623,14 @@ fn choose(
                     (ray.origin + ray.direction.as_vec3() * along, level)
                 };
                 let walkable = |cell| heights.walkable_on(cell, level);
+                // The line of the straight way's test with the flyer's flag (`0x51D840`, #3358).
+                let flown = |cell| heights.flown_onto(cell, level);
                 if !mortar {
-                    return crate::making::point_reached((here, level), ground(), walkable);
+                    return crate::making::point_reached(
+                        (here, level),
+                        ground(),
+                        (flown, walkable),
+                    );
                 }
                 let point = foe_under
                     .and_then(|foe| {
@@ -636,7 +642,7 @@ fn choose(
                 let dungeon = dungeons
                     .as_deref()
                     .is_some_and(|dungeons| dungeons.holds(here.x, here.z));
-                crate::making::mortar_reaches((here, level), point, dungeon, walkable)
+                crate::making::mortar_reaches((here, level), point, dungeon, flown)
             };
             crate::making::may_make(arts, art, (effects, pack.as_deref(), riding)).is_ok()
                 && admits(launch, under)

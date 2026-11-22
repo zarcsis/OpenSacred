@@ -738,10 +738,11 @@ fn think(
             listed: &listed,
             own,
         };
-        // A straight line of walkable cells to its target (`0x4FCC80`).
+        // A line of sight to its target, the straight way's test with the flyer's flag, over the
+        // water and the fences (`0x4FCC80` from `0x544138`, #3358).
         let clear = |to: Spot| {
             paths::straight(here.xz(), Vec2::new(to.x, to.y), |cell| {
-                heights.walkable_on(cell, way.level)
+                heights.flown_onto(cell, way.level)
             })
         };
         // The door in its way, if no straight line leads to the hero (`0x5442E8`).
@@ -1248,12 +1249,20 @@ fn pursue(
         // The hero itself, which a magician casts at in place of its follower (#1869).
         let heros_place = hero;
         let hero = target;
-        // A straight line of walkable cells to its target, asked again below (`0x4FCC80`).
+        // A straight line of walkable cells to its target, asked again below (`0x4FCC80`), and a
+        // line of sight, the test with the flyer's flag, over the water and the fences: the fight
+        // at range's (`0x4DC89C`) and the brain-footers' stare's (`0x4D9D7C`; #3358).
         let clear = || {
             paths::straight(here.xz(), hero.xz(), |cell| {
                 heights.walkable_on(cell, way.level)
             })
         };
+        let sighted = || {
+            paths::straight(here.xz(), hero.xz(), |cell| {
+                heights.flown_onto(cell, way.level)
+            })
+        };
+        let stares = opensacred_rules::casts::stare(mind.creature).is_some();
         // A magician's friends within its reach of them, the first wounded and the first that
         // fights (#1854).
         let near: Vec<&(Entity, Vec3, bool, bool)> = friends
@@ -1342,7 +1351,8 @@ fn pursue(
                             )
                         }),
                 };
-                mind.cast(&sight, &sight_of_cast, clear, &mut minds.rng)
+                let line = || if stares { sighted() } else { clear() };
+                mind.cast(&sight, &sight_of_cast, line, &mut minds.rng)
             });
         if casting {
             continue;
@@ -1361,7 +1371,7 @@ fn pursue(
             Some(Pursues::GoesBack)
         } else {
             cast.flatten()
-                .or_else(|| mind.pursue(&sight, clear, &mut minds.rng))
+                .or_else(|| mind.pursue(&sight, sighted, &mut minds.rng))
         }) else {
             continue;
         };
@@ -1892,10 +1902,13 @@ fn dryads_leap(
     }
     let target_cell = paths::cell_of(target.x, target.z);
     let open = |cell| heights.walkable_on(cell, level);
+    // Its leap's line flown over the water and the fences, its way back walked (`0x4D87E8`,
+    // #3358).
+    let flown = |cell| heights.flown_onto(cell, level);
     opensacred_rules::casts::leap_point(spot(here), rng, |to| {
         let at = Vec2::new(to.x, to.y);
         heights.standing(at.x, at.y, level).is_some()
-            && paths::straight(here.xz(), at, open)
+            && paths::straight(here.xz(), at, flown)
             && !paths::straight(at, here.xz(), |cell| {
                 open(cell) && (cell == target_cell || !crowd.stops(cell, level, entity, false))
             })
@@ -3147,8 +3160,9 @@ fn sight(
         }
         let heading = transform.rotation * Vec3::X;
         if !minds::sees(here, Spot::new(heading.x, heading.z), at)
+            // A line of sight, over the water and the fences (`0x59F6B2`, #3358).
             || !paths::straight(transform.translation.xz(), hero.translation.xz(), |cell| {
-                heights.walkable_on(cell, way.level)
+                heights.flown_onto(cell, way.level)
             })
         {
             continue;
