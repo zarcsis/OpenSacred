@@ -154,7 +154,8 @@ The same step makes the footprint, a decal that the ground's nature chooses (`0x
 ## Footprints
 
 A function around `0x6392AE` loads a footprint texture by the nature of the cell (`nature − 0x10` up to `0x90`, byte table `0x639AB0`, jump table `0x639A9C`): `DESERT` `FOOTSTEPDESERT.TGA`, `ARCTIC` `FOOTSTEPSNOW.TGA`, `SUMPF` `FOOTSTEPSWAMP.TGA`, `WATERA` and `WATERB` the ripples `footstepWaterA_01.tga` to `05`; the other natures leave none.
-On the two waters it then compares the cell's second corner heights (`+0x18`) with the first (`+0x10`), as for the footsteps above: on a bridge over the water and on `WATERB` it reads the byte at `+0xF8` of a table of the creature's (at `+0x17C`), else the one at `+0xF7` (not followed further).
+On the two waters it then compares the cell's second corner heights (`+0x18`) with the first (`+0x10`), as for the footsteps above, and reads the cell's liquid material, the byte `+0xF8` of the sector's record (the sector's `+0x17C`, docs/re/daynight.md) on a bridge over the water and on `WATERB`, else the one at `+0xF7`.
+Where the material is 13 and the building at the global cell (3563, 1336) has the state 2, the drained basin of sector 55,20 and its dungeon's pools, the step leaves neither ripple nor footprint and sounds as on `BRIDGE`, the stone group (`0x63968C` to `0x6397C3`, read 2026-11-21 for #3021, **confirmed** by code and **seen** by a trace of `0x68EB90`: the nature `0xA0` before the basin was drained and `0x70` after, on one cell; docs/re/drawing.md, "The liquid cells").
 `opensacred-game` lays no footprints yet (#3066).
 
 ## The atmosphere by the region

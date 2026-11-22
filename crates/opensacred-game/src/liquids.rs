@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use anyhow::{Context, Result};
 use bevy::asset::RenderAssetUsages;
@@ -147,6 +148,62 @@ pub fn clear(material: u8) -> bool {
 /// Whether `cell` lies under a liquid, of either slot.
 pub fn liquid(cell: &Cell) -> bool {
     SLOTS.contains(&(cell.ground >> 4))
+}
+
+/// The liquid material that the pump of main quest 65 drains (`B_WATER` without its second
+/// layer), in the sectors 55,20, 29,72 and 30,72 alone, and the building whose state 2 drains it,
+/// at (3563, 1336), the gate of 55,20 that `SwitchPump65` gives it (`0x62B4A1`–`0x62B550`;
+/// docs/re/drawing.md, "The drained cells"; #3021).
+pub const DRAINED: u8 = 13;
+pub const PUMP_GATE: crate::buildings::Anchor = (3563, 1336);
+const PUMPED: u8 = 2;
+
+/// Whether the material [`DRAINED`] is drained now, which the sectors built from now take for
+/// their miniatures ([`wet`]).
+static DRAINED_NOW: AtomicBool = AtomicBool::new(false);
+
+/// Whether `cell` of `sector` lies under a liquid that is drawn: a liquid cell, but one of
+/// [`DRAINED`] while it is drained, whose miniatures and objects go to their dry lists.
+pub fn wet(sector: &Sector, cell: &Cell) -> bool {
+    liquid(cell)
+        && !(DRAINED_NOW.load(Ordering::Relaxed) && material_of(sector, cell) == Some(DRAINED))
+}
+
+/// The liquid material of `cell` of `sector`, by its slot: its nature `WATERA` the first and
+/// `WATERB` the second (docs/02 §5.1).
+fn material_of(sector: &Sector, cell: &Cell) -> Option<u8> {
+    let slot = SLOTS
+        .iter()
+        .position(|&nature| nature == cell.ground >> 4)?;
+    sector.liquids.get(slot).copied()
+}
+
+/// A surface or a second layer of the material [`DRAINED`], hidden while it is drained.
+#[derive(Component)]
+pub struct Drains;
+
+/// Drains the material [`DRAINED`] while the gate [`PUMP_GATE`] has the state 2, and fills it
+/// again where it has not: its surfaces hidden, its cells no liquid's to the beds, the water's
+/// sound and the steps (`terrain::Heights::drain`), the sectors built from now laying its
+/// miniatures dry ([`wet`]).
+fn drain(
+    buildings: Option<Res<crate::buildings::Buildings>>,
+    mut heights: ResMut<crate::terrain::Heights>,
+    mut surfaces: Query<&mut Visibility, With<Drains>>,
+) {
+    let drained = buildings.is_some_and(|buildings| buildings.state(PUMP_GATE) == PUMPED);
+    if DRAINED_NOW.swap(drained, Ordering::Relaxed) != drained {
+        bevy::log::info!("liquids: the material {DRAINED} drained {drained}");
+    }
+    heights.drain(drained);
+    let visibility = if drained {
+        Visibility::Hidden
+    } else {
+        Visibility::Inherited
+    };
+    for mut shown in &mut surfaces {
+        shown.set_if_neq(visibility);
+    }
 }
 
 /// Builds the surfaces of `sector`'s liquid cells, and the second layer of its clear waters.
@@ -468,6 +525,9 @@ pub fn spawn(
         if bed {
             entity.insert(Bed);
         }
+        if material == DRAINED {
+            entity.insert((Drains, Visibility::Inherited));
+        }
         entities.push(entity.id());
     }
     entities
@@ -556,7 +616,7 @@ pub struct LiquidsPlugin;
 
 impl Plugin for LiquidsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (animate, beds).in_set(crate::frame::Playing));
+        app.add_systems(Update, (animate, beds, drain).in_set(crate::frame::Playing));
     }
 }
 
