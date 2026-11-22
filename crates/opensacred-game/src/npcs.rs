@@ -1336,13 +1336,15 @@ enum Source {
     Filled(Box<Placement>),
 }
 
-/// Where a creature that went with its sector stood, on which floor, and its health: none for a
-/// body that its dialogue holds (#2457), which lies there.
+/// Where a creature that went with its sector stood, on which floor, its health, and whether a
+/// bonus against the undead marked it (`undead::Marked`, #3385): none for a body that its
+/// dialogue holds (#2457), which lies there.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Stood {
     cell: (u32, u32),
     layer: i32,
     health: fight::Health,
+    marked: bool,
 }
 
 impl Stood {
@@ -6697,6 +6699,9 @@ fn respawn(
     if stood.lies() {
         commands.entity(entity).insert(Dies::fallen());
     }
+    if stood.marked {
+        commands.entity(entity).insert(crate::undead::Marked);
+    }
     entity
 }
 
@@ -6721,13 +6726,13 @@ fn keep(
         Option<&fight::Health>,
         (Has<Dies>, Has<Talk>),
         Option<&OnDeath>,
-        Has<Remade>,
+        (Has<Remade>, Has<crate::undead::Marked>),
     )>,
     heights: Option<Res<Heights>>,
     npcs: Option<ResMut<Npcs>>,
 ) {
     let (
-        Ok((placed, transform, (way, ridden, corpse), health, dying, on_death, remade)),
+        Ok((placed, transform, (way, ridden, corpse), health, dying, on_death, (remade, marked))),
         Some(mut npcs),
     ) = (creatures.get(removed.entity), npcs)
     else {
@@ -6747,7 +6752,8 @@ fn keep(
             .map(|on_death| on_death.0.clone())
             .unwrap_or_default();
     }
-    let stood = stood_of((transform, level), health, dying, heights.as_deref());
+    let stood = stood_of((transform, level), health, dying, heights.as_deref())
+        .map(|stood| Stood { marked, ..stood });
     bevy::log::debug!(
         "npcs: {} of {:?} goes, {stood:?}",
         removed.entity,
@@ -6810,6 +6816,7 @@ fn stood_of(
         cell: (x, y),
         layer,
         health,
+        marked: false,
     })
 }
 
@@ -6846,6 +6853,7 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
             Has<crate::followers::Follower>,
             Has<crate::riding::OwnHorse>,
             Has<RisesAgain>,
+            Has<crate::undead::Marked>,
         ),
     ), Without<Remade>>();
     let world = &*world;
@@ -6863,13 +6871,14 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
         health,
         dying,
         (on_death, queue),
-        (follows, owned, rises),
+        (follows, owned, rises, marked),
     ) in standing.iter(world)
     {
         let Some(level) = level_of(way, ridden, corpse) else {
             continue;
         };
-        let stood = stood_of((at, level), health, dying, heights);
+        let stood =
+            stood_of((at, level), health, dying, heights).map(|stood| Stood { marked, ..stood });
         // A kept one leaves the death's functions it still has, as [`keep`] notes them, and the
         // scripts' mark to rise again as a hero's strike may have cleared it or Sharifa taken it
         // (`fight::marked_after`, #3294).
@@ -15844,6 +15853,7 @@ mod tests {
             level: 3,
         };
         let stood = |x, current| Stood {
+            marked: false,
             cell: (x, 2518),
             layer: 0,
             health: health(current),
@@ -15887,6 +15897,7 @@ mod tests {
         // Living, it stands with its health; dead, its body lies with none where its dialogue
         // holds it, and is killed for good where none does (#2457).
         let lying = Stood {
+            marked: false,
             cell: (5617, 2258),
             layer: 0,
             health: fight::Health {
@@ -15929,6 +15940,7 @@ mod tests {
     #[test]
     fn a_sector_fills_anew_once_another_region_filled() {
         let stood = |x| Stood {
+            marked: false,
             cell: (x, 2518),
             layer: 0,
             health: fight::Health {
@@ -15986,6 +15998,7 @@ mod tests {
     #[test]
     fn a_save_keeps_the_creatures_of_the_sectors_in_the_world_as_they_would_go() {
         let stood = |x, current| Stood {
+            marked: false,
             cell: (x, 2518),
             layer: 0,
             health: fight::Health {
@@ -16223,6 +16236,7 @@ mod tests {
                 }),
             ),
             stood: Stood {
+                marked: false,
                 cell: (3300, 2518),
                 layer: 1,
                 health: fight::Health {

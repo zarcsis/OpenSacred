@@ -2233,6 +2233,17 @@ pub fn listed_bonuses(items: &[ItemValues]) -> Vec<Listed> {
     list
 }
 
+/// Whether the items `items` of a holder of the type `holder` mark an undead that it fights
+/// (`+0x2B7` bit `0x80`; `0x568D70` at `0x569095`, `0x56ACD0` at `0x56AE38`; docs/re/fight.md,
+/// "The undead that rise again", #3385): one of their bonus slots against the undead's class, its
+/// condition's low byte [`crate::undead::CLASS`], whose bits 8 to 11 admit the holder, whatever
+/// its effect.
+pub fn marks_undead(items: &[ItemValues], holder: u32) -> bool {
+    items.iter().flat_map(|item| item.bonuses).any(|bonus| {
+        bonus.condition.to_le_bytes()[0] == crate::undead::CLASS && bonus.admits(holder)
+    })
+}
+
 /// A bonus slot of an item's record (docs/re/items.md): its condition word (`+0x3A`), its effect
 /// (`+0x4A`, the effect in the low 16 bits, the attribute that scales it in byte 2) and its value
 /// (`+0x6A`).
@@ -2248,10 +2259,16 @@ impl Bonus {
     /// condition's low byte 0 or 13, of no opponent's class, and its bits 8 to 11 0 or 7, or
     /// the holder's type (6 the Vampiress's both, 6 and 7; `0x568B30`).
     fn holds(self, holder: u32) -> bool {
-        let [class, kind] = self.condition.to_le_bytes();
+        let [class, _] = self.condition.to_le_bytes();
+        (class == 0 || class == 13) && self.admits(holder)
+    }
+
+    /// Whether its condition's bits 8 to 11 admit a holder of the type `holder` (`0x568B30`): 0
+    /// or 7, else the holder's type, 6 the Vampiress's both, 6 and 7.
+    fn admits(self, holder: u32) -> bool {
+        let [_, kind] = self.condition.to_le_bytes();
         let kind = u32::from(kind & 0xF);
-        (class == 0 || class == 13)
-            && (kind == 0 || kind == 7 || kind == holder || (kind == 6 && holder == 7))
+        kind == 0 || kind == 7 || kind == holder || (kind == 6 && holder == 7)
     }
 
     /// Its value, times one of the attributes `a` over 100 by the effect's byte 2 (`0x568C40`:
@@ -8572,6 +8589,50 @@ mod tests {
             ..ItemValues::default()
         };
         assert_eq!(item.hurled_damage(attributes)[3], [6.0, 8.0]);
+    }
+
+    #[test]
+    fn a_slot_holds_of_no_opponents_class_or_of_the_class_13_for_the_holders_it_admits() {
+        let slot = |condition| Bonus {
+            condition,
+            effect: 811,
+            value: 1,
+        };
+        // Of any holder: no class or the class 13 counts, an opponent's class not.
+        assert!(slot(0x0000).holds(588) && slot(0x000D).holds(588));
+        assert!(slot(0x0700).holds(588) && slot(0x070D).holds(588));
+        assert!(!slot(0x0005).holds(588) && !slot(0x000C).holds(588));
+        // Of a hero's type alone.
+        assert!(slot(0x0300).holds(3) && !slot(0x0300).holds(2));
+    }
+
+    #[test]
+    fn a_bonus_against_the_undead_marks_them_for_any_holder_it_admits() {
+        let item = |condition| {
+            let mut bonuses = [Bonus::default(); BONUSES];
+            bonuses[3] = Bonus {
+                condition,
+                effect: 801,
+                value: 4,
+            };
+            ItemValues {
+                bonuses,
+                ..ItemValues::default()
+            }
+        };
+        let plain = ItemValues::default();
+        // A slot against the class 5 of any holder (#3385), whatever its effect.
+        assert!(marks_undead(&[plain, item(0x0005)], 2));
+        assert!(marks_undead(&[item(0x0705)], 588));
+        // Of a hero's type: the Gladiator's (2) alone, and the Vampiress's both 6 and 7.
+        assert!(marks_undead(&[item(0x0205)], 2));
+        assert!(!marks_undead(&[item(0x0205)], 3));
+        assert!(marks_undead(&[item(0x0605)], 7));
+        assert!(!marks_undead(&[item(0x0305)], 7));
+        // Against another class, or none.
+        assert!(!marks_undead(&[item(0x0004)], 2));
+        assert!(!marks_undead(&[item(0x0000), plain], 2));
+        assert!(!marks_undead(&[], 2));
     }
 
     #[test]

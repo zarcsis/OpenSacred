@@ -431,15 +431,32 @@ pub fn burns_away(kind: u32) -> bool {
 /// a hit of another kind than a plain strike (the strike record's `+0x14`; **hypothesis**: an
 /// art's, a shot's or a throw's); 0 where the killer is `banished`, under a purple potion's effect
 /// (the effect 33 of the whole value 4, its `+0xB0` bit `0x80000`, at `0x532C48`;
-/// `potions::banishes`). The killer's set pieces cut it after (`set_bonuses::Stats::rising`,
-/// #1727); the halvings by the record's second damage and `+0x2B7` are not followed (docs/re/
-/// fight.md).
+/// `potions::banishes`). It is [`halved`] then, and the killer's set pieces cut it after
+/// (`set_bonuses::Stats::rising`, #1727).
 pub fn chance(plain: bool, banished: bool) -> u32 {
     match (banished, plain) {
         (true, _) => 0,
         (false, true) => 90,
         (false, false) => 45,
     }
+}
+
+/// The chance `chance` halved, each halving whole (90, 45, 22; or 45, 22, 11), where the fire's
+/// share of the killing blow won its roll ([`fire_halves`], `0x532BFC`), and again where the dead
+/// bears the mark of a bonus against the undead (`+0x2B7` bit `0x80`,
+/// `crate::fight::marks_undead`); docs/re/fight.md, "The undead that rise again" (#3385).
+pub fn halved(chance: u32, (fire, marked): (bool, bool)) -> u32 {
+    let chance = if fire { chance / 2 } else { chance };
+    if marked { chance / 2 } else { chance }
+}
+
+/// Whether the fire's share of the killing blow halves the chance (`0x532BFC`): a roll of
+/// `R(0, d)` ([`crate::drops::between`]), `d` the blow's whole damage as it took it off the dead's
+/// health, below `fire`, the blow's fire part as it came through the resistance and the damping,
+/// truncated, before the sum's factors, which the resolution wrote back over the record's
+/// `+0x0E` (`0x56DF78`–`0x56DFAF`).
+pub fn fire_halves(d: u32, fire: u32, dice: &mut impl crate::spawning::Dice) -> bool {
+    crate::drops::between(0, i64::from(d), dice) < i64::from(fire)
 }
 
 /// Whether the roll `roll` of `R(0, 100)` (`0..=100`) makes an undead rise at the chance `chance`.
@@ -491,6 +508,34 @@ mod tests {
 
     /// The balance's `SpawnWeaponMin` and `SpawnWeaponMax`.
     const SPAWN_WEAPON: [f32; 2] = [25.0, 275.0];
+
+    #[test]
+    fn the_rising_chance_halves_whole_by_the_fire_and_by_the_mark() {
+        // 90, 45, 22; or 45, 22, 11 (#3385).
+        assert_eq!(halved(90, (false, false)), 90);
+        assert_eq!(halved(90, (true, false)), 45);
+        assert_eq!(halved(90, (false, true)), 45);
+        assert_eq!(halved(90, (true, true)), 22);
+        assert_eq!(halved(45, (true, true)), 11);
+        assert_eq!(halved(0, (true, true)), 0);
+    }
+
+    #[test]
+    fn the_fire_halves_where_its_roll_of_the_blow_falls_below_its_part() {
+        // A blow of 63 of which 55 fire: `R(0, 63)` below 55 halves; 54 does, 55 not.
+        let mut dice = Script::new(vec![54]);
+        assert!(fire_halves(63, 55, &mut dice));
+        assert_eq!(dice.taken(), 1);
+        assert!(!fire_halves(63, 55, &mut Script::new(vec![55])));
+        // A blow of no fire never halves, its roll drawn all the same.
+        let mut dice = Script::new(vec![0]);
+        assert!(!fire_halves(40, 0, &mut dice));
+        assert_eq!(dice.taken(), 1);
+        // No blow (the console's kill): nothing to roll, no fire.
+        let mut dice = Script::new(vec![]);
+        assert!(!fire_halves(0, 0, &mut dice));
+        assert_eq!(dice.taken(), 0);
+    }
 
     #[test]
     fn a_warriors_head_takes_the_damages_of_the_maintainers_frame() {
