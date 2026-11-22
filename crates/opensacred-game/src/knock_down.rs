@@ -12,7 +12,8 @@
 //!
 //! The fall's voice line of one that falls unconscious (`0x6770E0`, `0x6852B0`) is not spoken,
 //! no hero's voice holding one (a companion's is #3087). Its butterflies are `knockouts`' (the
-//! object 874, #3023). Not followed yet: its turn to its attacker (#3079).
+//! object 874, #3023). It lies turned to its attacker, and its terror fells no creature
+//! meanwhile (`fight::terrify`, #3079).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::KNOCKBACK_SPEED;
@@ -43,18 +44,23 @@ impl Plugin for KnockDownPlugin {
     }
 }
 
-/// The hero knocked down falls by its fall's clip at the rate 1.0, stopping, and each of its
+/// The hero knocked down falls by its fall's clip at the rate 1.0, stopping, turned to its
+/// attacker at once (`0x56E366`–`0x56E8CC`; **hypothesis** that it turns at once), and each of its
 /// near hostiles stops its strike (`0x54E6D0(1, 0)` on each of `0xAD3CE0`).
 fn fall(
     mut commands: Commands,
     clips: Option<Res<Clips>>,
     speed: Res<GameSpeed>,
     nearest: Res<crate::crowd::Nearest>,
-    mut heroes: Query<&mut Body, Added<Downed>>,
+    mut heroes: Query<(&mut Body, &mut Transform, &Downed), Added<Downed>>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
 ) {
-    for mut body in &mut heroes {
+    for (mut body, mut transform, downed) in &mut heroes {
         body.stop();
+        let toward = (downed.from - transform.translation).with_y(0.0);
+        if toward != Vec3::ZERO {
+            transform.rotation = crate::hero::facing(toward);
+        }
         if let Some((node, _)) = clips.as_deref().and_then(|clips| clips.knocked.clone())
             && let Some(player) = clips.as_deref().and_then(|clips| clips.player)
             && let Ok((mut player, mut transitions)) = players.get_mut(player)

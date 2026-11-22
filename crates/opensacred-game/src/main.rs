@@ -26,6 +26,7 @@ mod beacons;
 mod beams;
 mod belt;
 mod benchmark;
+mod bite_sights;
 mod blacksmith;
 mod blast;
 mod blended;
@@ -532,6 +533,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         belt::BeltPlugin,
         benchmark::BenchmarkPlugin,
         bevy_kira_audio::AudioPlugin,
+        bite_sights::BiteSightsPlugin,
     ))
     .add_plugins((
         blacksmith::BlacksmithPlugin,

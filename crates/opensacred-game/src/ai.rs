@@ -944,6 +944,7 @@ fn pursue(
                 Has<crate::creature_casts::Casting>,
                 Option<&crate::creature_casts::Summoned>,
                 Option<&crate::followers::Follower>,
+                Option<&mut crate::npcs::ShotEnded>,
             ),
         ),
         (Without<Body>, Without<crate::making::Knocked>),
@@ -1008,7 +1009,7 @@ fn pursue(
     let foes: std::collections::HashMap<Entity, (Vec3, bool, Option<Entity>, u32, bool)> =
         creatures
             .iter()
-            .map(|(entity, transform, _, mind, .., (_, casting, _, _))| {
+            .map(|(entity, transform, _, mind, .., (_, casting, ..))| {
                 (
                     entity,
                     (
@@ -1053,7 +1054,7 @@ fn pursue(
     let hero_size = size.map_or(opensacred_rules::minds::SIZE, |size| size.0);
     // The living creatures that each caster's summons made (#1869).
     let mut summoned: std::collections::HashMap<Entity, u32> = std::collections::HashMap::new();
-    for (.., health, _, _, _, (_, _, by, _)) in &creatures {
+    for (.., health, _, _, _, (_, _, by, ..)) in &creatures {
         if let Some(by) = by
             && health.is_some_and(|health| health.current > 0)
         {
@@ -1063,7 +1064,7 @@ fn pursue(
     // The hero's followers, which a magician's cast takes for the hero (#1869).
     let hero_followers: std::collections::HashSet<Entity> = creatures
         .iter()
-        .filter(|(.., (_, _, _, follower))| {
+        .filter(|(.., (_, _, _, follower, _))| {
             follower.is_some_and(|follower| follower.master == the_hero)
         })
         .map(|(entity, ..)| entity)
@@ -1132,7 +1133,7 @@ fn pursue(
         layered,
         ended,
         effects,
-        (rank, casting, _, _),
+        (rank, casting, _, _, shot_ended),
     ) in &mut creatures
     {
         mind.rest(dt);
@@ -1142,6 +1143,21 @@ fn pursue(
                 chained.insert(entity);
             }
             commands.entity(entity).remove::<crate::npcs::StrikeEnded>();
+        }
+        // After its shot it stands dormant until the hero's look wakes it, and its idle handler
+        // and its decisions take it up again two ticks later, three for one with no ranged weapon
+        // in hand, which goes through the melee state first (`0x542B20`, `0x547070`, `0x4E0300`,
+        // `0x4DBFC0`; seen 0.20 to 0.45 s and 0.30 to 0.67 s from a shot's end to the next, #3312).
+        if let Some(mut wait) = shot_ended {
+            wait.woken = match wait.woken {
+                None if nearest.looked => Some(0),
+                None => continue,
+                Some(ticks) => Some(ticks.saturating_add(1)),
+            };
+            if wait.woken < Some(minds::shot_wake(mind.ranged)) {
+                continue;
+            }
+            commands.entity(entity).remove::<crate::npcs::ShotEnded>();
         }
         // A parry plays to its end before its creature decides again (the action 0's sub-state
         // `0x65`, #2487).

@@ -1513,7 +1513,8 @@ impl<'a> Slayer<'a> {
 /// The terror of the hero's items (the effect 852, `opensacred_rules::fight::TERROR`): at each of
 /// the hero's looks (`crowd::Nearest`, `0x547070`, every 0.3 s of the world's ticks), each
 /// hostile creature that it lists and that its look terrifies
-/// (`opensacred_rules::fight::terrifies`: within 800, 400 while the hero walks, its level on
+/// (`opensacred_rules::fight::terrifies`: none while the hero lies `Downed`, within 800, 400
+/// while the hero walks, its level on
 /// bronze's scale at most the threshold that the effect's value and the hero's level make, of no
 /// big type, no boss nor champion, and no script holds it) falls at once as the hero's kill
 /// (#1125), its weapon thrown down where `R(0, 100)` falls below the levels' difference
@@ -1539,6 +1540,7 @@ pub fn terrify(
             Option<&crate::effects::Effects>,
             Option<&Combat>,
             Option<&Holding>,
+            Has<Downed>,
         ),
         Without<crate::ai::Mind>,
     >,
@@ -1557,7 +1559,7 @@ pub fn terrify(
     if !nearest.looked || nearest.hostiles.is_empty() {
         return;
     }
-    let Some((at, body, effects, hero_combat, holding)) = hero.iter().next() else {
+    let Some((at, body, effects, hero_combat, holding, downed)) = hero.iter().next() else {
         return;
     };
     let value = holding.map_or(0.0, |holding| {
@@ -1586,7 +1588,7 @@ pub fn terrify(
             || !opensacred_rules::fight::terrifies(
                 threshold,
                 rules.on_bronze(health.level),
-                (distance, walks),
+                (distance, walks, downed),
                 (mind.big, ranked, queued),
             )
         {
