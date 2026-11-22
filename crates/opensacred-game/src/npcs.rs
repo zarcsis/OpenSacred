@@ -7601,7 +7601,14 @@ fn spawn(
             entity.insert(Called(called));
         }
         if placement.emerges {
-            entity.insert(ScriptClip::emerging());
+            // In its glow as it emerges (`0x483311`, the event `0x109` of the state 13, #3074).
+            entity.insert((
+                ScriptClip::emerging(),
+                crate::skins::Asked(
+                    crate::skins::Overlay::Emerging,
+                    crate::skins::EMERGING_SECONDS,
+                ),
+            ));
         }
         mind.side = placement.side;
         // The category `0x20`'s, which the original draws under the water too (`0x434070`).
@@ -8998,6 +9005,37 @@ fn turn_emerged(
             placement.emerges = false;
         }
         bevy::log::info!("npcs: {entity}, a big demon, has emerged and turns hostile");
+    }
+}
+
+/// Gives each big demon standing in the AI's state 0 the side 9 and its flags word's bit 0 at each
+/// world's tick (`0x546038`; docs/re/fight.md, "Sides", #3074): one that its clip of
+/// [`EMERGING`] turned to the side 2 stands on the side 9 at its next tick, which differs from
+/// the side 2 toward the side 15 alone.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's query carries its filters"
+)]
+fn big_demons_stand(
+    tick: Res<WorldTick>,
+    mut demons: Query<
+        &mut ai::Mind,
+        (
+            Without<Walk>,
+            Without<Strikes>,
+            Without<ScriptClip>,
+            Without<Dies>,
+        ),
+    >,
+) {
+    if tick.seconds.is_none() {
+        return;
+    }
+    for mut mind in &mut demons {
+        if mind.creature == BIG_DEMON && mind.idle() && (mind.side != 9 || mind.flags & 1 == 0) {
+            mind.side = 9;
+            mind.flags |= 1;
+        }
     }
 }
 
@@ -14351,7 +14389,7 @@ impl Plugin for NpcsPlugin {
                     instrument,
                     strike,
                     die,
-                    (script_clips, turn_emerged).chain(),
+                    (script_clips, turn_emerged, big_demons_stand).chain(),
                     stance,
                     equip,
                     bind_worn,
