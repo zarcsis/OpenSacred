@@ -1853,6 +1853,71 @@ pub fn generic_sparks(points: &[[f32; 3]], colour: u32, dice: &mut impl Dice) ->
     }
 }
 
+/// The colours of the fight's flashes, the generic sparks' (docs/re/effects.md, "The generic
+/// system's flashes", #3081): a critical hit's at its defender (859's, `0x56EF58`), and 842's at
+/// its attacker as it pays (`0x570803`), whose alpha by its value adds nothing, the variant 0
+/// adding whole.
+pub const CRITICAL_FLASH: u32 = 0xFFFF_2020;
+pub const PAINKILLER_FLASH: u32 = 0xFFF0_4040;
+
+/// The seconds of the burning light (816) that a stun makes at its creature (`0x56D739`, the FX
+/// event `0x2B` with an array of 0s, `0x77FA60`; #3081).
+pub const STUN_LIGHT: f32 = 0.5;
+
+/// The most glows of the generic system's variant 6 (`0x79727E`).
+pub const POISON_GLOWS: usize = 300;
+/// The poison's glows' life a second (`0x79727E`–`0x79738A`): they live 0.498 s.
+const POISON_GLOW_LIFE: f32 = -512.0;
+
+/// The glows of the generic system's variant 6, a poison's strike's at its bearer (`0x560872`;
+/// docs/re/effects.md, "The generic system's flashes", #3081): at most [`POISON_GLOWS`] of its
+/// figure's points `points`, every `⌊V/300⌋`th, each still, of the size 0.03·s growing by 0.3·s a
+/// second and of a buoyancy of −5·s, `s` the bearer's type's size, living 0.498 s,
+/// `PARTICLE_GLOW03` added whole in its ramp's colour, the entry `k` (⌊20k/256⌋, ⌊127k/256⌋,
+/// ⌊25k/256⌋) of 255, a green from (19, 126, 24) to black, untinted and lighting nothing.
+pub fn poison_glows(points: &[[f32; 3]], size: f32) -> Burst {
+    let step = (points.len() / POISON_GLOWS).max(1);
+    let particles = points
+        .iter()
+        .step_by(step)
+        .take(POISON_GLOWS)
+        .map(|&place| Particle {
+            place,
+            velocity: [0.0; 3],
+            buoyancy: -5.0 * size,
+            size: 0.03 * size,
+            life: 255.0,
+            angle: 0.0,
+            spin: 0.0,
+            layer: 0,
+            frame: 0,
+            colour: [1.0; 3],
+        })
+        .collect();
+    let mut entries = [[0.0; 4]; 256];
+    for (k, entry) in entries.iter_mut().enumerate() {
+        let k = f32::from(u16::try_from(k).unwrap_or(0));
+        let part = |most: f32| (most * k / 256.0).floor() / 255.0;
+        *entry = [part(20.0), part(127.0), part(25.0), 1.0];
+    }
+    Burst {
+        texture: "PARTICLE_GLOW03",
+        grid: 1,
+        blend: Blend::Whole,
+        layer: Layer {
+            life: POISON_GLOW_LIFE,
+            size: 0.3 * size,
+            ..Layer::default()
+        },
+        ramp: Ramp(entries),
+        particles,
+        ground: None,
+        light: 0.0,
+        tinted: false,
+        stream: None,
+    }
+}
+
 /// The variant of the generic system that a statue's power-up makes on the hero (`0x4A95B4`,
 /// #1846), and its colour, a gold: its sparks at the hero's model's vertices
 /// ([`vertex_sparks`], #2766).
@@ -19790,6 +19855,30 @@ mod tests {
             system.update(1.0 / 60.0, layers);
         }
         assert!(system.particles.is_empty());
+    }
+
+    #[test]
+    fn a_poisons_strike_glows_green_about_its_bearer_by_its_size() {
+        // A hero's 50: 1.5 growing by 15 a second, rising by 250, living 0.498 s.
+        let few: Vec<[f32; 3]> = (0..10).map(|k| [k as f32, 0.0, 0.0]).collect();
+        let glows = poison_glows(&few, 50.0);
+        assert_eq!(glows.particles.len(), 10);
+        let first = glows.particles[0];
+        assert!((first.size - 1.5).abs() < 1e-6 && (first.buoyancy + 250.0).abs() < 1e-4);
+        assert_eq!((first.velocity, first.life), ([0.0; 3], 255.0));
+        assert!((glows.layer.size - 15.0).abs() < 1e-5 && glows.layer.life == -512.0);
+        assert!(glows.blend == Blend::Whole && !glows.tinted && glows.light == 0.0);
+        assert_eq!(glows.texture, "PARTICLE_GLOW03");
+        // Of a body of many points, every ⌊V/300⌋th, 300 at the most.
+        let many: Vec<[f32; 3]> = (0..1_000).map(|k| [k as f32, 0.0, 0.0]).collect();
+        let glows = poison_glows(&many, 50.0);
+        assert_eq!(glows.particles.len(), 300);
+        assert_eq!(glows.particles[1].place, [3.0, 0.0, 0.0]);
+        // Its ramp from (19, 126, 24) at its birth down to black.
+        let at = |k: usize| glows.ramp.0[k].map(|c| (c * 255.0).round());
+        assert_eq!(at(255), [19.0, 126.0, 24.0, 255.0]);
+        assert_eq!(at(128), [10.0, 63.0, 12.0, 255.0]);
+        assert_eq!(at(0), [0.0, 0.0, 0.0, 255.0]);
     }
 
     #[test]

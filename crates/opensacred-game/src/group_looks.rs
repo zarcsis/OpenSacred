@@ -74,6 +74,27 @@ pub(crate) fn flash(world: &mut World, member: Entity, colour: u32) {
     crate::puffs::spawn_in(world, burst, at, None);
 }
 
+/// `bearer`'s glows of a poison's strike, the generic system's variant 6 at its figure by its
+/// type's size (`0x560872`; its `items.pak +0x14`, `0x428CE0`, `arrows::Size`, the hero's and a
+/// type's of none 50; #3081).
+pub(crate) fn poison_glow(world: &mut World, bearer: Entity) {
+    let size = world
+        .get::<crate::arrows::Size>(bearer)
+        .map_or(opensacred_rules::arrows::size(0), |size| size.0);
+    let Some((at, points)) = figure(world, bearer) else {
+        return;
+    };
+    let mut points: Vec<[f32; 3]> = points
+        .into_iter()
+        .map(|point| crate::puffs::local(point, at))
+        .collect();
+    if points.is_empty() {
+        points.push([0.0; 3]);
+    }
+    debug!("group looks: {bearer}'s poison strikes, of the size {size}");
+    crate::puffs::spawn_in(world, particles::poison_glows(&points, size), at, None);
+}
+
 /// The groups' sights' dice.
 pub struct GroupLooksPlugin;
 

@@ -374,11 +374,13 @@ fn bleed(
 /// #1354): each strike sends its bearer the strike of its poison's damage from the creature that
 /// poisoned it, or from itself where none is (`0x560766`), the event 5 of the kind 17 with fixed
 /// damage, which rolls no hit and poisons no more (`0x5607C3`), so that a death of the poison
-/// is its poisoner's kill; a dead bearer's poisons end. The object 856 that each strike makes at
-/// its bearer is left out.
+/// is its poisoner's kill; a dead bearer's poisons end. Each strike makes the generic system's
+/// variant 6 at its bearer, green glows rising about its figure, and at the horse of a riding one
+/// (`0x560872`, `0x560968`; `group_looks::poison_glow`, #3081).
 fn poison(
+    mut commands: Commands,
     tick: Res<WorldTick>,
-    mut hits: MessageWriter<fight::Hit>,
+    (mut hits, seats): (MessageWriter<fight::Hit>, Query<&crate::riding::Seat>),
     mut creatures: Query<(Entity, &mut Effects, &fight::Health), Without<npcs::Dies>>,
     strikers: Query<(), (With<fight::Combat>, Without<npcs::Dies>)>,
 ) {
@@ -397,6 +399,13 @@ fn poison(
                 .filter(|&source| strikers.contains(source))
                 .unwrap_or(entity);
             debug!("effects: the poison of {attacker} strikes {entity} for {strike}");
+            let mount = seats.get(entity).ok().and_then(crate::riding::Seat::ridden);
+            commands.queue(move |world: &mut World| {
+                crate::group_looks::poison_glow(world, entity);
+                if let Some(mount) = mount {
+                    crate::group_looks::poison_glow(world, mount);
+                }
+            });
             hits.write(fight::Hit {
                 attacker,
                 target: entity,
