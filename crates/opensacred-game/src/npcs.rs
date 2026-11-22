@@ -12669,8 +12669,9 @@ pub struct Stashed {
 }
 
 /// Lays each dying NPC down: its dying clip once, its walk, its strike, its mind and its place in
-/// the way gone, what it was kept ([`Corpse`]), and its mind and place kept aside where it may
-/// rise again or the scripts name it ([`Stashed`]).
+/// the way gone, what it was kept ([`Corpse`]), its death's stamp put back where it dies beside a
+/// soulcatcher ([`crate::bodies::PutBack`]), and its mind and place kept aside where it may rise
+/// again or the scripts name it ([`Stashed`]).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -12683,11 +12684,14 @@ pub(crate) fn die(
         &mut Dies,
         (Option<&ai::Mind>, Option<&crowd::InTheWay>),
         (Has<RisesAgain>, Has<ScriptName>),
+        (Option<&Transform>, Option<&arrows::Size>),
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
-    speed: Res<hero::GameSpeed>,
+    catchers: Query<(&Transform, &hero::Body, &crate::effects::Effects), Without<Npc>>,
+    (speed, settings): (Res<hero::GameSpeed>, Option<Res<crate::settings::Settings>>),
 ) {
-    for (entity, npc, mut dies, (mind, way), (rises, named)) in &mut dying {
+    let detail = crate::settings::detail(settings.as_deref());
+    for (entity, npc, mut dies, (mind, way), (rises, named), (at, size)) in &mut dying {
         if dies.played {
             continue;
         }
@@ -12701,6 +12705,26 @@ pub(crate) fn die(
                 hostile: mind.hostile(),
                 flags: mind.flags,
             });
+            // Beside a soulcatcher's object 869 on its level, as its death is stamped
+            // (`0x53E889`–`0x53E8F0`, #3387): every time counted from its death comes sooner.
+            let size = size.map_or(arrows::size(0), |size| size.0);
+            let beside = at.is_some_and(|at| {
+                catchers.iter().any(|(catcher, body, effects)| {
+                    effects.holds(opensacred_rules::arts::SOULCATCHER)
+                        && body.level() == way.level
+                        && opensacred_rules::undead::beside_soulcatcher(
+                            (catcher.translation - at.translation).xz().length(),
+                            size,
+                        )
+                })
+            });
+            if beside && !dies.fallen {
+                let back = opensacred_rules::undead::soulcatcher_back(detail);
+                bevy::log::debug!(
+                    "npcs: {entity} dies beside a soulcatcher, its stamp {back} s back"
+                );
+                commands.entity(entity).insert(crate::bodies::PutBack(back));
+            }
             // One that may rise or that the scripts name, whose `SetHP` or queue may lift it
             // (#2459, #2477).
             if rises || named {
@@ -14445,6 +14469,58 @@ mod tests {
     use opensacred_data::netscript::{Function, Operand};
 
     use super::*;
+
+    #[test]
+    fn a_death_beside_a_soulcatcher_on_its_level_puts_its_stamp_back() {
+        let mut app = App::new();
+        app.add_plugins(bevy::prelude::MinimalPlugins)
+            .init_resource::<hero::GameSpeed>()
+            .add_systems(Update, die);
+        let mut effects = crate::effects::Effects::default();
+        effects.add(
+            opensacred_rules::fight::Effect::new(opensacred_rules::arts::SOULCATCHER, 1.0),
+            40.0,
+        );
+        app.world_mut()
+            .spawn((Transform::default(), hero::Body::standing(), effects));
+        let dying = |app: &mut App, x: f32, level: Level| {
+            app.world_mut()
+                .spawn((
+                    Transform::from_xyz(x, 0.0, 0.0),
+                    Npc {
+                        gltf: Handle::default(),
+                        model: String::new(),
+                        names: ClipNames::default(),
+                        graph: None,
+                        player: None,
+                        hands_empty: true,
+                        instrument: None,
+                        hits: Hits {
+                            class: 0,
+                            share: 1.0,
+                        },
+                        pace: 1.0,
+                    },
+                    Dies::new(0),
+                    ai::Mind::new(Vec3::ZERO, 1, (false, false), None, [70.0, 180.0], (76, 2)),
+                    crowd::InTheWay::of(0, 0, level),
+                ))
+                .id()
+        };
+        // A goblin warrior of the size 50 within 550 of him, one beyond, one on another level.
+        let near = dying(&mut app, 540.0, None);
+        let far = dying(&mut app, 560.0, None);
+        let upstairs = dying(&mut app, 100.0, Some((0, 0, 1)));
+        app.update();
+        let back = |entity| {
+            app.world()
+                .get::<crate::bodies::PutBack>(entity)
+                .map(|back| back.0)
+        };
+        assert_eq!(back(near), Some(18.0));
+        assert_eq!(back(far), None);
+        assert_eq!(back(upstairs), None);
+    }
 
     #[test]
     fn the_small_spider_plays_its_walk_for_every_action() {
