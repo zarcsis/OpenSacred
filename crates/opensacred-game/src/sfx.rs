@@ -14,17 +14,20 @@
 //!
 //! The volume falls and the pan follows the place from the hero as the original's `0x678260`
 //! gives them (docs/re/sound.md, "A sound's place", #731), by the volume at the listener that the
-//! camera's zoom sets ([`Listener`], #1181).
+//! camera's zoom sets ([`Listener`], #1181); a placed sound is placed again at every frame as it
+//! plays, following its entity and the hero ([`Placed`], #3334).
 
 use std::collections::HashMap;
 
 use bevy::log::debug;
 use bevy::prelude::{
-    App, AssetServer, Camera, Entity, GlobalTransform, Handle, IntoScheduleConfigs, Message,
-    MessageReader, MessageWriter, Plugin, Projection, Query, Res, ResMut, Resource, Update, Vec3,
-    With,
+    App, AssetServer, Assets, Camera, Entity, GlobalTransform, Handle, IntoScheduleConfigs,
+    Message, MessageReader, MessageWriter, OnExit, Plugin, Projection, Query, Res, ResMut,
+    Resource, Time, Update, Vec3, With,
 };
-use bevy_kira_audio::prelude::{Audio, AudioControl, AudioSource, Decibels};
+use bevy_kira_audio::prelude::{
+    Audio, AudioControl, AudioInstance, AudioSource, AudioTween, Decibels, PlaybackState,
+};
 use opensacred_data::sound::Sound;
 
 use crate::frame::Unpaused;
@@ -338,6 +341,129 @@ fn listen(
     }
 }
 
+/// A placed sound as it plays, which [`replace`] places again at every frame by its entity's
+/// place, or its point, and the listener's, as the original's update places each placed channel
+/// again at each of the world's ticks (`0x6A0035`, `0x678260` at `0x6A006E`; docs/re/sound.md, "A
+/// sound's place", #3334).
+#[derive(Clone, Debug)]
+pub struct Following {
+    handle: Handle<AudioInstance>,
+    /// The entity that it plays at, none for a point or once the entity is gone.
+    of: Option<Entity>,
+    /// Its place, the entity's last.
+    at: Vec3,
+    /// The place's factor ([`placed_by`]).
+    pub factor: f32,
+    /// The share of the place's volume that it plays at.
+    pub scale: f32,
+    /// The most volume that it plays at.
+    pub most: f32,
+    /// How long its instance has been waited for, its sample loading.
+    waited: f32,
+}
+
+impl Following {
+    /// The sound of `handle` at `at`, the place of the entity `of` where it plays at one, at the
+    /// factor 1 and its place's whole volume.
+    pub fn new(handle: Handle<AudioInstance>, of: Option<Entity>, at: Vec3) -> Self {
+        Self {
+            handle,
+            of,
+            at,
+            factor: 1.0,
+            scale: 1.0,
+            most: f32::INFINITY,
+            waited: 0.0,
+        }
+    }
+}
+
+/// The placed sounds that play ([`Following`]).
+#[derive(Resource, Default, Debug)]
+pub struct Placed(Vec<Following>);
+
+impl Placed {
+    /// Places `sound` again at every frame while it plays.
+    pub fn follow(&mut self, sound: Following) {
+        self.0.push(sound);
+    }
+}
+
+/// How long a placed sound's instance is waited for before the sound is let go (its sample never
+/// loaded).
+const STARTING: f32 = 10.0;
+
+/// What becomes of a placed sound at `at` at a frame, with the listener at `listener`, whose
+/// entity is gone where `gone`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Again {
+    /// It is placed again.
+    Placed,
+    /// Beyond the sound manager's records' reach, 1,200 pixels whatever the factor, it keeps its
+    /// volume and pan, as the manager holds no record of its object (`0x6A0035`, `0x68407F`).
+    Kept,
+    /// It is let go: the record of a thing gone, dropped beyond the reach, is not made again
+    /// (`0x683964`–`0x683B65`).
+    Dropped,
+}
+
+fn again(at: Vec3, listener: Vec3, gone: bool) -> Again {
+    if f64::from(screen_distance(at, listener)) <= f64::from(HEARING) {
+        Again::Placed
+    } else if gone {
+        Again::Dropped
+    } else {
+        Again::Kept
+    }
+}
+
+/// Places the placed sounds again by their entities' places and the hero's, and lets go of those
+/// that have stopped.
+fn replace(
+    mut placed: ResMut<Placed>,
+    places: Query<&GlobalTransform>,
+    (listeners, volume): (Query<&GlobalTransform, With<Body>>, Res<Listener>),
+    mut instances: ResMut<Assets<AudioInstance>>,
+    time: Res<Time>,
+) {
+    let listener = listeners.iter().next().map(GlobalTransform::translation);
+    let dt = time.delta_secs();
+    placed.0.retain_mut(|sound| {
+        let Some(mut instance) = instances.get_mut(&sound.handle) else {
+            sound.waited += dt;
+            return sound.waited < STARTING;
+        };
+        if matches!(instance.state(), PlaybackState::Stopped) {
+            return false;
+        }
+        if let Some(of) = sound.of {
+            match places.get(of) {
+                Ok(place) => sound.at = place.translation(),
+                Err(_) => sound.of = None,
+            }
+        }
+        let Some(listener) = listener else {
+            return true;
+        };
+        match again(sound.at, listener, sound.of.is_none()) {
+            Again::Placed => {
+                let (near, pan) = placed_at_by(sound.at, Some(listener), *volume, sound.factor);
+                let volume = (near * sound.scale).min(sound.most);
+                instance.set_decibels(decibels(volume), AudioTween::default());
+                instance.set_panning(pan, AudioTween::default());
+                true
+            }
+            Again::Kept => true,
+            Again::Dropped => false,
+        }
+    });
+}
+
+/// Lets go of the placed sounds as the game ends.
+fn forget(mut placed: ResMut<Placed>) {
+    placed.0.clear();
+}
+
 /// A volume's factor in decibels.
 pub fn decibels(volume: f32) -> Decibels {
     Decibels(20.0 * volume.max(1e-4).log10())
@@ -559,8 +685,7 @@ fn blows(
     ),
     places: Query<&GlobalTransform>,
     (listeners, volume): (Query<&GlobalTransform, With<Body>>, Res<Listener>),
-    assets: Res<AssetServer>,
-    audio: Res<Audio>,
+    (assets, audio, mut placing): (Res<AssetServer>, Res<Audio>, ResMut<Placed>),
 ) {
     let listener = listeners.iter().next().map(GlobalTransform::translation);
     let armed = |entity| armed_of(entity, hero.as_deref(), &heroes, &arms, npcs.as_deref());
@@ -625,10 +750,14 @@ fn blows(
             continue;
         }
         let sample = sfx.sample(id, file, &assets);
-        audio
+        let handle = audio
             .play(sample)
             .with_volume(decibels(volume))
-            .with_panning(pan);
+            .with_panning(pan)
+            .handle();
+        let mut following = Following::new(handle, Some(at), place.translation());
+        following.scale = loud;
+        placing.follow(following);
         debug!(
             "sfx: {blow:?}: profile {profile} group {group} ({id}) at {volume:.2}, panned {pan:.2}"
         );
@@ -649,24 +778,29 @@ fn plays(
         Res<Listener>,
         Option<Res<crate::volumes::Levels>>,
     ),
-    assets: Res<AssetServer>,
-    audio: Res<Audio>,
+    (assets, audio, mut placing): (Res<AssetServer>, Res<Audio>, ResMut<Placed>),
 ) {
     let listener = listeners.iter().next().map(GlobalTransform::translation);
-    // Each sound at its place at its factor, an entity's that is gone dropped, or in the middle.
-    let asked: Vec<(Of, Option<Vec3>, (f32, Roll), f32)> = plays
+    // Each sound at its place, an entity's or a point, at its factor, an entity's that is gone
+    // dropped, or in the middle.
+    type Asked = (Of, Option<(Option<Entity>, Vec3)>, (f32, Roll), f32);
+    let asked: Vec<Asked> = plays
         .read()
         .filter_map(|play| match play.at {
-            Some(at) => places
-                .get(at)
-                .ok()
-                .map(|place| (play.sound, Some(place.translation()), play.rate, 1.0)),
+            Some(at) => places.get(at).ok().map(|place| {
+                (
+                    play.sound,
+                    Some((Some(at), place.translation())),
+                    play.rate,
+                    1.0,
+                )
+            }),
             None => Some((play.sound, None, play.rate, 1.0)),
         })
         .chain(
             points
                 .read()
-                .map(|play| (play.sound, Some(play.point), play.rate, play.factor)),
+                .map(|play| (play.sound, Some((None, play.point)), play.rate, play.factor)),
         )
         .collect();
     // No volume above 1 reaches the original's samples, its place's times the effects' level
@@ -677,7 +811,7 @@ fn plays(
         .map_or(f32::INFINITY, |levels| 1.0 / (NEAR_VOLUME * levels.effects));
     for (sound, place, rate, factor) in asked {
         let (volume, pan) = match place {
-            Some(at) => placed_at_by(at, listener, *volume, factor),
+            Some((_, at)) => placed_at_by(at, listener, *volume, factor),
             None => placed(0, 0, *volume),
         };
         let volume = volume.min(most);
@@ -700,11 +834,18 @@ fn plays(
                 Roll::Share(span) => span * sfx.share(),
             } + 0.5;
         let sample = sfx.sample(id, file, &assets);
-        audio
+        let handle = audio
             .play(sample)
             .with_volume(decibels(volume))
             .with_panning(pan)
-            .with_playback_rate(f64::from(rate));
+            .with_playback_rate(f64::from(rate))
+            .handle();
+        if let Some((of, at)) = place {
+            let mut following = Following::new(handle, of, at);
+            following.factor = factor;
+            following.most = most;
+            placing.follow(following);
+        }
         debug!("sfx: {sound:?} ({id}) at {volume:.2}, panned {pan:.2}, at a rate of {rate:.2}");
     }
 }
@@ -732,15 +873,24 @@ impl Plugin for SfxPlugin {
             .add_message::<Play>()
             .add_message::<PlayAt>()
             .init_resource::<Listener>()
+            .init_resource::<Placed>()
             .add_systems(
                 bevy::prelude::OnEnter(crate::game::AppState::InGame),
                 missing,
             )
+            .add_systems(OnExit(crate::game::AppState::InGame), forget)
             .add_systems(
                 Update,
                 // The asked sounds play in a pause too, the interface's alone being asked then:
-                // the menu over a game's click as it shows (#1767).
-                (listen, (blows, gunfire).in_set(Unpaused), plays).chain(),
+                // the menu over a game's click as it shows (#1767); the placed ones are placed
+                // again as the world goes, at its ticks in the original.
+                (
+                    listen,
+                    (blows, gunfire).in_set(Unpaused),
+                    plays,
+                    replace.in_set(Unpaused),
+                )
+                    .chain(),
             );
     }
 }
@@ -785,6 +935,20 @@ mod tests {
         // A plain sample is silent from 900 pixels.
         assert_eq!(placed_by(916, 0, Listener::default(), 1.0).0, 0.0);
         assert!(placed_by(905, 0, Listener::default(), 1.0).0 > 0.0);
+    }
+
+    #[test]
+    fn a_placed_sound_follows_within_the_records_reach() {
+        let listener = Vec3::new(100.0, 0.0, 100.0);
+        // A cell along the screen's level is 48 pixels at the zoom 1.
+        let cells = |n: f32| listener + Vec3::new(n * iso::CELL, 0.0, -n * iso::CELL) * 0.5;
+        assert_eq!(screen_distance(cells(25.0), listener), 1_180);
+        assert_eq!(again(listener, listener, false), Again::Placed);
+        assert_eq!(again(cells(25.0), listener, true), Again::Placed);
+        assert_eq!(screen_distance(cells(25.5), listener), 1_204);
+        // Beyond it a living thing's sound keeps where it is, a thing's gone is let go.
+        assert_eq!(again(cells(25.5), listener, false), Again::Kept);
+        assert_eq!(again(cells(25.5), listener, true), Again::Dropped);
     }
 
     #[test]

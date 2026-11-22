@@ -584,12 +584,13 @@ fn remark(
         Query<(Entity, &GlobalTransform), With<Body>>,
         Query<(&GlobalTransform, &Mind), (Without<Body>, Without<Dies>)>,
     ),
-    (assets, audio, mut instances, mut named): (
+    (assets, audio, mut instances, mut named, mut placed): (
         Res<AssetServer>,
         // The lines by name, at the speech's volume (`volumes`).
         Res<AudioChannel<crate::volumes::Speech>>,
         ResMut<Assets<AudioInstance>>,
         ResMut<NamedLine>,
+        ResMut<sfx::Placed>,
     ),
     (names, texts, settings): (
         Query<&crate::npcs::TextName>,
@@ -709,6 +710,7 @@ fn remark(
             .with_volume(sfx::decibels(volume))
             .with_panning(pan)
             .handle();
+        placed.follow(sfx::Following::new(instance.clone(), Some(entity), at));
         if waits && let Some(voices) = voices.as_mut() {
             voices.commented(id, now, 60.0);
         }
