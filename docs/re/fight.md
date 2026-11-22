@@ -224,6 +224,9 @@ The shot's steps, its sub-states `+0x152` (read 2026-11-21 for #3303, **confirme
 - an ice druid with the effect 16, 5 to 6 cells off: the stand-in clip of the slot 89 at the rate 2.1, 1.242 s long, its `a` the record 0's 0.401854; its 194 bolts left 0.47 to 0.72 s after the shot's start (the median 0.55 s, the fifth tick), the shot ended two ticks later (0.17 to 0.32 s) and the next started 0.30 to 0.67 s after that, a bolt each 0.97 to 1.42 s (the median 1.20 s);
 - an ice druid with the effect 17: no clip of its own, its stance `ICEF_FIDLE_BH` in play (0.82 s, 0.656 s a loop); its 106 first bolts left at the tick after the start, the second one to five ticks later (0.08 to 0.53 s, the median 0.12 s) as the stance's loop passed 0.6, the shot ended at the next tick and the next started 0.30 to 0.60 s later, a pair each 0.62 to 1.22 s (the median 0.87 s).
 
+`opensacred-game` follows the shot's end since #3312 (`npcs::strike`, `npcs::ShotEnded`, `ai::pursue`, `opensacred_rules::minds::shot_wake`): an NPC's shot ends at the second tick after its arrow or its bolts, whatever is left of its clip, and its creature stands dormant until the hero's next look, then shoots again two ticks after it, three without a ranged weapon in hand.
+**Seen** 2026-11-21 in the game: the ice druid with the effect 16 a bolt each 1.10 to 1.24 s, 0.55 to 0.57 s after its shot's start; a creature 280 with the effect 17 a pair each 0.65 to 0.87 s.
+
 The arrow, read 2026-10-21 (#383), **confirmed** by code unless marked otherwise:
 
 - It leaves once what is left of the clip is at most `1 − a` of it, `a` the `MotionDesc +0xA0` of the clip in play (`0x4135D0`, the slot `+0x64`): at the fraction `a`, at once for an `a` of 0, at the half for an `a` of 1 or more (`0x4DD90E`), and never while the blend to the shot's clip runs (the shot's steps above).
