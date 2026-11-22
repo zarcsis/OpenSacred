@@ -254,7 +254,8 @@ fn marked_after(
 /// its damage takes the target's health down, but for one that the scripts' mark spares
 /// ([`marked_after`]), shows over it, and at 0 the target dies (the AI's
 /// state 9, `0x53E7C0`), one of its two dying clips at random, and a hero that killed it earns
-/// its experience (the event 9, `0x57D860`), a creature that killed it through a [`Kill`].
+/// its experience (the event 9, `0x57D860`), the hero's follower's kill too, a creature that
+/// killed it through a [`Kill`].
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -1105,7 +1106,11 @@ pub(crate) fn resolve(
             // A creature that a raising stood up gives no experience (`0x534857`, #1856).
             let raised =
                 victim.is_some_and(|victim| victim.flags & opensacred_rules::casts::RAISED != 0);
-            if let Some(&worth) = worth.filter(|_| by_creature && rises.is_none()) {
+            // A creature's kill is its own, but a follower's of the hero, which goes whole to its
+            // master (`0x534C2E`, #3394, below).
+            if let Some(&worth) =
+                worth.filter(|_| by_creature && heros_follower.is_none() && rises.is_none())
+            {
                 kills.write(Kill {
                     killer: hit.attacker,
                     victim: hit.target,
@@ -1146,11 +1151,24 @@ pub(crate) fn resolve(
                     tally.killed();
                 }
             }
-            // The items' and the blue potions' shares, and the hero's sets' (#1727, #2805).
-            let sets = holding.map_or(0.0, |holding| holding.0.sets.experience());
-            let bonus = items_experience(holding) + potions::mentored(&killer);
+            // The items' and the blue potions' shares, and the hero's sets' (#1727, #2805). A
+            // follower's kill gives its master the experience of the victim at the master's level,
+            // with the master's items' effect 843 and the follower's own potions, of no sets
+            // (`0x5347DB`–`0x53484C`), and the follower none (`0x534C2E`, #3394; docs/re/fight.md,
+            // "Who is sent the experience").
+            let master_holding =
+                heros_follower.and_then(|(_, _, _, _, (_, _, holding, ..))| holding);
+            let (holding_of, sets) = if hero {
+                (
+                    holding,
+                    holding.map_or(0.0, |holding| holding.0.sets.experience()),
+                )
+            } else {
+                (master_holding, 0.0)
+            };
+            let bonus = items_experience(holding_of) + potions::mentored(&killer);
             let worth = worth
-                .filter(|_| hero && !raised)
+                .filter(|_| (hero || heros_follower.is_some()) && !raised)
                 .map(|worth| (*worth, rank.copied(), (bonus, sets)));
             fell(
                 &mut commands,
@@ -2528,6 +2546,85 @@ mod tests {
         let hurled = lost_two_hours_in(true);
         assert_eq!(hurled, 100);
         assert!(raised > hurled, "{raised} {hurled}");
+    }
+
+    #[test]
+    fn a_followers_kill_gives_its_experience_to_the_hero_and_none_to_the_follower() {
+        let combat = Combat(opensacred_rules::fight::Combat {
+            attack: 200.0,
+            defence: 10.0,
+            damage: [[0.0; 2]; 4],
+            resistance: [0.0; 4],
+            damping: [0; 4],
+            speed: 140.0,
+            pace: 130.0,
+            multipliers: [1.0; 4],
+            resistance_factors: [1.0; 4],
+            spells: [1.0; 4],
+            cast: opensacred_rules::fight::CAST_SPEED,
+            attributes: [0.0; 6],
+        });
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<Hit>()
+            .add_message::<Kill>()
+            .add_message::<Struck>()
+            .add_message::<crate::voices::Speak>()
+            .add_message::<crate::sfx::Blow>()
+            .add_message::<crate::remarks::Remark>()
+            .add_message::<crate::drops::PileFromHit>()
+            .add_message::<crate::sfx::Play>()
+            .insert_resource(Dice(Rng::of(0, 0, 0)))
+            .init_resource::<Experience>()
+            .init_resource::<Rules>()
+            .add_systems(Update, resolve);
+        let world = app.world_mut();
+        let health = |current| Health {
+            current,
+            most: 1_000,
+            level: 5,
+        };
+        let hero = world
+            .spawn((
+                combat,
+                health(500),
+                Body::standing(),
+                GlobalTransform::default(),
+            ))
+            .id();
+        let follower = world
+            .spawn((
+                combat,
+                health(500),
+                crate::followers::Follower::of(hero),
+                GlobalTransform::default(),
+            ))
+            .id();
+        let victim = world
+            .spawn((
+                combat,
+                health(10),
+                Worth([100, 0]),
+                GlobalTransform::default(),
+            ))
+            .id();
+        let before = world.resource::<Experience>().points;
+        world.write_message(Hit {
+            attacker: follower,
+            target: victim,
+            share: 1.0,
+            ranged: false,
+            art: None,
+            fixed: Some([100.0, 0.0, 0.0, 0.0]),
+            sure: true,
+            poison: false,
+            ward: false,
+            hurled: false,
+        });
+        app.update();
+        assert_eq!(app.world().get::<Health>(victim).unwrap().current, 0);
+        assert!(app.world().resource::<Experience>().points > before);
+        assert!(app.world().resource::<Messages<Kill>>().is_empty());
     }
 
     #[test]

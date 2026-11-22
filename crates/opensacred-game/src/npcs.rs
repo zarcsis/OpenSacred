@@ -13290,9 +13290,9 @@ fn first_fight(
 /// it stands in (`opensacred_rules::fight::Rank::held`) and makes its values anew with its health
 /// refilled, its items as they are, even where the hold keeps its level, as the original's does
 /// at each such kill, and bursts it into its sparks (`0x57F504`, `level_sparks`, #2762). Not
-/// followed: the same share of a rider's mount or a horse's rider (`+0x1EC`, #3393), and the
-/// master's taking of a follower's kill (#3394); a blue potion's effect adds to the kill's
-/// experience (#1353).
+/// followed: the same share of a rider's mount or a horse's rider (`+0x1EC`, #3393); a follower of
+/// the hero earns nothing, its kill going to the hero (`fight::resolve`, #3394); a blue potion's
+/// effect adds to the kill's experience (#1353).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
