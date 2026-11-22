@@ -14,8 +14,7 @@
 //! Not followed: the first block's time of the flags 1 by the last entry's level and bonus (the
 //! entry's own taken, as the bar's), the language's other level line (`0x17E7D34` 3), and of some
 //! arts a part of their values: the difficulty's scaling of the levels of 66, 1003 and 1091
-//! (bronze's), the hero's
-//! weapon of 1013 and 1054 (no line), the stats' flag `0x400000` of 1022 and 1023 (their time
+//! (bronze's), the stats' flag `0x400000` of 1022 and 1023 (their time
 //! doubled by night instead, #1742), and the low 32 bits of 1011's value as a double, which the
 //! original prints (the value shown whole).
 
@@ -81,6 +80,17 @@ pub(crate) struct Hero<'a> {
     /// Whether its weapon arts' strikes are halved, the hero holding two weapons (its arts'
     /// clips' `halved`, `0x4EA3F0`).
     pub halved: bool,
+    /// The damages that its hurled blades and its hurled weapon take.
+    pub thrown: Thrown,
+}
+
+/// The damages, each kind's least and most, that the hero's hurled blades 1054 and hurled
+/// weapon 1013 take (#3115): its strike's (`fight::Combat::damage`), none without a weapon in
+/// hand, and the item's own that it would hurl (`arsenal::Arsenal::hurls`), none without one.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub(crate) struct Thrown {
+    pub strike: Option<[[f32; 2]; KINDS]>,
+    pub hurled: Option<[[f32; 2]; KINDS]>,
 }
 
 impl Hero<'_> {
@@ -214,6 +224,27 @@ impl Values<'_> {
                 self.hero.halved,
             ))
         })
+    }
+
+    /// The ends of the damages `damages` times `times` and the strike's factor, each kind's
+    /// summed and a half added (`0x958458`'s `%d - %d`), 0 - 0 without them.
+    fn thrown_ends(&self, damages: Option<[[f32; 2]; KINDS]>, times: f64) -> [i64; 2] {
+        let Some(damages) = damages else {
+            return [0, 0];
+        };
+        let factor = times * self.strike();
+        [0, 1].map(|end| {
+            let sum: f64 = damages.iter().map(|kind| f64::from(kind[end])).sum();
+            ftol(sum * factor + 0.5)
+        })
+    }
+
+    /// The glance factor of the hero's hurled weapon, `1 + c(s₂)/100 + (a0 + e0)/BalanceGeschick`,
+    /// as `hurled` takes it (`0x56ACD0`, #3135).
+    fn glance(&self) -> f64 {
+        let hero = self.hero;
+        hero.rules
+            .glance_factor(hero.skills, hero.attributes[0] + f32::from(hero.spent[0]))
     }
 
     fn w58(&self) -> f64 {
@@ -929,7 +960,18 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
             });
             vec![whole(n(1104), ftol(value))]
         }
-        1013 | 1054 | 1021 | 1034 => vec![],
+        // The hurled weapon's damages by the throw's glance factor, and the blades' of the
+        // strike, each by the strike's factor, as `hurled` and `making::Blade` deal them
+        // (`0x958458`, #3115).
+        1013 | 1054 => {
+            let [least, most] = if id == 1013 {
+                v.thrown_ends(v.hero.thrown.hurled, v.glance())
+            } else {
+                v.thrown_ends(v.hero.thrown.strike, 1.0)
+            };
+            vec![plain(format!("{}: {least} - {most}", n(1085)))]
+        }
+        1021 | 1034 => vec![],
         1014 => {
             let mage = v.weapon.map_or(0.0, |w| {
                 f64::from(0.02_f32)
@@ -1310,6 +1352,10 @@ mod tests {
             day: true,
             rules: &rules,
             halved,
+            thrown: Thrown {
+                strike: Some([[10.0, 20.0], [0.0, 0.0], [5.0, 5.0], [0.0, 0.0]]),
+                hurled: Some([[8.0, 12.0], [0.0, 0.0], [0.0, 0.0], [2.0, 4.0]]),
+            },
         };
         let words = Words {
             text: &|name| Some(format!("<{name}>")),
@@ -1476,6 +1522,59 @@ mod tests {
         let two = shown_halved(1001, &arts, &tables, false, true);
         assert!(one.contains(&"<1116>: +30%".to_owned()), "{one:?}");
         assert!(two.contains(&"<1116>: -35%".to_owned()), "{two:?}");
+    }
+
+    #[test]
+    fn the_hurled_arts_tell_the_damage_they_deal() {
+        let tables = Tables {
+            spells: Vec::new(),
+            weapon_arts: vec![weapon_art(1013), weapon_art(1054)],
+        };
+        let arts = Arts {
+            entries: vec![
+                entry(Table::WeaponArts, 1013, 1, 5.0),
+                entry(Table::WeaponArts, 1054, 1, 5.0),
+            ],
+        };
+        // 1054's blades the strike's 15 to 25 by its factor 1.3: 20 - 33.
+        let blades = shown(1054, &arts, &tables);
+        assert_eq!(blades.last().map(String::as_str), Some("<1085>: 20 - 33"));
+        // 1013's weapon its own 10 to 16 by the glance factor 1 + 10/200, then by 1.3: 14 - 22.
+        let hurled = shown(1013, &arts, &tables);
+        assert_eq!(hurled.last().map(String::as_str), Some("<1085>: 14 - 22"));
+    }
+
+    #[test]
+    fn the_hurled_arts_without_a_weapon_deal_nothing() {
+        let values = Values {
+            level: 1,
+            hero: &Hero {
+                kind: 2,
+                level: 1,
+                arts: &Arts::default(),
+                speeds: Speeds {
+                    spells: 1.0,
+                    weapon_arts: 1.0,
+                },
+                multipliers: [1.0; KINDS],
+                spells: [1.0; KINDS],
+                attributes: [10.0; 6],
+                spent: [0; 6],
+                skills: &[],
+                ranged: false,
+                day: true,
+                rules: &opensacred_rules::fight::Rules::default(),
+                halved: false,
+                thrown: Thrown::default(),
+            },
+            spell: None,
+            weapon: Some(&weapon_art(1013)),
+        };
+        assert_eq!(values.thrown_ends(None, 2.0), [0, 0]);
+        assert_eq!(
+            values.thrown_ends(Some([[1.0, 2.0]; KINDS]), 1.0),
+            [ftol(4.0 * 1.3 + 0.5), ftol(8.0 * 1.3 + 0.5)]
+        );
     }
 
     #[test]
