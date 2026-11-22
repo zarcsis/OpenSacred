@@ -818,6 +818,11 @@ fn think(
             }
             let here = transform.translation;
             let target = mind.fellow_steps(spot(here), spot(step), &mut minds.rng);
+            // A hostile one of the guards' mode takes its behaviour instead, its home moved
+            // (#3073).
+            if mind.guards_instead() {
+                continue;
+            }
             steps.push((entity, point(target, here.y)));
         }
     }
@@ -2393,6 +2398,10 @@ fn behave(
                     here.x, here.z, target.x, target.z
                 );
                 walks.push((entity, Walk::to(target, way.level, mind.speed)));
+                // A hostile guard's walk takes it back to the AI's state 0 (#3073).
+                if mind.on_guard() {
+                    mind.active = false;
+                }
             }
             continue;
         }
@@ -2919,6 +2928,11 @@ fn behave(
                 minds::Gait::Walks => Walk::to(target, way.level, mind.speed),
             },
         ));
+        // A hostile guard's walk back to its post or its stroll takes it back to the AI's state 0
+        // (#3073).
+        if mind.on_guard() {
+            mind.active = false;
+        }
     }
     let sent: std::collections::HashSet<Entity> = walks.iter().map(|&(entity, _)| entity).collect();
     for (entity, walk) in walks {
