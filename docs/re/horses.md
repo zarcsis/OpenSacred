@@ -249,6 +249,8 @@ Read 2026-11-08 for #2288 in the code (**confirmed** where not marked), and seen
 
 - A healing potion drunk by a rider heals his horse by the same share (`0x5CAC1E`); the trader's heal makes it whole.
   `opensacred-game` heals it so since #3097 (`belt::drunk`), the horse under the riding hero alone, and neither where the hero is whole, as a healing potion at full health is not drunk.
+  **Seen** 2026-11-22 in the running original (the driver of #448, bronze, #3097): a hero of 101 of 1,444 health riding a horse of 5 of 75, one small healing potion (5171) took both to their most; with the hero at 700 of 1,444 the horse still went from 5 to 75, so the potion's share, not the rider's gain; a rider whole and a horse hurt, nothing drunk and the horse not healed; an owned horse not ridden, not healed (5 of 75 stayed, the hero from 300 to 1,423).
+  On bronze every healing potion's share is 100, so a share below it is not seen (the driver's silver game did not start, #3374).
 - A horse with a rider is a foe of whoever is hostile to its rider (`0x423580`); an unridden horse keeps the horses' side 4, which the hostile sides take for a friend, so monsters leave it alone; a purchase changes no side.
 - A ridden horse dead throws its rider off and both lose the link: the horse is lost.
   An unridden owned horse that dies keeps the link (**hypothesis**: no code clears it), and the call refuses a dead horse.
