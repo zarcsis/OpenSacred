@@ -27,7 +27,7 @@ The file begins with a header of 256 bytes, then a table of its parts, 64 entrie
 - `0x9A` (`0x422820`; not read: **hypothesis** the map's explored land);
 - **the items** (`0x8E`): every object of the object manager (`0x602300`; `cObjectManager::save() Ref[%3d] Fam[%2d] wp[%d,%d,%d]`, each with its family and its place in the world), the creatures among them (`cCreature::save`), so the world's creatures, alive and dead, and the items lying on the ground;
 - **the inventory** (`0x8D`): the hero's items (`0x5DEBC0` with the hero; `ItemDataMgr::saveHero`, each slot's item and the hero's place `wpos` and portals);
-- **the particles** (`0x96`): the particle systems that live, the spells' and the arts' objects among them;
+- **the particles** (`0x96`): the particle systems that live, the spells' and the arts' objects among them (`0x7CC3B0`, read 2026-11-22 for #3170, **confirmed** by code: each system's slot, type and particles' count, then its class's own record, which writes its own fields and then the base's, its place, its points, its particles and its flags; the load makes each anew in its slot and reads its record back; docs/re/effects.md, "In `opensacred-game`");
 - `0x82`: the engine's sixteen players, each that is there saving itself (the hero's player among them);
 - **the weather** (`0x92`, `0x41BBA0`);
 - **the quests** (`0x91`): the scripts' state (`sdk_SAVELOAD_SERIAL`: the quests, their flags, the variables, the timers);

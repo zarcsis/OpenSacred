@@ -23,6 +23,12 @@ An object:
 | `+0x14` | flags (`0x10` removed; `0x40000000` and `0x200` set by a move; observed `0x44008000` for the hero) |
 | `+0x18` | its position: a `u16` sector of the world's own numbering, then `i32 x` and `i32 y` in world units, then a `u8` floor (`sdk_BUILD_POS`, `0x6224B0`, makes one) |
 | `+0x2C` | its layer: 0 on the ground, else a building's floor (docs/re/movement.md) |
+| `+0x38` | its stamp, a byte: the manager's count of the objects it made, taken as the object was made (below) |
+| `+0x39` | a player's id, which the code compares with the local player's (`sdk_CTX +0x14`) before it ends or runs some objects (**hypothesis**: the player whose client runs it) |
+
+**The stamp** (read 2026-11-22 for #3161, **confirmed** by code): the manager's maker (`0x5FAFE0`, which `sdk_OBJ_CREATE_NPOS` and so `sdk_CREATE` call) raises a byte of its own (`0xAD5C50`) by 1 at each object it makes, wrapping after 255, and writes it into the new object's `+0x38` as it puts the object in its slot (`0x5FB2E4`); the constructor (`0x4497F0`) clears it, the object's packets (`0x449AA0`, `0x449D20`) carry it, and no other code writes it (a scan of the byte stores at `+0x38`).
+`0x5FE8D0` answers the stamp of an id, 0 for an empty slot.
+An id is a slot that a destroyed object frees for the next, so whoever keeps an id keeps its stamp beside it and takes the id for the same object only while the two agree: the FX objects their caster's (`+0x54`, its stamp `+0x58`), their target's (`+0x60`, `+0x64`) and the object they follow (`+0x68`, `+0x6C`), each ending at once where its stamp no longer agrees (docs/re/effects.md, "The FX event", "The dryad ghost").
 
 The cell of a position is its world point over 53.66563, truncated (observed: the hero at `(173688, 134781)`, the cell `(3236, 2511)`, on the chapel's floor 1), and its sector the cell's coordinates over 64: `sdk_SECTOR_RESOLVE` (`0x635C40`) takes the world's number of a sector from a table of 128 × 128 at the world's `+0x284`, by the cell's coordinates shifted by 6.
 
