@@ -16973,9 +16973,123 @@ pub fn illusion_grey(t: f32, life: f32) -> f32 {
     (255.0 * grey).floor() / 255.0
 }
 
+/// A footprint's look by the ground's nature that a step lays it on (`0x639080`, `0x6392AE`;
+/// docs/re/drawing.md, "The footprints"; #3066): the desert's print, the snow's, or the ripples
+/// on either water; none on any other nature, the swamp's among them, whose texture no pak holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Print {
+    Desert,
+    Snow,
+    Ripple,
+}
+
+impl Print {
+    /// The print of the nature `nature` (the ground byte's high nibble, docs/02 §5.2): `DESERT`
+    /// 1, `ARCTIC` 2, `WATERA` 9 and `WATERB` 10.
+    pub fn of(nature: u8) -> Option<Self> {
+        match nature {
+            1 => Some(Self::Desert),
+            2 => Some(Self::Snow),
+            9 | 10 => Some(Self::Ripple),
+            _ => None,
+        }
+    }
+
+    /// How long it lies, in seconds: a print 500 of the original's frames, taken at 60 a second
+    /// (docs/decisions/drawing.md, "Footprints stand 8.3 s of the game's time"); the ripples their five frames at
+    /// [`RIPPLE_RATE`] (**hypothesis** that they end with their last frame).
+    pub fn seconds(self) -> f32 {
+        match self {
+            Self::Desert | Self::Snow => 500.0 / 60.0,
+            Self::Ripple => f32::from(RIPPLE_FRAMES) / RIPPLE_RATE,
+        }
+    }
+}
+
+/// The prints' textures and the ripples' five (the `A` series on both waters; `Sacred.exe` names
+/// no `B` frame).
+pub const PRINT_TEXTURES: [&str; 2] = ["FOOTSTEPDESERT", "FOOTSTEPSNOW"];
+pub const RIPPLE_TEXTURES: [&str; 5] = [
+    "footstepWaterA_01",
+    "footstepWaterA_02",
+    "footstepWaterA_03",
+    "footstepWaterA_04",
+    "footstepWaterA_05",
+];
+/// The ripples' frames and how many a second of the real clock they turn (`0x41EAF0`).
+pub const RIPPLE_FRAMES: u8 = 5;
+pub const RIPPLE_RATE: f32 = 7.0;
+/// How many footprints lie at once, the oldest giving way (`+0x842C`).
+pub const FOOTPRINTS: usize = 64;
+/// A footprint's side and how far its middle lies ahead of its creature's place, in world units:
+/// a square of 34 by 34 of the ground's screen units, 34 pixels across and 17 down at the zoom
+/// 1, its middle 24 ahead (`0x41EC20`).
+pub const FOOTPRINT_SIDE: f32 = 26.879_36;
+pub const FOOTPRINT_AHEAD: f32 = 18.973_665;
+
+/// Whether a creature of the `Creature.pak` class `class`, whose type's `items.pak` class byte is
+/// `item_class`, lays footprints (`0x426480`): the class 4, the horses, always; else a type whose
+/// byte lacks the bit `0x40` (the animals) and that is not of the class 11 (the ghosts).
+pub fn lays_footprints(class: u8, item_class: u8) -> bool {
+    class == 4 || (item_class & 0x40 == 0 && class != 11)
+}
+
+/// A footprint's forward axis and its right side on the ground for its creature's facing
+/// `(dx, dy)` along the grid (`0x450680` taking the facing as a screen angle, laid as one on the
+/// ground): `(3dx − dy, 3dy − dx)` and `(dx − 3dy, 3dx − dy)`, each a unit, which lean toward the
+/// screen's level but along its four axes.
+pub fn footprint_axes([dx, dy]: [f32; 2]) -> Option<([f32; 2], [f32; 2])> {
+    let unit = |[x, y]: [f32; 2]| {
+        let length = x.hypot(y);
+        (length > 0.0).then(|| [x / length, y / length])
+    };
+    Some((
+        unit([3.0 * dx - dy, 3.0 * dy - dx])?,
+        unit([dx - 3.0 * dy, 3.0 * dx - dy])?,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_footprint_lies_by_the_nature_and_the_type_and_turns_with_its_creature() {
+        assert_eq!(Print::of(1), Some(Print::Desert));
+        assert_eq!(Print::of(2), Some(Print::Snow));
+        assert_eq!(Print::of(9), Some(Print::Ripple));
+        assert_eq!(Print::of(10), Some(Print::Ripple));
+        for nature in [0, 3, 4, 5, 6, 7, 8, 11, 15] {
+            assert_eq!(Print::of(nature), None);
+        }
+        assert!((Print::Desert.seconds() - 8.333_333).abs() < 1e-4);
+        assert!((Print::Ripple.seconds() - 5.0 / 7.0).abs() < 1e-6);
+        // The horses lay them whatever their byte; the animals and the ghosts none.
+        assert!(lays_footprints(4, 0x40));
+        assert!(lays_footprints(0, 0));
+        assert!(!lays_footprints(2, 0x40));
+        assert!(!lays_footprints(11, 0));
+        assert!(lays_footprints(10, 0x3F));
+        // Along a grid axis the square leans toward the screen's level, 18.4°.
+        let (forward, right) = footprint_axes([1.0, 0.0]).unwrap();
+        let s10 = 10.0f32.sqrt();
+        assert!((forward[0] - 3.0 / s10).abs() < 1e-6 && (forward[1] + 1.0 / s10).abs() < 1e-6);
+        assert!((right[0] - 1.0 / s10).abs() < 1e-6 && (right[1] - 3.0 / s10).abs() < 1e-6);
+        assert!((forward[0] * right[0] + forward[1] * right[1]).abs() < 1e-6);
+        // Along a screen axis, the grid's diagonal, it does not.
+        let half = std::f32::consts::FRAC_1_SQRT_2;
+        let (forward, _) = footprint_axes([half, half]).unwrap();
+        assert!((forward[0] - half).abs() < 1e-6 && (forward[1] - half).abs() < 1e-6);
+        assert_eq!(footprint_axes([0.0, 0.0]), None);
+        // Askew: a facing of (0.6, 0.8) leans its axes (1.0, 1.8) and (−1.8, 1.0).
+        let (forward, right) = footprint_axes([0.6, 0.8]).unwrap();
+        let norm = 1.0f32.hypot(1.8);
+        assert!((forward[0] - 1.0 / norm).abs() < 1e-6 && (forward[1] - 1.8 / norm).abs() < 1e-6);
+        assert!((right[0] + 1.8 / norm).abs() < 1e-6 && (right[1] - 1.0 / norm).abs() < 1e-6);
+        // 34 and 24 of the ground's screen units in world units.
+        assert!((FOOTPRINT_SIDE - 34.0 * (5.0f32 / 8.0).sqrt()).abs() < 1e-3);
+        assert!((FOOTPRINT_AHEAD - 24.0 * (5.0f32 / 8.0).sqrt()).abs() < 1e-3);
+    }
 
     #[test]
     fn the_illusion_grows_in_casts_and_fades_over_twice_its_clip() {
