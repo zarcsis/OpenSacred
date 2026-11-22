@@ -9768,40 +9768,228 @@ impl Berserk {
     pub fn ribbons(&self, points: &[[f32; 3]; 9]) -> Vec<BerserkRibbon> {
         let reach = 10.0 * self.width * self.fade;
         (0..usize::from(self.count))
-            .map(|n| {
-                let (sin_a, cos_a) = self.turns[n].sin_cos();
-                let (sin_b, cos_b) = self.tilts[n].sin_cos();
-                let turned = |[x, y, z]: [f32; 3]| {
-                    let across = x * cos_a - y * sin_a;
-                    [
-                        across * cos_b - z * sin_b,
-                        x * sin_a + y * cos_a,
-                        across * sin_b + z * cos_b,
-                    ]
-                };
-                let mut side = [0.0; 3];
-                std::array::from_fn(|k| {
-                    if k < 8 {
-                        let way: [f32; 3] =
-                            std::array::from_fn(|axis| points[k + 1][axis] - points[k][axis]);
-                        let [x, y, z] = turned(way);
-                        let cross = [-y + 2.0 * z, x, -2.0 * x];
-                        let length = cross.iter().map(|c| c * c).sum::<f32>().sqrt();
-                        side = if length >= 1e-7 {
-                            cross.map(|c| c / length)
-                        } else {
-                            [0.0; 3]
-                        };
-                    }
-                    let at = turned(points[k]);
-                    [1.0, -1.0].map(|sign| {
-                        std::array::from_fn(|axis| {
-                            (at[axis] + sign * side[axis] * reach) * self.scale
-                        })
-                    })
-                })
-            })
+            .map(|n| ribbon(points, (self.turns[n], self.tilts[n]), reach, self.scale))
             .collect()
+    }
+}
+
+/// A ribbon along the nine `points` of a clip (the model's frame, `z` up) (`0x7B60D0`,
+/// `0x793230`): each point turned about the upright by `turn` and then in the plane of `x` and
+/// `z` by `tilt`, its side the unit of its way to the next point (the last's the eighth's)
+/// crossed with `(0, −2, −1)`, its pair `reach` either side; all at `scale`.
+fn ribbon(
+    points: &[[f32; 3]; 9],
+    (turn, tilt): (f32, f32),
+    reach: f32,
+    scale: f32,
+) -> BerserkRibbon {
+    let (sin_a, cos_a) = turn.sin_cos();
+    let (sin_b, cos_b) = tilt.sin_cos();
+    let turned = |[x, y, z]: [f32; 3]| {
+        let across = x * cos_a - y * sin_a;
+        [
+            across * cos_b - z * sin_b,
+            x * sin_a + y * cos_a,
+            across * sin_b + z * cos_b,
+        ]
+    };
+    let mut side = [0.0; 3];
+    std::array::from_fn(|k| {
+        if k < 8 {
+            let way: [f32; 3] = std::array::from_fn(|axis| points[k + 1][axis] - points[k][axis]);
+            let [x, y, z] = turned(way);
+            let cross = [-y + 2.0 * z, x, -2.0 * x];
+            let length = cross.iter().map(|c| c * c).sum::<f32>().sqrt();
+            side = if length >= 1e-7 {
+                cross.map(|c| c / length)
+            } else {
+                [0.0; 3]
+            };
+        }
+        let at = turned(points[k]);
+        [1.0, -1.0]
+            .map(|sign| std::array::from_fn(|axis| (at[axis] + sign * side[axis] * reach) * scale))
+    })
+}
+
+/// The model whose clip's nine points the master's bite's ghosts sweep along (`cast02.grn`, the
+/// berserk's under another name, [`BERSERK_POINTS`]), their texture and each one's world light
+/// (862 of the mode 1031, `0x792890`, `0x793C98`; docs/re/effects.md, "The hit sparks").
+pub const GHOST_MODEL: &str = "CAST02.GRN";
+pub const GHOST_TEXTURE: &str = "FX_GHOST";
+pub const GHOST_LIGHT: f32 = 150.0;
+/// How many ghosts the master's bite makes (`0x50FC88` to `0x50FF05`).
+pub const MASTER_GHOSTS: usize = 3;
+
+/// A ghost of the Vampiress's master's bite (862 of the mode 1031, its start `0x793C98`, run
+/// `0x792F60` and draw `0x793230`): a ribbon of `FX_GHOST` along its clip's nine points about the
+/// bitten creature's head, at its own scale, turn and tilt, widening over its first second, held
+/// through the bite's seconds and thinning away over a second more.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MasterGhost {
+    clock: f32,
+    seconds: f32,
+    held: bool,
+    fade: f32,
+    turn: f32,
+    tilt: f32,
+    scale: f32,
+    speed: f32,
+}
+
+impl MasterGhost {
+    /// A ghost of a creature of the size `size` (`items.pak +0x14`) for the bite's `seconds`: its
+    /// clip's speed `0.7 + 0.6·U` (`0x792890`), then its scale `size/(55 + 10·U)`, its turn `2π·U`
+    /// and its tilt `U − 0.5` rolled in that order.
+    pub fn new(size: f32, seconds: f32, dice: &mut impl Dice) -> Self {
+        let speed = 0.6f32.mul_add(share(dice), 0.7);
+        let scale = size / 10.0f32.mul_add(share(dice), 55.0);
+        let turn = share(dice) * std::f32::consts::TAU;
+        let tilt = share(dice) - 0.5;
+        Self {
+            clock: 0.0,
+            seconds,
+            held: false,
+            fade: 0.0,
+            turn,
+            tilt,
+            scale,
+            speed,
+        }
+    }
+
+    /// Its clip's speed.
+    pub fn speed(&self) -> f32 {
+        self.speed
+    }
+
+    /// A run of `dt` seconds: it fades in by 1 a second to 1, holds until its clock reaches its
+    /// seconds and fades out by 1 a second.
+    pub fn update(&mut self, dt: f32) {
+        self.clock += dt;
+        if self.clock >= self.seconds && self.held {
+            self.fade = (self.fade - dt).max(0.0);
+        } else if !self.held {
+            self.fade = (self.fade + dt).min(1.0);
+            self.held = self.fade >= 1.0;
+        }
+    }
+
+    /// Whether it has faded out, `max(seconds, 1) + 1` seconds after its start.
+    pub fn done(&self) -> bool {
+        self.held && self.fade <= 0.0
+    }
+
+    /// Its ribbon along the points `points` of its clip, `10·fade` either side.
+    pub fn ribbon(&self, points: &[[f32; 3]; 9]) -> BerserkRibbon {
+        ribbon(points, (self.turn, self.tilt), 10.0 * self.fade, self.scale)
+    }
+}
+
+/// The blood bite's star (862 of the mode 1030, `0x793A61`, `0x793230`): `PARTICLE_GLOW07` of the
+/// half side 40 in (255, 176, 144), added whole, placed once at a `Bip01 Spine2`, for the bite's
+/// hold of 4.4 s.
+pub const BITE_GLOW: &str = "PARTICLE_GLOW07";
+pub const BITE_GLOW_HALF: f32 = 40.0;
+pub const BITE_GLOW_COLOUR: [u8; 3] = [255, 176, 144];
+pub const BITE_GLOW_SECONDS: f32 = 4.4;
+
+/// The skull's curse's drops, its glow without the violence, and its blood splashes' colour and
+/// reach (862 of the mode 1033, `0x793AA4`, `0x793230`, `0x5B34A8`).
+pub const CURSE_DROPS: &str = "PARTICLE_DOTS03";
+pub const CURSE_GLOW: &str = "PARTICLE_GLOW03";
+pub const CURSE_GLOW_HALF: f32 = 30.0;
+pub const CURSE_GLOW_COLOUR: [u8; 3] = [255, 51, 51];
+pub const CURSE_SPLASH_COLOUR: [u8; 3] = [239, 16, 16];
+pub const CURSE_SPLASH_REACH: f32 = 20.0;
+/// How long the curse's drops are born, the event's `+0x30` (the curse's 5 s), and how long it
+/// lives with its last drop's 1.7 s.
+pub const CURSE_EMITS: f32 = 5.0;
+pub const CURSE_LIFE: f32 = CURSE_EMITS + 255.0 / 150.0;
+const CURSE_COUNT: usize = 250;
+
+/// The skull's curse at a creature (862 of the mode 1033, its start `0x793AA4`, run `0x792F60`
+/// and draw `0x793230`): drops of blood born over its neck for 5 s that fall and grow, darkening
+/// from red to nothing over 1.7 s, the drops lying in the world as the neck moves on; and a blood
+/// splash beside it at 1.5 s and every 1 to 2 s after.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SkullCurse {
+    pub system: System,
+    size: f32,
+    splash: f32,
+}
+
+impl SkullCurse {
+    /// A curse at a creature of the size `size` (`items.pak +0x14`, 50 for 0).
+    pub fn new(size: f32) -> Self {
+        Self {
+            system: System::new(CURSE_COUNT),
+            size,
+            splash: 1.5,
+        }
+    }
+
+    fn layer(&self) -> Layer {
+        Layer {
+            life: -150.0,
+            size: 0.9 * self.size,
+            ..Layer::default()
+        }
+    }
+
+    fn block(&self) -> Block {
+        let s = self.size;
+        Block {
+            buoyancy: spread(1.7 * s, 0.2 * s),
+            size: spread(0.4 * s, 0.1 * s),
+            angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+            velocity: spread([0.0; 3], [0.3 * s, 0.3 * s, 3.0]),
+            offset: spread([0.0, 0.0, 0.8 * s], [0.1 * s; 3]),
+            interval: 0.008,
+            ..Block::default()
+        }
+    }
+
+    /// Its drops' ramp: (0.996, 0.047, 0) opaque, to (0.645, 0.012, 0) at 0.645 over 124
+    /// entries, to (0.539, 0, 0) at 0.547 over 61 and to nothing over 71.
+    pub fn ramp() -> Ramp {
+        Ramp::new(
+            [0.996_093_75, 0.046_875, 0.0, 1.0],
+            &[
+                ([0.644_531_25, 0.011_718_75, 0.0, 0.644_531_25], 124),
+                ([0.539_062_5, 0.0, 0.0, 0.546_875], 61),
+                ([0.0; 4], 71),
+            ],
+        )
+    }
+
+    /// A run of `dt` seconds, its neck gone from `from` to `to` in the models' frame: its drops
+    /// age, and through its first 5 s it leaves new ones along the neck's way. The angle of a
+    /// blood splash due now, `2π·U`, its next then `1 + U` s on.
+    pub fn update(
+        &mut self,
+        dt: f32,
+        (from, to): ([f32; 3], [f32; 3]),
+        dice: &mut impl Dice,
+    ) -> Option<f32> {
+        let layers = [self.layer()];
+        self.system.update(dt, &layers);
+        if self.system.clock < CURSE_EMITS {
+            self.system
+                .emit_along(&[self.block()], &layers, CURSE_COUNT, (from, to), dt, dice);
+        }
+        self.splash -= dt;
+        if self.splash > 0.0 {
+            return None;
+        }
+        let angle = share(dice) * std::f32::consts::TAU;
+        self.splash += 1.0 + share(dice);
+        Some(angle)
+    }
+
+    /// Whether it ended: past its 5 s, its last drop gone.
+    pub fn done(&self) -> bool {
+        self.system.clock >= CURSE_EMITS && self.system.particles.is_empty()
     }
 }
 
@@ -21424,6 +21612,163 @@ mod tests {
         // Up, about 76° above the ground's plane, its spread of 0.2 on each axis bringing it to
         // about 60° at the least.
         assert!(moved[2] > 1.5 * moved[0].hypot(moved[1]));
+    }
+
+    #[test]
+    fn a_master_bites_ghost_rolls_its_look_and_lives_its_seconds_and_one_more() {
+        // Each roll the highest: the speed 1.3, the scale s/65, the turn 2π, the tilt 0.5.
+        let ghost = MasterGhost::new(65.0, 15.0, &mut Ends(true));
+        assert!((ghost.speed() - 1.3).abs() < 1e-6);
+        assert!((ghost.scale - 1.0).abs() < 1e-6);
+        assert!((ghost.turn - std::f32::consts::TAU).abs() < 1e-5);
+        assert!((ghost.tilt - 0.5).abs() < 1e-6);
+        let mut ghost = MasterGhost::new(50.0, 15.0, &mut Ends(false));
+        assert!((ghost.scale - 50.0 / 55.0).abs() < 1e-6 && ghost.tilt == -0.5);
+        let points: [[f32; 3]; 9] =
+            std::array::from_fn(|k| [f32::from(u8::try_from(k).unwrap_or(0)), 0.0, 0.0]);
+        // No width before it fades in, its whole 10 once it has.
+        let width = |ghost: &MasterGhost| {
+            let [a, b] = ghost.ribbon(&points)[0];
+            (0..3)
+                .map(|axis| (a[axis] - b[axis]).powi(2))
+                .sum::<f32>()
+                .sqrt()
+                / ghost.scale
+        };
+        assert!(width(&ghost) < 1e-6);
+        let mut seconds = 0.0;
+        while !ghost.done() {
+            ghost.update(0.05);
+            seconds += 0.05;
+            if (seconds - 2.0f32).abs() < 0.01 {
+                assert!((width(&ghost) - 20.0).abs() < 1e-3);
+            }
+            assert!(seconds < 30.0);
+        }
+        assert!((seconds - 16.0).abs() < 0.1, "{seconds}");
+    }
+
+    #[test]
+    fn a_ribbon_turns_its_points_and_lays_its_pairs_across_their_way() {
+        let points: [[f32; 3]; 9] = std::array::from_fn(|k| {
+            let k = f32::from(u8::try_from(k).unwrap_or(0));
+            [k, 0.5 * k * k, 2.0 - k]
+        });
+        let made = ribbon(&points, (0.7, 0.4), 3.0, 2.0);
+        // Worked apart from the code: the first pair, the fifth and the last, which keeps the
+        // eighth's side.
+        let want = [
+            (
+                0,
+                [[-6.45857, 1.54798, 0.58829], [3.34323, -1.54798, 6.7802]],
+            ),
+            (
+                4,
+                [
+                    [-7.74232, 16.26111, -3.05521],
+                    [3.14149, 18.52132, -7.57563],
+                ],
+            ),
+            (
+                8,
+                [
+                    [-27.04096, 57.78102, -19.3902],
+                    [-17.02064, 60.73375, -25.29566],
+                ],
+            ),
+        ];
+        for (k, pair) in want {
+            for (side, want) in made[k].iter().zip(pair) {
+                for (got, want) in side.iter().zip(want) {
+                    assert!((got - want).abs() < 1e-3, "{k}: {:?}", made[k]);
+                }
+            }
+        }
+        // Points that do not move give no side.
+        let still = ribbon(&[[1.0, 2.0, 3.0]; 9], (0.0, 0.0), 3.0, 1.0);
+        assert_eq!(still[0], [[1.0, 2.0, 3.0]; 2]);
+    }
+
+    #[test]
+    fn the_skulls_curse_takes_its_drops_by_its_creatures_size() {
+        let curse = SkullCurse::new(10.0);
+        assert_eq!(
+            curse.layer(),
+            Layer {
+                life: -150.0,
+                size: 9.0,
+                ..Layer::default()
+            }
+        );
+        let block = curse.block();
+        assert_eq!(block.buoyancy, spread(17.0, 2.0));
+        assert_eq!(block.size, spread(4.0, 1.0));
+        assert_eq!(
+            block.angle,
+            spread(std::f32::consts::PI, std::f32::consts::PI)
+        );
+        assert_eq!(block.velocity, spread([0.0; 3], [3.0, 3.0, 3.0]));
+        assert_eq!(block.offset, spread([0.0, 0.0, 8.0], [1.0; 3]));
+        assert_eq!(block.interval, 0.008);
+    }
+
+    #[test]
+    fn the_skulls_curse_emits_below_5_s_and_splashes_at_its_timer() {
+        let mut curse = SkullCurse::new(25.0);
+        let mut dice = Ends(true);
+        let mut splashes = Vec::new();
+        for step in 1..=10u8 {
+            if let Some(angle) = curse.update(0.5, ([0.0; 3], [0.0; 3]), &mut dice) {
+                splashes.push((step, angle));
+            }
+        }
+        // At 5 s no drop is born: the youngest has aged half a second since 4.5 s.
+        let youngest = curse
+            .system
+            .particles
+            .iter()
+            .map(|drop| drop.life)
+            .fold(0.0, f32::max);
+        assert!(youngest <= 180.0 + 1e-3, "{youngest}");
+        // The first splash at 1.5 s, the next 2 s on at the highest roll, at the angle 2π.
+        assert_eq!(splashes[0], (3, std::f32::consts::TAU));
+        assert_eq!(splashes[1].0, 7);
+    }
+
+    #[test]
+    fn the_skulls_curse_drops_blood_for_5_s_and_splashes_beside_it() {
+        let mut curse = SkullCurse::new(25.0);
+        let mut dice = Ends(false);
+        let mut splashes = Vec::new();
+        let mut seconds = 0.0;
+        while !curse.done() {
+            if let Some(angle) = curse.update(0.01, ([0.0; 3], [0.0; 3]), &mut dice) {
+                splashes.push((seconds, angle));
+            }
+            seconds += 0.01;
+            if (seconds - 4.0f32).abs() < 0.005 {
+                assert!(
+                    curse.system.particles.len() > 150,
+                    "{}",
+                    curse.system.particles.len()
+                );
+            }
+            assert!(seconds < 10.0);
+        }
+        // Its drops for 5 s and the last one's 1.7 s.
+        assert!((seconds - CURSE_LIFE).abs() < 0.05, "{seconds}");
+        // A splash at 1.5 s, then one each second at the lowest rolls.
+        assert!((splashes[0].0 - 1.49).abs() < 0.02, "{splashes:?}");
+        assert!(
+            (splashes[1].0 - splashes[0].0 - 1.0).abs() < 0.02,
+            "{splashes:?}"
+        );
+        assert!(splashes.iter().all(|&(_, angle)| angle == 0.0));
+        // The drops fall, grow and darken to nothing.
+        let ramp = SkullCurse::ramp();
+        assert_eq!(ramp.at(255.0), [0.996_093_75, 0.046_875, 0.0, 1.0]);
+        assert!(ramp.at(0.0)[3] < 0.01);
+        assert!(curse.block().buoyancy.value > 0.0 && curse.layer().size > 0.0);
     }
 
     #[test]

@@ -1493,6 +1493,17 @@ fn make(
                     )
                 {
                     let seconds = arts::master_bite_seconds(record, playing.level);
+                    // Its three ghosts about its head, each lighting where she stands
+                    // (`0x50FC88`, #3062).
+                    let size = sizes
+                        .get(playing.target)
+                        .map_or(crate::arrows::size(0), |size| size.0);
+                    crate::bite_sights::master_bite(
+                        &mut commands,
+                        playing.target,
+                        (size, seconds),
+                        transform.translation,
+                    );
                     let effect = opensacred_rules::fight::Effect {
                         whole: 1,
                         art: u32::from(making.art),
@@ -1593,6 +1604,10 @@ fn make(
                 // (`0x50E6C0` at `0x510418`, #2827).
                 arts.start(making.art);
                 let record = arts.tables.weapon_arts.iter().find(|a| a.id == making.art);
+                // Her star at her spine where her target is a creature (`0x50FFAC`, #3062).
+                if creatures.contains(playing.target) {
+                    crate::bite_sights::bite(&mut commands, hero);
+                }
                 // Her beam from her spine to its (`beams`, #2119), whose line, which a cell it may
                 // not pass cuts short, the bite's hold and drain go with (`0x510140`, `0x604030`,
                 // #2123).
@@ -1615,6 +1630,8 @@ fn make(
                     )
                 {
                     let drain = arts::bite_drain(record, playing.level);
+                    // Its star at its spine, as the bite reaches it (`0x51014D`, #3062).
+                    crate::bite_sights::bite(&mut commands, playing.target);
                     let effect = opensacred_rules::fight::Effect {
                         art: u32::from(making.art),
                         ..opensacred_rules::fight::Effect::new(15, 0.0)

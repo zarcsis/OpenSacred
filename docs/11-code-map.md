@@ -133,6 +133,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/beams.rs`: The laser beams
 - `crates/opensacred-game/src/belt.rs`: The potions' belt
 - `crates/opensacred-game/src/benchmark.rs`: `--benchmark SECONDS`: renders without vsync for that long once the hero is in place
+- `crates/opensacred-game/src/bite_sights.rs`: The Vampiress's sights of the hit class 862 that are no hits
 - `crates/opensacred-game/src/blacksmith.rs`: The blacksmith's window
 - `crates/opensacred-game/src/blast.rs`: The Daemon's blast as his charge 1091 lands
 - `crates/opensacred-game/src/blended.rs`: The order of the blended things
