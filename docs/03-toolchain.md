@@ -183,12 +183,15 @@ The Ghidra project, the decompilation and anything exported from it stay on the 
 Size rule: one task is one finished result, verifiable by a test, of 1–4 agent-hours.
 Large systems are cut into such tasks in the milestone plan.
 
-The research and the code run on two models (the maintainer's choice of 2026-11-21, #3310).
+The research and the code run on Claude Opus 5.5, and the questions of design on Claude Mythos 5.2 (the maintainer's choices of 2026-11-21, #3310, and of 2026-11-22, #3410).
 A session runs on Claude Opus 5.5 at the effort `xhigh`, which `.claude/settings.json` sets (`model`, `effortLevel`), and writes the code; the built-in subagents on its model take its effort.
-The reading of the original goes to the project's subagent `researcher` (`.claude/agents/researcher.md`), on Claude Mythos 5.2 at `xhigh` (its `model` and `effort`): it reads the Ghidra project, the running original and the data, writes what it finds into `docs/re/`, `docs/02-data-formats.md` and draft rows of `docs/decisions/`, and answers with what it wrote and what it left open, so that the note in a file is the hand-over between the two.
+The reading of the original goes to the project's subagent `researcher` (`.claude/agents/researcher.md`), on Claude Opus 5.5 at `xhigh` (its `model` and `effort`): it reads the Ghidra project, the running original and the data, writes what it finds into `docs/re/`, `docs/02-data-formats.md` and draft rows of `docs/decisions/`, and answers with what it wrote and what it left open, so that the note in a file is the hand-over between the two.
 An issue labeled `research` or `docs` goes to it whole; the session keeps the commits, the issue and the pull request.
+One researcher holds the original at a time, the others reading the code meanwhile or waiting their turn without polling the host; a researcher reads the code first and runs the original where the code leaves the question open; related issues go to one researcher in one brief.
+From 2026-11-21 to 2026-11-22 the researcher ran on Claude Mythos 5.2, whose weekly limit it used three quarters of in little more than a day, some 2.75 million tokens on seven issues' readings (#3410).
+The subagent `architect` (`.claude/agents/architect.md`), on Claude Mythos 5.2 at `xhigh`, is started rarely, by the session's judgment or the maintainer's asking: for a subsystem's design, the choice between approaches, a decision of `docs/decisions/` whose harm to the play cannot be ruled out at a glance, or a reading that the researcher left a hypothesis it could not close; it answers with its recommendation and writes nothing in the tree.
 The session starts it with no model and no effort of its own: a model or an effort passed when a subagent starts outranks its definition's, and `CLAUDE_CODE_EFFORT_LEVEL` outranks both, so it is not set (code.claude.com/docs/en/sub-agents.md, 2026-11-21).
-Claude Mythos 5.2 is open only to verified organizations (platform.claude.com/docs/en/models/mythos-5-2/overview, 2026-11-21): a contributor without it changes the subagent's `model` in a checkout of their own.
+Claude Mythos 5.2 is open only to verified organizations (platform.claude.com/docs/en/models/mythos-5-2/overview, 2026-11-21): a contributor without it changes the `architect`'s `model` in a checkout of their own.
 `tools/usage/pr_usage.py` counts the subagents' transcripts with the session's, each model at its own prices (docs/usage.md).
 
 Order (since 2026-11-22, #3389, #3408): milestone by milestone, the earliest first, and within a milestone the issues by their label, `deps`, `infra`, `docs`, `research`, `bug`, then `feature`, an issue without a milestone counted in the earliest open one; the queue is the open issues (§3.6).
