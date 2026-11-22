@@ -86,7 +86,8 @@ pub(crate) struct Hero<'a> {
 
 /// The damages, each kind's least and most, that the hero's hurled blades 1054 and hurled
 /// weapon 1013 take (#3115): its strike's (`fight::Combat::damage`), none without a weapon in
-/// hand, and the item's own that it would hurl (`arsenal::Arsenal::hurls`), none without one.
+/// hand, and the item's own and its slots' that it would hurl (`arsenal::Arsenal::hurls`,
+/// `opensacred_rules::fight::ItemValues::hurled_damage`), none without one.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub(crate) struct Thrown {
     pub strike: Option<[[f32; 2]; KINDS]>,

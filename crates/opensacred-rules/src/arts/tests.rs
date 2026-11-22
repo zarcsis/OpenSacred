@@ -2272,7 +2272,7 @@ fn the_gladiators_hurled_weapon_flies_beyond_its_target_on_an_arc() {
 }
 
 #[test]
-fn a_hurled_weapons_damages_are_rolled_at_the_hundredth_and_raised() {
+fn a_hurled_weapons_damages_are_raised_and_rolled_at_the_hundredth() {
     /// Dice that give their numbers in turn.
     struct Given(Vec<u32>);
     impl crate::spawning::Dice for Given {
@@ -2282,10 +2282,17 @@ fn a_hurled_weapons_damages_are_rolled_at_the_hundredth_and_raised() {
             next
         }
     }
-    // 10 to 14 physical rolled 2.5 above the least, no fire, 1 to 1 magic; times 1.5.
+    // 10 to 14 physical times 1.5, 15 to 21, rolled 3.75 above the least; no fire, and 1 to 1
+    // magic, 1.5, roll nothing.
     let damage = [[10.0, 14.0], [0.0, 0.0], [1.0, 1.0], [0.0, 0.0]];
-    let made = thrown_damage(&damage, 1.5, &mut Given(vec![250, 0, 0, 0]));
+    let made = thrown_damage(&damage, 1.5, &mut Given(vec![375]));
     assert_eq!(made, [18.75, 0.0, 1.5, 0.0]);
+    // The ends' hundredths truncated after the factor: the 7900's 28.16 to 34.16 times 1.40 is
+    // 39.424 to 47.824, rolled from 3942 to 4782 (#3372).
+    let sword = [[28.16, 34.16], [0.0, 0.0], [0.0, 0.0], [0.0, 0.0]];
+    let least = thrown_damage(&sword, 1.4, &mut Given(vec![0]));
+    let most = thrown_damage(&sword, 1.4, &mut Given(vec![840]));
+    assert!((least[0] - 39.42).abs() < 1e-4 && (most[0] - 47.82).abs() < 1e-4);
 }
 
 #[test]

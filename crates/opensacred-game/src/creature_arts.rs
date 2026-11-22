@@ -584,7 +584,8 @@ fn volleys(
             "creature_arts: {entity} throws its dagger at {}, {} more",
             volley.target, volley.more
         );
-        // Its own damages, weighed by its skills and its strength (`0x56ACD0`, as the hero's).
+        // Its own damages and its slots', weighed by its skills and its strength (`0x56ACD0`, as
+        // the hero's).
         let times = rules.glance_factor(&arms.skills(mind.level), combat.attributes[0]);
         let mut flight = commands.spawn((
             Transform::from_translation(here).with_scale(Vec3::splat(crate::iso::MODEL_SCALE)),
@@ -599,7 +600,7 @@ fn volleys(
                 target: volley.target,
                 art: (level, factor),
                 damage: values.map_or([[0.0; 2]; opensacred_rules::fight::KINDS], |values| {
-                    values.damage
+                    values.hurled_damage(combat.attributes)
                 }),
                 times,
                 size,

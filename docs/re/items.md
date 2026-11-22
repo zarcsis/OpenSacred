@@ -135,6 +135,7 @@ Read 2026-10-22 (#490), the stats' recomputation (docs/re/fight.md, "An NPC's at
 Each item's loop takes its own record (the index −1) and then each of its sockets' of a kind other than 0 (`0x5BE9E0`), in order (`0x579DFF` to `0x57AD37`); a socket's record skips the damage, the resistances, `A` and `D` (`0x57A19C`, which its filling added to the item's record already, docs/re/blacksmith.md) and counts its bonus slots as below (re-read 2026-11-01, #1661; **confirmed** by code).
 The attack record (`0x568D70`) takes the bonus slots of the conditions on an opponent's class over the same records.
 As it meets a slot against the class 5, the undead, that its holder's type may use, it marks an opponent of that side (its `+0x2B7` bit `0x80`, at `0x569095`), whatever the slot's effect, and the mark halves the chance that the undead rises again (read and seen 2026-11-22 for #3076, docs/re/fight.md, "The undead that rise again").
+A third reader, `0x56ACD0`, gives the damages of one item alone, that which the Gladiator's 1013 hurls: its own record's ends and its own slots of 801 to 808, by the stats' stored attributes (docs/re/arts.md, "The art lines by id", the damages of a hurled item; #3372).
 After an item's damage, resistances, `A` and `D`, each of its bonus slots counts whose condition's low byte is 0 or 13 (not an opponent's class) and whose condition passes `0x568B30` (its bits 8 to 11 0 or 7, else the holder's type, 6 for the types 6 and 7), its value times, by the effect's byte 2, one of the attributes over 100 (`0x568C40`: 1 `a0`, 2 `a2`, 3 `a1`, 4 `a3`, 5 `a4`, 6 `a5`; the product whole, then times 0.01; the attributes before the items' bonuses), else its value:
 
 - 801 to 804: added to the kind's least and most damage, or with the condition's bit 15 to its resistance (the condition's bits 13 and 14 cleared for them);
@@ -145,6 +146,7 @@ After an item's damage, resistances, `A` and `D`, each of its bonus slots counts
 - the others are not followed here: the default case hands the effects below 200 and from 1000 to the effect list, and 600 to 798 to a skill slot, and 840 and more have cases of their own.
 
 Seen in the original's new games (#448's driver, the stats read): the Seraphim's attack speed 154, 140 and her weapon's 811 of 14, her `+0x40` 132; the Gladiator's physical ends 25.63 and 31.63, his sword's 22 and 28 and its 801 of 11 times his `a0` of 33 over 100.
+**Seen** 2026-11-22 (#3372, the record probed at `0x56ACE9`): his sword 7900's record holds the ends 22 and 28 and, in its slot 0, the condition `0x4000`, the effect 801 with the attribute's byte 1 and the value 11, as its type's record of `Weapon.pak` does, whatever his level; at the level 8, his `a0` 56, his stats' physical ends were 28.16 and 34.16.
 
 ## The level an item asks (`0x5D3AB0`)
 
