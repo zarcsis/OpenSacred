@@ -142,6 +142,7 @@ pub(crate) struct Weighing<'w, 's> {
     clips: Option<Res<'w, crate::hero::Clips>>,
     clock: Option<Res<'w, crate::daynight::Clock>>,
     forms: Option<Res<'w, crate::forms::Forms>>,
+    combos: Option<Res<'w, crate::combos::HeroCombos>>,
 }
 
 impl Weighing<'_, '_> {
@@ -202,6 +203,30 @@ impl Weighing<'_, '_> {
             &wearer,
             &words,
         )
+    }
+
+    /// The tooltip's lines of the combo `art` in a slot of the texts `texts` (`0x581550`'s mode 3,
+    /// #3114): a line for each step that holds an art, its name and its level, then its time over
+    /// its speed between the regeneration's label and its unit, all white; none for another art.
+    fn combo_lines(&self, art: u16, texts: Option<&Texts>) -> Vec<Line> {
+        let (Some(combo), Some(arts), Some(texts)) = (
+            self.combos.as_deref().and_then(|combos| combos.get(art)),
+            self.arts.as_deref(),
+            texts,
+        ) else {
+            return Vec::new();
+        };
+        let label = |name: &str| texts.named(name).unwrap_or_default();
+        crate::combos::step_lines(combo, arts, texts)
+            .into_iter()
+            .chain([format!(
+                "{}: {:.1}{}",
+                label("1107"),
+                combo.shown_time(),
+                label("1146")
+            )])
+            .map(|line| Line::of(line, WHITE))
+            .collect()
     }
 
     /// The tooltip's lines of the art `art` of the texts `texts` (`0x5893B0`, #1694), and with
@@ -714,21 +739,28 @@ fn grid(
         Shows::Art(_) | Shows::Sets => {
             let lines = match shows {
                 Shows::Art(art) => {
-                    // From the saddle a slot's art that may not be made on horseback tells the
-                    // horse's description instead (`0x6E4560` before `0x6E4BC1`, `0x55C9F0`).
+                    // From the saddle a slot's art that may not be made on horseback, or its
+                    // combo whatever it is, tells the horse's description instead (`0x6E4560`
+                    // before `0x6E4BC1`, `0x55C9F0`; #3114).
+                    let combo = crate::combos::is_combo(art);
                     let horse = (source == Source::ArtSlot)
                         .then(|| sheet.ridden())
                         .flatten()
                         .filter(|&(_, bow)| {
-                            weighing
-                                .arts
-                                .as_deref()
-                                .is_some_and(|arts| !arts.on_horseback(art, bow))
+                            combo
+                                || weighing
+                                    .arts
+                                    .as_deref()
+                                    .is_some_and(|arts| !arts.on_horseback(art, bow))
                         })
                         .and_then(|(horse, _)| sheet.lines(horse, texts.as_deref()));
                     horse.unwrap_or_else(|| {
-                        let next = source == Source::SpellsPage;
-                        weighing.art_lines(art, texts.as_deref(), next)
+                        if combo {
+                            weighing.combo_lines(art, texts.as_deref())
+                        } else {
+                            let next = source == Source::SpellsPage;
+                            weighing.art_lines(art, texts.as_deref(), next)
+                        }
                     })
                 }
                 _ => weighing.set_lines(texts.as_deref()),
