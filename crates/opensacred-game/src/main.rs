@@ -109,6 +109,7 @@ mod flying_skulls;
 mod foe_panel;
 mod follow_foe;
 mod followers;
+mod footprints;
 mod forge;
 mod forge_elements;
 mod forms;
@@ -624,13 +625,14 @@ fn run(cli: Cli) -> Result<AppExit> {
         foe_panel::FoePanelPlugin,
         follow_foe::FollowFoePlugin,
         followers::FollowersPlugin,
+        footprints::FootprintsPlugin,
         forge::ForgePlugin,
         forge_elements::ForgeElementsPlugin,
         forms::FormsPlugin,
         frame::FramePlugin,
-        fx::FxPlugin,
     ))
     .add_plugins((
+        fx::FxPlugin,
         fx_lights::FxLightsPlugin,
         fx_loops::FxLoopsPlugin,
         game::GamePlugin,

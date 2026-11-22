@@ -147,7 +147,7 @@ Before the switch it skips three values of a word in `esi` (`0x22D`, `0x22E`, `0
 
 Read 2026-10-19 (#141, **confirmed** by code): a creature's step, `0x639080`, calls the footstep with the nature of the ground's cell under it, but with `BRIDGE` (`0x70`) on a `WATERA` or `WATERB` cell whose second corner heights (`+0x18`, left, top, right, bottom) differ from its first and lie above 0 at the right or the bottom corner, or at both the left and the top: on a bridge over the water the steps are stone's, as the creature stands on the bridge's deck (docs/re/movement.md, "The height").
 
-The same step makes the footprint, a decal that the ground's nature chooses (`0x6392AE`), and for a player of the creature's `+0x1FC` bit 1 (six pieces of set 23, docs/re/sets.md M8) an object 878 (`FX_SMALLFIRE`) at the foot in its place (`0x63918C`–`0x6392A9`); the footstep's sound follows either way (read 2026-11-02).
+The same step makes the footprint, a decal that the ground's nature chooses (`0x6392AE`; docs/re/drawing.md, "The footprints"), and for a player of the creature's `+0x1FC` bit 1 (six pieces of set 23, docs/re/sets.md M8) an object 878 (`FX_SMALLFIRE`) at the foot in its place (`0x63918C`–`0x6392A9`); the footstep's sound follows either way (read 2026-11-02).
 
 `opensacred-game` plays the hero's footsteps by this table (`sound.rs`), with `BRIDGE` on a bridge over a liquid (`terrain::Heights::step_nature`).
 
@@ -156,7 +156,10 @@ The same step makes the footprint, a decal that the ground's nature chooses (`0x
 A function around `0x6392AE` loads a footprint texture by the nature of the cell (`nature − 0x10` up to `0x90`, byte table `0x639AB0`, jump table `0x639A9C`): `DESERT` `FOOTSTEPDESERT.TGA`, `ARCTIC` `FOOTSTEPSNOW.TGA`, `SUMPF` `FOOTSTEPSWAMP.TGA`, `WATERA` and `WATERB` the ripples `footstepWaterA_01.tga` to `05`; the other natures leave none.
 On the two waters it then compares the cell's second corner heights (`+0x18`) with the first (`+0x10`), as for the footsteps above, and reads the cell's liquid material, the byte `+0xF8` of the sector's record (the sector's `+0x17C`, docs/re/daynight.md) on a bridge over the water and on `WATERB`, else the one at `+0xF7`.
 Where the material is 13 and the building at the global cell (3563, 1336) has the state 2, the drained basin of sector 55,20 and its dungeon's pools, the step leaves neither ripple nor footprint and sounds as on `BRIDGE`, the stone group (`0x63968C` to `0x6397C3`, read 2026-11-21 for #3021, **confirmed** by code and **seen** by a trace of `0x68EB90`: the nature `0xA0` before the basin was drained and `0x70` after, on one cell; docs/re/drawing.md, "The liquid cells").
-`opensacred-game` lays no footprints yet (#3066).
+The two bytes choose nothing else: both waters take the `A` ripples, the `footstepWaterB` series of `texture.pak` is named nowhere in `Sacred.exe`, and the bridge's test changes the sound's nature alone, the ripple laid all the same (read 2026-11-21 for #3066).
+No pak holds `FOOTSTEPSWAMP.TGA`, and the world's draw passes over the swamp's cells, so a step on `SUMPF` shows nothing (the picture's absence **confirmed** on the files; the draw read in the code, not seen).
+What a footprint is, which creatures lay one, where it lies, how it is drawn and how long it stands: docs/re/drawing.md, "The footprints".
+`opensacred-game` lays them since #3066 (`footprints`, docs/re/drawing.md, "The footprints").
 
 ## The atmosphere by the region
 

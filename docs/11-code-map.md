@@ -218,6 +218,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/foe_panel.rs`: The foe's panel
 - `crates/opensacred-game/src/follow_foe.rs`: The cursor that follows the foe
 - `crates/opensacred-game/src/followers.rs`: The hero's followers
+- `crates/opensacred-game/src/footprints.rs`: The footprints
 - `crates/opensacred-game/src/forge.rs`: The Dwarf's smithing
 - `crates/opensacred-game/src/forge_elements.rs`: The forge's ritual
 - `crates/opensacred-game/src/forms.rs`: The Vampiress's forms

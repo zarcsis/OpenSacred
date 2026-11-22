@@ -223,6 +223,11 @@ fn passed(last: f32, now: f32, moment: f32) -> bool {
 #[derive(Resource, Default)]
 struct Moments(HashMap<String, Vec<f32>>);
 
+/// The creature types that lay footprints (`0x426480`,
+/// `opensacred_rules::particles::lays_footprints`; #3066).
+#[derive(Resource, Default)]
+struct Printing(std::collections::HashSet<u32>);
+
 /// Where a walking creature's clip was at the last frame, of its loop.
 #[derive(Component)]
 struct Stepped(f32);
@@ -244,6 +249,22 @@ fn begin(mut commands: Commands, data: Option<Res<Data>>) {
         }
     }
     commands.insert_resource(moments);
+    let mut printing = Printing::default();
+    if let Some((creatures, items)) = data
+        .as_ref()
+        .and_then(|data| Some((data.0.tables.creatures().ok()?, data.0.tables.items().ok()?)))
+    {
+        let classes: HashMap<u32, u8> = items.iter().map(|item| (item.slot, item.class)).collect();
+        printing.0 = creatures
+            .iter()
+            .filter(|creature| {
+                let item = classes.get(&creature.id).copied().unwrap_or(0);
+                opensacred_rules::particles::lays_footprints(creature.class, item)
+            })
+            .map(|creature| creature.id)
+            .collect();
+    }
+    commands.insert_resource(printing);
 }
 
 /// Plays the steps of the creatures that walk or run, and the Big Demon's jolts.
@@ -253,7 +274,7 @@ fn begin(mut commands: Commands, data: Option<Res<Data>>) {
 )]
 fn step(
     mut commands: Commands,
-    moments: Res<Moments>,
+    (moments, printing): (Res<Moments>, Res<Printing>),
     walkers: Query<
         (
             Entity,
@@ -268,11 +289,12 @@ fn step(
     players: Query<(&AnimationPlayer, &AnimationGraphHandle)>,
     (graphs, clips): (Res<Assets<AnimationGraph>>, Res<Assets<AnimationClip>>),
     heights: Res<Heights>,
-    (mut sfx, mut sounds, mut weather, mut fires): (
+    (mut sfx, mut sounds, mut weather, mut fires, mut prints): (
         ResMut<sfx::Sfx>,
         MessageWriter<sfx::Play>,
         Option<ResMut<crate::weather::Weather>>,
         MessageWriter<crate::fx::SmallFire>,
+        MessageWriter<crate::footprints::Step>,
     ),
 ) {
     for (entity, npc, (walk, steered), at, (mind, aloft), (stepped, way)) in &walkers {
@@ -326,6 +348,18 @@ fn step(
                     at: at.translation(),
                     level: way.and_then(|way| way.level),
                     caster: Some(entity),
+                });
+            }
+            // Its footprint, on the ground and of a type that lays them, but the Big Demon's, whose
+            // steps leave fires (`0x639080`, `0x426480`, #3066).
+            if !aloft
+                && kind != BIG_DEMON
+                && way.is_none_or(|way| way.level.is_none())
+                && printing.0.contains(&kind)
+            {
+                prints.write(crate::footprints::Step {
+                    at: at.translation(),
+                    facing: at.rotation() * Vec3::X,
                 });
             }
             let Some(sound) = sound(kind, aloft) else {
