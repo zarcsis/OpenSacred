@@ -191,7 +191,8 @@ The session starts it with no model and no effort of its own: a model or an effo
 Claude Mythos 5.2 is open only to verified organizations (platform.claude.com/docs/en/models/mythos-5-2/overview, 2026-11-21): a contributor without it changes the subagent's `model` in a checkout of their own.
 `tools/usage/pr_usage.py` counts the subagents' transcripts with the session's, each model at its own prices (docs/usage.md).
 
-Order (since 2026-10-17): the known problems and bugs first, then the dependency upgrades, then new features; the queue is the open issues (§3.6).
+Order (since 2026-11-22, #3389): the issues by their label, `deps`, `infra`, `docs`, `research`, `bug`, then `feature`, the earliest milestone first within a label; the queue is the open issues (§3.6).
+From 2026-10-17 to 2026-11-22 the bugs came first, then the dependency upgrades, then the features with the research.
 Once a day the Dependencies workflow (`.github/workflows/deps.yml`, #1550) runs `tools/deps/daily.py`: `cargo update` and `uv lock --upgrade` in a pull request of their own, which merges itself once its checks are green, and a `deps` issue for each newer incompatible release of a direct dependency, of a Python package, of Rust or of Python (`CLAUDE.md`, "Work order"), and for each newer release of a source of the release's FFmpeg, which `tools/ffmpeg/outdated.py` lists (#1499; `tools/README.md`, "The release's FFmpeg").
   Until 2026-10-30 the maintainer's first session of the day did it; its 11 pull requests, from #139 to #1501, each merged with the one commit it was opened with, and the steps needed no judgment that CI could not give.
   The workflow works as the maintainer's GitHub App `opensacred-deps`, with a token of an hour that `actions/create-github-app-token` makes from the variable `DEPS_APP_CLIENT_ID` and the secret `DEPS_APP_PRIVATE_KEY`: a pull request that `GITHUB_TOKEN` opens runs no workflow, so it would never get the checks that the ruleset requires.

@@ -406,10 +406,10 @@ The details are in their own documents: the formats in docs/02, the original's b
 ### 10.1 Priority queue
 
 Since 2026-10-17 the queue is the repository's open issues (github.com/zarcsis/OpenSacred/issues), and the milestones M2–M9 of §9.2 are GitHub milestones.
-Work takes this order: the known problems and bugs (`bug`), then the dependency upgrades (`deps`), then new features (`feature`, `research`), the earliest milestone first.
+Work takes the issues by their label, from the highest priority (the maintainer's rule of 2026-11-22, #3389): the dependency upgrades (`deps`), the infrastructure (`infra`), the documents (`docs`), the research (`research`), the bugs (`bug`), then the new features (`feature`); within a label, the earliest milestone first.
 The dependencies are updated every day without a session (#1550): the Dependencies workflow (`.github/workflows/deps.yml`, running `tools/deps/daily.py`) moves every package to its newest compatible version in a pull request that merges itself once its checks are green, and opens a `deps` issue for every newer incompatible release of a direct dependency, of a Python package, of Rust, of Python and of a source of the release's FFmpeg (`CLAUDE.md`, "Work order"; docs/03 §3.3).
 A session takes an issue with `tools/stack/claim.py`, which refuses one that another session holds or that another account filed (`CLAUDE.md`, "Issues and pull requests").
-On 2026-11-22 the queue holds M6's issues, the bugs first, and no `deps` issue; beside them are open the research of M7 (#1437, #2604, #2621, #2622) and M8's gamepad (#1097) and ASTC textures (#702).
+On 2026-11-22 the queue holds M6's issues and no `deps` issue; beside them are open the research of M7 (#1437, #2604, #2621, #2622) and M8's gamepad (#1097) and ASTC textures (#702).
 
 ## 11. Top risks
 
