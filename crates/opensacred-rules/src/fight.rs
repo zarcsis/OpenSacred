@@ -4907,18 +4907,20 @@ pub const TERRIFIES_WITHIN: f32 = 800.0;
 pub const TERRIFIES_WALKING: f32 = 400.0;
 
 /// Whether the look of a hero kills a hostile creature at once by its terror (`0x547070` at
-/// `0x5474A7`–`0x54763B`, read 2026-11-08 for #1125): `distance` from the hero below 800, and no
-/// farther than 400 while the hero `walks`; its level on bronze's scale `bronze`
-/// ([`Rules::on_bronze`]) at or below the hero's `threshold` ([`Rules::terror_threshold`]); and
-/// it is no big type, no boss nor champion, and no script holds it (`0x4A71F0`). The look
-/// otherwise wakes it.
+/// `0x5474A7`–`0x54763B`, read 2026-11-08 for #1125): none while the hero is `downed`, its
+/// `+0x200` holding the bit `0x40000` of a knock-down or a stun (`0x5474A7`–`0x5474E4`, #3079);
+/// `distance` from the hero below 800, and no farther than 400 while the hero `walks`; its level
+/// on bronze's scale `bronze` ([`Rules::on_bronze`]) at or below the hero's `threshold`
+/// ([`Rules::terror_threshold`]); and it is no big type, no boss nor champion, and no script
+/// holds it (`0x4A71F0`). The look otherwise wakes it.
 pub fn terrifies(
     threshold: u32,
     bronze: u32,
-    (distance, walks): (f32, bool),
+    (distance, walks, downed): (f32, bool, bool),
     (big, ranked, held): (bool, bool, bool),
 ) -> bool {
-    distance < TERRIFIES_WITHIN
+    !downed
+        && distance < TERRIFIES_WITHIN
         && !(walks && distance > TERRIFIES_WALKING)
         && bronze <= threshold
         && !(big || ranked || held)
@@ -5664,15 +5666,62 @@ mod tests {
         assert_eq!(niobium.terror_base(), 11);
         // Within 800, within 400 walking; the bronze level at most the threshold; none of the big,
         // the bosses and champions, or those a script holds.
-        assert!(terrifies(7, 7, (799.0, false), (false, false, false)));
-        assert!(!terrifies(7, 8, (100.0, false), (false, false, false)));
-        assert!(!terrifies(7, 1, (800.0, false), (false, false, false)));
-        assert!(!terrifies(7, 1, (401.0, true), (false, false, false)));
-        assert!(terrifies(7, 1, (400.0, true), (false, false, false)));
-        assert!(!terrifies(7, 1, (100.0, false), (true, false, false)));
-        assert!(!terrifies(7, 1, (100.0, false), (false, true, false)));
-        assert!(!terrifies(7, 1, (100.0, false), (false, false, true)));
-        assert!(!terrifies(0, 1, (100.0, false), (false, false, false)));
+        assert!(terrifies(
+            7,
+            7,
+            (799.0, false, false),
+            (false, false, false)
+        ));
+        assert!(!terrifies(
+            7,
+            8,
+            (100.0, false, false),
+            (false, false, false)
+        ));
+        assert!(!terrifies(
+            7,
+            1,
+            (800.0, false, false),
+            (false, false, false)
+        ));
+        assert!(!terrifies(
+            7,
+            1,
+            (401.0, true, false),
+            (false, false, false)
+        ));
+        assert!(terrifies(7, 1, (400.0, true, false), (false, false, false)));
+        assert!(!terrifies(
+            7,
+            1,
+            (100.0, false, false),
+            (true, false, false)
+        ));
+        assert!(!terrifies(
+            7,
+            1,
+            (100.0, false, false),
+            (false, true, false)
+        ));
+        assert!(!terrifies(
+            7,
+            1,
+            (100.0, false, false),
+            (false, false, true)
+        ));
+        assert!(!terrifies(
+            0,
+            1,
+            (100.0, false, false),
+            (false, false, false)
+        ));
+        // None while the hero lies knocked down (#3079).
+        assert!(!terrifies(
+            7,
+            1,
+            (100.0, false, true),
+            (false, false, false)
+        ));
     }
 
     #[test]
