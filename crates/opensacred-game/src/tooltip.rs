@@ -142,6 +142,7 @@ pub(crate) struct Weighing<'w, 's> {
     clips: Option<Res<'w, crate::hero::Clips>>,
     clock: Option<Res<'w, crate::daynight::Clock>>,
     forms: Option<Res<'w, crate::forms::Forms>>,
+    arsenal: Option<Res<'w, crate::arsenal::Arsenal>>,
     combos: Option<Res<'w, crate::combos::HeroCombos>>,
 }
 
@@ -261,6 +262,20 @@ impl Weighing<'_, '_> {
                 .clips
                 .as_deref()
                 .is_some_and(|clips| clips.arts.iter().any(|art| art.halved)),
+            thrown: art::Thrown {
+                strike: self
+                    .holding
+                    .iter()
+                    .next()
+                    .is_some_and(|holding| holding.0.weapon)
+                    .then_some(combat.damage),
+                hurled: self
+                    .arsenal
+                    .as_deref()
+                    .and_then(crate::arsenal::Arsenal::hurls)
+                    .and_then(|hurled| hurled.item.values.as_ref())
+                    .map(|values| values.damage),
+            },
         };
         let text = |name: &str| texts.and_then(|texts| texts.named(name)).map(str::to_owned);
         let id = |id: u32| texts.and_then(|texts| texts.id(id)).map(str::to_owned);

@@ -1122,6 +1122,7 @@ fn art_damage(
         day: true,
         rules,
         halved: false,
+        thrown: crate::tooltip::art::Thrown::default(),
     };
     crate::tooltip::art::window_damage(selected?, &hero, &arts.tables, combat.damage)
 }

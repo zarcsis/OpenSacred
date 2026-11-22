@@ -124,7 +124,7 @@ fn press(
         if crate::belt::drunk(
             &mut commands,
             (follower, false),
-            &mut health,
+            (&mut health, None),
             (item, &healing),
             (None, &mut sounds, dice),
         ) {
