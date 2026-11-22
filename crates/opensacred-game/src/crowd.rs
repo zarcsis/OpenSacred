@@ -79,6 +79,26 @@ impl Crowd {
         })
     }
 
+    /// [`Self::stops`] but for the creature `goal` that the straight way's test names, its
+    /// target's (`0x4FCC80`'s id at `+0x259`, `0x4F823D`–`0x4F824D`; #3360): that one stops no
+    /// step, and every other that stops the stepper's does.
+    pub fn stops_but(
+        &self,
+        cell: Cell,
+        level: Level,
+        (stepper, hero): (Entity, bool),
+        goal: Entity,
+    ) -> bool {
+        self.cells.get(&(cell, level)).is_some_and(|here| {
+            here.iter().any(|standing| {
+                standing.entity != stepper
+                    && standing.entity != goal
+                    && standing.spares != Some(stepper)
+                    && standing.way.stops_step(hero)
+            })
+        })
+    }
+
     /// Whether another creature than `entity` stands in `cell` at `level`, the hero among them
     /// (`0x54FCB0`).
     pub fn crowded(&self, cell: Cell, level: Level, entity: Entity) -> bool {
@@ -274,6 +294,11 @@ mod tests {
         let chest = world.spawn_empty().id();
         crowd.add((6, 6), chest, InTheWay::object(None));
         assert!(!crowd.crowded((6, 6), None, guard));
+        // The line's target stops no step on it, every other as ever (#3360).
+        assert!(!crowd.stops_but((5, 5), None, (guard, false), hero));
+        assert!(crowd.stops_but((5, 5), None, (guard, false), captain));
+        assert!(!crowd.stops_but((1, 1), None, (guard, false), captain));
+        assert!(crowd.stops_but((1, 1), None, (captain, false), hero));
     }
 
     #[test]

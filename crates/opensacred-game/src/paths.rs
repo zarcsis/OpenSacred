@@ -42,10 +42,15 @@ pub fn about_hero(
 ) -> (Cell, i32) {
     let floor = heights.floor(level).map(|(_, floor)| i32::from(floor));
     let point = |[x, y]: [i32; 2]| Vec2::new(to_world(x), to_world(y));
+    // The line's cells walkable and free of the creatures that stop the hero (`0x4FCC80` of the
+    // id 0, #3360).
     let free = |whole: [i32; 2]| {
         let to = point(whole);
         crowd.is_none_or(|crowd| !crowd.crowded(cell_of(to.x, to.y), level, hero))
-            && straight(at.xz(), to, |cell| heights.walkable_on(cell, level))
+            && straight(at.xz(), to, |cell| {
+                heights.walkable_on(cell, level)
+                    && crowd.is_none_or(|crowd| !crowd.stops(cell, level, hero, true))
+            })
     };
     let own = [whole(at.x), whole(at.z)];
     let place = ways::about_hero(own, floor.is_none(), asked.then_some(own), free);

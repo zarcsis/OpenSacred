@@ -179,7 +179,11 @@ fn open(
     mut containers: Query<(&Object, &mut Container)>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     mut heroes: Query<(Entity, &Transform, &Body, &mut Opens)>,
-    (mut npcs, mut heights): (ResMut<Npcs>, ResMut<Heights>),
+    (mut npcs, mut heights, crowd): (
+        ResMut<Npcs>,
+        ResMut<Heights>,
+        Option<Res<crate::crowd::Crowd>>,
+    ),
     (speed, mut stash): (
         Res<hero::GameSpeed>,
         (ResMut<crate::town_stash::Opened>, ResMut<Shown>),
@@ -207,7 +211,14 @@ fn open(
             continue;
         }
         commands.entity(hero).remove::<Opens>();
-        let walkable = |cell| heights.walkable_on(cell, body.level());
+        // The hostile creatures on the line stop it (`0x53BEDC` with the container's id, #3360).
+        let level = body.level();
+        let walkable = |cell| {
+            heights.walkable_on(cell, level)
+                && crowd
+                    .as_deref()
+                    .is_none_or(|crowd| !crowd.stops(cell, level, hero, true))
+        };
         if !container.opens() || !opens_from(transform.translation, at.at, walkable) {
             continue;
         }

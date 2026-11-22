@@ -1262,7 +1262,17 @@ fn pursue(
                 heights.flown_onto(cell, way.level)
             })
         };
+        // And a walk's line that the creatures on it stop but its target (`0x4FCC80` with the
+        // target's id): the melee's beyond its band (`0x4E4887`) and the big demon's standing
+        // cast (`0x4D5E0B`; #3360).
+        let walked = || {
+            paths::straight(here.xz(), hero.xz(), |cell| {
+                heights.walkable_on(cell, way.level)
+                    && !crowd.stops_but(cell, way.level, (entity, false), aimed)
+            })
+        };
         let stares = opensacred_rules::casts::stare(mind.creature).is_some();
+        let demon = opensacred_rules::casts::big_demon(mind.creature);
         // A magician's friends within its reach of them, the first wounded and the first that
         // fights (#1854).
         let near: Vec<&(Entity, Vec3, bool, bool)> = friends
@@ -1351,7 +1361,15 @@ fn pursue(
                             )
                         }),
                 };
-                let line = || if stares { sighted() } else { clear() };
+                let line = || {
+                    if stares {
+                        sighted()
+                    } else if demon {
+                        walked()
+                    } else {
+                        clear()
+                    }
+                };
                 mind.cast(&sight, &sight_of_cast, line, &mut minds.rng)
             });
         if casting {
@@ -1413,7 +1431,7 @@ fn pursue(
             Pursues::ComesOn { runs, within } => {
                 // In melee without a straight line: a way to the hero, or the door in its way, or
                 // it gives up (`0x4E4931`, `0x4F5652`).
-                if !mind.ranged && !clear() {
+                if !mind.ranged && !walked() {
                     let reaches = |to: Spot| way_to(here, way.level, to, &heights);
                     let mut found = None;
                     let door = || {
@@ -1808,8 +1826,10 @@ fn pursue(
                     opensacred_rules::minds::hiding_points(spot(here), from).find_map(|to| {
                         let at = point(to, here.y);
                         let height = heights.standing(at.x, at.z, None)?;
+                        // The creatures on the line stop it but its target (`0x4D9995`, #3360).
                         let seen = paths::straight(hero.xz(), at.xz(), |cell| {
                             heights.walkable_on(cell, None)
+                                && !crowd.stops_but(cell, None, (entity, false), aimed)
                         });
                         (!seen && way_to(here, way.level, to, &heights))
                             .then_some(Vec3::new(at.x, height, at.z))
@@ -1832,8 +1852,11 @@ fn pursue(
                     let (x, y) = (minds.rng.below(0x8000), minds.rng.below(0x8000));
                     let (dx, dz) = opensacred_rules::casts::blink_try(x, y);
                     let to = here.xz() + Vec2::new(dx, dz);
-                    let reaches =
-                        paths::straight(here.xz(), to, |cell| heights.walkable_on(cell, level));
+                    // The creatures on the line stop it but the hero (`0x4D72C3`, #3360).
+                    let reaches = paths::straight(here.xz(), to, |cell| {
+                        heights.walkable_on(cell, level)
+                            && !crowd.stops_but(cell, level, (entity, false), the_hero)
+                    });
                     let height = heights.standing(to.x, to.y, level)?;
                     reaches.then_some(Vec3::new(to.x, height, to.y))
                 });
