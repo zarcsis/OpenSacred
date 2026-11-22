@@ -56,6 +56,18 @@ const SHOOT: u8 = 3;
 const WOOSH: u8 = 5;
 /// The fist's profile, for a striker with bare hands.
 const FIST: u32 = 502;
+/// `TYPE_NPC_EISELF`, whose swing with a weapon of the classes 1 and 2 also plays
+/// [`ICE_ELF_SWING`] while it is hostile to the hero (`0x682707`–`0x68274D`, #3347).
+const ICE_ELF: u32 = 140;
+/// `MAGE_BLITZSCHLAG`.
+const ICE_ELF_SWING: u32 = 2011;
+
+/// Whether a swing with a weapon of the class `class` of a striker of the type `creature`, hostile
+/// to the hero where `hostile` (in the sound manager's first list, `0x6788B0`), also plays
+/// [`ICE_ELF_SWING`] by its same arguments.
+fn swings_lightning(class: u8, creature: u32, hostile: bool) -> bool {
+    matches!(class, 1 | 2) && creature == ICE_ELF && hostile
+}
 /// The weapons' group of a miss, which an animal takes (`0x532731`).
 const MISS: u8 = 0;
 /// The animals that take a weapon's miss where a strike does no damage, by their types (as
@@ -710,11 +722,18 @@ fn blows(
     for &blow in blows.read() {
         // Each by `playSFX(id, 0, r, 0.5, 1, the object, 1.0, 0, 0)`, `r` the rate's factor, no
         // share of the volume (`0x68266C`–`0x6828DB`, `0x5320E6`–`0x5329D0`, `0x4DF047`).
+        let mut also = None;
         let (at, profile, group, factor) = match blow {
             Blow::Swing { striker } => {
-                let Some(profile) = swing_profile(armed(striker).class) else {
+                let class = armed(striker).class;
+                let Some(profile) = swing_profile(class) else {
                     continue;
                 };
+                if minds.get(striker).is_ok_and(|mind| {
+                    swings_lightning(class, mind.thinks.creature, mind.thinks.hostile())
+                }) {
+                    also = Some(ICE_ELF_SWING);
+                }
                 (striker, profile, WOOSH, (0.975 + sfx.roll(5) / 90.0) * 0.5)
             }
             Blow::Target {
@@ -753,9 +772,6 @@ fn blows(
         let Ok(place) = places.get(at) else {
             continue;
         };
-        let Some((id, file)) = sfx.pick(profile, group) else {
-            continue;
-        };
         // Silent where it lies beyond its hearing, but within the records' reach.
         if !within_reach(place.translation(), listener) {
             continue;
@@ -763,20 +779,24 @@ fn blows(
         let (near, pan) = placed_at(place.translation(), listener, *volume);
         let volume = near.min(most);
         let rate = factor + 0.5;
-        let sample = sfx.sample(id, file, &assets);
-        let handle = audio
-            .play(sample)
-            .with_volume(decibels(volume))
-            .with_panning(pan)
-            .with_playback_rate(f64::from(rate))
-            .handle();
-        let mut following = Following::new(handle, Some(at), place.translation());
-        following.most = most;
-        placing.follow(following);
-        debug!(
-            "sfx: {blow:?}: profile {profile} group {group} ({id}) at {volume:.2}, panned \
-             {pan:.2}, at a rate of {rate:.2}"
-        );
+        let picked = sfx.pick(profile, group);
+        let extra = also.and_then(|id| sfx.with_id(id));
+        for (id, file) in picked.into_iter().chain(extra) {
+            let sample = sfx.sample(id, file, &assets);
+            let handle = audio
+                .play(sample)
+                .with_volume(decibels(volume))
+                .with_panning(pan)
+                .with_playback_rate(f64::from(rate))
+                .handle();
+            let mut following = Following::new(handle, Some(at), place.translation());
+            following.most = most;
+            placing.follow(following);
+            debug!(
+                "sfx: {blow:?}: profile {profile} group {group} ({id}) at {volume:.2}, panned \
+                 {pan:.2}, at a rate of {rate:.2}"
+            );
+        }
     }
 }
 
@@ -965,6 +985,14 @@ mod tests {
         assert!(within_reach(cells(25.0), Some(listener)));
         assert!(!within_reach(cells(25.5), Some(listener)));
         assert!(within_reach(cells(25.5), None));
+    }
+
+    #[test]
+    fn the_hostile_ice_elfs_sword_swings_a_lightning_too() {
+        assert!(swings_lightning(1, ICE_ELF, true) && swings_lightning(2, ICE_ELF, true));
+        // Not with another class, not of another type, nor of a peaceful one.
+        assert!(!swings_lightning(0, ICE_ELF, true) && !swings_lightning(3, ICE_ELF, true));
+        assert!(!swings_lightning(1, 139, true) && !swings_lightning(1, ICE_ELF, false));
     }
 
     #[test]
