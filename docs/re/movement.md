@@ -93,9 +93,9 @@ Read 2026-10-19 (#154): `cPathFloodfill`'s search has no caller in the code but 
   Its way led to the chapel's west exit, 3227,2517, where she stood until the queue dropped the walk.
   From open grass the hero ran on past its first leg, about 45 cells in 9 s, as the queue's walk orders it again.
   During a queue's walk the hero's way is searched anew at every tick of the world (`0x4FABE0` traced every 0.1 s, its last argument 1 after the first), as the step steers a walker that moves (docs/re/netscript.md, "The anim mode and the creatures' queues"; why, "Searching again" below).
-It tries the straight line first, cell by cell, and else searches the window (`0x4F8AF0`, or `0x4F9410` for some creatures by their type, **hypothesis**: those that fly); every cell either way passes the test of a step, `0x4F7E10` (below).
+It tries the straight line first, cell by cell, and else searches the window: `0x4F8AF0`, or `0x4F9410` for a walker of a radius, one of 23 types ("The wide walkers" below; read 2026-11-22 for #3069: by its radius, not by whether it flies); every cell either way passes the test of a step, `0x4F7E10` (below).
 Read again 2026-10-25 (#981): the straight line runs from the creature's cell to the target's cell by whole cells, a step along the longer axis each time and one along the shorter where the line's error carries over, so that it does not depend on where in its cell the creature stands; at a diagonal step it tests the two cells beside the corner too.
-Each cell it tests with `0x4FAA60`, which takes the cells within a square of a radius about it, `+0x399` of the creature: 0 for most, 1 or 2 for some types by their id, set at the search's start (**hypothesis**: the big ones).
+Each cell it tests with `0x4FAA60`, which takes the cells within a square of a radius about it, `+0x399` of the creature: 0 for most, 1 or 2 for 23 types by their id, set at each call before the line ("The wide walkers" below).
 The line counts as clear at the target's cell, or, longer than 5 cells, once two thirds of it are clear.
 Seen 2026-10-25 with #448's driver: on open grass about (3183, 2503) the hero sent 7 cells east and 2 south ran along the line, through (3181, 2500), (3182, 2501) to (3185, 2501), (3186, 2502), not along a way's diagonals; by the barrel of (5938, 404) it walked its way's cells.
 
@@ -117,8 +117,43 @@ Read 2026-11-04 (#1346, **confirmed** by code; its ways on the world's files by 
 - **The way back** (`0x4F9F20`) follows from the end the side neighbour of the greatest rise of the value, through the links, and makes an L-turn a diagonal where its corner was reached; it answers 1 for a way of more than one step.
 - **With no way** (`0x4FB44A`), a straight line from the walker's cell toward the target as it was passed in (for a queue's walk the far target, not the leg), up to 15 cells while `0x4FAA60` lets them pass on the walker's floor, and a search to the last cell that passed (the walker's own where the first fails) become the way; else there is none.
   Read again 2026-11-10 (#2481, **confirmed** by code): the line steps as the straight way's (`0x4FCC80`, below), ends at the target, and counts its steps, the 15th ending it untested, so that it tests 14 cells at the most; each on the walker's floor byte `+0x24` (`0x4FB63E`).
+  Read again 2026-11-22 (#3069, **confirmed** by code): each of its cells is tested alone, at the radius 0 (`0x4FB64B`), and the search to the last that passed is `0x4F8AF0` (`0x4FB698`), for a walker of a radius too ("The wide walkers" below).
   A way found to the last cell that passed writes that cell's centre back into the place the search was given, and, for a walker in the action 1 whose AI's state is not 4, into the action's target `+0x158`, `+0x15C` (`0x4FB710` to `0x4FB741`): the walk then ends there, short of where it was sent.
   So the start's novice, sent from outside the chapel to its benches on the ground (`NPC_Goto` to (3237, 2514) of the floor 0, docs/re/netscript.md), finds no way to the chapel's mass, walks her line over the porch to the door's entrance, the last cell of the ground there that passes, and stands inside the door, as the original shows her.
+
+### The wide walkers (`+0x399`, `0x4F9410`)
+
+Read 2026-11-22 (#3069, **confirmed** by code unless marked; the uses of `+0x399` found by a scan of the executable for its displacement: three stores and four reads, all in `0x4FABE0`):
+
+- **The radius.**
+  `0x4FABE0` sets the walker's byte `+0x399` at every call, after the leg and before its straight line (`0x4FAF13`–`0x4FAF3C`), by a switch on the walker's type `+0x10` (the byte table `0x4FB780` over the types 35 to 103, the jumps `0x4FB774`): 1 for 14 types, 2 for 9, 0 for every other.
+  Nothing else writes it, and nothing outside `0x4FABE0` reads it.
+- **The types.**
+  Of the radius 1: the flight lizards 35, 57 to 59 and 96 to 98, the ogres 39, 40 and 77 (`TYPE_NPC_GLUBBA`), the trolls 49 and 51, the flight demon 54, and 56 (`TYPE_NPC_TATZELANNOY`).
+  Of the radius 2: the dragons 52, 74, 88 and 100 to 103, the big demon 53 and the giant spider 55.
+  They are not the types that `Creature.pak` flags big (`+6` bit `0x02`, "The creatures in the way" below): of those 58, 42 take no radius, the minotaurs 41 to 43, the second big demon 94 and every one above 103 among them, and the seven flight lizards take one without the flag (counted on `tables/creatures.ron`).
+- **The square** (`0x4FAA60`: a cell, its place in the search's grid, a floor number and a radius).
+  Each cell within the radius of the cell along both axes that the grid has not marked yet, and that is no change of floor at that floor number (`0x4F87C0`), takes the test of a step (`0x4F7E10`) and its mark, 1 passable or 2 closed; the answer is 0 where a cell tested so failed.
+  A cell marked before fails nothing, closed or not, and a change of floor stays unmarked.
+- **The straight line** of `0x4FABE0` asks the square of the walker's radius about each cell of the line, and about the two cells beside a diagonal step (`0x4FB038`, `0x4FB079`, `0x4FB0DA`): a walker of the radius 1 goes straight only along a lane three cells wide, one of the radius 2 five.
+- **The marks before the search.**
+  A line that failed while its count of steps was below four (the first step and a diagonal one count two) is walked on from where it failed until the count is four, four cells at the most, the three by three cells about each marked by the single cell's test whatever the walker's radius (`0x4FB20A`–`0x4FB280`); then the five by five cells about the walker's own cell are marked so (`0x4FB2CC`).
+  For a walker of the radius 0 they are the marks its search would make; for a wide one they stand in the grid as its search finds them.
+- **The search** is chosen by the radius (`0x4FB2D1`): `0x4F9410` with the radius for a walker of 1 or 2 (`0x4FB2EC`, its one call), and `0x4F8AF0`, which reads no radius, for the others (`0x4FB3A1`).
+  `0x4F9410` is `0x4F8AF0` above, with its grid, its floor numbers, its four neighbours, costs and lists, its goal (`0x4F8560`) and its way back (`0x4F9F20`), but that a cell not marked yet is passable only where the test of a step lets the walker into it and into each cell within the radius that lies off both its row and its column (`0x4F977C`–`0x4F983A`, a cell of either offset 0 passed over at `0x4F97D5`): the four corner neighbours for the radius 1, sixteen cells of the five by five for 2.
+  The cells of its row and its column are not tested (**hypothesis**: the test was meant to pass over the cell itself), so a lone closed cell straight beside a cell does not close it to a wide walker, while a wall running beside it does, by its corners; a gap in a wall a cell thick must be three cells wide for the radius 1, and five for 2, to be passed over cells not marked before.
+  It differs in two things more: it does not close a change of floor that leads away from the target's floor; and for a walker with a target (the AI's state 4 or 8 with `+0x104`, or the action 3 or 5 or the AI's state 6 or 11 with `+0x158`) a ground cell whose chain holds a flame of the fire spiral (the type 790, `0x4F8A60`) costs 200, and under the flag `0xAD2510` a zone of the kind 3 (`0xAD2530`, docs/re/arts.md) scales a step's cost as one of the kind 0 does in both searches (the zones' costs not read further).
+- **With no way** the line and its search are the narrow ones for every walker ("The search" above), and the walk's own step tests the one cell it comes into (`0x5961F5`).
+  So a wide walker with no wide way to its target walks its straight line as far as single cells let it, 14 at the most, and stands there; and within two cells of a narrow place, or with it on the first cells of its line, its search passes it by the marks.
+
+**Seen** 2026-11-22 with the driver of #448 (#3069), every call of the two searches and of `0x4F7710` traced for the creature made.
+West of the start's monastery a fence of the nibble 2 runs along the row 2511 from 3201 to 3212, and one open cell, 3213,2511, lies between its end and the monastery's mass at 3214,2511; the hero stood south of it at 3208,2515 or 3208,2514, each creature was made hostile north of it at 3208,2507.
+
+- An orc warrior 38 searched ten times with `0x4F8AF0` and never with `0x4F9410`, stood in the gap after 1.5 s and struck the hero after 2.4 s; a minotaur 41, big by its record's flag and of no radius, did the same.
+- A troll 49 searched each time with `0x4F9410` at the radius 1, which answered 0 toward the hero; the line's search `0x4F8AF0` answered 1 while it walked its line to the fence, the order answering −1, and 0 from 3208,2510 on, the order 0.
+  It stayed by the fence, between 3205 and 3210 on the rows 2509 and 2510, through runs of 16, 14 and 40 s, and in a fourth run, not traced, stood inside at 3210,2513 some 9 s after it was made (**hypothesis**: one of its steps along the fence brought it within two cells of the gap).
+- A troll made at 3213,2508, the gap on its line to the hero at 3213,2514: `0x4F9410` answered 1 at each of its five searches, and it walked through the gap in 1.8 s and struck.
+- A giant spider 55 made at 3208,2506 searched with `0x4F9410` at the radius 2, answered 0, walked its line to the fence at 3208,2510 and stayed.
 
 ### The way's points and the walk along them
 
@@ -206,10 +241,56 @@ From that exit the shortest way in is the diagonal onto the entrance past the co
 
 Read 2026-10-30 (#1413, #1526, **confirmed** by code): the test of a straight way from a creature to a target, which a creature's attack and pursuit (docs/re/fight.md), a hero's opening of a container and its pick-up's reach, the items thrown out of a hero's reach (docs/re/containers.md), the followers' steps aside (docs/re/ai.md), the wolf's summoning and the jumps (docs/re/arts.md) ask.
 - It walks the cells of the line from the creature's cell to the target's by whole cells: of the spans `dx` and `dy` along the axes and an error from half the longer, a step along `x` while the error is below `dx`, the error taking `dy`, and a step along `y` with it once the error reaches `dx`, giving `dx` up; else a step along `y` alone, the error giving `dx` up.
-- It tests each cell with the creature's test of a cell (`0x4F7DD0`, on the target's floor byte), the creature's own first; a cell that fails is passed where it is the target's, so a target on a closed cell, a container's, is reached.
+- It tests each cell with the creature's test of a cell (`0x4F7DD0`), the first place's own first; a cell that fails is passed where it is the target's, so a target on a closed cell, a container's, is reached.
+  The cells are tested at the floor number of the first of its two places, the one the line starts from (read again 2026-11-22 for #3069, **confirmed** by code: the place's fourth word, `0x4FCD67`), which is the asker's own place `+0x18` in all but a few calls, not the target's.
 - Where another fails, the next cell of the line must pass, and a way must lead round the closed cell from the cell before it to that one through the closed cell's eight neighbours (the ring of offsets at `0x955874`, clockwise from the one above): one way round, and where a neighbour on that way fails, the other way, failing where that way meets a closed neighbour too; the line then goes on from the cell beyond.
 - The way round counts one step of the two, so after one the line walks a cell past the target and tests it too, as above.
-- While it runs, the creature's `+0x259` holds one of the call's arguments and its word `+0x1F4` takes the bit `0x200000` where another asks it (**hypothesis**: the target and the creatures in the way set aside); both are given back after.
+- While it runs, the creature's `+0x259` holds the id that the call gives it, the word after its two places, and its word `+0x1F4` takes the bit `0x200000` where the call's last byte is not 0 (`0x4FCCE7`, `0x4FCD0D`); both are given back at each of its ends.
+
+**What the id and the flag set aside** (read 2026-11-22 for #3069, **confirmed** by code in the test of a step `0x4F7E10` and the cell's test `0x4EBCA0`, "The creatures in the way" below):
+
+- The id is a goal's.
+  The creature of that id stops no step, and every other creature on the line stops it that would stop the asker's step: for a creature each live one that is not big, no critter and no follower of its own, for a hero those of the flags' bits 0 or 1 alone; so it is with the target's id, an item's, a container's or 0.
+  With the asker's own id no creature stops a step (`0x4F823D`–`0x4F824D`): the line is then tested against the cells alone, and for a creature of an id above 16 the objects of the category 4 in them.
+- The flag is the flyer's bit (docs/re/ai.md, "The flyers").
+  No creature stops the line; a cell of the nibble 2, the water, the fences and the low walls that an arrow flies over, passes where one of its four drawn corner heights (`+0x10`…`+0x13`) is below 2, as 2,585,857 of the ground's 2,642,006 cells of that nibble are (counted on the sector files), and the masses of the nibble 1 do not; and a closed trigger's cell, a container's, a closed door's or gate's, passes for an asker on the ground (its floor byte 0) outside a dungeon's sector (`0x63D180`).
+  So with the flag the test is a line of sight or of flight, and without it a walk's line.
+
+**Who asks it** (the same date: its 68 calls, each read at its site for its creature, its two places, the id and the flag):
+
+| Who asks | The id | The flag |
+|---|---|---|
+| The idle handler's choice of its fight (`0x542B20`, at `0x544138`; docs/re/fight.md, "Who fights: the test of the levels") | the target's, or its owner's `+0x1EC` for a target out of the world's cells (`+0x14` bit 2) | 1 |
+| The look that wakes (`sdk_WAKE`, at `0x59F6B2`; docs/re/ai.md, "Dormant and awake") | the local player's | 1 |
+| The fight at range in its band (`0x4DBFC0`, at `0x4DC89C`) | its own | 1 |
+| The melee state standing beyond its band (`0x4E0300`, at `0x4E4887`) | the target's | 0 |
+| A strike's chain, to its target and else to those of the target's group `+0x249` (`0x4DB8A0`, at `0x4DB946` and `0x4DBA7C`) | its own | 0 |
+| The parry (`0x4E4CF0`, at `0x4E4EC2`) | the target's, or its owner's as above | 0 |
+| The fight's specials (`0x4D4E50`, 20 calls) | its own at 16 of them; the target's for the big demon's standing cast (`0x4D5E0B`), the dryad's way back from its point (`0x4D87E8`) and the larva's hiding point (`0x4D9995`); the local player's for the black magician's blink (`0x4D72C3`) | 0, and 1 for the brain-footer's stare alone (`0x4D9D7C`, its own id) |
+| The shot's handler, from a place of the shot to a creature (`0x4DCB80`, at `0x4DD2FD` and `0x4DF545`; not read further) | that creature's | 1 |
+| A follower's step aside (`0x4EF150`, at `0x4EF613`), the idle action's stroll about its home (`0x54EA30`, at `0x54F261`) and the art's runner's next step (`0x4FE870`, at `0x4FED94`) | its own | 0 |
+| The hero's arrival at a stash's event (`0x53A170`, at `0x53BB60`) | its own | 0 |
+| The hero's opening of a container (`0x53BEDC`) and its taking up of an item (`0x53C97D`) | the container's, the item's | 0 |
+| An item thrown out of the hero's reach (`0x44DFE0`, at `0x44F6C6`), and in a network game from each other player's place where that fails (`0x44F7CC`) | the item's, and the hero's own at the second | 0 |
+| A place made at the hero (`0x45FF80`, two calls) | 0 | 0 |
+| The order of a weapon art (`0x4FD0F0`): the Dwarf's 1078 to 1080 with a gun (`0x4FD40D`, `0x4FD773`) and the jumps 1003, 1017 and 1032 (`0x4FE587`) | its own | 1 |
+| The order of a weapon art: a point it must stand on (`0x4FDCA7`, `0x4FE41A`) | its own | 0 |
+| The launch's test (`0x51D840`): 1086 in a dungeon (`0x51DC57`), an art on an enemy (`0x51DD7B`), an art at a point (`0x51DF44`) | its own for 1086, else the order's target's, 0 for a point alone | 1 |
+| The executors' first run of an art on an enemy with a distance (the record's `+0x4C` 1, `+0x48` above 0): the way to the action's point (`0x502348`, `0x5059EF`, `0x509B6B` to `0x509C73`, `0x50BF36`, `0x50DFE3`, `0x51317C`, `0x51852B`, `0x51B38A`) | the target's where the order names one, else its own | 0, and 1 for the Dwarf's 1078 to 1080 with a weapon of the class 13 or 14 |
+| The executors' jumps, charges and gathering of targets (`0x502530`, `0x505BCC`, `0x50C0D9`, `0x5137DA`, `0x517027`, `0x518859`, `0x51B65D`) | its own | 1 |
+| The Vampiress's executor's other three (`0x512AD1`, `0x5138D0`, `0x513A6E`; not read further) | its own | 0 |
+
+So a creature notices its foe, takes up its fight and shoots along a line of sight, over a fence, the water and a closed gate and across the creatures between, and a jump flies so; a chain of strikes, a follower's step and most of the specials ask the ground alone; and the melee's strike from beyond its band, the parry and four of the specials, with another's id, are stopped by a creature on the line, as the hero's reach for a container or an item is by a hostile one.
+
+**Seen** 2026-11-22 with the driver of #448 (#3069), each call of `0x4FCC80` traced with its creature, its two places, the id, the flag, its answer and its caller:
+
+- Fourteen orc warriors 38 about the hero on open grass at 3205,2499, some 20 s: the chain's test (from `0x4DB94B`) passed its own id and the flag 0 in 445 calls and answered 1 in all; the parry's (`0x4E4EC7`) the hero's id and the flag 0 in 42, all 1, of the strikers beside the hero.
+  The melee's test (`0x4E488C`) passed the hero's id and the flag 0 in 4 calls and answered 0 in all, on open ground, for two orcs of the second ring: from 3206,2502, from 3208,2498 and from 3205,2502, where the next cell of each line, 3206,2501, 3207,2498 and 3205,2501, held a striking orc of the first ring as the run was paused seconds later.
+  The idle handler's (`0x54413D`) passed the hero's id and the flag 1 in 144 calls and answered 1 for every orc but one that the driver had made on a closed cell of the nibble 2 none of whose corners is low (3203,2492), whose own cell failed each time.
+- The hero in the fenced garden above at 3208,2515, a thief 304 and then an ice druid 141 made north of the fence at 3208,2504: the idle handler's test answered 1 across the fence's cell 3208,2511 for both; the thief ran round through the gap and struck, and the druid shot from 3210,2510 across the fence (its action 5).
+- An ice druid at 3205,2491, the hero at 3205,2499 and a peaceful orc standing between them at 3205,2496: the idle handler's test answered 1 across it.
+- The hero's own launch's test (from `0x51DD80`) ran twice a frame for seconds on end with the id of an orc beside the hero and the flag 1 (**hypothesis**: the one under the cursor, for the cursor's glow).
+- Not seen: a line with the asker's own id across a creature, and the hero's reach for a container across a hostile one.
 
 ## The objects in the way
 
@@ -223,6 +304,11 @@ The object manager links an object into the chain of its cell as it places it (`
 - then each object of the cell's chain: an object that is not a creature (the category of its type, `items.pak +0x2E`, other than 2, 3 and `0x20`) stops the step when its category is 4, a `cChest3D` (the chests, the barrels, the vases, the coffins, the cabinets, the book stands and the shrines), and the creature's id (`+0x0C`) is above 16;
 - another creature (a `cCreature`) stops it under the conditions below;
 - with bit 2 of the global `0x182EE3C` set, a creature of id 16 or below may step anywhere (**hypothesis**: a debug switch; nothing found sets it).
+
+Read again 2026-11-22 for #3069 (**confirmed** by code): the test takes a cell position and a layer, and goes by the ground's cell there.
+On a cell that is no building's (its flags' bit 0 clear) it asks the cell's own test on the ground and walks the ground cell's chain.
+On a building's cell it asks the cell's own test on the layer given and walks the chains of that cell on every floor of the building in turn (the building's children from `+0x17` on, while a floor's grid holds the cell), not the ground's: a creature on any floor of a building at that cell stops the step by the conditions below.
+Before either it refuses the cells of a teleport and of the stairs to a ridden horse, an NPC's horse and a creature of the flags' bits `0xF0` (docs/re/horses.md, "The cells and the buildings").
 
 `0x5941A0`, the creatures' update, tests the cells of a straight line to where the creature heads with the same test (`0x4F7DD0`, at `0x5961F5`), and the way's search tests every cell with it, so a creature goes round a chest, and stops at one that stands in its way.
 
@@ -243,7 +329,9 @@ A click on a closed cell sends the hero to the walkable neighbour of the eight n
 **The creatures in the way** (read 2026-10-20, #157).
 A creature in the cell stops the step when all of these hold:
 
-- it is not the stepping creature, nor the one the stepper heads for (the stepper's `+0x259`, **hypothesis**: its goal, which the movement and the AI set), and the stepper's `+0x259` is not the stepper itself;
+- it is not the stepping creature, nor the one whose id the stepper's `+0x259` holds, its goal, and the stepper's `+0x259` is not the stepper's own id;
+  Read 2026-11-22 for #3069 (**confirmed** by code, the stores of `+0x259` found by a scan of the executable for its displacement): those that ask for a way write their target's id there first, the melee state (`0x4E0300`), the fight's specials (`0x4D4E50`), the going state (`0x53A170`), the order of a weapon art (`0x4FD0F0`) and the launch's test of an art on an enemy (`0x51DD8B`) among them, and the moving action writes a follower's master's (`+0x251`; `0x4F4999`, `0x4F4F6F`, `0x4F51E6`, `0x4F60D0`); the way's order `0x4F7710` clears it as its search ends, with a way or with none (`0x4F7996`, `0x4F7B96`), and the straight way's test sets it for its own run ("The straight way" above).
+  So the goal holds through the search that follows its write, whose way may so end in the target's own cell (**hypothesis**: the walk's steps between two decisions are taken with none);
 - the cell is not the stepper's own;
 - the stepper does not pass through creatures (its `+0x1F4` bit `0x200000`, a flyer aloft's, which the creature's constructor `0x52DE40` sets for the hornets and the movement sets and clears on the way, docs/re/ai.md, "The flyers") and does not trample (its `+0x2B7` bit `0x10`, a horse's override, which the two dismounts, `0x551E40` and `0x552050`, clear on the horse and the rider, docs/re/horses.md);
 - the creature is alive (`0x549080`: its action `+0xFC` is not 9, its `+0x150` not 6, its health `+0x4D8` not 0; `+0x4D4` the maximum) and is not big (its `Creature.pak` record's flags byte, `+6`, lacks bit `0x02`, `0x426CB0`: the ogres, the minotaurs, the trolls, the dragons, the big demons, the giant spiders, about 60 types);
@@ -334,7 +422,8 @@ It keeps the point it took while the line to it from where it took it stays clea
 It walks along its line, put back onto it at every frame (`paths::advance`), and a walker put more than a unit off it (a leap) takes its next point anew.
 Before #996 the line was tested from where the walker stood at every frame and the target's line not at all, and the walker turned round at every frame: from its cell's centre the diagonal onto the way's last place cleared, and a step toward a target off that place's centre took it off the line, back to its own centre; the farthest place it took cleared at the corner's tolerance, which the rounding of its position at the world's coordinates crossed a few frames on; and a step toward its cell's centre that brought it within half a unit of it stopped it there, the diagonal not clearing from where it stood.
 In a run of 19,684 walks on random 16 × 16 grids, 30% of their cells closed, at the world's coordinates, 3,924 had turned round in a loop and 2,505 stopped short; now the 16,902 that have a way arrive but for 3 that step into a closed cell along a line that starts on a cell's edge.
-The line's two thirds (docs/decisions/movement.md, "Walking the way by straight lines") and the radius of `+0x399` (#3069) are not followed: the line is clear only to its end, and every walker is a cell wide.
+The line's two thirds (docs/decisions/movement.md, "Walking the way by straight lines") are not followed: the line is clear only to its end.
+Nor are the wide walkers ("The wide walkers" above, read for #3069): every walker is a cell wide, its line, its way and its marks alike, so that the game's troll, ogre, dragon, big demon, giant spider and flight lizard take a gap of one cell from wherever they stand, where the original's walk their line to the fence and stand before it.
 A target it cannot reach it runs straight toward, until a step would take it into a cell it may not walk on.
 Since #1731 the hero's way to a target whose cell it may not step into, a container's or a hostile creature's, ends beside it (`opensacred_rules::ways::goal`, "The way's goal" above), and beside it already, it goes straight on to it, until the step into its cell is refused.
 Since #1877 that way ends at the first cell beside the target that the search reaches (`ways::path_beside`, `paths::course_beside`), where #1731 took the neighbour nearest the hero by the distance, which a cell cut off from the hero's side made unreachable: sent to the start's book stand from the pond's shore, she ran into the pond.
@@ -364,7 +453,11 @@ The flags word is made from each `CreateNPC` record's tags as the client makes i
 A follower (#895) does not stop its master's steps, the hero's, unless it is hostile to it, of class 7 or of the guards' mode (`opensacred_rules::ways::stops_its_master`, `crowd::Crowd::stops`, #1013), so that a summoned one, of bit 0, stops only the others'.
 At the start the hero walks through the guard `wache2_rg1` (3347, 2535) and stops before the captain beside it (3349, 2534) (checked through the remote control).
 The hero takes its orders at the world's next tick (`hero::take_orders`, #640): a press of the left button orders it once, and held longer than 0.4 s at every tick after (`hero::steer`), as do the commands (`go`) and its attack's and art's approaches; it moves at every frame, and arrived, or stopped by a cell it may not step into, it runs in place until the second tick after, when its clip blends into the stand.
-Since #1526 the test of a straight way is the original's above (`opensacred_rules::ways::straight`, `paths::straight`), taken by the creatures' attack and pursuit and their doors in the way (`ai`), the hero's opening of a container (`containers`, #1413), the items thrown out of the hero's reach (`drops`), the pick-up's reach (`pickup`), the jumps and the wolf's summoning (`making`); the creatures' arguments of `+0x259` and `+0x1F4` are not followed (#3069), the walkability of the cells (`terrain::Heights::walkable_on`) standing for `0x4F7DD0`.
+Since #1526 the test of a straight way is the original's above (`opensacred_rules::ways::straight`, `paths::straight`), taken by the creatures' attack and pursuit and their doors in the way (`ai`), the hero's opening of a container (`containers`, #1413), the items thrown out of the hero's reach (`drops`), the pick-up's reach (`pickup`), the jumps and the wolf's summoning (`making`); the walkability of the cells (`terrain::Heights::walkable_on`) on the asker's level stands for `0x4F7DD0`.
+The id and the flag of each call are not followed ("The straight way" above, read for #3069): every call tests the walkable cells alone, but the dryad's way back from its point, which the creatures stop (`crowd::Crowd::stops`).
+So where the original asks with the flag, the game's line stops at a fence, at the water and at a closed trigger's cell that the original's passes: a creature beyond one does not take up its fight (`ai`'s `clear` of `Mind::think`), does not wake at the hero's look, and an archer goes round to shoot; a jump, an art at a point (`making::point_reached`), the mortar in a dungeon (`making::mortar_reaches`) and the dryad's leap are refused across one.
+And where the original asks with another's id, the game counts no creature on the line: the melee's creature standing beyond its band behind another keeps its line to the hero (`Pursues::ComesOn`), where the original's finds none and looks for a way; the larva's hiding point, the big demon's standing cast and the blink are tested so too; the game's hero opens a container, takes up an item and reaches a place made at it across a hostile creature; and the game's parry and its launch of an art on an enemy ask no line at all.
+**Seen** 2026-11-22 in the game, at the places of the original's runs above: an orc warrior made at 3208,2507, the hero behind the fence at 3208,2515, stood idle for some 15 s and took up its fight at once when the hero was put on its side of the fence, where the original's took it across the fence within 0.2 s and struck after 2.4 s; and a troll that fought the hero north of the fence came round through the gap 3213,2511 and struck within some 3 s of the hero's being put behind the fence, where the original's stood before it.
 
 The deviations are in docs/decisions/movement.md.
 

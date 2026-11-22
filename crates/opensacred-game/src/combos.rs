@@ -122,15 +122,15 @@ pub(crate) fn art_name<'a>(art: u16, arts: &HeroArts, texts: &'a Texts) -> Optio
     texts.id(name)
 }
 
-/// The description's lines of `combo` (`0x581550`'s mode 2): each step's art's name and its level.
+/// The description's lines of `combo` (`0x581550`'s mode 2): each step's art's name and its
+/// level, `%s: %d` (`0x957D38`); a step whose art neither table holds writes none.
 pub(crate) fn step_lines(combo: &Combo, arts: &HeroArts, texts: &Texts) -> Vec<String> {
     combo
         .steps
         .iter()
         .flatten()
-        .map(|&(art, level)| {
-            let name = art_name(art, arts, texts).map_or_else(|| art.to_string(), str::to_owned);
-            format!("{name}: {level}")
+        .filter_map(|&(art, level)| {
+            art_name(art, arts, texts).map(|name| format!("{name}: {level}"))
         })
         .collect()
 }

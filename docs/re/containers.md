@@ -24,6 +24,7 @@ Its sub-state 0 chooses by the target's category (`0x426220`; the jump table `0x
 The sub-state 2 (`0x53BD9D`, the doors' too) waits while the creature moves; a creature target or one on another layer (the layers 0 and 1 counting as one) goes idle (`0x54E6D0`).
 Farther than 300 from the container (`0x53BE8C`), or for a container without a straight line of walkable cells to it (`0x4FCC80`, `0x53BEDC`), the order ends without opening.
 `0x4FCC80` passes a closed cell where it is the line's last (docs/re/movement.md, "The straight way"), so the container's own closed cell lets the line through (read 2026-10-30, #1413).
+The line is asked with the container's id and no flag, so that a creature on it that would stop the hero's step, a hostile one, stops it too (read 2026-11-22 for #3069, **confirmed** by code, not seen).
 Then, in a single player's game:
 
 1. the quests' hook `0x471790(creature, container, 3, 0)` runs (not read further);
