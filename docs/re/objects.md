@@ -70,6 +70,12 @@ Status: **confirmed** by code and in the running original (2026-10-22, #559), wh
   Seen: a goblin warrior made in 51,39 at the level 20 through `0x549500` took the level 4, and with `b` 1 the level 20.
 - A strike lands as the event 5 that `0x4EA3F0` sends its target: an event of the vtable `0x89095C`, its type 5 at `+4`, the attacker's id at `+8`, the target's at `+0x0C` and `+0x10`, then the strike's record (the weapon's type and id, the attacker's id, four words of fixed damages, a kind, a word and the factor, a float), handled at once by the target's `+0x18` of its vtable (`0x52E590` for a creature): a target farther than 1,500 from its attacker ignores it.
   The death that gives drops and experience is made there, with the attacker as the killer: an unarmed strike of the hero at a creature whose health is 1 kills it as the hero's kill (seen: the goblins of 51,39 died, each called the drop once with the killer 1, and the hero took 27 and 45 experience), while a health set to 0 alone makes the creature die with no drop and no experience.
+- **How the strike's event is made and kept** (read 2026-11-22 for #3378, **confirmed** by code).
+  `0x4EA3F0` builds the event on its own stack and hands it to the target's handler directly, `thiscall` with the event as the one argument, on the attacker's own thread; nothing queues it, keeps it or frees it, and once the handler returns the event's place on the stack is given up (the base `cEvent`'s destructor, `0x416B30`, only puts back the base vtable).
+  It is a `cEvent_creature` (the vtable `0x89095C`) of `0x44` bytes, whose second and third virtual functions answer 7 and `0x23` (its class among the kernel's events) and whose fourth (`0x41DF70`) copies it, allocating `0x44` bytes and copying them whole; the fields from `+0x34` to `+0x43` are zero.
+  The kernel copies an event only when it is sent with a delay: `sdk_SACRED_KERNEL_RECV` (`0x8092F0`) puts a delayed one's copy into its queue under its critical section, and hands one without a delay at once to a listener by its class (5 and `0xB` to the first, 6 and 7 to the second).
+  After the handler, `0x4EA3F0` sends a second event 5 where the attacker holds the effect `0x31` (`0x582B00`; to whom is not read), posts the strike's sound (`0x6770E0` with 5 and 2, then `0x67A7A0`) and, by a roll of `rand() % 10000` under a chance of the attacker's (not read further), an event `0x214` through the kernel.
+  The game's own strikes come from the attack action's hit (`0x4EA1F0`, called by the attack action `0x4E4CF0`), within the creatures' updates of the world's tick on the render thread ("The render thread's frame" below).
 - The drop `0x559BF0` (`thiscall` of the creature; the type asked, the bonus, the value and the killer's id) makes its objects through `sdk_CREATE` (`0x5FBA40`); with a type forced it makes that item even for a hero (docs/re/items.md, "One call of the drop"), at the creature's place and level.
   Its return value is not what it made: 0 for gold and for most items, an id at times (seen 2026-10-23, #594: 30 drops returned one potion while `sdk_CREATE` made 3 gold piles and 4 items more), so the driver collects what `sdk_CREATE` makes during each call.
 
@@ -101,5 +107,16 @@ Observed: a cell 2 and 4 cells off the hero at (418, 530) of the window; a click
 
 ## The render thread's frame
 
-`cEngine_handleZoomInput` is called once a frame by the render thread (`cEngine::renderThread::run`, docs/re/window.md), after the hero's update and before the world's updates and the drawing, whether the game's time stands or not; the engine is its `ECX`.
+`cEngine_handleZoomInput` is called once a frame by the render thread (`cEngine::renderThread::run`, docs/re/window.md), whether the game's time stands or not; the engine is its `ECX`.
 The driver reads the world and makes its changes there, so that it never reads an object halfway through its update and changes it where the game itself does.
+
+The frame's order (`0x60E350`, read 2026-11-22 for #3378, **confirmed** by code):
+
+1. while the game's time runs and the local hero is there (`0x603E30`), `0x425290` with the frame's time and then `0x424A60` (neither read);
+2. the frame's time added to the float `0xAD6EFC`, and, once that is above 0.1 s, the world's tick: the engine's timers (`0x60DF00`), then `0x60F130`, which runs the kernel's update (`0x809170`, the kernel at `0x182ED44`) with the tick's time, and the float back to 0 (docs/re/ai.md, "The world's tick");
+3. `cEngine_handleZoomInput`;
+4. Granny's update of the frame (`0x401920`, docs/re/window.md, "The game's end"), then `0x640B10`, `0x634110`, the weather's (`0x417E70`, `0x41A4F0`) and `0x610380`;
+5. the drawing, the interface and the flip.
+
+So the frame's function comes right after the tick in the frames that have one, and between two ticks in the others (five or six frames of each six or seven at 60 a second).
+The kernel's update holds the kernel's critical section (`+0x30`) while it calls the updates of its list `+0x54` and hands out its queued events (`+0x48`) and the delayed ones whose time has come (`+0x60`); the creatures decide, strike and die within it ("Making creatures, kills and drops" above; **hypothesis** for the path from `0x809170` to the creatures' update `0x5375C0`, which is not read, docs/re/ai.md, "The world's tick"), and the driver's frame's function runs outside it, on the same thread (**seen** 2026-11-22: the driver's `kill` and the dying actions it led to called Granny on one thread).

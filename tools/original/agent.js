@@ -23,6 +23,7 @@ const ADDRESSES = {
   logPrintf: ptr('0x66ef40'),         // the game's log, printf-like, cdecl
   engineFlags: ptr('0x182ee38'),      // a flags word; bit 0x20000: the application is inactive
   screenshotName: ptr('0xcdc918'),    // the name captureScreenshot formats, ".\Capture\shotNNNN.tga"
+  grannyTeardown: ptr('0x4016d0'),    // terminateApp's call that destroys cGranny (0x401410) and frees it
 };
 const DRIVER_SHOTS = 0xa8;            // dxDriver7: screenshots asked for, taken at the next flip
 const DRIVER_FRAMES_CAPTURED = 0xac;  // dxDriver7: frames captured so far, 0 for a single shot
@@ -3294,9 +3295,19 @@ rpc.exports = {
   presets() {
     return { presets: Object.keys(PRESETS), groups: GROUPS };
   },
+  // The game closes as its window is closed, but for its Granny teardown: after creatures' deaths in the game (the
+  // driver's `kill` or the game's own strikes alike) that teardown breaks the heap, and the end then hangs in
+  // ntdll's heap or crashes past WinMain, so the call that makes it does nothing, and the process's exit frees
+  // what it held (#3378, docs/re/window.md, "The game's end").
   close() {
     if (state.window === null) {
       return false;
+    }
+    if (state.grannyKept === undefined) {
+      state.grannyKept = new NativeCallback(() => {
+        log('INFO', "the game's Granny teardown left out at the quit");
+      }, 'void', []);
+      Interceptor.replace(ADDRESSES.grannyTeardown, state.grannyKept);
     }
     native.postMessageA(state.window, WM.CLOSE, ptr(0), ptr(0));
     return true;
