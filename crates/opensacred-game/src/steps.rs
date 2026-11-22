@@ -287,7 +287,11 @@ fn step(
         Without<Dies>,
     >,
     players: Query<(&AnimationPlayer, &AnimationGraphHandle)>,
-    (graphs, clips): (Res<Assets<AnimationGraph>>, Res<Assets<AnimationClip>>),
+    (graphs, clips, settings): (
+        Res<Assets<AnimationGraph>>,
+        Res<Assets<AnimationClip>>,
+        Option<Res<crate::settings::Settings>>,
+    ),
     heights: Res<Heights>,
     (mut sfx, mut sounds, mut weather, mut fires, mut prints): (
         ResMut<sfx::Sfx>,
@@ -362,7 +366,10 @@ fn step(
                     facing: at.rotation() * Vec3::X,
                 });
             }
-            let Some(sound) = sound(kind, aloft) else {
+            // No footstep at the lowest sound quality (`0x68EBBF`).
+            let Some(sound) =
+                sound(kind, aloft).filter(|_| !crate::settings::low_sound(settings.as_deref()))
+            else {
                 continue;
             };
             let base = if GIANT_SPIDERS.contains(&kind) {

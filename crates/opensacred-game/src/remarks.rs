@@ -592,9 +592,10 @@ fn remark(
         ResMut<NamedLine>,
         ResMut<sfx::Placed>,
     ),
-    (names, texts): (
+    (names, texts, settings): (
         Query<&crate::npcs::TextName>,
         Option<Res<crate::lines::Texts>>,
+        Option<Res<crate::settings::Settings>>,
     ),
 ) {
     let seconds = f64::from(time.delta_secs());
@@ -604,6 +605,10 @@ fn remark(
     let now = time.elapsed_secs_f64();
     let hero_at = heroes.single().ok().map(|(_, at)| at.translation());
     for &post in posts.read() {
+        // `REJECTNQ` none at the lowest sound quality (`0x6960A4`).
+        if post == Remark::RejectsQuest && crate::settings::low_sound(settings.as_deref()) {
+            continue;
+        }
         // The strike's comments: lost within 400 s of the last comment, else the clock set back
         // whether a line plays or not, with no roll, no test of the fight and no wait
         // (`0x67F38B`, `0x67EF8C`).

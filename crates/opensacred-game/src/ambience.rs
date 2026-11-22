@@ -267,7 +267,7 @@ fn water(
         Res<sfx::Listener>,
     ),
     channels: WaterChannels,
-    assets: Res<AssetServer>,
+    (assets, settings): (Res<AssetServer>, Option<Res<crate::settings::Settings>>),
 ) {
     let Some(at) = heroes.iter().next().map(|t| t.translation) else {
         return;
@@ -281,7 +281,12 @@ fn water(
         .unwrap_or(1.0);
     let (count, middle) = waters_seen(&heights, at, zoom);
     // Without a clear water on the screen the manager hears a count of 0 (`0x62E093`).
-    let count = if middle.is_some() { count } else { 0 };
+    // And none at the lowest sound quality (`0x6906E4`, `0x690690`).
+    let count = if middle.is_some() && !crate::settings::low_sound(settings.as_deref()) {
+        count
+    } else {
+        0
+    };
     let volumes = water_volumes(spread(count, heard.0));
     let pan = middle.map_or(0.0, |middle| sfx::placed_at(middle, Some(at), *heard).1);
     let (tiny, normal, big) = channels;

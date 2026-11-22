@@ -213,6 +213,7 @@ pub fn step(
     audio: Res<Audio>,
     time: Res<Time>,
     mut steps: MessageWriter<HeroStep>,
+    settings: Option<Res<crate::settings::Settings>>,
 ) {
     let Some((gait, at, winged)) = bodies.iter().find_map(|(body, transform, effects)| {
         let winged = effects.is_some_and(|effects| effects.holds(opensacred_rules::arts::FORMED));
@@ -259,6 +260,8 @@ pub fn step(
     if let Some((last_gait, last)) = footsteps.last
         && last_gait == gait
         && (winged || !footsteps.samples[group].is_empty())
+        // No footstep at the lowest sound quality (`0x68EBBF`).
+        && !crate::settings::low_sound(settings.as_deref())
     {
         for i in 0..footsteps.moments[moments].len() {
             if passed(last, now, footsteps.moments[moments][i]) {

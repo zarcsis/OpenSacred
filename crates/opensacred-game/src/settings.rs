@@ -264,6 +264,15 @@ impl Default for Gameplay {
     }
 }
 
+/// Whether the options' sound quality is its lowest, 0, at which the original's sound manager
+/// plays none of ten kinds of sound (`+0x82`, `0x6780C0`; docs/re/sound.md, "The quality
+/// (`SOUNDQUALITY`)", #3333): the creatures' voices with the hero's fight comments, the idle
+/// noises, the footsteps, the objects' opening and closing, the fires' and the water's loops, the
+/// quake's rumble, the hero's breath and its comment on the foes' flight, and `REJECTNQ`.
+pub fn low_sound(settings: Option<&Settings>) -> bool {
+    settings.is_some_and(|settings| settings.sound.quality == 0)
+}
+
 /// The detail of `settings` in force, 0 to 2, the high's 2 without them (`DETAILLEVEL`, the byte
 /// `0x182EE78` that its readers take as they draw).
 pub fn detail(settings: Option<&Settings>) -> u8 {
@@ -549,6 +558,17 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn only_the_lowest_sound_quality_is_low() {
+        let mut settings = Settings::default();
+        assert!(!low_sound(None));
+        assert!(!low_sound(Some(&settings)));
+        settings.sound.quality = 0;
+        assert!(low_sound(Some(&settings)));
+        settings.sound.quality = 2;
+        assert!(!low_sound(Some(&settings)));
     }
 
     #[test]

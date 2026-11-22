@@ -185,7 +185,10 @@ fn open(
         (ResMut<crate::town_stash::Opened>, ResMut<Shown>),
     ),
     mut dice: ResMut<crate::drops::Dice>,
-    mut sounds: MessageWriter<sfx::Play>,
+    (mut sounds, settings): (
+        MessageWriter<sfx::Play>,
+        Option<Res<crate::settings::Settings>>,
+    ),
 ) {
     for (hero, transform, body, mut opens) in &mut heroes {
         // Its walk there, ordered for the world's next tick or begun (`hero::Body`).
@@ -219,7 +222,10 @@ fn open(
                 .play(&mut player, clip, Duration::ZERO)
                 .set_speed(speed.0);
         }
-        if let Some(sound) = opening_sound(container.kind, dice.0.below(2) == 0) {
+        // No sound at the lowest sound quality (`0x695865`).
+        if let Some(sound) = opening_sound(container.kind, dice.0.below(2) == 0)
+            .filter(|_| !crate::settings::low_sound(settings.as_deref()))
+        {
             sounds.write(sfx::Play {
                 sound,
                 at: Some(opens.0),
