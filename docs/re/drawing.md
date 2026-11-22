@@ -18,6 +18,7 @@ The kinds seen: 1 a sprite, 2 a miniature (object flag `0x20`), 8 an entry of th
 After the last row the same function draws, in order (read 2026-10-18): the ground's transitions (`0x62D3C0`), the objects of the liquid cells (`0x62E410`, below, when there are any), the liquids' surfaces (`0x62DD00`, docs/re/liquids.md), and the five lists (`0x62FF60`), each list in turn and its entries in their order.
 So every object of an earlier list lies under every object of a later list, whatever their rows.
 `0x62FF60` draws a miniature where it stands among the list's sprites, as it does a sprite, without the depth test.
+Before its first list it draws the creatures' footprints ("The footprints" below), so they lie over the ground and the liquids' surfaces and under every object of the lists.
 
 ## The liquid cells
 
@@ -54,6 +55,113 @@ Over the world 12,127 miniatures lie in liquid cells (12,024 of `WATERA`, 103 of
   It finds the building by itself, the first static of flag `0x10` in the chain of the anchor that the cell (3563, 1336) points to, and reads the triggers' table without `0x634150`.
   **Seen** (a trace of `0x68EB90`): the hero's step on the cell (3565, 1330) asked the nature `0xA0` in the state 1 and `0x70` in the state 2.
 - No record of the Vampiress's tree names a cell of the dungeon's sectors but those sectors' own `Init` and `Enter` (searched 2026-11-21: its start, functions, quests and regions, and the starts of six more trees, the free games' and the add-on's among them), so how a hero comes into 29,72 and 30,72 in play is not found; the driver's `cell` put the hero there.
+
+## The footprints
+
+Read 2026-11-21 for #3066 in the code alone, the original not run: a creature's step leaves a print on sand and on snow and a ripple on the two waters, a flat picture kept in one of 64 slots of the world and drawn at the head of the lists' walk.
+The addresses and the numbers below are the code's; what they make on the screen is a **hypothesis** until frames of the running original bear it out ("What frames must settle" at the section's end), and what the data shows is marked **confirmed**.
+
+**The step.**
+`0x639080(creature's id, its place, its heading, the foot's point)` is called by the creature's animation step (`0x5941A0`, at `0x5984BB` to `0x598740`) at each of the walk's step moments, the two feet's (the bones `Bip01 R Foot` and `Bip01 L Foot`, 36 and 37 of the names' table `0x8E7200`) and, for a model that has them, the two hands' (2 and 1), as docs/re/sound.md, "The other creatures' footsteps", reads them.
+- The place is the creature's own (`+0x18`: the sector, `x` and `y` in world units, the floor), not the bone's: the bone's point is used only by the fire of the set 23 and of the Big Demon (docs/re/sound.md, "Footsteps by the ground").
+- The heading is the creature's direction (`+0x70`) as an angle on the screen (`0x450680`): the direction through the cells' projection, then `atan2(−y, x)` in degrees, 0° to the right and 90° up.
+- A creature in the air (`+0x1F4` bit `0x200000`) and the Daemon in her flying form (`0x691260`: the sound manager's record of the type 9 while its `+0xAF49` is set) never reach the step: their moments play the wings' sound alone.
+- Each call lays at most one picture, so a walker lays one at each foot's moment and a four-legged model one at each of its four.
+
+**Who lays one.**
+- The Big Demon (the type 53) and a player's hero of `+0x1FC` bit 1 make their fire 878 and no footprint (`0x63913D`, `0x63918C`).
+- After the footstep's sound the step asks the type (`0x426480`, at `0x6397E9`): a type of the `Creature.pak` class 4, the horses, lays one; any other lays none where its `items.pak` flags (`+0x00`) hold bit `0x4000`, or where its `Creature.pak` class is 11, and one otherwise.
+- **Confirmed** on the tables: bit `0x4000` is bit `0x40` of the record's class byte, set in 73 creature types, all named `TYPE_NATURE_` (512 to 600, the animals), nine of them the horses of the class 4; the class 11, the ghosts' (docs/re/fight.md, "The archers"), has 12 types.
+  So of the 473 creature types of `Creature.pak` 397 pass, the Big Demon among them, which makes its fire instead, and the 64 animals that are no horses and the 12 of the class 11 lay none.
+- Nothing asks whose creature it is, how far it is or whether it is on the screen: every creature whose animation step runs lays them, the hero as any other.
+
+**What it lays**, by the nature of the cell under the creature (`+0x1F & 0xF0`; the switch at `0x6392AE`, byte table `0x639AB0`, jump table `0x639A9C`):
+
+| Nature | The picture |
+|---|---|
+| `DESERT` (`0x10`) | `FOOTSTEPDESERT.TGA`, one print |
+| `ARCTIC` (`0x20`) | `FOOTSTEPSNOW.TGA`, one print |
+| `SUMPF` (`0x50`) | `FOOTSTEPSWAMP.TGA`, one print |
+| `WATERA` (`0x90`), `WATERB` (`0xA0`) | `footstepWaterA_01.tga` to `05`, a ripple of five frames |
+| any other | none |
+
+- A picture is the number of its name in `Texture.pak` (`0x6569C0`, `0x657360`: the name's hashes, whatever its case, `0x6614C0`), 0 for a name the pak does not hold; a step with the number 0 and no ripple lays nothing (`0x639822`).
+- **Confirmed** on the installation's files: `PAK/texture.pak` holds `footstepdesert` and `footstepsnow`, 32 × 32 texels, and `footstepwatera_01` to `05` and `footstepwaterb_01` to `05`, 64 × 64; no pak holds a swamp's print, and `Sacred.exe` names the `B` ripples nowhere.
+  So both waters take the `A` ripples, the `B` series is never drawn, and a step on a swamp lays nothing.
+- The two prints are one shape in two colours (**confirmed** on the converted textures): an upright oval sole of 16 × 27 texels in the texture's middle (the columns 8 to 23, the rows 1 to 27), with neither toes nor a heel, so that it reads alike for either foot and either way round; its alpha is 255 over the sole and falls at its rim alone, so a print covers the ground under it.
+  The ripples' frames are faint: their alphas reach 136 to 238 and average 6 to 19 over a frame.
+- The bytes `+0xF7` and `+0xF8` of the sector's record choose no picture: the step reads the cell's liquid material only to leave the ripple out on a drained cell (the material 13, docs/re/sound.md, "Footprints"; "The liquid cells" above).
+- On a bridge over the water the step still lays the ripple, at the deck's height: the bridge's test changes the nature of the sound alone (docs/re/sound.md, "Footsteps by the ground").
+- Where a creature can step on them (**confirmed** on the sector files, the cells whose low nibble is neither 1 nor 2, docs/02 §5.2): 948,560 cells of `DESERT` in 583 sectors, 66,399 of `ARCTIC` in 106, 186,090 of `WATERA` in 866 and 8,891 of `WATERB` in 50, of which 9,812 and 368 pass the bridge's test, and 494 of `SUMPF` in 9.
+
+**The slots.**
+The world (`0xAD3560`) holds 64 slots of `0xCC` bytes from its `+0x842C`:
+
+| Offset | Field |
+|---|---|
+| `+0x00` | the flags: bit 0 in use, bit 4 a ripple; the step writes 1 for a print and `0x11` for a ripple |
+| `+0x04` | a print's picture |
+| `+0x08` | a ripple's pictures, up to eight, the unused 0 |
+| `+0x28` | a ripple's frame, a float from 0 |
+| `+0x2C`, `+0x30` | its point on the screen at zoom 1, two integers |
+| `+0x34` | the creature's cell: the sector, the global cell's `x` and `y`, the floor |
+| `+0x44` | the frames' count at its making (`0xCD7A50`, which the render thread's timer raises by one a frame, `0x641520`) |
+| `+0x48` | its four vertices, written at each draw |
+| `+0xC8` | the heading, a float in degrees |
+
+- The step takes the first slot not in use, else the slot of the smallest count, the oldest (`0x639917` to `0x63993B`), and fills it (`0x41EA30` a print, `0x41EAF0` a ripple).
+- It sets bit `0x10` of the cell's flags (`+0x1E`), which no cell of the files holds (docs/02 §5.2): the cell holds a footprint.
+- The point (`0x622620`): `x' = 48·(x − y)/53.66563` and `y' = 24·(x + y)/53.66563 − h`, truncated, `(x, y)` the creature's place and `h` the height it stands at there (`0x636520`, with the floor's `+0x33` times 28 on a building's floor; docs/re/movement.md, "The height"): where the creature's own origin is drawn, on the bed of a water, on the deck of a bridge.
+- A save holds the 64 slots (`0x41EF70`, from `0x63B580`), and a load gives each the count of its moment, a full life again.
+
+**The draw.**
+- The rows' walk (`0x62AE90`, at `0x62B7FF`) appends each cell it passes whose flags hold bit `0x10` and whose nature is `DESERT`, `ARCTIC`, `WATERA` or `WATERB` to a vector of the view (`+0x86884`, entries of 16 bytes, emptied before the rows, `0x6325A9`).
+  `SUMPF` is not among the four: a swamp's print would be kept in a slot and never drawn, were its picture in the pak.
+- The lists' walk (`0x62FF60`, at `0x6300DD` to `0x630136`) calls `0x639B50` for each cell of the vector before its first list, after the world's render has turned the depth test on (`0x63289D`).
+- `0x639B50` walks the slots from the first and hands the first one whose cell (`x` and `y` alone, `0x41EBF0`) is the cell's to the slot's draw (`0x41EC20`), in use or not, and no other: one slot a cell a frame.
+  Where no slot holds the cell it clears the cell's bit `0x10`.
+- The slot's draw makes a quad of four vertices already on the screen (`XYZRHW`, the depth 0, a diffuse colour and a texture's corner each; a strip of two triangles):
+  - its corners `(p, q)` are `(±17, ±17)`, the texture's `u` 0 at `p` −17 and 1 at 17, its `v` 0 at `q` −17 and 1 at 17;
+  - 24 is taken from each `q`, so that the square of 34 lies from 7 to 41 ahead of the point, its middle 24 ahead and the texture's top edge the far one;
+  - it is turned by `a`, the heading less 90°, and flattened by half: `X = p·cos a + (q − 24)·sin a` to the right and `Y = ((q − 24)·cos a − p·sin a)/2` down the screen, so a creature heading up the screen has the square above its point, the texture's left on its left, and one heading right has it to the right;
+  - set at the slot's point less the camera's (`0xAD7998`, `0xAD799C`: the view's `+0x14` and `+0x18` with the weather's jolt, taken from the screen's middle (512, 384)), and scaled about the screen's middle by the zoom (`+0xB60`).
+- So the picture is a square of 34 pixels across the screen and 17 down it at zoom 1 when the creature heads along a screen's axis: a square lying flat on the ground, of the side `34·√(5/8)` = 26.88 world units (half a cell's side and a little), its middle `24·√(5/8)` = 18.97 world units ahead of the creature's place along the square's own axis, at the one height of that place, the ground's slope not followed.
+  A print's sole takes 17 by 28.7 of the square's 34 by 34, 13.4 world units across and 22.7 along, the same for every creature, and a ripple is drawn into the same square.
+- The turn is the direction's angle on the screen used as an angle on the ground: for a creature facing `(dx, dy)` on the grid the square's axis lies along `(3dx − dy, 3dy − dx)` and its right side along `(dx − 3dy, 3dx − dy)`.
+  That is the creature's own direction along the screen's four axes, and between them it leans toward the screen's level, by 18.4° for one that walks along a grid's axis and by 19.5° at the most.
+- The bits 2 and 4 of the flags would move the square 6 to the creature's left or right (`0x41EDE6`, `0x41EDF5`), and nothing sets them: both feet's prints lie on the creature's own line.
+- The colour of all four corners is the light at the slot's point (`0x41B510`, docs/re/daynight.md, "The light"): white by day, the night's and the dungeons' light else; its alpha is 255 through its life.
+- The states (`0x643430`): the blending on (`4`); a print blended by its alpha (`SRCALPHA`, `INVSRCALPHA`); a ripple's alpha added to the frame (`SRCALPHA`, `ONE`, the flag `0x10`); the filter as the liquids' pass left it, linear (`0x800`); the depth test on, which every vertex passes at its depth 0 (**hypothesis**: the depth's write is off, as the frame's start set it, `0x632560`, since a print written at the depth 0 would hide the models drawn after it).
+- A ripple draws the picture of its frame's whole part, and after each draw its frame grows by seven times the frame's time (`0x41EF29`: the timer's `+0x0C`, the smoothed real time of a frame): five pictures in 0.71 s, then the slot is free (the frame at 8, or at a picture of 0).
+
+**The life.**
+- At a slot's draw, once more than 500 frames have been counted since its making, its bit 0 is cleared (`0x41EC49`), after which it is drawn that one frame more: a print stands 500 frames of the render thread, 8.3 s at 60 frames a second and twice that at 30, with no fade, and is gone at once.
+- Nothing else ends a print: one whose cell is off the screen, or behind another slot of its cell, keeps its slot until the step takes it as the oldest.
+
+**One a cell.**
+As the draw takes the first slot that names a cell and stops, of two slots that name one cell only the one that comes first among the 64 is drawn, and only it ages; the other waits, whether the first is still in use or not, until the step takes the first for another cell.
+- A print that waited is by then mostly past its 500 frames: it shows for a single frame and ends.
+- A ripple that waited plays its five frames then, late and behind the walker, as its frame did not move on while it waited: where the first ripple ended and the next step elsewhere took its slot, some 0.7 s after its own step.
+- The slots fill from the first, so it is mostly the later step into a cell that waits.
+
+A running Seraphim crosses five and a half cells a second (294 world units, docs/re/movement.md, "The speed"), so most of her steps fall in a cell of their own, and a slow walker's one or two a cell (**estimate**: the clips' lengths between two steps are not measured).
+
+**The swamp.**
+A step on `SUMPF` shows nothing, twice over: the pak holds no `FOOTSTEPSWAMP.TGA`, so no slot is taken, and the rows' walk appends no cell of that nature.
+
+**What frames must settle** (the hero walking over sand, snow, a swamp and through the start's pond, #3066):
+- the print's size, place and turn as computed: 34 by 17 pixels at zoom 1, ahead of the walker's point, and askew on a walk along a grid's axis;
+- its life, 500 frames whatever the frame rate, and its end without a fade;
+- one print a cell, and the late ripples behind a walker in the water;
+- the ripple over the water's surface and under the walker, brighter for being added, and whether one shows about a bridge's deck, whose sprites the lists draw over it;
+- nothing on a swamp, and the same prints behind an NPC or a monster as behind the hero, none behind an animal or a ghost;
+- the night's light on a print.
+
+Places for them (**confirmed** on the sector files, every cell one a creature can step on): the start sector 50,39 has 76 such cells of `WATERA`, 17 of them under the bridge's test, as the row of the global cells (3214 to 3227, 2536), and two of `SUMPF`, (3251, 2551) and (3251, 2552); the nearest snow is in sector 49,44, about the cell (3150, 2830), and the nearest sand in sector 50,51, about (3250, 3300).
+
+`opensacred-game` lays them since #3066 (`footprints`, `opensacred_rules::particles::{Print, lays_footprints, footprint_axes}`, `steps`, `sound::HeroStep`): at each step of a creature on the ground whose type lays them, the hero's but in a winged form or of set 23's fires, none for a creature aloft or the Big Demon, a square of 26.9 world units flat at its height, its middle 19 ahead, turned as above, the prints laid over by their alpha for 8.3 s of the game's time and the ripples added, their five frames at 7 a second and gone after the last (**hypothesis**), 64 at most and one to a cell, in list 0 under every sprite and model and tinted by the night (docs/decisions/drawing.md, "Footprints stand 8.3 s of the game's time", "One footprint a cell, none waiting").
+**Seen** 2026-11-22 in the game: the hero's trail of prints on the snow of 49,44 and on the sand of 50,51; the original's frames wait for its driver.
+Not followed: a footprint on a building's floor.
 
 ## Buildings: masks and layers
 
