@@ -338,6 +338,7 @@ fn fly(
                     sound: crate::sfx::Of::Id(sound),
                     point: at,
                     rate: (0.4, crate::sfx::Roll::Share(0.2)),
+                    factor: 1.0,
                 });
             }
             if let Some(model) = model.take() {

@@ -1795,6 +1795,7 @@ fn druid_thorns(
                 sound: crate::sfx::Of::Id(BLINK_SOUND),
                 point: at,
                 rate: (0.5, crate::sfx::Roll::None),
+                factor: 1.0,
             });
             crate::battle_fogs::rise(&mut commands, at, BLINK_PUFF, variant);
         }

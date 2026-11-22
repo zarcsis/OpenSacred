@@ -170,6 +170,7 @@ fn make(
                 sound: crate::sfx::Of::Id(THORNS_SOUND),
                 point: place,
                 rate: (0.5, crate::sfx::Roll::None),
+                factor: 1.0,
             });
         }
         let parts = [meshes.add(empty()), meshes.add(empty())];

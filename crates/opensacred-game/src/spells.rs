@@ -365,6 +365,7 @@ fn balls(
                     sound: crate::sfx::Of::Id(EXPLOSION_SOUND),
                     point: here,
                     rate: (0.5, crate::sfx::Roll::None),
+                    factor: 1.0,
                 });
                 // The explosion strikes once every hostile creature within 80 and its size; a
                 // creature's, the heroes alone (#2731), as its objects that strike do (#1854).
@@ -411,6 +412,7 @@ fn balls(
                     sound: crate::sfx::Of::Id(PENTAGRAM_CAST),
                     point: here,
                     rate: (0.5, crate::sfx::Roll::None),
+                    factor: 1.0,
                 });
                 commands.spawn((
                     Pentagram {
@@ -487,6 +489,7 @@ fn balls(
                         sound: crate::sfx::Of::Id(FOG_SOUND),
                         point: here + Vec3::new(x, 0.0, z),
                         rate: (0.5, crate::sfx::Roll::None),
+                        factor: 1.0,
                     });
                 }
                 // Its four fogs look as their system (`battle_fogs`).
@@ -570,6 +573,7 @@ fn pentagrams(
             sound: crate::sfx::Of::Id(PENTAGRAM_HIT),
             point: here,
             rate: (0.5, crate::sfx::Roll::None),
+            factor: 1.0,
         });
         for (target, level) in near {
             // The event 9, the kill, for one at or below its value 1 (**hypothesis**: slain);
@@ -1159,6 +1163,7 @@ pub(crate) fn thorns(
                 sound: crate::sfx::Of::Id(spells::THORNS_SOUND),
                 point: place,
                 rate: (0.5, crate::sfx::Roll::None),
+                factor: 1.0,
             });
         }
         commands.spawn((
@@ -2716,6 +2721,7 @@ fn mine(
             sound: crate::sfx::Of::Id(MINE_BLAST),
             point: at.translation,
             rate: (0.3, crate::sfx::Roll::Share(0.4)),
+            factor: 1.0,
         });
         for target in near(mine.level, centre, spells::BLAST_REACH) {
             hits.write(fight::Hit {
@@ -2776,6 +2782,7 @@ fn killed(
             sound: crate::sfx::Of::Id(DOOM_KILL_SOUND),
             point: at.translation(),
             rate: (0.5, crate::sfx::Roll::None),
+            factor: 1.0,
         });
         // Its sign at the corpse, of the dead type's size (`doom_signs`).
         let size = size.map_or(50.0, |size| size.0);
@@ -3580,6 +3587,7 @@ fn change(world: &mut World, original: Entity, animal: u32, seconds: f32) {
         sound: crate::sfx::Of::Id(CHANGE_SOUND),
         point: at,
         rate: (0.5, crate::sfx::Roll::None),
+        factor: 1.0,
     });
     world.entity_mut(made).insert((
         health,

@@ -126,6 +126,7 @@ pub(crate) fn summoning_sound(commands: &mut Commands, at: Vec3) {
             sound: crate::sfx::Of::Id(SUMMON_SOUND),
             point: at,
             rate: (0.5, crate::sfx::Roll::None),
+            factor: 1.0,
         });
     });
 }

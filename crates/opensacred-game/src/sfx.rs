@@ -200,18 +200,31 @@ fn distance(x: i32, y: i32) -> i32 {
 /// The volume at the listener `listener` (`+0x84`, [`Listener`]) narrows the hearing distance as
 /// it rises, and the factor is taken of the volume at zoom 1, so that a sound at the listener
 /// plays louder zoomed in and quieter zoomed out.
+pub fn placed(x: i32, y: i32, listener: Listener) -> (f32, f32) {
+    placed_by(x, y, listener, 1.0)
+}
+
+/// [`placed`] at the place's factor `factor` (`0x678260`'s second argument; docs/re/sound.md, "A
+/// sound's place"; #3330): it scales the hearing distance and the volumes of the curve's two later
+/// points, never the volume at the listener, so that a sound of a factor above 1 grows louder with
+/// its distance; beyond the sound manager's records' reach, 1,200 pixels whatever the factor, no
+/// sound is placed and it stays silent (`+0xB790`).
 #[expect(
     clippy::cast_precision_loss,
     reason = "a distance in pixels, far below 2^24"
 )]
-pub fn placed(x: i32, y: i32, listener: Listener) -> (f32, f32) {
+pub fn placed_by(x: i32, y: i32, listener: Listener, factor: f32) -> (f32, f32) {
     let at_listener = listener.0;
-    let hearing = HEARING * (1.5 - at_listener);
+    let hearing = HEARING * (1.5 - at_listener) * factor;
     let near = distance(x, y) as f32;
+    if near > HEARING {
+        return (0.0, 0.0);
+    }
     let d = near.min(hearing);
     let [first, first_volume, second, second_volume] = CURVE;
     let (first, second) = (first * hearing, second * hearing);
-    let first_volume = (0.5 - first_volume) * (at_listener - 0.5) + first_volume;
+    let first_volume = ((0.5 - first_volume) * (at_listener - 0.5) + first_volume) * factor;
+    let second_volume = second_volume * factor;
     let volume = if d < first {
         at_listener - (at_listener - first_volume) / first * d
     } else if d < second {
@@ -251,12 +264,22 @@ pub fn placed(x: i32, y: i32, listener: Listener) -> (f32, f32) {
     reason = "an offset in pixels within the world, far below 2^31"
 )]
 pub fn placed_at(at: Vec3, listener: Option<Vec3>, volume: Listener) -> (f32, f32) {
+    placed_at_by(at, listener, volume, 1.0)
+}
+
+/// [`placed_at`] at the place's factor `factor` ([`placed_by`]).
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "an offset in pixels within the world, far below 2^31"
+)]
+pub fn placed_at_by(at: Vec3, listener: Option<Vec3>, volume: Listener, factor: f32) -> (f32, f32) {
     let offset = listener.map_or(Vec3::ZERO, |hero| at - hero);
     let (cx, cy) = (offset.x / iso::CELL, offset.z / iso::CELL);
-    placed(
+    placed_by(
         (48.0 * (cx - cy)).round() as i32,
         (24.0 * (cx + cy)).round() as i32,
         volume,
+        factor,
     )
 }
 
@@ -379,6 +402,8 @@ pub struct PlayAt {
     pub point: Vec3,
     /// The rate's factor: a base, and what a roll adds to it.
     pub rate: (f32, Roll),
+    /// The place's factor (`playSFX`'s seventh argument, [`placed_by`]): 1 but the gun's fire's 5.
+    pub factor: f32,
 }
 
 /// What a [`Play`] plays.
@@ -453,6 +478,9 @@ pub struct Gunfire {
     pub shooter: Entity,
 }
 
+/// The gun's fire's place's factor (`0x7C3C19`, #3330).
+const GUNFIRE_FACTOR: f32 = 5.0;
+
 /// The gun's fire's samples: `DWARF_PISTOL` for the guns 1855 and 1857, `DWARF_RIFLE` for 1856
 /// and every other (`0x7C3AC0`, its event's `+0x38`).
 const PISTOL: u32 = 2126;
@@ -461,8 +489,9 @@ const PISTOLS: [u32; 2] = [1855, 1857];
 
 /// The gun's fire's sound (1172 `gunfire`, its start `0x7C3AC0`): its sample by the gun at the
 /// shooter, the rate's factor 0.4 and up to 0.2 more (`rand()` / 32767 · 0.2), so 0.9 to 1.1
-/// times the sample's; its seventh argument 5.0, the place's factor (docs/re/sound.md, "A sound's
-/// place"), is not followed: the game plays it as a plain sample (#3330).
+/// times the sample's; at the place's factor 5.0 ([`GUNFIRE_FACTOR`]), louder with its distance and
+/// heard to 1,200 pixels, taken from its start where the original's update takes it from its
+/// first tick (a sample once placed is not placed again, #3334).
 fn gun_sample(kind: Option<u32>) -> u32 {
     if kind.is_some_and(|kind| PISTOLS.contains(&kind)) {
         PISTOL
@@ -493,6 +522,7 @@ fn gunfire(
                 sound: Of::Id(gun_sample(armed.kind)),
                 point: place.translation(),
                 rate: (0.4, Roll::Share(0.2)),
+                factor: GUNFIRE_FACTOR,
             });
         }
     }
@@ -610,36 +640,51 @@ fn blows(
 }
 
 /// Plays the sounds of the world and of the interface that the modules ask for, in a pause too.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, grouped"
+)]
 fn plays(
     (mut plays, mut points): (MessageReader<Play>, MessageReader<PlayAt>),
     mut sfx: ResMut<Sfx>,
     places: Query<&GlobalTransform>,
-    (listeners, volume): (Query<&GlobalTransform, With<Body>>, Res<Listener>),
+    (listeners, volume, levels): (
+        Query<&GlobalTransform, With<Body>>,
+        Res<Listener>,
+        Option<Res<crate::volumes::Levels>>,
+    ),
     assets: Res<AssetServer>,
     audio: Res<Audio>,
 ) {
     let listener = listeners.iter().next().map(GlobalTransform::translation);
-    // Each sound at its place, an entity's that is gone dropped, or in the middle.
-    let asked: Vec<(Of, Option<Vec3>, (f32, Roll))> = plays
+    // Each sound at its place at its factor, an entity's that is gone dropped, or in the middle.
+    let asked: Vec<(Of, Option<Vec3>, (f32, Roll), f32)> = plays
         .read()
         .filter_map(|play| match play.at {
             Some(at) => places
                 .get(at)
                 .ok()
-                .map(|place| (play.sound, Some(place.translation()), play.rate)),
-            None => Some((play.sound, None, play.rate)),
+                .map(|place| (play.sound, Some(place.translation()), play.rate, 1.0)),
+            None => Some((play.sound, None, play.rate, 1.0)),
         })
         .chain(
             points
                 .read()
-                .map(|play| (play.sound, Some(play.point), play.rate)),
+                .map(|play| (play.sound, Some(play.point), play.rate, play.factor)),
         )
         .collect();
-    for (sound, place, rate) in asked {
+    // No volume above 1 reaches the original's samples, its place's times the effects' level
+    // (`0x693D8C`, `0x6A0D30`): of the game's, which take the place's over the near volume on the
+    // effects' channel, at most 1 over the near volume times that level.
+    let most = levels
+        .filter(|levels| levels.effects > 0.0)
+        .map_or(f32::INFINITY, |levels| 1.0 / (NEAR_VOLUME * levels.effects));
+    for (sound, place, rate, factor) in asked {
         let (volume, pan) = match place {
-            Some(at) => placed_at(at, listener, *volume),
+            Some(at) => placed_at_by(at, listener, *volume, factor),
             None => placed(0, 0, *volume),
         };
+        let volume = volume.min(most);
         if volume <= 0.0 {
             continue;
         }
@@ -725,6 +770,25 @@ mod tests {
         close(original(-149, -927), (0.0, 0.515));
         close(original(0, 7), (0.746, 0.46));
         assert_eq!(placed(0, 0, Listener::default()), (1.0, 0.0));
+    }
+
+    #[test]
+    fn a_gunshot_grows_louder_with_its_distance_and_falls_silent_past_the_records() {
+        // The original's volume at the factor 5, zoom 1 (docs/re/sound.md, "A gunshot against a
+        // plain sample"), along the screen's level: `distance(x, 0)` is `⌊(1,007 x + 512) / 1,024⌋`.
+        let at = |x: i32| placed_by(x, 0, Listener::default(), GUNFIRE_FACTOR).0 * NEAR_VOLUME;
+        assert!((at(0) - 0.75).abs() < 1e-6);
+        // 450 pixels away: 0.75 + 1.75 · 450 / 2,250.
+        let d = distance(458, 0);
+        assert_eq!(d, 450);
+        assert!((at(458) - 1.1).abs() < 1e-3, "{}", at(458));
+        // 1,200 pixels away, the records' reach: 2.24 times a plain sample at the listener.
+        assert_eq!(distance(1_220, 0), 1_200);
+        assert!((at(1_220) - 1.683_333).abs() < 1e-3, "{}", at(1_220));
+        assert_eq!(at(1_222), 0.0);
+        // A plain sample is silent from 900 pixels.
+        assert_eq!(placed_by(916, 0, Listener::default(), 1.0).0, 0.0);
+        assert!(placed_by(905, 0, Listener::default(), 1.0).0 > 0.0);
     }
 
     #[test]
