@@ -1492,12 +1492,19 @@ fn step_out(
 /// How long the hero lies dead before it rises again, in seconds.
 const LIES: f32 = 5.0;
 
-/// How long the fallen hero has lain.
+/// How long the fallen hero has lain, and whether it lays its blood puddle as its dying clip ends
+/// (#3082).
 #[derive(Component)]
-pub struct Fallen(f32);
+pub struct Fallen {
+    lain: f32,
+    puddle: bool,
+}
 
 /// The hero at health 0 (`fight`, the AI's state 9): it stops, its attack ends, it plays one of
-/// its dying clips once and lies there; after five seconds it rises with its health full, paying
+/// its dying clips once and lies there; with the violence on, a hero of a gib set that bleeds
+/// lays its blood puddle as that clip ends, as any body lays its own at the first tick of lying
+/// after its clip's end (`0x53FC5C`, `bodies::Puddles`, #3082), none where it rises first; after
+/// five seconds it rises with its health full, paying
 /// a share of its gold by the difficulty, the game's (`0x53E4A8`, #976, #1086), at its home
 /// where the scripts gave it one, on its floor (`sdk_ENGINE_TP` at `0x5413ED`, #974), else at
 /// the game's start.
@@ -1508,14 +1515,17 @@ pub struct Fallen(f32);
 pub fn fall(
     mut commands: Commands,
     time: Res<Time>,
-    hero: Res<Hero>,
-    clips: Option<Res<Clips>>,
+    (hero, clips): (Res<Hero>, Option<Res<Clips>>),
     (speed, mut pack, home, difficulty, mut tally): (
         Res<GameSpeed>,
         Option<ResMut<crate::pickup::Pack>>,
         Option<Res<crate::scripts::HeroHome>>,
         Option<Res<crate::game::Difficulty>>,
         Option<ResMut<crate::statistics::Tally>>,
+    ),
+    (settings, gibs): (
+        Option<Res<crate::settings::Settings>>,
+        Option<Res<crate::blood_fountains::Gibs>>,
     ),
     mut bodies: Query<(
         Entity,
@@ -1543,7 +1553,16 @@ pub fn fall(
                     crate::making::Playing,
                     crate::pickup::Picking,
                 )>()
-                .insert(Fallen(0.0));
+                .insert(Fallen {
+                    lain: 0.0,
+                    puddle: settings
+                        .as_deref()
+                        .is_some_and(|settings| settings.gameplay.violence)
+                        && opensacred_rules::undead::puddles(
+                            hero.creature,
+                            gibs.as_deref().map_or(0, |gibs| gibs.of(hero.creature)),
+                        ),
+                });
             let index = usize::try_from(dies.choice).unwrap_or(0) % clips.dying.len().max(1);
             if let (Some((mut player, mut transitions)), Some(&node)) =
                 (player, clips.dying.get(index))
@@ -1555,8 +1574,25 @@ pub fn fall(
             info!("hero: the hero falls");
             continue;
         };
-        fallen.0 += time.delta_secs();
-        if fallen.0 < LIES {
+        fallen.lain += time.delta_secs();
+        // Its puddle at the first tick of lying past its dying clip's end, at once where it
+        // plays none (`0x53FC5C`).
+        if fallen.puddle && fallen.lain >= opensacred_rules::undead::FIRST_LYING_TICK {
+            let index = usize::try_from(dies.choice).unwrap_or(0) % clips.dying.len().max(1);
+            let ended = match (player.as_ref(), clips.dying.get(index)) {
+                (Some((player, _)), Some(&node)) => player
+                    .animation(node)
+                    .is_none_or(bevy::animation::ActiveAnimation::is_finished),
+                _ => true,
+            };
+            if ended {
+                fallen.puddle = false;
+                commands
+                    .entity(entity)
+                    .insert(crate::bodies::Puddles(hero.creature));
+            }
+        }
+        if fallen.lain < LIES {
             continue;
         }
         match home.as_ref().and_then(|home| home.0) {

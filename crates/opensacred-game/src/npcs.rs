@@ -12742,6 +12742,24 @@ pub(crate) fn die(
     }
 }
 
+/// Whether the dying clip that `dies` chose of `npc` has ended, as its `+0x14` bit `0x2000000`
+/// clears once its clip has ended (docs/re/fight.md, "The bodies' end", #3082): at once where it
+/// plays none.
+pub(crate) fn dying_ended(npc: &Npc, dies: &Dies, players: &Query<&AnimationPlayer>) -> bool {
+    let (Some(graph), Some(player)) = (&npc.graph, npc.player) else {
+        return true;
+    };
+    let index = usize::try_from(dies.choice).unwrap_or(0) % graph.dying.len().max(1);
+    let Some(&node) = graph.dying.get(index) else {
+        return true;
+    };
+    players
+        .get(player)
+        .ok()
+        .and_then(|player| player.animation(node))
+        .is_none_or(bevy::animation::ActiveAnimation::is_finished)
+}
+
 /// An NPC that strikes at `target` (the attack action 3, `0x4E4CF0`): one of its attack's clips,
 /// chosen by `choice`, once, which hits at its fractions (`0x4EA1F0`); or that shoots at it (the
 /// action 5, `0x4DCB80`), the clip at its attack speed times its chain's factor (`+0x210`), whose
