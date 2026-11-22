@@ -286,9 +286,10 @@ fn engage(
         MessageWriter<crate::sfx::Blow>,
         MessageWriter<crate::sfx::Gunfire>,
     ),
-    (difficulty, arts): (
+    (difficulty, arts, the_hero): (
         Option<Res<crate::game::Difficulty>>,
         Option<Res<crate::arts::HeroArts>>,
+        Option<Res<crate::hero::Hero>>,
     ),
 ) {
     let Some(clips) = clips else {
@@ -574,9 +575,13 @@ fn engage(
             .get(clip)
             .map_or(1.0, AnimationClip::duration)
             .max(0.01);
+        // The Dwarf's sword strike that begins the attack at its share (`0x4E5229`, #3353).
+        let share = the_hero.as_ref().map_or(1.0, |the_hero| {
+            minds::strike_clip_share(the_hero.creature, class, !attack.spoke)
+        });
         transitions
             .play(&mut player, *node, blend)
-            .set_speed(speed.0 * rate(bolt));
+            .set_speed(speed.0 * rate(bolt) * if bolt.is_some() { 1.0 } else { share });
         attack.asked = false;
         attack.phase = Phase::Deciding;
         // The attack's first strike speaks (`0x4E52D1`, the action's sub-state 0); the strikes it
