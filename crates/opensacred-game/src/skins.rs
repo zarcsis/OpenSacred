@@ -23,7 +23,11 @@
 //! (`npcs::Vision`, #3064), wears its look for good, its model never drawn
 //! plain (`0x44A9D0`'s state 22 or 23, `0x40C320`): its texture in a grey that pulses by the real
 //! clock, times twice the vision's texture taken by its normals, unlit and added to the frame
-//! (`models::Pass::Vision`). The items it wears,
+//! (`models::Pass::Vision`). A creature that `CreateNPC`'s `0x8D` makes emerges in a glow, the
+//! state 13 (#3074; docs/re/effects.md, "The emerging glow"): its model drawn again in white, unlit
+//! and added, in a grey rising by 0.3 a second to full and falling by 0.2 a second to nothing
+//! (`opensacred_rules::spells::emerging_glow`), its own meshes and their copies of a translucent
+//! texture and of the effect not drawn while it rises, its shadow as ever. The items it wears,
 //! merged onto its model (`GrannyWearSequence`), take the skin with it; those it holds in a hand or
 //! carries on its back, objects of their own, keep their looks.
 
@@ -36,9 +40,9 @@ use bevy::mesh::MeshTag;
 use bevy::mesh::skinning::SkinnedMesh;
 use bevy::prelude::*;
 use opensacred_rules::spells::{
-    CROSS_SKIN_SCALE, CROSS_SKIN_TEXTURE, GLOW_SKIN_SCROLL, GLOW_SKIN_TEXTURE, LAVA_SKIN_TEXTURE,
-    SKIN_BLINK, SPEED_SKIN_TEXTURE, STONED_TEXTURE, WATER_SKIN_TEXTURE, cross_skin_grey,
-    lava_skin_grey, skin_shows, vision_grey,
+    CROSS_SKIN_SCALE, CROSS_SKIN_TEXTURE, EMERGING_FALLS, EMERGING_RISES, GLOW_SKIN_SCROLL,
+    GLOW_SKIN_TEXTURE, LAVA_SKIN_TEXTURE, SKIN_BLINK, SPEED_SKIN_TEXTURE, STONED_TEXTURE,
+    WATER_SKIN_TEXTURE, cross_skin_grey, emerging_glow, lava_skin_grey, skin_shows, vision_grey,
 };
 
 use crate::blended::Layer;
@@ -48,8 +52,8 @@ use crate::models::{Anchors, ModelMaterial, Pass, in_order};
 
 /// A skin over a creature's model: the fire skin's lava and the quickening's speed (the state
 /// 10), the crusader's strength's crosses (6), the stone skin's glow (7, then 8), the stone's (9),
-/// the water form's (1, then 3) or a vision's look of its texture (the states 22 and 23), which
-/// the model wears in place of its own look.
+/// the water form's (1, then 3), a vision's look of its texture (the states 22 and 23), which the
+/// model wears in place of its own look, or the emerging glow (13).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Overlay {
     Lava,
@@ -59,7 +63,11 @@ pub(crate) enum Overlay {
     Stone,
     Water,
     Vision(&'static str),
+    Emerging,
 }
+
+/// The emerging glow's seconds in all.
+pub(crate) const EMERGING_SECONDS: f32 = EMERGING_RISES + EMERGING_FALLS;
 
 impl Overlay {
     /// The texture its model is drawn in.
@@ -72,6 +80,8 @@ impl Overlay {
             Self::Stone => STONED_TEXTURE,
             Self::Water => WATER_SKIN_TEXTURE,
             Self::Vision(texture) => texture,
+            // `DUMMYA_16`, white whole, which the glow's grey alone stands for.
+            Self::Emerging => "DUMMYA_16",
         }
     }
 
@@ -107,6 +117,10 @@ struct Skin {
     swapped: Vec<(Entity, Handle<ModelMaterial>)>,
     worn: Vec<Handle<ModelMaterial>>,
     wearing: bool,
+    /// The emerging glow's bearer's own meshes with the layers they are drawn in, which they
+    /// leave while it rises, and whether they are left.
+    own: Vec<(Entity, Option<RenderLayers>)>,
+    unseen: bool,
 }
 
 impl Skin {
@@ -121,6 +135,31 @@ impl Skin {
             swapped: Vec::new(),
             worn: Vec::new(),
             wearing: true,
+            own: Vec::new(),
+            unseen: false,
+        }
+    }
+
+    /// Takes its bearer's own meshes out of every layer (`out`) or puts them back into theirs.
+    fn unseen(&mut self, commands: &mut Commands, out: bool) {
+        if self.unseen == out {
+            return;
+        }
+        self.unseen = out;
+        for (mesh, layers) in &self.own {
+            if let Ok(mut mesh) = commands.get_entity(*mesh) {
+                match (out, layers) {
+                    (true, _) => {
+                        mesh.insert(RenderLayers::none());
+                    }
+                    (false, Some(layers)) => {
+                        mesh.insert(layers.clone());
+                    }
+                    (false, None) => {
+                        mesh.remove::<RenderLayers>();
+                    }
+                }
+            }
         }
     }
 
@@ -149,6 +188,8 @@ impl Skin {
             }
         }
         self.worn.clear();
+        self.unseen(commands, false);
+        self.own.clear();
     }
 }
 
@@ -226,10 +267,18 @@ fn texture(data: Option<&Data>, server: &AssetServer, overlay: Overlay) -> Optio
 fn dress(
     mut commands: Commands,
     mut skins: Query<(Entity, &mut Skin)>,
-    (children, meshes, held): (
+    (children, meshes, held, looks): (
         Query<&Children>,
         Query<ModelMesh>,
         Query<(), Or<(With<crate::npcs::Wielded>, With<crate::npcs::Shouldered>)>>,
+        Query<
+            (
+                Option<&RenderLayers>,
+                Has<crate::models::Fringe>,
+                Has<crate::models::WithEffect>,
+            ),
+            With<Mesh3d>,
+        >,
     ),
     (data, server, anchors): (Option<Res<Data>>, Res<AssetServer>, Res<Anchors>),
     mut materials: ResMut<Assets<ModelMaterial>>,
@@ -299,12 +348,34 @@ fn dress(
             }
         } else {
             let left = skin.left;
+            // The emerging glow is drawn once over each of its bearer's own meshes, not over their
+            // copies of a translucent texture and of the effect, which go out with them while it
+            // rises (`0x44ADA7`, #3074).
+            if overlay == Overlay::Emerging {
+                skin.own = own
+                    .iter()
+                    .map(|&mesh| {
+                        let layers = looks
+                            .get(mesh)
+                            .ok()
+                            .and_then(|(layers, ..)| layers.cloned());
+                        (mesh, layers)
+                    })
+                    .collect();
+                own.retain(|&mesh| {
+                    looks
+                        .get(mesh)
+                        .is_ok_and(|(_, fringe, with_effect)| !fringe && !with_effect)
+                });
+            }
             let material = skin
                 .material
                 .get_or_insert_with(|| {
                     let added = StandardMaterial {
                         base_color: grey(overlay, left, 0.0),
-                        base_color_texture: texture(data.as_deref(), &server, overlay),
+                        base_color_texture: (overlay != Overlay::Emerging)
+                            .then(|| texture(data.as_deref(), &server, overlay))
+                            .flatten(),
                         uv_transform: coordinates(overlay, 0.0),
                         unlit: true,
                         ..default()
@@ -357,6 +428,7 @@ fn grey(overlay: Overlay, left: f32, real: f64) -> Color {
         Overlay::Lava | Overlay::Speed => lava_skin_grey(left),
         Overlay::Cross => cross_skin_grey(real * 1000.0),
         Overlay::Vision(_) => vision_grey(real * 1000.0),
+        Overlay::Emerging => emerging_glow(EMERGING_SECONDS - left).0,
         Overlay::Glow | Overlay::Stone | Overlay::Water => 1.0,
     };
     Color::srgb(grey, grey, grey)
@@ -376,9 +448,12 @@ fn coordinates(overlay: Overlay, real: f64) -> Affine2 {
             let scroll = scroll as f32;
             Affine2::from_translation(Vec2::splat(scroll))
         }
-        Overlay::Lava | Overlay::Speed | Overlay::Stone | Overlay::Water | Overlay::Vision(_) => {
-            Affine2::IDENTITY
-        }
+        Overlay::Lava
+        | Overlay::Speed
+        | Overlay::Stone
+        | Overlay::Water
+        | Overlay::Vision(_)
+        | Overlay::Emerging => Affine2::IDENTITY,
     }
 }
 
@@ -412,6 +487,11 @@ fn run(
             skin.undress(&mut commands);
             skin.dressed = false;
             continue;
+        }
+        // The emerging glow's bearer unseen while it rises (`0x44ADA7`, #3074).
+        if skin.overlay == Overlay::Emerging && skin.dressed {
+            let rises = emerging_glow(EMERGING_SECONDS - skin.left).1;
+            skin.unseen(&mut commands, rises);
         }
         if skin.blinking {
             // The water form's look and its plain model in turns.

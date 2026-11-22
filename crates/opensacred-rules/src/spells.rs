@@ -367,6 +367,31 @@ pub const STONED_STATE: u8 = 9;
 pub const STONED_TEXTURE: &str = "FREEZE_STONE01";
 pub const STONED_MODEL: &str = "FREEZE_STONE.GRN";
 
+/// The emerging glow's seconds of rising, at 0.3 a second to 1, and of falling, at 0.2 a second
+/// to 0 (`0x44A520`'s case 13; docs/re/effects.md, "The emerging glow", #3074).
+pub const EMERGING_RISES: f32 = 1.0 / 0.3;
+pub const EMERGING_FALLS: f32 = 1.0 / 0.2;
+
+/// The level of the emerging glow over a creature that `CreateNPC`'s `0x8D` made, `seconds` after
+/// its making, and whether it is still in its first phase, in which its model is not drawn
+/// (`0x44A520`, `0x44ADA7`): rising by 0.3 a second to 1 over [`EMERGING_RISES`], then falling by
+/// 0.2 a second to 0 over [`EMERGING_FALLS`]; its grey `⌊255·level⌋` of 255.
+pub fn emerging_glow(seconds: f32) -> (f32, bool) {
+    let rises = seconds < EMERGING_RISES;
+    let level = if rises {
+        0.3 * seconds
+    } else {
+        (1.0 - 0.2 * (seconds - EMERGING_RISES)).max(0.0)
+    };
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a grey of 0 to 255, truncated as `_ftol` does"
+    )]
+    let grey = (255.0 * level.clamp(0.0, 1.0)) as u8;
+    (f32::from(grey) / 255.0, rises)
+}
+
 /// The grey by which the skin of lava's pass adds its texture over its bearer's model at `left`
 /// seconds still to run (`0x44AD7B`): `128 + 64·sin(4·left)` truncated, of 255, so that it pulses
 /// between a quarter and three quarters about every 1.6 s.
@@ -1795,6 +1820,22 @@ mod tests {
             (498.0, 500.0)
         );
         assert!(made(FIREBALL) && made(REIKI) && !made(6));
+    }
+
+    #[test]
+    fn the_emerging_glow_rises_over_a_third_of_ten_seconds_and_falls_over_five() {
+        // Unseen at its making, a grey of 76 after 1 s, in its first phase.
+        assert_eq!(emerging_glow(0.0), (0.0, true));
+        assert_eq!(emerging_glow(1.0), (76.0 / 255.0, true));
+        assert_eq!(emerging_glow(3.3), (252.0 / 255.0, true));
+        // Its second phase at full, then a fifth of it a second down, the grey truncated.
+        assert_eq!(emerging_glow(EMERGING_RISES), (1.0, false));
+        assert_eq!(emerging_glow(EMERGING_RISES + 2.5), (127.0 / 255.0, false));
+        assert_eq!(
+            emerging_glow(EMERGING_RISES + EMERGING_FALLS + 1.0),
+            (0.0, false)
+        );
+        assert!((EMERGING_RISES + EMERGING_FALLS - 8.333_333).abs() < 1e-4);
     }
 
     #[test]
