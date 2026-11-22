@@ -14,7 +14,8 @@ use crate::hero::Body;
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Hum(pub u32);
 
-/// A hum's volume where it is not 1: the torches' 0.4 (`torches`).
+/// A hum's volume where it is not 1: the torches' 0.4 (`torches`), which the original passes as the
+/// place's factor rather than a share of the volume (#3331).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Loudness(pub f32);
 
