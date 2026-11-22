@@ -1569,7 +1569,7 @@ fn pursue(
                     commands
                         .entity(entity)
                         .remove::<Walk>()
-                        .insert(Strikes::at(aimed, choice));
+                        .insert(Strikes::at(aimed, choice).opening(!chains));
                 }
             }
             Pursues::BacksOff { to, runs } => {

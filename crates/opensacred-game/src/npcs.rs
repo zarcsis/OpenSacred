@@ -12686,6 +12686,8 @@ pub struct Strikes {
     playing: Option<(AnimationNodeIndex, f32, [f32; 2])>,
     /// How many hits it has struck.
     struck: u8,
+    /// Whether the strike begins its attack, the action's sub-state 0, rather than chaining.
+    opens: bool,
     /// Whether a shot that plays no clip ([`BoltClip::Kept`]) has seen its start's frame, and the
     /// world's ticks since its bolts left.
     begun: bool,
@@ -12703,9 +12705,15 @@ impl Strikes {
             fires: None,
             playing: None,
             struck: 0,
+            opens: false,
             begun: false,
             after: 0,
         }
+    }
+
+    /// The strike, `opens` where it begins its attack rather than chaining onto one.
+    pub fn opening(self, opens: bool) -> Self {
+        Self { opens, ..self }
     }
 
     /// A shot at `target`, with the clip `choice` of its attack's, at its attack speed times
@@ -12842,7 +12850,7 @@ fn strike(
             Has<Walk>,
             &GlobalTransform,
             Option<&fight::Combat>,
-            Option<&crate::ai::Mind>,
+            (Option<&crate::ai::Mind>, Option<&Arms>),
         ),
         (Without<Dies>, Without<crate::making::Knocked>),
     >,
@@ -12869,7 +12877,7 @@ fn strike(
         MessageWriter<crate::sfx::Gunfire>,
     ),
 ) {
-    for (entity, mut npc, mut strikes, walking, at, combat, mind) in &mut strikers {
+    for (entity, mut npc, mut strikes, walking, at, combat, (mind, arms)) in &mut strikers {
         // A shot of bolts takes its bolt's clip, its stand-in or none ([`BoltClip`]).
         let bolt_clip = match (strikes.playing, strikes.bolt) {
             (None, Some(bolt)) => Some(bolt_clip(&mut npc, bolt, &data, (&gltfs, &mut graphs))),
@@ -12931,9 +12939,14 @@ fn strike(
             // A shot of bolts at its bolt's own rate by its attack speed, its chain started anew
             // as the creatures' decision sends it to each (`0x4DCB80`, `0x53A159`; seen: the ice
             // druid's BFG's at 2.1, its attack speed 140, shot after shot).
+            // The Dwarf's sword strike that begins its attack at its share (`0x4E5229`, #3353).
+            let share = mind.map_or(1.0, |mind| {
+                let class = arms.map_or(0, |arms| arms.armed(Some(&*data)).class);
+                opensacred_rules::minds::strike_clip_share(mind.creature, class, strikes.opens)
+            });
             let rate = strikes
                 .bolt
-                .map_or(attack * chain, |bolt| bolt.rate(attack));
+                .map_or(attack * chain * share, |bolt| bolt.rate(attack));
             transitions
                 .play(&mut player, node, BLEND)
                 .set_speed(speed.0 * rate);

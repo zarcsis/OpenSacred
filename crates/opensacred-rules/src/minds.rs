@@ -3369,6 +3369,19 @@ pub fn size(creature: u32, armed: bool) -> u32 {
     }
 }
 
+/// The share of its rate at which a strike's clip plays, of a creature of the type `creature`
+/// holding what is of the class `class`, where `opens` the strike begins its attack (the attack
+/// action's sub-state 0) rather than chaining onto one: the Dwarf's with a weapon of the class 2
+/// at 0.65, every other at its whole rate (`0x4E5229`–`0x4E5252`, the float `0x890F50`;
+/// docs/re/fight.md, "Melee: the AI's state 4", #3353).
+pub fn strike_clip_share(creature: u32, class: u8, opens: bool) -> f32 {
+    if opens && creature == crate::horses::DWARF && class == 2 {
+        0.65
+    } else {
+        1.0
+    }
+}
+
 /// The reach of two creatures of the sizes `size` and `other` ([`size`]): their mean, in whole
 /// units (`0x4DBC60`).
 pub fn reach(size: u32, other: u32) -> u32 {
@@ -4570,6 +4583,15 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+
+    #[test]
+    fn the_dwarfs_sword_strike_opens_at_its_share_of_the_rate() {
+        assert!((strike_clip_share(8, 2, true) - 0.65).abs() < f32::EPSILON);
+        // Chained, of another class or another type, at the whole rate.
+        assert!((strike_clip_share(8, 2, false) - 1.0).abs() < f32::EPSILON);
+        assert!((strike_clip_share(8, 1, true) - 1.0).abs() < f32::EPSILON);
+        assert!((strike_clip_share(2, 2, true) - 1.0).abs() < f32::EPSILON);
+    }
     use crate::spawning::Rng;
     use crate::ways::{CRITTER, HOSTILE, constructed};
 
