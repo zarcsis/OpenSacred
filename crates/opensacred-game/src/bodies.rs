@@ -12,8 +12,9 @@
 //! (781 at their vertices, [`Ends`]), the dummy with no effect, unless their flag, a death's
 //! function or a dialogue holds them. The undead of the class 5 and the bodies that burst end
 //! their own ways (`undead`). With the violence on, a body that bleeds lays a blood puddle under
-//! it at its first tick of lying (907, `marks::puddle`, #2516); a big demon's makes its death
-//! there instead, the violence on or off (919, `demon_deaths`, #2537).
+//! it at its first tick of lying past its dying clip's end (907, `marks::puddle`, #2516, #3082),
+//! the hero's too (`hero::fall`); a big demon's makes its death there instead, the violence on or
+//! off (919, `demon_deaths`, #2537).
 
 use bevy::prelude::*;
 use opensacred_rules::particles::{self, BodyEnd};
@@ -30,7 +31,8 @@ use crate::undead::{Bursts, Destroyed, gone};
 /// A body that lies: how long it has lain and how long it lies before it vanishes in its soul,
 /// what it is for its end at its first tick of lying ([`undead::at_once`]; what keeps it from the
 /// liquids' end and its stone tested at each tick), whether it then goes at once with no soul
-/// and whatever holds it, a medium spider's (#2504), and whether it lays a puddle then (#2516).
+/// and whatever holds it, a medium spider's (#2504), and whether it lays a puddle at the first
+/// tick of lying past its dying clip's end (#2516, #3082).
 #[derive(Component, Clone, Copy, Debug)]
 struct Lies {
     lain: f32,
@@ -42,9 +44,11 @@ struct Lies {
     demon: bool,
 }
 
-/// A body to lay its blood puddle under ([`puddle`]).
+/// A body to lay its blood puddle under ([`puddle`]), of its creature's type, whose gib set
+/// colours it: an NPC's at its first tick of lying, the hero's as its dying clip ends
+/// (`hero::fall`, #3082).
 #[derive(Component, Clone, Copy, Debug)]
-struct Puddles;
+pub(crate) struct Puddles(pub(crate) u32);
 
 /// The dice of the bursts' rolls (`rand()`).
 #[derive(Resource)]
@@ -61,7 +65,7 @@ impl Default for Dice {
 /// lying, which its dialogue held as it went (#2457), has lain its time already and lays no
 /// puddle again (`+0x120`, kept in the saves). With the violence on (`0x819FD0`), a body that
 /// does not rise again (`+0x2B7` bit 8) and that bleeds (`opensacred_rules::undead::puddles`)
-/// lays its puddle at its first tick of lying (`0x53FC5C`).
+/// lays its puddle at its first tick of lying past its dying clip's end (`0x53FC5C`, #3082).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -183,7 +187,9 @@ fn vanish(
             Has<RisesAgain>,
             Has<crate::followers::Follower>,
         ),
+        (Option<&Npc>, Option<&Dies>),
     )>,
+    players: Query<&AnimationPlayer>,
 ) {
     for (
         entity,
@@ -192,16 +198,22 @@ fn vanish(
         at,
         (on_death, effects),
         (talks, stabled, trades, rises, follows),
+        (npc, dies),
     ) in &mut lying
     {
         lies.lain += time.delta_secs();
         if lies.lain < undead::FIRST_LYING_TICK {
             continue;
         }
-        // Its puddle first, whatever becomes of it (`0x53FC5C`, before `0x540037`).
-        if lies.puddle {
+        // Its puddle first, whatever becomes of it, once its dying clip has ended (`0x53FC5C`,
+        // before `0x540037`): none where it ends at once before.
+        let ended = match (npc, dies) {
+            (Some(npc), Some(dies)) => crate::npcs::dying_ended(npc, dies, &players),
+            _ => true,
+        };
+        if lies.puddle && ended {
             lies.puddle = false;
-            commands.entity(entity).insert(Puddles);
+            commands.entity(entity).insert(Puddles(corpse.creature));
         }
         // A big demon's death in its puddle's place, with the violence on or off (`0x53FC5C`).
         if lies.demon {
@@ -260,7 +272,7 @@ fn vanish(
 /// too, in list 0 under the floor's sprites, where it does not show (#3285).
 fn puddle(
     mut commands: Commands,
-    puddles: Query<(Entity, &Corpse, Option<&crate::blood_fountains::Bled>), Added<Puddles>>,
+    puddles: Query<(Entity, &Puddles, Option<&crate::blood_fountains::Bled>), Added<Puddles>>,
     (children, bones, worn): (
         Query<&Children>,
         Query<(&Name, &GlobalTransform)>,
@@ -272,7 +284,7 @@ fn puddle(
         ResMut<Dice>,
     ),
 ) {
-    for (entity, corpse, bled) in &puddles {
+    for (entity, &Puddles(creature), bled) in &puddles {
         commands.entity(entity).remove::<Puddles>();
         let name = bled.map_or(undead::PUDDLE_BONE, |bled| bled.0);
         let at = crate::making::bone_entity(entity, &[name], &children, (&bones, &worn))
@@ -284,15 +296,12 @@ fn puddle(
                 .standing(at.x, at.z, None)
                 .map(|y| Vec3::new(at.x, y, at.z))
         });
-        let set = gibs.as_deref().map_or(0, |gibs| gibs.of(corpse.creature));
+        let set = gibs.as_deref().map_or(0, |gibs| gibs.of(creature));
         let (Some(place), Some(texture)) = (ground, undead::puddle_texture(set, &mut dice.0))
         else {
             continue;
         };
-        debug!(
-            "bodies: {entity}, a {}, lays a puddle of {texture} under its {name}",
-            corpse.creature
-        );
+        debug!("bodies: {entity}, a {creature}, lays a puddle of {texture} under its {name}");
         crate::marks::puddle(&mut commands, place, texture);
     }
 }

@@ -15,7 +15,7 @@
 //! effect 856's (`fx::last_burning`, #1262); a skeleton warrior that loses its head throws it off,
 //! an item that lies where it lands (#1202). A burst makes its cloud in its gib set's colour
 //! (#1264), and under `[gameplay] violence` its body parts and its blood (`body_parts`, #1935);
-//! an arm's bone, which the original makes only under `VIOLENCE` too, is not drawn. A body
+//! an arm that a warrior loses shows no bone, as in the original (#3082). A body
 //! hidden so, or one that vanishes as it has lain its time (`bodies`, #2501), goes 25, 10 or 7 s
 //! after its death by the options' detail (`0x553DC0`, #2352), unless a death's function still
 //! stands for it or it has a dialogue.
@@ -329,8 +329,8 @@ fn stand(world: &mut World, corpse: Entity, hostile: bool) {
 /// takes its place on its cell and plays its dying clip `choice` (a death at a creature's hands
 /// where `by_creature`), to lie and rise as [`rise`] raises it; a head it loses it throws off
 /// as an item of damages rolled by its level (`0x550580`, `undead::HEAD`,
-/// `crate::drops::fling_head`), from its place (**hypothesis** for its neck's point), an arm's
-/// bone, which does not stay, not made.
+/// `crate::drops::fling_head`), from its place (**hypothesis** for its neck's point); an arm's
+/// bone the original never makes whole, an object of no model that nothing draws (#3082).
 pub fn change(world: &mut World, fallen: Entity, rises: Rises, (choice, by_creature): (u32, bool)) {
     let Some(into) = rises.into else {
         return;
