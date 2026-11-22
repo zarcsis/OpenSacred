@@ -1523,7 +1523,8 @@ pub struct Object {
 
 /// An object of the start's that its sector's `Enter` made again from the interpreter's list
 /// `+0x364` (`0x4939F0` at `0x494924`), flagged `0x4000` (`+0x14`): a creature that went for it as
-/// a door in its way opens it not (`0x53BF19`, `ai::open`, #2292).
+/// a door in its way opens it not (`0x53BF19`, `ai::open`, #2292). The original flags an emptied
+/// container alone so (docs/re/fight.md, "Doors in the way"), no door (#3398).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct MadeAgain;
 
@@ -13236,9 +13237,10 @@ fn first_fight(
 /// the level's setter (`0x564D60`, with `a` 1 and `b` 0) gives it their level held at the sector
 /// it stands in (`opensacred_rules::fight::Rank::held`) and makes its values anew with its health
 /// refilled, its items as they are, even where the hold keeps its level, as the original's does
-/// at each such kill, and bursts it into its sparks (`0x57F504`, `level_sparks`, #2762). The
-/// owner's share (`+0x1EC`) is not followed; a blue potion's effect adds to the kill's experience
-/// (#1353).
+/// at each such kill, and bursts it into its sparks (`0x57F504`, `level_sparks`, #2762). Not
+/// followed: the same share of a rider's mount or a horse's rider (`+0x1EC`, #3393), and the
+/// master's taking of a follower's kill (#3394); a blue potion's effect adds to the kill's
+/// experience (#1353).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
