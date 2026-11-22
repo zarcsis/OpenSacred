@@ -40,6 +40,8 @@ The load (`0x61B6F0`, `---LOADING SAVEGAME.PAK`) refuses a save of another versi
 
 So the original's save keeps the whole world as it stands: every creature and item of the object manager where it is, the sectors' states, the blood, the particle systems, the weather, the calendar and the scripts' state, beside the hero.
 Which sectors the object manager and the world keep (all the world's, or those visited) is not read; that a creature killed far away stays dead after a load is a **hypothesis** to check against the running original (a creature killed, the hero far away, a save, a load, the hero back).
+Read 2026-11-22 for #3175 (**confirmed** by code): the object manager writes every object of its table by its own virtual save (`0x602300`), those destroyed among them with their mark `+0x14` bit `0x10`, which its load puts back out of the world (`0x602D10`); the world writes every sector's record (`0x63B580`, `0x623240`): its flags word `+0x30`, 128 bytes at `+0x180`, `+0x200`, its list of 76-byte entries at `+0x204`, and the kept creatures of its fills with the time since they were kept, where that is below a bound.
+The flags word's bit `0x800`, a sector whose `Enter` has run since it came into the 3 × 3, comes back with it, and the walk of the 3 × 3 runs a sector's `Enter` only where the bit is clear (`0x6261A0`), so a load runs no `Enter` of the sectors that were about the hero at the save: their `Enter`s' creatures and objects come back from the save as they stood, the scripts' traps among them (docs/re/effects.md, "The scripts' traps").
 
 ## When it saves
 
