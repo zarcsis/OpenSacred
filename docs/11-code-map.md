@@ -141,6 +141,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/blow_sights.rs`: The blows' sights
 - `crates/opensacred-game/src/bodies.rs`: The bodies' end
 - `crates/opensacred-game/src/body_parts.rs`: The body parts of a creature's burst
+- `crates/opensacred-game/src/bolt_hands.rs`: A creature's hands under the Seraphim's effects 16 and 17
 - `crates/opensacred-game/src/bolt_looks.rs`: The bolts' looks
 - `crates/opensacred-game/src/bolt_trails.rs`: The looks of the Mage's whirlwind and of the fire bolt
 - `crates/opensacred-game/src/bolts.rs`: The bolts

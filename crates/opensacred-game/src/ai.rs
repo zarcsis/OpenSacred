@@ -945,6 +945,7 @@ fn pursue(
                 Option<&crate::creature_casts::Summoned>,
                 Option<&crate::followers::Follower>,
                 Option<&mut crate::npcs::ShotEnded>,
+                Option<&crate::bolt_hands::BoltHands>,
             ),
         ),
         (Without<Body>, Without<crate::making::Knocked>),
@@ -1064,7 +1065,7 @@ fn pursue(
     // The hero's followers, which a magician's cast takes for the hero (#1869).
     let hero_followers: std::collections::HashSet<Entity> = creatures
         .iter()
-        .filter(|(.., (_, _, _, follower, _))| {
+        .filter(|(.., (_, _, _, follower, ..))| {
             follower.is_some_and(|follower| follower.master == the_hero)
         })
         .map(|(entity, ..)| entity)
@@ -1133,7 +1134,7 @@ fn pursue(
         layered,
         ended,
         effects,
-        (rank, casting, _, _, shot_ended),
+        (rank, casting, _, _, shot_ended, hands),
     ) in &mut creatures
     {
         mind.rest(dt);
@@ -1602,18 +1603,26 @@ fn pursue(
                     group: crate::voices::ATTACK,
                 });
                 // Its bolts under the Seraphim's effect 16, else 17, in place of its arrow
-                // (`0x4DCB80`, #2899).
-                let bolt = effects.and_then(|effects| {
-                    opensacred_rules::arts::Bolt::of(
-                        effects.holds(opensacred_rules::arts::BFG),
-                        effects.holds(opensacred_rules::arts::RAILGUN),
-                        None,
-                    )
-                });
-                commands
-                    .entity(entity)
-                    .remove::<Walk>()
-                    .insert(Strikes::shot(aimed, choice, chain).bolts(bolt));
+                // (`0x4DCB80`, #2899): the clip the effect 16's where it holds it, the bolts the
+                // effect 17's where it holds it, else the effect 16's while its staff is in its
+                // hand, else none (`0x4DCD70`, `0x4DD92F`, `0x4DE38C`; #3030).
+                let holds = |effect| effects.is_some_and(|effects| effects.holds(effect));
+                let (bfg, railgun) = (
+                    holds(opensacred_rules::arts::BFG),
+                    holds(opensacred_rules::arts::RAILGUN),
+                );
+                let bolt = opensacred_rules::arts::Bolt::of(bfg, railgun, None);
+                let staff = hands.is_some_and(|hands| hands.staff);
+                let fires = if railgun {
+                    Some(opensacred_rules::arts::Bolt::Railgun)
+                } else {
+                    (bfg && staff).then_some(opensacred_rules::arts::Bolt::Bfg)
+                };
+                commands.entity(entity).remove::<Walk>().insert(
+                    Strikes::shot(aimed, choice, chain)
+                        .bolts(bolt)
+                        .firing(fires),
+                );
             }
             // It stops where it stands and changes its weapons (`npcs::rearm`).
             Pursues::ToMelee(weapon) => {

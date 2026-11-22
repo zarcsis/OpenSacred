@@ -12673,8 +12673,10 @@ pub struct Strikes {
     choice: u32,
     /// A shot's factor of its chain, none for a strike.
     shot: Option<f32>,
-    /// A shot's bolts in place of its arrow, by the effect 16 or 17 it holds (#2899).
+    /// A shot's bolts in place of its arrow, by the effect 16 or 17 it holds (#2899): the bolt
+    /// whose clip it plays, and the bolt it looses, none where it looses nothing (#3030).
     bolt: Option<opensacred_rules::arts::Bolt>,
+    fires: Option<opensacred_rules::arts::Bolt>,
     /// The clip it plays, its length and the fractions at which it hits, once it plays.
     playing: Option<(AnimationNodeIndex, f32, [f32; 2])>,
     /// How many hits it has struck.
@@ -12693,6 +12695,7 @@ impl Strikes {
             choice,
             shot: None,
             bolt: None,
+            fires: None,
             playing: None,
             struck: 0,
             begun: false,
@@ -12713,7 +12716,18 @@ impl Strikes {
     /// #2899): its bolt's own clip at its own rate where the model has it, else its stand-in or
     /// none ([`BoltClip`]), and the bolts at its first fraction in place of an arrow.
     pub fn bolts(self, bolt: Option<opensacred_rules::arts::Bolt>) -> Self {
-        Self { bolt, ..self }
+        Self {
+            bolt,
+            fires: bolt,
+            ..self
+        }
+    }
+
+    /// Its bolts of the clip's `bolt`, looses `fires` (`0x4DCD70`, `0x4DD92F`, #3030): with
+    /// both effects the effect 16's clip and the effect 17's bolts, and the effect 16's bolt
+    /// only while its staff is in the right hand (`0x4DE38C`), none else.
+    pub fn firing(self, fires: Option<opensacred_rules::arts::Bolt>) -> Self {
+        Self { fires, ..self }
     }
 
     /// Whether it is a shot, which a call to fight may reach in its course (`ai`, #3313).
@@ -12869,7 +12883,7 @@ fn strike(
         let Some((node, length, fractions)) = strikes.playing else {
             // No clip: its bolts at the first tick after its start, and the shot's end at the
             // second after them.
-            if let (Some(BoltClip::Kept), Some(bolt)) = (&bolt_clip, strikes.bolt) {
+            if let (Some(BoltClip::Kept), Some(_)) = (&bolt_clip, strikes.bolt) {
                 if !std::mem::replace(&mut strikes.begun, true) || tick.seconds.is_none() {
                     continue;
                 }
@@ -12879,11 +12893,13 @@ fn strike(
                     let toward = places
                         .get(strikes.target)
                         .map_or(at.translation(), |(target, ..)| target.translation());
-                    bolts.write(crate::bolts::Fire {
-                        shooter: entity,
-                        toward,
-                        bolt,
-                    });
+                    if let Some(bolt) = strikes.fires {
+                        bolts.write(crate::bolts::Fire {
+                            shooter: entity,
+                            toward,
+                            bolt,
+                        });
+                    }
                 } else {
                     strikes.after += 1;
                     if strikes.after >= 2 {
@@ -12941,16 +12957,19 @@ fn strike(
             };
         if due && strikes.shot.is_some() {
             strikes.struck += 1;
-            if let Some(bolt) = strikes.bolt {
-                // Its bolts toward its target's place (the FX events of `0x4DCB80`).
+            if strikes.bolt.is_some() {
+                // Its bolts toward its target's place (the FX events of `0x4DCB80`), none where it
+                // looses none (#3030).
                 let toward = places
                     .get(strikes.target)
                     .map_or(at.translation(), |(target, ..)| target.translation());
-                bolts.write(crate::bolts::Fire {
-                    shooter: entity,
-                    toward,
-                    bolt,
-                });
+                if let Some(bolt) = strikes.fires {
+                    bolts.write(crate::bolts::Fire {
+                        shooter: entity,
+                        toward,
+                        bolt,
+                    });
+                }
             } else {
                 blows.write(crate::sfx::Blow::Shot { shooter: entity });
                 shots.write(arrows::Loose {
@@ -13690,6 +13709,28 @@ impl Rearms {
         Self {
             away: vec![Hand::Right],
             takes: vec![(item, Hand::Right, None)],
+            disarmed: false,
+            wears: Vec::new(),
+        }
+    }
+
+    /// Its right hand emptied (slot 13): the staff of the Seraphim's effect 16 taken out as the
+    /// effect goes (`0x586D80`, `bolt_hands`, #3030).
+    pub fn empty_right() -> Self {
+        Self {
+            away: vec![Hand::Right],
+            takes: Vec::new(),
+            disarmed: false,
+            wears: Vec::new(),
+        }
+    }
+
+    /// Both its hands emptied (slots 12 and 13): the Seraphim's effect 17 come (`0x582D50`,
+    /// `bolt_hands`, #3030).
+    pub fn empty_hands() -> Self {
+        Self {
+            away: vec![Hand::Left, Hand::Right],
+            takes: Vec::new(),
             disarmed: false,
             wears: Vec::new(),
         }

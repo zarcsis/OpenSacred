@@ -34,6 +34,7 @@ mod blood_fountains;
 mod blow_sights;
 mod bodies;
 mod body_parts;
+mod bolt_hands;
 mod bolt_looks;
 mod bolt_trails;
 mod bolts;
@@ -543,6 +544,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         blow_sights::BlowSightsPlugin,
         bodies::BodiesPlugin,
         body_parts::BodyPartsPlugin,
+        bolt_hands::BoltHandsPlugin,
         bolt_looks::BoltLooksPlugin,
         bolt_trails::BoltTrailsPlugin,
         bolts::BoltsPlugin,
@@ -550,9 +552,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         bubble_prisons::BubblePrisonsPlugin,
         bubble_traps::BubbleTrapsPlugin,
         buildings::BuildingsPlugin,
-        burning_bones::BurningBonesPlugin,
     ))
     .add_plugins((
+        burning_bones::BurningBonesPlugin,
         burns::BurnsPlugin,
         busy_dialog::BusyDialogPlugin,
         butterflies::ButterfliesPlugin,
