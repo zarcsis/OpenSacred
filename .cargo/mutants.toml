@@ -22,4 +22,7 @@ exclude_re = [
     # exactly 1.7, which raises of 0.1 in f32 from 1.0 never reach (1.6000001, then 1.7000002;
     # #3313).
     'replace < with <= in Chain::raise$',
+    # Equivalent: a square's cells about a cell over the symmetric span `-r..=r`, so that `cell -
+    # d` gives the same cells as `cell + d` (#3359).
+    'replace \+ with - in square$',
 ]

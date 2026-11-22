@@ -8456,12 +8456,14 @@ pub fn walk(
         &mut Walk,
         &mut buildings::Layered,
         &mut crowd::InTheWay,
-        &Npc,
+        (&Npc, Option<&crate::ai::Mind>),
         Has<crate::followers::Follower>,
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
 ) {
-    for (entity, mut transform, mut walk, mut layered, mut way, npc, follows) in &mut walkers {
+    for (entity, mut transform, mut walk, mut layered, mut way, (npc, mind), follows) in
+        &mut walkers
+    {
         if still.contains(entity) {
             commands.entity(entity).remove::<Walk>();
             continue;
@@ -8528,6 +8530,10 @@ pub fn walk(
             .is_some_and(|horse| tramplers.contains(horse));
         let passes = flies || charging;
         let free = |cell, at| open(cell, at) && (passes || !crowd.stops(cell, at, entity, false));
+        // A wide walker's radius by its type: its line along a lane of its square, its search
+        // through cells whose corners within the radius pass too, but those it marked before
+        // (`0x4FAA60`, `0x4F9410`, `0x4FB20A`–`0x4FB2CC`; #3359).
+        let radius = mind.map_or(0, |mind| ways::radius(mind.creature));
         // Its leg and its course there, found as it sets out on the leg, anew off it (a stair's
         // landing) and at the leg's end short of its target, and again as it moves (#2175). The
         // leg is tested on the target's floor of the building there, else on the ground
@@ -8556,11 +8562,28 @@ pub fn walk(
             } else {
                 heights.on_floor(end, floor)
             });
+            let marks =
+                (radius > 0).then(|| ways::wide_marks(cell, end, radius, |at| free(at, level)));
+            let wide = |place: &((i32, i32), Floored)| {
+                let (cell, (at, ..)) = *place;
+                marks.as_ref().is_none_or(|marks| {
+                    marks.contains(&cell)
+                        || ways::wide_passes(cell, radius, |other| open(other, at))
+                })
+            };
             let neighbours = |place| {
-                let next = heights.floored_neighbours(place, (start.1, goal), open);
+                let mut next = heights.floored_neighbours(place, (start.1, goal), open);
+                next.retain(|place| wide(place));
                 paths::passable(next, end, |cell, (at, ..)| {
                     !passes && crowd.stops(cell, at, entity, false)
                 })
+            };
+            let lane = |cell, at| {
+                if radius == 0 {
+                    free(cell, at)
+                } else {
+                    ways::square_passes(cell, radius, |other| free(other, at))
+                }
             };
             let found = paths::course(
                 here,
@@ -8568,7 +8591,7 @@ pub fn walk(
                 leg,
                 Some(goal),
                 line,
-                |cell, (at, ..)| free(cell, at),
+                |cell, (at, ..)| lane(cell, at),
                 neighbours,
                 |(_, floor, _)| floor,
             )
@@ -8578,7 +8601,7 @@ pub fn walk(
                     found,
                     here,
                     start,
-                    |cell, (at, ..)| free(cell, at),
+                    |cell, (at, ..)| lane(cell, at),
                     neighbours,
                     |(_, floor, _)| floor,
                 ),
