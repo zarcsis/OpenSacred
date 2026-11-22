@@ -274,6 +274,7 @@ fn strike(
                 sure: false,
                 poison: false,
                 ward: false,
+                hurled: false,
             });
         }
     }
@@ -495,7 +496,8 @@ impl Volley {
 
 /// A creature's thrown dagger in flight: its arc's ends on the ground, its height, its time and
 /// the time flown, the level it flies on, its thrower and the one it strikes, the art's level and
-/// factor, its damages' terms and its size.
+/// factor, its damages' terms (the dagger's values, its thrower's attributes and type, and the
+/// factor) and its size.
 #[derive(Component)]
 struct Thrown {
     from: Vec2,
@@ -507,7 +509,9 @@ struct Thrown {
     thrower: Entity,
     target: Entity,
     art: (u32, f32),
-    damage: [[f32; 2]; opensacred_rules::fight::KINDS],
+    values: Option<fight::ItemValues>,
+    attributes: [f32; 6],
+    thrower_type: u32,
     times: f64,
     size: f32,
 }
@@ -599,9 +603,9 @@ fn volleys(
                 thrower: entity,
                 target: volley.target,
                 art: (level, factor),
-                damage: values.map_or([[0.0; 2]; opensacred_rules::fight::KINDS], |values| {
-                    values.hurled_damage(combat.attributes)
-                }),
+                values,
+                attributes: combat.attributes,
+                thrower_type: mind.creature,
                 times,
                 size,
             },
@@ -639,7 +643,13 @@ fn daggers(
     mut flying: Query<(Entity, &mut Transform, &mut Thrown)>,
     mut volleys: Query<&mut Volley>,
     targets: Query<
-        (&GlobalTransform, &Health, Option<&crate::hero::Size>),
+        (
+            &GlobalTransform,
+            &Health,
+            Option<&crate::hero::Size>,
+            Option<&fight::Holding>,
+            Option<&crate::riding::Seat>,
+        ),
         (With<crate::hero::Body>, Without<Thrown>),
     >,
 ) {
@@ -660,15 +670,27 @@ fn daggers(
         let struck = targets
             .get(flight.target)
             .ok()
-            .filter(|(place, health, size)| {
+            .filter(|(place, health, size, ..)| {
                 let size = size.map_or(minds::SIZE, |size| size.0);
                 health.current > 0
                     && (place.translation().xz() - at).length()
                         <= flight.size + crate::arrows::size(size)
-            })
-            .is_some();
-        if struck {
-            let fixed = arts::thrown_damage(&flight.damage, flight.times, &mut dice.0);
+            });
+        if let Some((.., holding, seat)) = struck {
+            // Its slots against the hero's class count in the hit (`0x56ACD0`, #3383): the
+            // heroes' side, a hero with a ranged weapon in hand, one on a horse.
+            let at = opensacred_rules::fight::HurledAt {
+                thrower: flight.thrower_type,
+                side: minds::HEROES,
+                ranged: holding.is_some_and(|holding| holding.0.ranged),
+                mounted: seat.and_then(crate::riding::Seat::ridden).is_some(),
+            };
+            let damage = flight
+                .values
+                .map_or([[0.0; 2]; opensacred_rules::fight::KINDS], |values| {
+                    values.hurled_damage(flight.attributes, Some(at))
+                });
+            let fixed = arts::thrown_damage(&damage, flight.times, &mut dice.0);
             debug!(
                 "creature_arts: {}'s dagger strikes {}, {:?}",
                 flight.thrower,
@@ -682,9 +704,11 @@ fn daggers(
                 ranged: false,
                 art: Some(flight.art.0),
                 fixed: Some(fixed),
+                // Sure: the arts' roll of the original's resolution is not followed (#3416).
                 sure: true,
                 poison: false,
                 ward: false,
+                hurled: true,
             });
         } else if share < 1.0 {
             continue;
@@ -768,7 +792,12 @@ mod tests {
             thrower,
             target,
             art: (3, 1.5),
-            damage: [[2.0, 4.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+            values: Some(fight::ItemValues {
+                damage: [[2.0, 4.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+                ..fight::ItemValues::default()
+            }),
+            attributes: [0.0; 6],
+            thrower_type: 0,
             times: 1.0,
             size: 50.0,
         }

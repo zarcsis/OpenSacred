@@ -230,6 +230,7 @@ fn fly(
                 sure: true,
                 poison: false,
                 ward: false,
+                hurled: false,
             });
         }
         ghost.cooldown = DRYAD_GHOST_BEAT;

@@ -2293,20 +2293,53 @@ impl Bonus {
     }
 }
 
+/// The class of opponents `0x80` of a bonus slot's condition: a creature with a ranged weapon in a
+/// hand (`0x54A2A0`) or of the type's mark 8 (docs/re/arts.md, "The art lines by id").
+const AGAINST_RANGED: u8 = 0x80;
+/// The class of opponents `0x81`: a creature with another at its `+0x1EC`, its mount or its rider.
+const AGAINST_MOUNTED: u8 = 0x81;
+
+/// The creature that a hurled item strikes, as the hurl's resolution weighs the item's bonus
+/// slots against it (`0x56ACD0` with an attacker, docs/re/arts.md, "The art lines by id", the
+/// damages of a hurled item): the thrower's type, whose bits `0x568B30` tests, and of the struck
+/// one its side (`+0x1F0`), whether it holds a ranged weapon or is of the type's mark 8, and
+/// whether it rides or is ridden.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HurledAt {
+    pub thrower: u32,
+    pub side: u8,
+    pub ranged: bool,
+    pub mounted: bool,
+}
+
+impl HurledAt {
+    /// Whether a slot against a class of opponents counts against it: its condition's low byte
+    /// its side, `0x80` for one ranged, `0x81` for one mounted, where its bits 8 to 11 admit the
+    /// thrower.
+    fn counts(self, bonus: Bonus) -> bool {
+        let [class, _] = bonus.condition.to_le_bytes();
+        bonus.admits(self.thrower)
+            && (class == self.side
+                || (class == AGAINST_RANGED && self.ranged)
+                || (class == AGAINST_MOUNTED && self.mounted))
+    }
+}
+
 impl ItemValues {
     /// Each kind's least and most damage of the item as a hurl deals it (`0x56ACD0`, #3372): its
-    /// record's own, then its bonus slots in their order that count for any holder, their
-    /// condition's low byte 0 or 13 (no test of the thrower's type; those of the struck
-    /// creature's class left out): 801 to 804 without the condition's bit 15 add their value to
-    /// both ends of their kind, 805 to 808 with its bit 14 multiply both by `(value + 100)·0.01`,
-    /// each value by the thrower's attribute that its effect's byte 2 names, `attributes` the
-    /// stats' words `+0x10`… ([`Combat::attributes`]).
-    pub fn hurled_damage(&self, attributes: [f32; 6]) -> [[f32; 2]; KINDS] {
+    /// record's own, then its bonus slots in their order that count, their condition's low byte 0
+    /// or 13 with no test of the thrower's type, and with the struck creature `at` those against
+    /// its class that admit the thrower ([`HurledAt`], #3383; none without it, the tooltip's
+    /// case): 801 to 804 without the condition's bit 15 add their value to both ends of their
+    /// kind, 805 to 808 with its bit 14 multiply both by `(value + 100)·0.01`, each value by the
+    /// thrower's attribute that its effect's byte 2 names, `attributes` the stats' words
+    /// `+0x10`… ([`Combat::attributes`]).
+    pub fn hurled_damage(&self, attributes: [f32; 6], at: Option<HurledAt>) -> [[f32; 2]; KINDS] {
         let a = attributes.map(whole);
         let mut damage = self.damage;
         for bonus in self.bonuses {
             let [class, _] = bonus.condition.to_le_bytes();
-            if class != 0 && class != 13 {
+            if class != 0 && class != 13 && !at.is_some_and(|at| at.counts(bonus)) {
                 continue;
             }
             let effect = bonus.effect & 0xFFFF;
@@ -8541,7 +8574,7 @@ mod tests {
             ..ItemValues::default()
         };
         let attributes = [56.0, 30.0, 20.0, 40.0, 10.0, 5.0];
-        let [physical, fire, ..] = sword.hurled_damage(attributes);
+        let [physical, fire, ..] = sword.hurled_damage(attributes, None);
         assert!(near(physical[0], 28.16) && near(physical[1], 34.16));
         assert_eq!(fire, [0.0, 0.0]);
         // A fire 802 of a class 13 adds its plain value; an 806 of the bit 14 then raises the
@@ -8553,11 +8586,11 @@ mod tests {
             bonuses,
             ..sword
         };
-        let [_, fire, magic, poison] = fiery.hurled_damage(attributes);
+        let [_, fire, magic, poison] = fiery.hurled_damage(attributes, None);
         assert!(near(fire[0], 6.6) && near(fire[1], 11.0));
         assert_eq!((magic, poison), ([0.0, 0.0], [0.0, 0.0]));
-        // None counts against an opponent's class, nor an 801 of the bit 15 (a resistance), nor
-        // an 805 without the bit 14, nor another effect.
+        // Without a struck creature none counts against an opponent's class, nor an 801 of the
+        // bit 15 (a resistance), nor an 805 without the bit 14, nor another effect.
         for skipped in [
             slot(0x0005, 801, 9),
             slot(0x8000, 804, 9),
@@ -8574,7 +8607,7 @@ mod tests {
                 ..ItemValues::default()
             };
             assert_eq!(
-                item.hurled_damage(attributes),
+                item.hurled_damage(attributes, None),
                 [[1.0, 2.0]; KINDS],
                 "{skipped:?}"
             );
@@ -8588,7 +8621,56 @@ mod tests {
             bonuses,
             ..ItemValues::default()
         };
-        assert_eq!(item.hurled_damage(attributes)[3], [6.0, 8.0]);
+        assert_eq!(item.hurled_damage(attributes, None)[3], [6.0, 8.0]);
+    }
+
+    #[test]
+    fn a_hurled_items_slots_against_a_class_count_against_a_struck_creature_of_it() {
+        let slot = |condition, value| Bonus {
+            condition,
+            effect: 801,
+            value,
+        };
+        let item = |bonus| {
+            let mut bonuses = [Bonus::default(); BONUSES];
+            bonuses[0] = bonus;
+            ItemValues {
+                damage: [[10.0, 20.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+                bonuses,
+                ..ItemValues::default()
+            }
+        };
+        let attributes = [0.0; 6];
+        let physical = |bonus, at| item(bonus).hurled_damage(attributes, at)[0];
+        // The Gladiator (2) strikes a demon of the side 9, which holds a bow and rides.
+        let demon = HurledAt {
+            thrower: 2,
+            side: 9,
+            ranged: true,
+            mounted: true,
+        };
+        // A slot against its side counts, one against another side not.
+        assert_eq!(physical(slot(0x0009, 5), Some(demon)), [15.0, 25.0]);
+        assert_eq!(physical(slot(0x0005, 5), Some(demon)), [10.0, 20.0]);
+        // Nor without a struck creature, the tooltip's case.
+        assert_eq!(physical(slot(0x0009, 5), None), [10.0, 20.0]);
+        // The classes 0x80 and 0x81, one ranged and one mounted.
+        assert_eq!(physical(slot(0x0080, 3), Some(demon)), [13.0, 23.0]);
+        assert_eq!(physical(slot(0x0081, 4), Some(demon)), [14.0, 24.0]);
+        let afoot = HurledAt {
+            ranged: false,
+            mounted: false,
+            ..demon
+        };
+        assert_eq!(physical(slot(0x0080, 3), Some(afoot)), [10.0, 20.0]);
+        assert_eq!(physical(slot(0x0081, 4), Some(afoot)), [10.0, 20.0]);
+        // Its bits 8 to 11 admit the Gladiator, 0 or 7, or not another hero's type.
+        assert_eq!(physical(slot(0x0209, 5), Some(demon)), [15.0, 25.0]);
+        assert_eq!(physical(slot(0x0709, 5), Some(demon)), [15.0, 25.0]);
+        assert_eq!(physical(slot(0x0309, 5), Some(demon)), [10.0, 20.0]);
+        // A slot of no class or of the class 13 counts whatever the type's bits.
+        assert_eq!(physical(slot(0x0300, 5), Some(demon)), [15.0, 25.0]);
+        assert_eq!(physical(slot(0x030D, 5), None), [15.0, 25.0]);
     }
 
     #[test]

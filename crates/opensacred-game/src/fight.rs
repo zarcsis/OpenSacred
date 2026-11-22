@@ -49,6 +49,12 @@ pub struct Hit {
     /// (`0x561860`, the sets' M17, #2277; `opensacred_rules::spells::warded`), which may turn it
     /// aside whole.
     pub ward: bool,
+    /// Whether it is the hit of a hurled item (`hurled`, the Gladiator's 1013): an event of no
+    /// fixed damages whose resolution puts the item's own damages, [`Self::fixed`], in the place
+    /// of the four that the attacker's attack record rolled (`0x56B130` at `0x56BC81`), so that
+    /// they take neither the record's raises (the survival's, `0x56A50F`) nor the fixed damages'
+    /// (`0x56C156`), the hit's roll that of the attacker's own strike.
+    pub hurled: bool,
 }
 
 /// A strike from nobody, an attacker's id of 0: a fire smoke's or a bursting geyser's (`fx`,
@@ -336,9 +342,9 @@ pub(crate) fn resolve(
     for hit in hits.read() {
         // An event of fixed damages whose whole four sum to 0 is its attacker's own strike, its
         // damages rolled and its hit chance asked (`0x56B130` at `0x56B1B9`; #1856): the big
-        // demons' laser and fire.
+        // demons' laser and fire. A hurled item's damages are its own, whatever they sum to.
         let hit = &match hit.fixed {
-            Some(fixed) if fixed.iter().all(|damage| damage.trunc() == 0.0) => Hit {
+            Some(fixed) if !hit.hurled && fixed.iter().all(|damage| damage.trunc() == 0.0) => Hit {
                 fixed: None,
                 sure: false,
                 ..*hit
@@ -495,9 +501,15 @@ pub(crate) fn resolve(
         if let Some(fixed) = hit.fixed {
             attacker.damage = fixed.map(|damage| [damage; 2]);
         }
+        // A hurled item's damages are put in after the difficulty's factors, so that a
+        // creature's hurl at the hero takes no `ProzDmg` (`0x56BBB8`, `0x56BC81`).
+        if hit.hurled {
+            blow.rolled = 1.0;
+        }
         // The survival bonus of the time played: the hero's four damages, or its strike's fixed
-        // ones, raised by half its curve and set 28's part (`0x56A50F`, `0x56C156`; #1761).
-        if side == Some(Side::Attacker) {
+        // ones, raised by half its curve and set 28's part (`0x56A50F`, `0x56C156`; #1761); not a
+        // hurled item's, which take the place of the record's raised ones (#3382).
+        if side == Some(Side::Attacker) && !hit.hurled {
             let set = holding.map_or(0.0, |holding| holding.0.sets.survival);
             let minutes = played.as_deref().map_or(0, crate::drops::Played::minutes);
             let raise = opensacred_rules::fight::survival_raise(minutes, set);
@@ -577,8 +589,9 @@ pub(crate) fn resolve(
         }
         // A bonus against the undead marks the undead it fights (`+0x2B7` bit `0x80`, #3385):
         // the attacker's record made against an undead that its strike of no fixed damages
-        // strikes, before the hit's roll (`0x56B965`), and the struck one's against an undead
-        // that strikes it (`0x56B6CC`), but at the poison's own strike.
+        // strikes, a hurl's among them, before the hit's roll (`0x56B965`; the hurled item's own
+        // mark is `hurled`'s), and the struck one's against an undead that strikes it
+        // (`0x56B6CC`), but at the poison's own strike.
         let hero_kind = hero_arts.as_deref().map_or(0, |arts| arts.kind);
         let marks = |holding: Option<&Holding>, arms: Option<&crate::npcs::Arms>, kind: u32| match (
             holding, arms,
@@ -593,7 +606,7 @@ pub(crate) fn resolve(
             mind.is_some_and(|mind| mind.class == opensacred_rules::undead::CLASS)
         };
         let undead_marked = undead_marked
-            || (hit.fixed.is_none()
+            || ((hit.fixed.is_none() || hit.hurled)
                 && undead(victim)
                 && marks(holding, caster_arms, mind.map_or(0, |mind| mind.creature)));
         if undead_marked {
@@ -2358,6 +2371,7 @@ mod tests {
                     sure: false,
                     poison: false,
                     ward: false,
+                    hurled: false,
                 });
             }
         }
@@ -2439,10 +2453,81 @@ mod tests {
             sure: true,
             poison,
             ward: false,
+            hurled: false,
         });
         app.update();
         let current = |entity| app.world().get::<Health>(entity).unwrap().current;
         (current(hero), 1_000 - current(target))
+    }
+
+    /// What a creature lost to the hero's sure hit of 100 fixed damage, two hours into the game,
+    /// a hurled item's where `hurled`.
+    fn lost_two_hours_in(hurled: bool) -> u32 {
+        let combat = Combat(opensacred_rules::fight::Combat {
+            attack: 200.0,
+            defence: 10.0,
+            damage: [[0.0; 2]; 4],
+            resistance: [0.0; 4],
+            damping: [0; 4],
+            speed: 140.0,
+            pace: 130.0,
+            multipliers: [1.0; 4],
+            resistance_factors: [1.0; 4],
+            spells: [1.0; 4],
+            cast: opensacred_rules::fight::CAST_SPEED,
+            attributes: [0.0; 6],
+        });
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<Hit>()
+            .add_message::<Kill>()
+            .add_message::<Struck>()
+            .add_message::<crate::voices::Speak>()
+            .add_message::<crate::sfx::Blow>()
+            .add_message::<crate::remarks::Remark>()
+            .add_message::<crate::drops::PileFromHit>()
+            .add_message::<crate::sfx::Play>()
+            .insert_resource(Dice(Rng::of(0, 0, 0)))
+            .insert_resource(crate::drops::Played::of(7_200.0))
+            .init_resource::<Experience>()
+            .init_resource::<Rules>()
+            .add_systems(Update, resolve);
+        let world = app.world_mut();
+        let health = Health {
+            current: 1_000,
+            most: 1_000,
+            level: 1,
+        };
+        let hero = world
+            .spawn((combat, health, Body::standing(), GlobalTransform::default()))
+            .id();
+        let target = world
+            .spawn((combat, health, GlobalTransform::default()))
+            .id();
+        world.write_message(Hit {
+            attacker: hero,
+            target,
+            share: 1.0,
+            ranged: false,
+            art: None,
+            fixed: Some([100.0, 0.0, 0.0, 0.0]),
+            sure: true,
+            poison: false,
+            ward: false,
+            hurled,
+        });
+        app.update();
+        1_000 - app.world().get::<Health>(target).unwrap().current
+    }
+
+    #[test]
+    fn a_hurled_items_damages_take_no_survivals_raise() {
+        // The hero's fixed damages rise by the survival's share of the time played (`0x56C156`);
+        // a hurled item's take the attack record's place and none (`0x56BC81`, #3382).
+        let raised = lost_two_hours_in(false);
+        let hurled = lost_two_hours_in(true);
+        assert_eq!(hurled, 100);
+        assert!(raised > hurled, "{raised} {hurled}");
     }
 
     #[test]
@@ -2563,6 +2648,7 @@ mod tests {
                 sure: true,
                 poison: false,
                 ward,
+                hurled: false,
             });
         }
         app.update();

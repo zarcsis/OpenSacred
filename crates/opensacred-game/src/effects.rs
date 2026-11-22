@@ -365,6 +365,7 @@ fn bleed(
                 sure: true,
                 poison: false,
                 ward: false,
+                hurled: false,
             });
         }
     }
@@ -421,6 +422,7 @@ fn poison(
                 sure: true,
                 poison: true,
                 ward: false,
+                hurled: false,
             });
         }
     }

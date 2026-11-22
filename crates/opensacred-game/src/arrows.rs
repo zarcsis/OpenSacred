@@ -629,6 +629,7 @@ fn fly(
             sure: false,
             poison: false,
             ward: false,
+            hurled: false,
             attacker: arrow.shooter,
             target: on,
             share: arrow.share,

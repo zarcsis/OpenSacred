@@ -13115,6 +13115,7 @@ fn strike(
                     sure: false,
                     poison: false,
                     ward: false,
+                    hurled: false,
                     attacker: entity,
                     target: strikes.target,
                     share: npc.hits.share,
