@@ -376,11 +376,10 @@ fn fly(
         MessageWriter<crate::sfx::Play>,
         Query<&fight::Holding>,
     ),
-    (bubbles, mut pops, mut flashes, mut blows): (
+    (bubbles, mut pops, mut flashes): (
         Query<(Entity, &Transform), (With<crate::bolts::Bubble>, Without<Arrow>)>,
         MessageWriter<crate::bolts::Pops>,
         MessageWriter<crate::shields::Flash>,
-        MessageWriter<crate::sfx::Blow>,
     ),
 ) {
     let dt = time.delta_secs();
@@ -563,14 +562,6 @@ fn fly(
         let passes = arrows::passes(projectile, ghost, pierces);
         if passes && arrow.wait > 0.0 {
             continue;
-        }
-        // The plain arrow that ends in what it hits plays its own hit before the strike's
-        // resolution sounds at the target (`0x5BB010`'s case `0xBFE`, #3208).
-        if arrows::sounds_its_hit(projectile, passes) {
-            blows.write(crate::sfx::Blow::Arrow {
-                shooter: arrow.shooter,
-                struck: on,
-            });
         }
         let distance = match (places.get(arrow.shooter), places.get(on)) {
             (Ok(a), Ok(b)) => (a.translation() - b.translation()).xz().length(),

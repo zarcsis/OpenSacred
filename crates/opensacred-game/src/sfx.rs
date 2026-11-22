@@ -5,9 +5,9 @@
 //! air; at the target, the striker's weapon's `HIT` when the hit did damage, else its `PARADE`,
 //! by the item's sound profile (`items.pak +0x24`), the fist's for bare hands, an animal that
 //! takes no damage hearing a sword's, a mace's, an axe's or a dagger's miss instead and nothing
-//! of another weapon ([`Missing`], #1168); a shot's `SHOOT` by the bow's profile, and a plain
-//! arrow's own `HIT` by it where the arrow ends in what it hits (#3208); and a gun's
-//! fire at each of its shots ([`Gunfire`], #1963). The world's and the interface's other sounds
+//! of another weapon ([`Missing`], #1168); a shot's `SHOOT` by the bow's profile; and a gun's
+//! fire at each of its shots ([`Gunfire`], #1963). A weapon's sound plays at its place's volume,
+//! at its sample's rate times `playSFX`'s factor plus 0.5 (#3343). The world's and the interface's other sounds
 //! that the modules ask for, at an entity or in the middle ([`Play`]) or at a point ([`PlayAt`],
 //! #1173): the doors', the items' taken and the level-up's among them (#1166, #1167;
 //! docs/re/sound.md, "The sources").
@@ -354,8 +354,6 @@ pub struct Following {
     at: Vec3,
     /// The place's factor ([`placed_by`]).
     pub factor: f32,
-    /// The share of the place's volume that it plays at.
-    pub scale: f32,
     /// The most volume that it plays at.
     pub most: f32,
     /// How long its instance has been waited for, its sample loading.
@@ -371,7 +369,6 @@ impl Following {
             of,
             at,
             factor: 1.0,
-            scale: 1.0,
             most: f32::INFINITY,
             waited: 0.0,
         }
@@ -456,7 +453,7 @@ fn replace(
         match again(sound.at, listener, sound.of.is_none()) {
             Again::Placed => {
                 let (near, pan) = placed_at_by(sound.at, Some(listener), *volume, sound.factor);
-                let volume = (near * sound.scale).min(sound.most);
+                let volume = near.min(sound.most);
                 instance.set_decibels(decibels(volume), AudioTween::default());
                 instance.set_panning(pan, AudioTween::default());
                 true
@@ -580,8 +577,9 @@ impl Armed {
 }
 
 /// A weapon's sound: a strike's swing by its striker, the sound at a hit's target by its
-/// striker's weapon (`landed` whether the hit did damage), a shot by its shooter's, or a plain
-/// arrow's own hit by its shooter's at the creature it ends in.
+/// striker's weapon (`landed` whether the hit did damage), or a shot by its shooter's; a plain
+/// arrow's own hit at the arrow is not heard in the original, which holds no record of an arrow,
+/// and is not played (`0x5BBE00`, `0x693D8C`; docs/re/sound.md, "The weapons", #3343).
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Blow {
     Swing {
@@ -594,10 +592,6 @@ pub enum Blow {
     },
     Shot {
         shooter: Entity,
-    },
-    Arrow {
-        shooter: Entity,
-        struck: Entity,
     },
 }
 
@@ -675,10 +669,21 @@ pub(crate) fn armed_of(
         .unwrap_or_default()
 }
 
+/// The most volume of a sound of the world on the effects' channel at the levels `levels`: no
+/// volume above 1 reaches the original's samples, its place's times the effects' level
+/// (`0x693D8C`, `0x6A0D30`), and the game's take the place's over the near volume on that
+/// channel, so at most 1 over the near volume times that level.
+fn most(levels: Option<&crate::volumes::Levels>) -> f32 {
+    levels
+        .filter(|levels| levels.effects > 0.0)
+        .map_or(f32::INFINITY, |levels| 1.0 / (NEAR_VOLUME * levels.effects))
+}
+
 /// Plays the weapons' sounds.
 #[expect(
     clippy::too_many_arguments,
-    reason = "a Bevy system takes its resources and queries as arguments"
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, grouped"
 )]
 fn blows(
     mut blows: MessageReader<Blow>,
@@ -692,13 +697,20 @@ fn blows(
         Option<Res<Missing>>,
     ),
     places: Query<&GlobalTransform>,
-    (listeners, volume): (Query<&GlobalTransform, With<Body>>, Res<Listener>),
+    (listeners, volume, levels): (
+        Query<&GlobalTransform, With<Body>>,
+        Res<Listener>,
+        Option<Res<crate::volumes::Levels>>,
+    ),
     (assets, audio, mut placing): (Res<AssetServer>, Res<Audio>, ResMut<Placed>),
 ) {
     let listener = listeners.iter().next().map(GlobalTransform::translation);
     let armed = |entity| armed_of(entity, hero.as_deref(), &heroes, &arms, npcs.as_deref());
+    let most = most(levels.as_deref());
     for &blow in blows.read() {
-        let (at, profile, group, loud) = match blow {
+        // Each by `playSFX(id, 0, r, 0.5, 1, the object, 1.0, 0, 0)`, `r` the rate's factor, no
+        // share of the volume (`0x68266C`–`0x6828DB`, `0x5320E6`–`0x5329D0`, `0x4DF047`).
+        let (at, profile, group, factor) = match blow {
             Blow::Swing { striker } => {
                 let Some(profile) = swing_profile(armed(striker).class) else {
                     continue;
@@ -737,14 +749,6 @@ fn blows(
                 };
                 (shooter, profile, SHOOT, 0.5)
             }
-            // The plain arrow's own hit, by the weapon's type that its shot gave it, its `HIT`
-            // as the shot's `SHOOT` (`0x5BB010`'s case `0xBFE`, `0x5BBE00`).
-            Blow::Arrow { shooter, struck } => {
-                let Some(profile) = armed(shooter).weapon else {
-                    continue;
-                };
-                (struck, profile, HIT, 0.5)
-            }
         };
         let Ok(place) = places.get(at) else {
             continue;
@@ -757,18 +761,21 @@ fn blows(
             continue;
         }
         let (near, pan) = placed_at(place.translation(), listener, *volume);
-        let volume = loud * near;
+        let volume = near.min(most);
+        let rate = factor + 0.5;
         let sample = sfx.sample(id, file, &assets);
         let handle = audio
             .play(sample)
             .with_volume(decibels(volume))
             .with_panning(pan)
+            .with_playback_rate(f64::from(rate))
             .handle();
         let mut following = Following::new(handle, Some(at), place.translation());
-        following.scale = loud;
+        following.most = most;
         placing.follow(following);
         debug!(
-            "sfx: {blow:?}: profile {profile} group {group} ({id}) at {volume:.2}, panned {pan:.2}"
+            "sfx: {blow:?}: profile {profile} group {group} ({id}) at {volume:.2}, panned \
+             {pan:.2}, at a rate of {rate:.2}"
         );
     }
 }
@@ -812,12 +819,7 @@ fn plays(
                 .map(|play| (play.sound, Some((None, play.point)), play.rate, play.factor)),
         )
         .collect();
-    // No volume above 1 reaches the original's samples, its place's times the effects' level
-    // (`0x693D8C`, `0x6A0D30`): of the game's, which take the place's over the near volume on the
-    // effects' channel, at most 1 over the near volume times that level.
-    let most = levels
-        .filter(|levels| levels.effects > 0.0)
-        .map_or(f32::INFINITY, |levels| 1.0 / (NEAR_VOLUME * levels.effects));
+    let most = most(levels.as_deref());
     for (sound, place, rate, factor) in asked {
         let (volume, pan) = match place {
             Some((_, at)) => placed_at_by(at, listener, *volume, factor),
