@@ -40,6 +40,30 @@ pub fn vanishes_after(detail: u8) -> f32 {
     }
 }
 
+/// How many seconds a death's stamp is put back where the dying one lies beside the Dark Elf's
+/// soulcatcher ([`beside_soulcatcher`]; `0x53E889`–`0x53E8F0`, docs/re/fight.md, "The bodies'
+/// end", #3387), at the options' detail `detail`: 18 at 2, 3 at 1 and 1 at 0, so that every time
+/// counted from the death comes that much sooner, the vanishing 2, 2 or 1 s after it, the
+/// destruction 7, 7 or 6 s after it, and an undead's rise as its dying clip ends or 1 or 3 s
+/// after the death.
+pub fn soulcatcher_back(detail: u8) -> f32 {
+    match detail {
+        0 => 1.0,
+        1 => 3.0,
+        _ => 18.0,
+    }
+}
+
+/// The size of the soulcatcher's object 869 (`items.pak +0x14` through `0x428CE0`).
+pub const SOULCATCHER_SIZE: f32 = 500.0;
+
+/// Whether a death at `distance` from a soulcatcher's object, of a creature of the size `size`
+/// (`items.pak +0x14`, 50 for 0), is beside it: nearer than the sum of the two sizes, whatever
+/// the dying one's side and whoever bears the soulcatcher (`0x5FF7C0`).
+pub fn beside_soulcatcher(distance: f32, size: f32) -> bool {
+    distance < SOULCATCHER_SIZE + size
+}
+
 /// The medium spider, whose body vanishes at its first tick of lying, with no effect, held or not
 /// (`0x540037`–`0x540485`, #2504): it would split into small spiders 71 only on the machine of the
 /// player who controls it (`+0x2B5`), which no creature of a game of one player names (**seen**:
@@ -790,6 +814,20 @@ mod tests {
         assert_eq!([0, 1, 2].map(vanishes_after), [2.0, 5.0, 20.0]);
         assert_eq!([0, 1, 2].map(destroyed_after), [7.0, 10.0, 25.0]);
         assert!((0..=2).all(|detail| vanishes_after(detail) < destroyed_after(detail)));
+    }
+
+    #[test]
+    fn a_death_beside_a_soulcatcher_has_its_stamp_put_back() {
+        // Seen at the detail 2: the goblin warriors killed beside it vanished 2.12 s after their
+        // deaths (#3076).
+        assert_eq!([0, 1, 2].map(soulcatcher_back), [1.0, 3.0, 18.0]);
+        let vanish = [0, 1, 2].map(|detail| vanishes_after(detail) - soulcatcher_back(detail));
+        let destroy = [0, 1, 2].map(|detail| destroyed_after(detail) - soulcatcher_back(detail));
+        assert_eq!((vanish, destroy), ([1.0, 2.0, 2.0], [6.0, 7.0, 7.0]));
+        // A goblin warrior of the size 50 within 550, not at it.
+        assert!(beside_soulcatcher(549.9, 50.0));
+        assert!(!beside_soulcatcher(550.0, 50.0));
+        assert!(beside_soulcatcher(560.0, 80.0));
     }
 
     #[test]
