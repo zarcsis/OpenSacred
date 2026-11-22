@@ -12,9 +12,9 @@
 //!
 //! The Dwarf's `Attacke` and `Hardhit` with a gun make none (`0x514DC4` to `0x515011`). Not
 //! followed: the variants of the sparks' classes that are not hits (the Gladiator's rings of 1015
-//! and 1016, the Seraphim's 1003, the Vampiress's 1030, 1031 and 1033), and the sparks of the
-//! thrown weapons' and the Wood Elf's arrows' hits; a horse's floops are `floops`' (#2329), the
-//! Dark Elf's 1042 and 1046 to 1048 `dark_sights`' (#2923). A horse's trample sends the awe's at each creature it knocks and at the
+//! and 1016, the Seraphim's 1003), and the sparks of the thrown weapons' and the Wood Elf's
+//! arrows' hits; a horse's floops are `floops`' (#2329), the Dark Elf's 1042 and 1046 to 1048
+//! `dark_sights`' (#2923), the Vampiress's 1030, 1031 and 1033 `bite_sights`' (#3062). A horse's trample sends the awe's at each creature it knocks and at the
 //! horse (`trample`), and a riding creature's strike in passing the same at its target (`ai`).
 
 use bevy::prelude::*;

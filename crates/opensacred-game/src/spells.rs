@@ -275,10 +275,6 @@ const SOULS_LOOP: u32 = 2058;
 /// `DEMON_HOELLENDISK_LOOP` (1005, `0x7AE040`), the demon fire's `DEMON_HOELLENFEUER` (1015,
 /// `0x7B3110`) and the tentacles' `DEMON_TENTAKEL_LOOP` (1013, `0x7B1990`).
 const HELL_DISK_LOOP: u32 = 2119;
-/// The flying skull's hit's object's loop (862 `FX_VAMP_SM_HIT`, its class's start's branch of
-/// 1033 at `0x793C8E`, #2028): `VAMP_BLUTKUSS`; the class's `VAMP_BEHERRSCHUNG_LOOP` of
-/// `0x793D52` is the master bite's (1031).
-const SKULL_HIT_LOOP: u32 = 2077;
 /// The Daemon's other two loops ([`HELL_DISK_LOOP`]): the demon fire's and the tentacles'.
 const DEMON_FIRE_LOOP: u32 = 2124;
 const TENTACLES_LOOP: u32 = 2123;
@@ -893,7 +889,7 @@ fn skulls(
             commands.entity(entity).despawn();
             continue;
         }
-        let touched: Vec<Entity> = creatures
+        let touched: Vec<(Entity, f32)> = creatures
             .iter()
             .filter(|(target, at, way, mind, health, effects, size)| {
                 let reach = opensacred_rules::arts::SKULL_REACH
@@ -905,7 +901,7 @@ fn skulls(
                     && !given.contains(target)
                     && (at.translation - next).xz().length() < reach
             })
-            .map(|(target, ..)| target)
+            .map(|(target, .., size)| (target, size.map_or(arrows::size(0), |size| size.0)))
             .collect();
         if touched.is_empty() {
             continue;
@@ -929,17 +925,12 @@ fn skulls(
                 opensacred_rules::arts::CURSE_SECONDS,
             ),
         ];
-        for target in touched {
+        for (target, size) in touched {
             debug!("spells: the skull {entity} curses {target}");
             give(&mut commands, target, curse.to_vec());
-            // Its object 862 (`FX_VAMP_SM_HIT`) at the target, whose sight is not made, looping
-            // `VAMP_BLUTKUSS` while it lives (`SKULL_HIT_LOOP`, #2028), for the curse's time
-            // (**hypothesis** for its life).
-            commands.entity(target).with_child((
-                crate::hums::Hum(SKULL_HIT_LOOP),
-                Fades(opensacred_rules::arts::CURSE_SECONDS),
-                Transform::default(),
-            ));
+            // Its object 862 (`FX_VAMP_SM_HIT`) at the target, looping `VAMP_BLUTKUSS` while it
+            // lives (`bite_sights`, #2028, #3062).
+            crate::bite_sights::curse(&mut commands, target, size);
             given.push(target);
         }
         // On to the nearest uncursed hostile creature within 1,000, else it ends.
