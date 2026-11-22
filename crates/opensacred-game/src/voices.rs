@@ -1000,11 +1000,12 @@ fn speak(
                 }
             }
         }
-        let rate = rate(sfx.roll(10), 0.0);
-        let (volume, pan) = sfx::placed_at(at.translation(), listener, *heard);
-        if volume <= 0.0 {
+        // Silent where it lies beyond its hearing, but within the records' reach (#3344).
+        if !sfx::within_reach(at.translation(), listener) {
             continue;
         }
+        let rate = rate(sfx.roll(10), 0.0);
+        let (volume, pan) = sfx::placed_at(at.translation(), listener, *heard);
         let sample = sfx.sample(line.id, line.file, &assets);
         // A line by name at the speech's volume, the others at the effects' (`volumes`).
         let mut playing = if line.named {
@@ -1500,7 +1501,15 @@ fn idle(
     let now = time.elapsed_secs_f64();
     for (creature, at, mind, speaking) in &creatures {
         let (near, pan) = sfx::placed_at(at.translation(), Some(listener), *heard);
-        if near <= 0.0 {
+        let hostile = mind.thinks.hostile();
+        // The first list's, the hostile, within the records' reach, silent beyond the hearing;
+        // the second's within the hearing (#3344).
+        let listed = if hostile {
+            sfx::within_reach(at.translation(), Some(listener))
+        } else {
+            near > 0.0
+        };
+        if !listed {
             continue;
         }
         let speaks = speaking.is_some_and(|s| {
@@ -1509,7 +1518,6 @@ fn idle(
                 PlaybackState::Playing { .. } | PlaybackState::Queued
             )
         });
-        let hostile = mind.thinks.hostile();
         if speaks || (hostile && mind.thinks.fighting()) {
             continue;
         }
