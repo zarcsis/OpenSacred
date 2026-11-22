@@ -6450,6 +6450,9 @@ pub const KNOCKOUT_GRID: u8 = 8;
 pub const KNOCKOUT_COLOUR: [f32; 4] = [96.0 / 255.0, 96.0 / 255.0, 1.0, 1.0];
 pub const KNOCKED_DOWN_COLOUR: [f32; 4] = [1.0; 4];
 pub const KNOCKED_DOWN_SECONDS: f32 = 6.0;
+/// How long the white butterflies of a hero's follower that falls unconscious to rise again
+/// circle its head, its 20 s of lying (`0x53EA1E`–`0x53EAB3`, its `+0x38` 20,000 ms; #3087).
+pub const FAINTED_SECONDS: f32 = 20.0;
 /// How long the butterflies of the effect 31 last for each unit of its art, in seconds (150 ms).
 const KNOCKOUT_PER_ART: f32 = 0.15;
 /// How fast a butterfly's life falls, a second, and its whole cycle.
