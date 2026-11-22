@@ -17,9 +17,10 @@
 //! `0x55C9F0`) centred 92 left of and 32 above the bar's corner (`0x6D7B80`), as the original's
 //! show them (seen).
 //!
-//! Not followed: the disc's and the compass's texts, which the original's frames did not show
-//! either, when they show not read (#3110); a weapon set's slot's item's
-//! tooltip is `tooltip`'s (#1689) and an art slot's `tooltip::art`'s (#1694).
+//! The disc's and the compass's texts, and the slots' own, show in neither game: the original
+//! makes their controls hidden or not the bar's children (docs/re/interface.md, "The bar's and
+//! the column's tooltips", #3110); a weapon set's slot's item's tooltip is `tooltip`'s (#1689)
+//! and an art slot's `tooltip::art`'s (#1694).
 
 use bevy::prelude::*;
 
