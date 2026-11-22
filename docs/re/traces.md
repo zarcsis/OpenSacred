@@ -17,6 +17,8 @@ A probe reads an instruction's state instead of a call's (#785): `--stack KIND@P
 It waits for no return, so it never touches the stack as a call's trace does, which, at an instruction inside a function, would take a local for the return address.
 A plain `trace ADDRESS`, with neither `--args`, `--ret`, `--ids` nor `--stack`, is such a probe too, logging each reach alone (#3374): a call's trace, which those options ask, is for a function's start alone, as at an instruction inside one it took a local for its return address and crashed the game as that local was read (`trace 0x44add7`, an access violation at 0, #3074).
 As `trace 0x4dd855 --stack object@esi,double@228,double@140,double@348,double@108` logs a shooter's clip's start, end, loops and Granny's clock as its arrow's test reads them (docs/re/fight.md, "The archers"), and `trace 0x57c65d --stack uint@ebp+0x8,u16@ebp+0x3c,u16@ebp+0x3e,u16@ebp+0x40` the stats' type and their three speeds after the recomputation's skills.
+A probe's hook writes over the five bytes from its address, so an address is safe only where no jump of the code lands on an instruction within the four bytes after it.
+**Seen** 2026-11-22 (#3087): the game ended with access violations some seconds after a probe was set at `0x68A72D`, whose next instruction `0x68A731` is the target of a jump from `0x68B7B5`, on the way of every line of a voice (**hypothesis** as to the cause: that jump landing in the hook's bytes; three other probes were set with it).
 
 ## The presets
 

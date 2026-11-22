@@ -2,8 +2,9 @@
 //! docs/re/arts.md, "The effects"): the effect 31, which a `SetNPCState`'s `0x8C` and the potions
 //! 6081 and 6094 give for 10 s ([`KnockOut`]), added or renewed as `0x582D50` does
 //! (`effects::Effects::knock_out`), each time with an object 874 that circles its bearer's head
-//! with five blue butterflies for 150 ms a unit of the effect's art; and a knock-down's, white for
-//! 6 s (`knock_down`). Their system runs by `opensacred_rules::particles::Knockout`; it follows
+//! with five blue butterflies for 150 ms a unit of the effect's art; a knock-down's, white for
+//! 6 s (`knock_down`); and those of a hero's follower that falls unconscious, white for its 20 s
+//! of lying (`followers`, #3087). Their system runs by `opensacred_rules::particles::Knockout`; it follows
 //! the bearer's `Bip01 Head`, laid over its model as the original draws it after its bearer
 //! (`fx::Orders::over`), and the night tints it.
 
@@ -48,6 +49,17 @@ pub(crate) fn knocked_down(commands: &mut Commands, bearer: Entity) {
     spawn(commands, bearer, KNOCKED_DOWN_SECONDS, KNOCKED_DOWN_COLOUR);
 }
 
+/// The butterflies of a hero's follower that falls unconscious to rise again, white for its 20 s
+/// of lying, at its head (`0x53EA1E`–`0x53EAB3`, #3087).
+pub(crate) fn fainted(commands: &mut Commands, bearer: Entity) {
+    spawn(
+        commands,
+        bearer,
+        opensacred_rules::particles::FAINTED_SECONDS,
+        KNOCKED_DOWN_COLOUR,
+    );
+}
+
 /// A system of butterflies for `seconds` in `colour` over the head of `bearer`.
 fn spawn(commands: &mut Commands, bearer: Entity, seconds: f32, colour: [f32; 4]) {
     commands.spawn((
@@ -64,8 +76,8 @@ fn spawn(commands: &mut Commands, bearer: Entity, seconds: f32, colour: [f32; 4]
 
 /// Butterflies to make: their bearer, their seconds and their colour.
 #[derive(Component)]
-struct Unmade {
-    bearer: Entity,
+pub(crate) struct Unmade {
+    pub(crate) bearer: Entity,
     seconds: f32,
     colour: [f32; 4],
 }

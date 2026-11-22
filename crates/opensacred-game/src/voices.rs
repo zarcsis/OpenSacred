@@ -56,6 +56,12 @@ pub const ATTACK: u8 = 1;
 pub const NORMAL_HIT: u8 = 2;
 pub const CRITICAL_HIT: u8 = 3;
 pub const DEATH: u8 = 7;
+/// The line of one that falls unconscious, the special 2 of `0x6852B0` (`Voice::faints`, #3087):
+/// no group of the profiles.
+pub const FAINTS: u8 = 0xFE;
+/// The types whose line of one that falls unconscious waits 3 s, the cases that end through
+/// `0x689B9D`; any other's 1 s (docs/re/sound.md, "The line of one that falls unconscious").
+const FAINTS_WAIT_LONGER: [u32; 3] = [224, 361, 368];
 
 /// The share of its most health under which a hit's line is `CRITICALHIT` (`0x532161`: the
 /// record's `+0x2C` below 26, **hypothesis**: its health in per cent).
@@ -609,6 +615,27 @@ impl Voices {
         Some((id, file, wait))
     }
 
+    /// The line of a creature of type `creature` that falls unconscious (`0x6852B0`'s special 2):
+    /// its one line of `Voice::faints`, or one of its four by a roll, none where it has none; its
+    /// sound, its file and how long its id then waits.
+    fn faint(&mut self, sfx: &Sfx, creature: u32) -> Option<(u32, String, f32)> {
+        let voice = self.voices.get(&creature)?;
+        let count = u32::try_from(voice.faints.len()).ok().filter(|&n| n > 0)?;
+        let at = if count == 1 {
+            0
+        } else {
+            self.dice.below(count)
+        };
+        let id = *voice.faints.get(usize::try_from(at).ok()?)?;
+        let wait = if FAINTS_WAIT_LONGER.contains(&creature) {
+            3.0
+        } else {
+            1.0
+        };
+        let (id, file) = sfx.with_id(u32::from(id))?;
+        Some((id, file, wait))
+    }
+
     /// The hero's `line`, of the hero of type `creature`, if its roll gives one: one of the
     /// class's at random.
     fn hero_line(&mut self, sfx: &Sfx, creature: u32, line: HeroLine) -> Option<(u32, String)> {
@@ -747,6 +774,9 @@ enum Play {
     Plays,
     Interrupts,
     GivesWay,
+    /// Plays over the creature's own line, stopping nothing: a peaceful creature's, which never
+    /// counts as speaking (`0x678AF0`).
+    Over,
 }
 
 /// What a line of `group` does, `speaking` the creature's own line still playing, `waiting` its
@@ -841,6 +871,23 @@ fn speak(
         let Ok((_, mind, is_hero, speaking, (health, ranked))) = speakers.get(line.speaker) else {
             continue;
         };
+        // One that falls unconscious, with no roll, but while its id waits (`0x53EAD1`).
+        if line.group == FAINTS {
+            if let Some((id, file, wait)) = mind
+                .and_then(|mind| voices.faint(&sfx, mind.thinks.creature))
+                .filter(|(id, ..)| voices.waits.get(id).is_none_or(|&until| until <= now))
+            {
+                said.push(Said {
+                    speaker: line.speaker,
+                    id,
+                    file,
+                    wait: Some(wait),
+                    play: Play::Over,
+                    named: false,
+                });
+            }
+            continue;
+        }
         if is_hero && line.group == DEATH {
             // The hero's death speaks its line by name (`0x6852B0`, `0x693FE0`).
             if let Some((id, file)) = hero_type
@@ -991,7 +1038,7 @@ fn speak(
         match line.play {
             Play::GivesWay => continue,
             Play::Plays if playing(speaking) => continue,
-            Play::Plays => {}
+            Play::Plays | Play::Over => {}
             Play::Interrupts => {
                 if let Some(speaking) = speaking
                     && let Some(mut old) = instances.get_mut(&speaking.0)
@@ -1845,6 +1892,50 @@ mod tests {
         // No noise of its list, none at all.
         assert_eq!(count(512, false), 0);
         assert_eq!(count(76, true), 0);
+    }
+
+    #[test]
+    fn one_that_falls_unconscious_speaks_one_of_its_types_lines_with_no_roll() {
+        let voice = |creature: u16, faints: Vec<u16>| Voice {
+            creature,
+            profiles: Vec::new(),
+            rolls: [0; 4],
+            wait: 1.0,
+            casts: Vec::new(),
+            faints,
+        };
+        let mut voices = Voices {
+            voices: HashMap::from([
+                (697, voice(697, vec![20170])),
+                (224, voice(224, vec![20831, 20832, 20833, 20834])),
+                (76, voice(76, Vec::new())),
+            ]),
+            waits: HashMap::new(),
+            commented: None,
+            hostile_idle: HashMap::new(),
+            peaceful_idle: HashMap::new(),
+            dice: Rng::of(0, 0, 3),
+        };
+        let sfx = Sfx::new(&opensacred_data::sound::Sound {
+            samples: vec![20170, 20831, 20832, 20833, 20834],
+            profiles: Vec::new(),
+            music: Vec::new(),
+            names: Vec::new(),
+        });
+        // Sharifa's one line, its rolls of the groups none of its matter, waiting 1 s after.
+        let (id, _, wait) = voices.faint(&sfx, 697).unwrap();
+        assert_eq!((id, wait), (20170, 1.0));
+        // One of four by a roll, each in turn, and 3 s after for the type 224.
+        let mut heard = std::collections::HashSet::new();
+        for _ in 0..64 {
+            let (id, _, wait) = voices.faint(&sfx, 224).unwrap();
+            assert_eq!(wait, 3.0);
+            heard.insert(id);
+        }
+        assert_eq!(heard.len(), 4);
+        // None for a type without such a line, nor one without a voice.
+        assert!(voices.faint(&sfx, 76).is_none());
+        assert!(voices.faint(&sfx, 513).is_none());
     }
 
     #[test]

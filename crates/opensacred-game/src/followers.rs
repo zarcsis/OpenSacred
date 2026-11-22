@@ -1000,6 +1000,33 @@ fn risen(
     }
 }
 
+/// Each follower of the hero that a script keeps to rise again (`npcs::RisesAgain`), as it falls
+/// unconscious (the AI's dying state `0x53E7C0`, its block `0x53E9FA`–`0x53EAD1`; #3087): white
+/// butterflies circle its head for its 20 s of lying (`knockouts::fainted`) and it speaks its line
+/// of one that falls unconscious (`voices::FAINTS`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their filters"
+)]
+fn faint(
+    mut commands: Commands,
+    mut lines: MessageWriter<crate::voices::Speak>,
+    heroes: Query<(), With<Body>>,
+    fallen: Query<(Entity, &Follower, &Dies), (Added<Dies>, With<RisesAgain>)>,
+) {
+    for (entity, follower, dies) in &fallen {
+        if dies.fallen || !heroes.contains(follower.master) {
+            continue;
+        }
+        debug!("followers: {entity} falls unconscious");
+        crate::knockouts::fainted(&mut commands, entity);
+        lines.write(crate::voices::Speak {
+            speaker: entity,
+            group: crate::voices::FAINTS,
+        });
+    }
+}
+
 /// How long a follower that rises again lies dead, in seconds (`0x53FB40`: 20.0 at `0x890798`).
 const LIES_BEFORE_RISING: f32 = 20.0;
 
@@ -1058,7 +1085,7 @@ impl Plugin for FollowersPlugin {
         app.init_resource::<Dice>()
             .add_systems(
                 Update,
-                (make, chain, rise_again)
+                (make, chain, faint, rise_again)
                     .after(Step::Npcs)
                     .in_set(crate::frame::Playing),
             )
@@ -1084,6 +1111,50 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+
+    #[test]
+    fn a_follower_kept_to_rise_falls_unconscious_under_butterflies_and_speaks() {
+        let mut world = World::new();
+        world.init_resource::<Messages<crate::voices::Speak>>();
+        let hero = world.spawn(Body::standing()).id();
+        let creature = world.spawn_empty().id();
+        let follower = |master| Follower {
+            master,
+            stepping_off: false,
+            escorted: false,
+        };
+        // Quest 59's companion, kept to rise; one of no `0x6B`; one of a creature's; a body put
+        // back lying.
+        let shareefa = world.spawn((follower(hero), RisesAgain, Dies::new(0))).id();
+        world.spawn((follower(hero), Dies::new(0)));
+        world.spawn((follower(creature), RisesAgain, Dies::new(0)));
+        world.spawn((follower(hero), RisesAgain, Dies::fallen()));
+        world.run_system_cached(faint).unwrap();
+        world.flush();
+        let speaks: Vec<(Entity, u8)> = world
+            .resource_mut::<Messages<crate::voices::Speak>>()
+            .drain()
+            .map(|line| (line.speaker, line.group))
+            .collect();
+        assert_eq!(speaks, [(shareefa, crate::voices::FAINTS)]);
+        // One system of butterflies, over her head alone.
+        let butterflies = world
+            .query::<&crate::knockouts::Unmade>()
+            .iter(&world)
+            .map(|unmade| unmade.bearer)
+            .collect::<Vec<_>>();
+        assert_eq!(butterflies, [shareefa]);
+        // Once alone, at her fall.
+        world.run_system_cached(faint).unwrap();
+        world.flush();
+        assert_eq!(
+            world
+                .query::<&crate::knockouts::Unmade>()
+                .iter(&world)
+                .count(),
+            1
+        );
+    }
 
     #[test]
     fn a_follower_kept_to_rise_stands_again_20_s_after_its_death() {

@@ -12,7 +12,7 @@
 //! original's hero takes as a creature does; seen 2026-11-19).
 //!
 //! The fall's voice line of one that falls unconscious (`0x6770E0`, `0x6852B0`) is not spoken,
-//! no hero's voice holding one (a companion's is #3087). Its butterflies are `knockouts`' (the
+//! no hero's voice holding one (a companion's is `followers::faint`'s, #3087). Its butterflies are `knockouts`' (the
 //! object 874, #3023). It lies turned to its attacker, and its terror fells no creature
 //! meanwhile (`fight::terrify`, #3079).
 

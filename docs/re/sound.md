@@ -3,7 +3,7 @@
 Recovered from the GOG `Sacred.exe` 2.28 with capstone on 2026-10-17.
 The formats are in [docs/02 §10](../02-data-formats.md#10-sound-music-video), the natures of the cells in [docs/02 §5.2](../02-data-formats.md#52-a-sector-in-sectorswldx-the-32-b-floor-cell).
 Status: **confirmed** on the code unless marked otherwise.
-Implemented in `opensacred-rules` (`music`), `opensacred-game` (`music`, `atmosphere`, `voices`, `sfx`, `sound`, `steps`, `ambience`, `remarks`, `art_sounds`, `hums`, `volumes`, `waterfalls`, `fx_loops`, `menu_sound`), `opensacred-convert` (`sound`, `voices`, `idle_noises`), `opensacred-data` (`sound`, `tables`) and `opensacred-formats` (`sound`, `voices`).
+Implemented in `opensacred-rules` (`music`), `opensacred-game` (`music`, `atmosphere`, `voices`, `followers`, `sfx`, `sound`, `steps`, `ambience`, `remarks`, `art_sounds`, `hums`, `volumes`, `waterfalls`, `fx_loops`, `menu_sound`), `opensacred-convert` (`sound`, `voices`, `idle_noises`), `opensacred-data` (`sound`, `tables`) and `opensacred-formats` (`sound`, `voices`).
 
 ## Sound names
 
@@ -59,6 +59,34 @@ A line plays only when its id waits for nothing (groups 1, 2), when the record's
 - **Seen:** a strike that the held button chains (docs/re/fight.md, "The hero's attack") starts in sub-state 1, not 0, and calls no `ATTACK`: the hero's voice took group 1 three times in the 45 s of strikes, the goblin's, whose own strikes chain too, 32 times.
   Of those 32 the goblin's line (2031, group 1) was picked and started 15 times, of its 42 `NORMALHIT`s 11, of the hero's 21 `NORMALHIT`s 4 (1008 or 1009, group 2): the hits about as the roll of one in four gives, the goblin's `ATTACK` about twice as often, though `0x6852B0` picks a line only once its roll gives 0 (**hypothesis**: another caller picks the profile's group 1 too; not read).
 - **Seen:** every sample of the fight started through `AIL_start_sample`, none through `AIL_start_3D_sample`: `playSFX` takes the 2D path when the sound manager's `+0x80` is 0 or the channel has no 3D sample (**hypothesis**: the driver's settings leave the 3D provider off).
+
+**The line of one that falls unconscious** (the special 2; read 2026-11-22 for #3087, **confirmed** by code and **seen**, the last item).
+
+- **Who asks it.**
+  Two calls, each with the group 0 and the fallen creature's own type (`+0x10`) and id (`+0xC`).
+  - The AI's dying state (`0x53E7C0`, the block `0x53E9FA`–`0x53EAD1`), once, at its first run for a death (its sub-state `+0xFE` 0), after the death's function of the scripts has run and left the health below 1: for a creature whose master (`+0x251`) is a player, an id of 1 to 16, and that the scripts keep to rise again (`+0x2B7` bit 8, the tag `0x6B` above 0 of `SetNPCState` and `CreateNPC`, docs/re/ai.md, "The scripts' hired followers").
+    Before the line it makes an object 874 (`FX_KNOCKOUT`) at the follower's place and sends it the FX event `0x62` of the follower's id, its `+0x38` 20,000 and its `+0x3C` white (`0x53EA1E`–`0x53EAB3`): white butterflies circling its head for 20 s, the time after which it rises (`0x53FBDC`), as a player's knock-down's circle 6 s (docs/re/effects.md, "The butterflies over a head"); the line is asked whether the object was made or not.
+  - A player's knock-down (`0x56E428`, docs/re/fight.md, "A knock-down"): the struck player's own type and id, so that it says nothing, no hero's type having such a line (below).
+
+  A follower without the bit, which its master dismisses at its death, a creature of the bit that follows no player, and every other death ask no such line.
+- **Which line.**
+  The type's case of the voice function (the byte table `0x68BBD0`) holds the lines' ids as constants: a case of one line takes it, and a case of four takes one by a roll of its own, `rand() & 3`, each one in four (`0x68A975`, `0x689E9A`, `0x689B5F`, `0x689BF4`); a case without such a line ends the call with no sound.
+  The 13 types and their ids are `Voice::faints` of `tables/voices.ron` (docs/02 §6.6): 77, 83, 224, 322 to 324, 361, 368, 677 to 679, 697 and 699, eleven cases, four of them of four lines.
+- **Whether it plays.**
+  No roll gates it: the case's own roll of its groups (`rand() % n`) is passed over on the way of a fixed id (`0x68A72D`) or set to 0 (`0x689B9D`).
+  It gives way, the call ending at once, while the creature speaks a line of its own (`0x678AF0` answering 1, at `0x685473`, as the groups 0, 1 and 4 to 6 do), and it plays only while its id waits for nothing (`0x679170`, at `0x68A77B`), as a line of the groups 1 and 2; the cast's line, the special 1, plays through a wait (`0x68B811`).
+  Like every line it wants a quality above 0 (the manager's `+0x82`, "The quality" below) and a sound record of the speaker and of the hero (`0x6781D0`, the records of the creatures about the hero, "The hero's comments" below).
+- **How it plays.**
+  As any line of a voice: `playSFX(id, 0, r, 0.5, 1, the creature's id, 1.0, 0, 0)` (`0x68A7D2`), so placed at the creature, at its place's volume times the effects' level, at the voice's rate factor `r` of 0.45 + (`rand() % 10`)/90, the sample's own rate times 0.95 to 1.05 ("The weapons", "Their calls" below).
+  Then its id waits 1 s, the function's default, or 3 s in the three cases that end through `0x689B9D` (those of the ids 20831 to 20834, 20689 to 20692 and 20766 to 20769), not the wait of the case's profile lines, and the creature's record keeps the channel as its line (`0x678980`), so that a later line of its groups 0, 1 and 3 to 6 gives way while it sounds.
+  The record keeps a channel, and a creature counts as speaking, only in the first of the manager's three lists of records, its 32 at `+0xDA4` (`0x678980`, `0x678AF0`, `0x6789D0`; `0x6781D0` finds a record in any of the three).
+- **Seen** 2026-11-22 in the running original (the driver of #448, `--muted`; the voice function and `playSFX` traced with their arguments, the function's two records by a probe at `0x685372`, the dying state and the strikes by their presets): Sharifa, the type 697, made by the driver's `spawn` beside the Mage in a new game, hired by its `hire` (her master the hero, her flags `0x300`), her health set to 1, and four goblin warriors of level 15 made about her.
+  - She fought them, one struck her dead (her health 5 to 0), and in the strike's frame the voice function was asked for her the group 2, which started her profile's line 20171, and the group 7, which started none.
+    A tick later, 0.116 s, the dying state ran and asked the group 0 with the special 2, her own type and id, and `playSFX(20170, 0, 0.4833, 0.5, 1, her id, 1.0, 0, 0)` started her one line of `Voice::faints`, 0.12 s into her hit's line, which it did not give way to: a creature peaceful to the hero is of the second list and never counts as speaking.
+  - She rose and fell again, and the line 20170 started again; white butterflies circled by her head as she lay.
+  - In a run before, the same follower made after some ten minutes of fights with spells at one place, the function was asked 17 times for her, casts, strikes, hits, deaths and the special 2 twice, and started no sample at all, while the goblins' lines sounded (**hypothesis**: the second list's 256 records were full of the effects' objects', which stay while the listener is within 1,200 pixels, "The records' reach" below, so that she had no record and the function left at its head).
+
+`opensacred-game` follows it since #3087 (`followers::faint`, `voices::FAINTS`, `knockouts::fainted`): as a hero's follower that the scripts keep to rise again dies, white butterflies circle its head for 20 s and it speaks its one line of `Voice::faints`, or one of its four at random, with no roll, but while its id waits, over its own line that plays, which it neither stops nor gives way to; its id then waits 1 s, or 3 s for the types 224, 361 and 368.
 
 **The weapons.**
 
