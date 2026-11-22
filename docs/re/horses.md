@@ -3,7 +3,7 @@
 The heroes' horses: the stables and their traders, buying, riding, fighting from the saddle and the horse left alone (#1822).
 Read 2026-11-08 in Ghidra, code only, unless marked **seen**; every claim **confirmed** by code unless marked **hypothesis**.
 Field offsets are of a `cCreature` unless said otherwise; "the horse" is a creature of `Creature.pak` class 4 (`0x4266F0`), "the rider" the creature on it.
-Implemented in `opensacred-rules` (`horses`, `minds`) and `opensacred-game` (`riding`, `stables`, `trample`, `floops`, `npcs`, `bar`).
+Implemented in `opensacred-rules` (`horses`, `minds`) and `opensacred-game` (`riding`, `stables`, `trample`, `floops`, `npcs`, `bar`, `belt`).
 
 ## The types and the links
 
@@ -248,6 +248,7 @@ Read 2026-11-08 for #2288 in the code (**confirmed** where not marked), and seen
 ## Health, harm and death
 
 - A healing potion drunk by a rider heals his horse by the same share (`0x5CAC1E`); the trader's heal makes it whole.
+  `opensacred-game` heals it so since #3097 (`belt::drunk`), the horse under the riding hero alone, and neither where the hero is whole, as a healing potion at full health is not drunk.
 - A horse with a rider is a foe of whoever is hostile to its rider (`0x423580`); an unridden horse keeps the horses' side 4, which the hostile sides take for a friend, so monsters leave it alone; a purchase changes no side.
 - A ridden horse dead throws its rider off and both lose the link: the horse is lost.
   An unridden owned horse that dies keeps the link (**hypothesis**: no code clears it), and the call refuses a dead horse.

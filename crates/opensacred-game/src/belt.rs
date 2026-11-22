@@ -16,11 +16,12 @@
 //! health is below its most, gives back its share of the most health; a purple or a blue one gives
 //! the drinker its effect 33, one alone of its whole value; a green one cures its effects 30; a
 //! yellow one sets every combo's regeneration to its cocktail's factor of the combo's time
-//! (#1531); 6081 and 6094 give the butterflies' effect 31 (`knockouts`, #3023). Each is then used up, with the sound of an item used up (`0x5D8000`); a healing
-//! potion at full health is not.
+//! (#1531); 6081 and 6094 give the butterflies' effect 31 (`knockouts`, #3023). Each is then used
+//! up, with the sound of an item used up (`0x5D8000`); a healing potion at full health is not. A
+//! healing potion that heals a rider heals the horse under it by the same share (`0x5CAC1E`,
+//! #3097).
 //!
-//! The slots' sparkles are `sparkles`' (#1272), their tooltips `bar_tips`' (#1684). Not followed:
-//! the hero's horse healed with it.
+//! The slots' sparkles are `sparkles`' (#1272), their tooltips `bar_tips`' (#1684).
 
 use bevy::input::ButtonState;
 use bevy::input::keyboard::KeyboardInput;
@@ -124,7 +125,8 @@ const LETTERS: [(Action, u8, bool); 5] = [
 /// their health, who drinks it (#1313). What the drink does goes by the potion's kind (#1353).
 #[expect(
     clippy::too_many_arguments,
-    reason = "a Bevy system's parameters are its inputs"
+    clippy::type_complexity,
+    reason = "a Bevy system's parameters are its inputs, its queries with their filters"
 )]
 fn drink(
     mut commands: Commands,
@@ -141,8 +143,12 @@ fn drink(
         Option<Res<Potions>>,
         Option<ResMut<crate::combos::HeroCombos>>,
     ),
-    mut heroes: Query<(Entity, &mut Health), With<Body>>,
-    mut followers: Query<(Entity, &Follower, &mut Health), Without<Body>>,
+    mut heroes: Query<(Entity, &mut Health, Option<&crate::riding::Seat>), With<Body>>,
+    mut followers: Query<
+        (Entity, &Follower, &mut Health),
+        (Without<Body>, Without<crate::riding::Horse>),
+    >,
+    mut horses: Query<&mut Health, (With<crate::riding::Horse>, Without<Body>)>,
     mut sounds: MessageWriter<sfx::Play>,
     mut dice: Local<Option<Rng>>,
 ) {
@@ -162,7 +168,7 @@ fn drink(
     if console.is_some_and(|console| console.is_open()) {
         return;
     }
-    let Ok((hero, health)) = heroes.single_mut() else {
+    let Ok((hero, health, seat)) = heroes.single_mut() else {
         return;
     };
     if health.current == 0 {
@@ -219,11 +225,16 @@ fn drink(
         None => health,
     };
     let drinking = (follower.unwrap_or(hero), follower.is_none());
+    // The hero's horse under it, healed with it.
+    let mut horse = seat
+        .and_then(crate::riding::Seat::ridden)
+        .filter(|_| follower.is_none())
+        .and_then(|horse| horses.get_mut(horse).ok());
     let dice = dice.get_or_insert_with(|| crate::seed::dice(1311));
     if drunk(
         &mut commands,
         drinking,
-        &mut drinker,
+        (&mut drinker, horse.as_deref_mut()),
         (item, &healing),
         (combos.as_deref_mut(), &mut sounds, dice),
     ) {
@@ -244,11 +255,13 @@ fn play(sounds: &mut MessageWriter<sfx::Play>, id: u32) {
 /// `drinker`, the hero or a creature (`hero`), of the health `health`, drinks the potion `item`
 /// (`0x54AA80`, the potion's event `0x10`): a drink's sound by a roll of three, and what the drink
 /// does by the potion's kind (#1353), the combos refilled for the hero alone; whether it did
-/// anything, so that the potion is used up, a heal of one at its whole health doing nothing.
+/// anything, so that the potion is used up, a heal of one at its whole health doing nothing. A
+/// heal heals the horse of the health `horse` under a rider by the same share where it lives and
+/// is hurt (`0x5CAC1E`, #3097), and none where the rider is whole.
 pub(crate) fn drunk(
     commands: &mut Commands,
     (drinker, hero): (Entity, bool),
-    health: &mut Health,
+    (health, horse): (&mut Health, Option<&mut Health>),
     (item, healing): (u32, &potions::Potions),
     (combos, sounds, dice): (
         Option<&mut crate::combos::HeroCombos>,
@@ -266,6 +279,13 @@ pub(crate) fn drunk(
     match healing.drink(item) {
         Some(Drink::Heals(share)) if health.current < health.most => {
             health.current = healed(health.current, health.most, share);
+            if let Some(horse) = horse.filter(|horse| horse.current > 0) {
+                horse.current = healed(horse.current, horse.most, share);
+                info!(
+                    "belt: the horse under {who}: health {} of {}",
+                    horse.current, horse.most
+                );
+            }
             info!(
                 "belt: {who} drinks {item}: health {} of {}",
                 health.current, health.most
@@ -380,32 +400,89 @@ mod tests {
 
     /// Each of the potions `items` drunk in turn by a follower of the health `health`.
     fn drinks(items: Vec<u32>, health: Health) -> (Vec<bool>, Health) {
+        let (did, health, _) = rides(items, health, None);
+        (did, health)
+    }
+
+    /// Each of the potions `items` drunk in turn by a creature of the health `health` riding a
+    /// horse of the health `horse`, if any.
+    fn rides(
+        items: Vec<u32>,
+        health: Health,
+        horse: Option<Health>,
+    ) -> (Vec<bool>, Health, Option<Health>) {
         let mut app = App::new();
         app.add_message::<sfx::Play>().init_resource::<Drunk>();
         let follower = app.world_mut().spawn(health).id();
+        let mount = horse.map(|horse| app.world_mut().spawn(horse).id());
         app.add_systems(
             Update,
             move |mut commands: Commands,
                   mut healths: Query<&mut Health>,
                   mut sounds: MessageWriter<sfx::Play>,
                   mut done: ResMut<Drunk>| {
-                let mut health = healths.get_mut(follower).unwrap();
                 let mut dice = Rng::of(1, 2, 3);
                 for &item in &items {
+                    let mut horse = mount.map(|mount| *healths.get(mount).unwrap());
+                    let mut health = healths.get_mut(follower).unwrap();
                     let did = drunk(
                         &mut commands,
                         (follower, false),
-                        &mut health,
+                        (&mut health, horse.as_mut()),
                         (item, &potions::Potions::default()),
                         (None, &mut sounds, &mut dice),
                     );
+                    if let (Some(mount), Some(horse)) = (mount, horse) {
+                        *healths.get_mut(mount).unwrap() = horse;
+                    }
                     done.0.push(did);
                 }
             },
         );
         app.update();
         let health = *app.world().get::<Health>(follower).unwrap();
-        (app.world().resource::<Drunk>().0.clone(), health)
+        let horse = mount.map(|mount| *app.world().get::<Health>(mount).unwrap());
+        (app.world().resource::<Drunk>().0.clone(), health, horse)
+    }
+
+    #[test]
+    fn a_riders_healing_potion_heals_its_horse_by_the_same_share() {
+        let rider = Health {
+            current: 10,
+            most: 100,
+            level: 1,
+        };
+        let horse = Health {
+            current: 20,
+            most: 200,
+            level: 1,
+        };
+        let (did, rider_after, horse_after) = rides(vec![5171], rider, Some(horse));
+        assert_eq!(did, vec![true]);
+        assert!(rider_after.current > rider.current);
+        let Some(Drink::Heals(share)) = potions::Potions::default().drink(5171) else {
+            panic!("5171 heals");
+        };
+        let horse_after = horse_after.unwrap();
+        assert_eq!(
+            horse_after.current,
+            healed(20, 200, share),
+            "{horse_after:?}"
+        );
+        assert!(horse_after.current > 20);
+        // At the rider's whole health nothing is drunk, and the horse is not healed.
+        let whole = Health {
+            current: 100,
+            ..rider
+        };
+        let (did, _, kept) = rides(vec![5171], whole, Some(horse));
+        assert_eq!((did, kept), (vec![false], Some(horse)));
+        // A dead horse stays dead.
+        let dead = Health {
+            current: 0,
+            ..horse
+        };
+        assert_eq!(rides(vec![5171], rider, Some(dead)).2, Some(dead));
     }
 
     #[test]
