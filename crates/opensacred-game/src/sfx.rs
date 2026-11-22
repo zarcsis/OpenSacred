@@ -579,7 +579,7 @@ impl Armed {
 /// A weapon's sound: a strike's swing by its striker, the sound at a hit's target by its
 /// striker's weapon (`landed` whether the hit did damage), or a shot by its shooter's; a plain
 /// arrow's own hit at the arrow is not heard in the original, which holds no record of an arrow,
-/// and is not played (`0x5BBE00`, `0x693D8C`; docs/re/sound.md, "The weapons.", #3343).
+/// and is not played (`0x5BBE00`, `0x693D8C`; docs/re/sound.md, "The weapons", #3343).
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Blow {
     Swing {
