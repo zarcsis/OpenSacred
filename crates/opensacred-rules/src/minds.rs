@@ -426,6 +426,10 @@ const CITIZEN: u32 = 0x400;
 const TOWNSFOLK_TOO: u32 = 0x8000;
 const TOWNSFOLKS: u32 = TOWNSFOLK | CITIZEN | TOWNSFOLK_TOO | JUGGLER;
 const BEHAVIOURS: u32 = WILD | WILD_TOO | FARM | FARM_LOOSE | GUARD | TOWNSFOLKS;
+/// The wild animals' flags, [`WILD`] and [`WILD_TOO`], and the farm animals', [`FARM`] and
+/// [`FARM_LOOSE`].
+const WILDS: u32 = 0xC0;
+const FARMS: u32 = 0x30;
 /// How far from the hero, times the camera's zoom, a townsperson goes dormant again
 /// (`0x4F0A87`, the float at `0x891028`; the zoom `0x611400`).
 const TOWNSFOLK_RANGE: f32 = 600.0;
@@ -678,6 +682,8 @@ const BACK: i32 = 50;
 /// How far about home the animals stroll: the wild within 100, the farm within 150.
 const STROLL_WILD: i32 = 100;
 const STROLL_FARM: i32 = 150;
+/// How far about itself a townsperson whose roll stops by a door's point walks off (`0x4F332F`).
+const WALKS_OFF: i32 = 250;
 /// How far from its post along an axis sends a guard back to it, and how far about it a guard
 /// strolls.
 const POST: f32 = 90.0;
@@ -2994,6 +3000,25 @@ impl Mind {
         }
         let strolls = rng.below(STROLLS) == 0 || (crowded && self.is_animal());
         let mut chosen = behaviour(self, here, fear.map(|(at, _)| at), (strolls, walking), rng);
+        // The animals' doings as they decide standing (`0x4F092A`, `0x4F0A5C`, `0x4F0457`,
+        // `0x4F054C`, `0x4F058F`; #3424): a farm animal's step away and stroll, a wild one's
+        // flight, its walk back or its stroll, and the wild one's 0 where it does none.
+        if walking.is_none() {
+            let why = chosen.map(|(_, why)| why);
+            if self.flags & WILDS != 0 {
+                self.activity = match why {
+                    Some(Why::Flees) => activity::FLEES,
+                    Some(Why::GoesBack | Why::Strolls) => activity::WILD_WALKS,
+                    _ => activity::NONE,
+                };
+            } else if self.flags & FARMS != 0 {
+                match why {
+                    Some(Why::StepsAway) => self.activity = activity::STEPS_AWAY,
+                    Some(Why::Strolls) => self.activity = activity::FARM_STROLLS,
+                    _ => {}
+                }
+            }
+        }
         if self.flies
             && outdoors
             && self.is_animal()
@@ -3842,7 +3867,16 @@ pub mod activity {
     pub const ROMANCE: u16 = 15;
     pub const ANIMAL: u16 = 16;
     pub const GOES_HOME: u16 = 18;
+    /// A farm animal steps away from a creature, and strolls about home (`0x4F092A`,
+    /// `0x4F0A5C`; #3424).
+    pub const STEPS_AWAY: u16 = 22;
+    pub const FARM_STROLLS: u16 = 23;
+    /// A wild animal flees, and walks back home or strolls about it (`0x4F0457`, `0x4F054C`).
+    pub const FLEES: u16 = 24;
+    pub const WILD_WALKS: u16 = 25;
     pub const GOES_IN: u16 = 26;
+    /// A townsperson whose roll stops by a door's point walks off (`0x4F332F`, #3424).
+    pub const WALKS_OFF: u16 = 27;
     pub const TRADER: u16 = 37;
     /// The first of the meetings' seven topics (`0x4FC646`).
     pub const TOPICS: u16 = 30;
@@ -3875,6 +3909,12 @@ pub fn activity_icon(mind: &Mind) -> Option<i32> {
     }
     let icon = *ACTIVITY_ICONS.get(usize::from(mind.activity))?;
     (1..=0x5A).contains(&icon).then_some(i32::from(icon))
+}
+
+/// Where a townsperson at `here` whose roll stopped by a door's point walks off to (`0x4F332F`,
+/// docs/re/ai.md, "The roll", #3424): within 250 of itself along each axis.
+pub fn walks_off(here: Spot, rng: &mut impl Dice) -> Spot {
+    about(here, WALKS_OFF, rng)
 }
 
 /// What a townsperson standing does when it decides by day, by its roll (`0x4F22F0`): 0 takes
@@ -4819,6 +4859,99 @@ mod tests {
         let even = Mind::circles(Spot::new(1000.0, 0.0), hero, false, 130.0);
         assert!((even.length() - 1000.0).abs() < 0.1, "{even:?}");
         assert!(even.y < 0.0, "{even:?}");
+    }
+
+    #[test]
+    fn the_animals_flags_are_their_two_bits() {
+        assert_eq!(WILDS, WILD | WILD_TOO);
+        assert_eq!(FARMS, FARM | FARM_LOOSE);
+    }
+
+    #[test]
+    fn the_animals_write_their_doings_as_they_decide_standing() {
+        use crate::spawning::Script;
+        let fear = Some((at(50.0, 0.0), 0));
+        // A farm animal (class 5): its step away 22, its stroll 23, nothing else changes it.
+        let mut cow = Mind::new(at(0.0, 0.0), FARM, (true, true), None, SPEEDS, (524, 5));
+        cow.behaves(
+            at(0.0, 0.0),
+            fear,
+            (false, None, true),
+            &mut Script::new(vec![1]),
+        );
+        assert_eq!(cow.activity, activity::STEPS_AWAY);
+        assert_eq!(activity_icon(&cow), Some(0x50));
+        cow.behaves(
+            at(0.0, 0.0),
+            None,
+            (false, None, true),
+            &mut Script::new(vec![0]),
+        );
+        assert_eq!(cow.activity, activity::FARM_STROLLS);
+        cow.behaves(
+            at(0.0, 0.0),
+            None,
+            (false, None, true),
+            &mut Script::new(vec![1]),
+        );
+        assert_eq!(cow.activity, activity::FARM_STROLLS);
+        // Walking, it decides nothing and keeps its doing.
+        cow.behaves(
+            at(0.0, 0.0),
+            fear,
+            (false, Some(at(9.0, 9.0)), true),
+            &mut Script::new(vec![1]),
+        );
+        assert_eq!(cow.activity, activity::FARM_STROLLS);
+        // A wild animal: its flight 24, its stroll 25, and 0 where it does none.
+        let mut deer = Mind::new(at(0.0, 0.0), WILD, (true, true), None, SPEEDS, (500, 5));
+        deer.behaves(
+            at(0.0, 0.0),
+            fear,
+            (false, None, true),
+            &mut Script::new(vec![1]),
+        );
+        assert_eq!(deer.activity, activity::FLEES);
+        deer.behaves(
+            at(0.0, 0.0),
+            None,
+            (false, None, true),
+            &mut Script::new(vec![0]),
+        );
+        assert_eq!(deer.activity, activity::WILD_WALKS);
+        deer.behaves(
+            at(0.0, 0.0),
+            None,
+            (false, None, true),
+            &mut Script::new(vec![1]),
+        );
+        assert_eq!(deer.activity, activity::NONE);
+        // Far from home it walks back, 25 too.
+        deer.behaves(
+            at(900.0, 0.0),
+            None,
+            (false, None, true),
+            &mut Script::new(vec![1]),
+        );
+        assert_eq!(deer.activity, activity::WILD_WALKS);
+        // A guard's stroll writes no animal's doing.
+        let mut guard = Mind::new(at(0.0, 0.0), GUARD, (true, true), None, SPEEDS, (300, 1));
+        guard.activity = activity::GUARDS;
+        let stroll = guard.behaves(
+            at(0.0, 0.0),
+            None,
+            (false, None, true),
+            &mut Script::new(vec![0]),
+        );
+        assert!(matches!(stroll, Some((_, Why::Strolls))));
+        assert_eq!(guard.activity, activity::GUARDS);
+    }
+
+    #[test]
+    fn a_townsperson_walks_off_within_250_of_itself() {
+        use crate::spawning::Script;
+        let to = walks_off(at(100.0, 100.0), &mut Script::new(vec![0, 500]));
+        assert_eq!(to, at(-150.0, 350.0));
     }
 
     #[test]

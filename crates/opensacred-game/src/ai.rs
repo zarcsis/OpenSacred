@@ -2114,6 +2114,22 @@ fn entering(
     }
 }
 
+/// How near a door's point a townsperson whose roll stops walks off (`0x4F332F`).
+const BY_DOOR_POINT: f32 = 24.0;
+
+/// Whether a townsperson at `here` stands within [`BY_DOOR_POINT`] of a point of the door
+/// `door`, its inner or its outer one (`0x4F332F`).
+fn by_door_point(door: Option<(Entity, Vec3, Option<DoorPoints>)>, here: Vec3) -> bool {
+    door.and_then(|(_, _, points)| points)
+        .is_some_and(|points| {
+            [points.inner, points.outer]
+                .into_iter()
+                .flatten()
+                .filter_map(|(cell, _)| centre(cell))
+                .any(|point| (point - here).xz().length() <= BY_DOOR_POINT)
+        })
+}
+
 /// A stage of a townsperson's going in ([`entering`]).
 enum Entering {
     /// To the door's outer point, the door, where it stands and its inner point to go on to.
@@ -2959,7 +2975,23 @@ fn behave(
                     commands.entity(entity).insert(Plays { instrument, on });
                     continue;
                 }
-                Decision::Stop => mind.activity = activity::NONE,
+                Decision::Stop => {
+                    mind.activity = activity::NONE;
+                    // Standing by a door's point, it walks off within 250 of itself as a trader's
+                    // visit's sub-state 12, to talk once where it stands again (`0x4F332F`,
+                    // docs/re/ai.md, "The roll", #3424).
+                    if by_door_point(nearest_door, here) {
+                        mind.activity = activity::WALKS_OFF;
+                        mind.visiting = Some(entity);
+                        let target = point(minds::walks_off(spot(here), &mut minds.rng), here.y);
+                        debug!(
+                            "ai: {entity} walks off a door's point from {:.0},{:.0} to {:.0},{:.0}",
+                            here.x, here.z, target.x, target.z
+                        );
+                        walks.push((entity, Walk::to(target, way.level, mind.speed)));
+                        continue;
+                    }
+                }
             }
         }
         if !mind.active || folk {
