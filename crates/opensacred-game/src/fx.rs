@@ -1991,6 +1991,8 @@ mod tests {
             spells: [1.0; 4],
             cast: opensacred_rules::fight::CAST_SPEED,
             attributes: [100.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
         });
         let health = crate::fight::Health {
             current: 50,

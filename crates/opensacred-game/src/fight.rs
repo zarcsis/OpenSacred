@@ -14,8 +14,8 @@ pub use opensacred_rules::fight::{
     takes_on,
 };
 use opensacred_rules::fight::{
-    Side, armour_comment, art_landed, poisons, range_factor, strike_landed, sure_landed,
-    weapon_comment, weapons_factor, weighed,
+    HurledAt, Side, against_class, armour_comment, art_landed, poisons, range_factor,
+    strike_landed, sure_landed, weapon_comment, weapons_factor, weighed,
 };
 use opensacred_rules::potions;
 
@@ -450,8 +450,52 @@ pub(crate) fn resolve(
             defending.defence *= opensacred_rules::fight::PARRY_DEFENCE;
             debug!("fight: {} defends against {}", hit.target, hit.attacker);
         }
+        // The two's records against each other (`0x568D70`, #3417): the attacker's slots against
+        // the struck one's class raise its ends and `A` for a blow of no fixed damages (a hurl's
+        // `A` alone), the struck one's against the attacker's its resistances and `D`, but at a
+        // poison's own strike, whose record of the struck one is none.
+        let hero_type = hero_arts.as_deref().map_or(0, |arts| arts.kind);
+        let attacker_type = if hero {
+            hero_type
+        } else {
+            mind.map_or(0, |mind| mind.creature)
+        };
+        let target_type = if hero_hit {
+            hero_type
+        } else {
+            victim.map_or(0, |victim| victim.creature)
+        };
+        let mut striking = attacker.0;
+        if hit.fixed.is_none() || hit.hurled {
+            let against = HurledAt {
+                thrower: attacker_type,
+                ..opponent(hero_hit, victim, (guarded, arms, seat))
+            };
+            let add = against_class(
+                &items_of(holding, caster_arms),
+                striking.attributes,
+                against,
+            );
+            let raised = striking.striking_with(&add);
+            striking = if hit.hurled {
+                opensacred_rules::fight::Combat {
+                    attack: raised.attack,
+                    ..striking
+                }
+            } else {
+                raised
+            };
+        }
+        if !hit.poison {
+            let against = HurledAt {
+                thrower: target_type,
+                ..opponent(hero, mind, (holding, caster_arms, saddle))
+            };
+            let add = against_class(&items_of(guarded, arms), defending.attributes, against);
+            defending = defending.struck_with(&add);
+        }
         let (mut attacker, mut defender, mut blow) =
-            weighed(attacker.0, defending, side, (level, health.level), &rules);
+            weighed(striking, defending, side, (level, health.level), &rules);
         // A poison's own strike makes no record of the struck one against its attacker, which
         // gives the resistances, so that it meets none (`0x56B6AA`, `0x56B929`; docs/re/fight.md,
         // "The poison", #3482).
@@ -1184,6 +1228,46 @@ pub(crate) fn resolve(
                 worth,
             );
         }
+    }
+}
+
+/// A creature as a strike's opponent, against whose class the other's items' slots count
+/// (`opensacred_rules::fight::HurledAt`, #3417): the hero's side the heroes', a creature's its
+/// mind's; with a ranged weapon in a hand or of the type's mark 8; riding.
+fn opponent(
+    is_hero: bool,
+    mind: Option<&crate::ai::Mind>,
+    (holds, arms, seat): (
+        Option<&Holding>,
+        Option<&crate::npcs::Arms>,
+        Option<&crate::riding::Seat>,
+    ),
+) -> HurledAt {
+    HurledAt {
+        thrower: 0,
+        side: if is_hero {
+            opensacred_rules::minds::HEROES
+        } else {
+            mind.map_or(0, |mind| mind.side)
+        },
+        ranged: holds.is_some_and(|holds| holds.0.ranged)
+            || arms.is_some_and(crate::npcs::Arms::ranged)
+            || mind.is_some_and(|mind| mind.mark() & 0xFFF == MAGICIANS_MARK),
+        mounted: seat.and_then(crate::riding::Seat::ridden).is_some()
+            || mind.is_some_and(|mind| mind.rides.is_some()),
+    }
+}
+
+/// The mark of the type's magicians (`+0x25F`'s low 12 bits), against whom the slots of the class
+/// `0x80` count with those that hold a ranged weapon.
+const MAGICIANS_MARK: u16 = 8;
+
+/// The items whose slots a creature's record reads: the hero's worn, a creature's held and worn.
+fn items_of(holds: Option<&Holding>, arms: Option<&crate::npcs::Arms>) -> Vec<ItemValues> {
+    match (holds, arms) {
+        (Some(holds), _) => holds.0.items.clone(),
+        (None, Some(arms)) => arms.item_values(),
+        (None, None) => Vec::new(),
     }
 }
 
@@ -2345,6 +2429,8 @@ mod tests {
             spells: [1.0; 4],
             cast: opensacred_rules::fight::CAST_SPEED,
             attributes: [0.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
         });
         let health = Health {
             current: 1_000_000,
@@ -2430,6 +2516,8 @@ mod tests {
             spells: [1.0; 4],
             cast: opensacred_rules::fight::CAST_SPEED,
             attributes: [0.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
         });
         let mut item = opensacred_rules::fight::ItemValues::default();
         item.bonuses[0] = opensacred_rules::fight::Bonus {
@@ -2500,6 +2588,8 @@ mod tests {
             spells: [1.0; 4],
             cast: opensacred_rules::fight::CAST_SPEED,
             attributes: [0.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
         });
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
@@ -2569,6 +2659,8 @@ mod tests {
             spells: [1.0; 4],
             cast: opensacred_rules::fight::CAST_SPEED,
             attributes: [0.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
         });
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
@@ -2650,6 +2742,8 @@ mod tests {
                 spells: [1.0; 4],
                 cast: opensacred_rules::fight::CAST_SPEED,
                 attributes: [0.0; 6],
+                attack_factor: 1.0,
+                defence_factor: 1.0,
             })
         };
         let mut app = App::new();
@@ -2704,6 +2798,101 @@ mod tests {
         // that is no poison's own meets the resistance of 50.
         assert_eq!(lost_to_eight_poison(true), 8);
         assert!(lost_to_eight_poison(false) < 8);
+    }
+
+    /// What a goblin warrior lost to the hero's sure strike of 20 to 20 physical, the hero holding
+    /// an item of an 801 of 10 against the side `side`.
+    fn lost_to_a_slot_against(side: u8) -> u32 {
+        let combat = Combat(opensacred_rules::fight::Combat {
+            attack: 200.0,
+            defence: 10.0,
+            damage: [[20.0, 20.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+            resistance: [0.0; 4],
+            damping: [0; 4],
+            speed: 140.0,
+            pace: 130.0,
+            multipliers: [1.0; 4],
+            resistance_factors: [1.0; 4],
+            spells: [1.0; 4],
+            cast: opensacred_rules::fight::CAST_SPEED,
+            attributes: [0.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
+        });
+        let mut item = opensacred_rules::fight::ItemValues::default();
+        item.bonuses[0] = opensacred_rules::fight::Bonus {
+            condition: u16::from(side),
+            effect: 801,
+            value: 10,
+        };
+        let holding = Holding(opensacred_rules::fight::Holds {
+            items: vec![item],
+            ..Default::default()
+        });
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<Hit>()
+            .add_message::<Kill>()
+            .add_message::<Struck>()
+            .add_message::<crate::voices::Speak>()
+            .add_message::<crate::sfx::Blow>()
+            .add_message::<crate::remarks::Remark>()
+            .add_message::<crate::drops::PileFromHit>()
+            .add_message::<crate::sfx::Play>()
+            .insert_resource(Dice(Rng::of(0, 0, 0)))
+            .init_resource::<Experience>()
+            .init_resource::<Rules>()
+            .add_systems(Update, resolve);
+        let world = app.world_mut();
+        let health = Health {
+            current: 1_000,
+            most: 1_000,
+            level: 1,
+        };
+        let hero = world
+            .spawn((
+                combat,
+                health,
+                holding,
+                Body::standing(),
+                GlobalTransform::default(),
+            ))
+            .id();
+        let mind = crate::ai::Mind::new(
+            Vec3::ZERO,
+            0x1,
+            (false, false),
+            None,
+            [70.0, 180.0],
+            (76, 8),
+        );
+        assert_eq!(mind.side, 8);
+        let goblin = world
+            .spawn((combat, health, mind, GlobalTransform::default()))
+            .id();
+        world.write_message(Hit {
+            attacker: hero,
+            target: goblin,
+            share: 1.0,
+            ranged: false,
+            art: None,
+            fixed: None,
+            sure: true,
+            poison: false,
+            ward: false,
+            hurled: false,
+        });
+        app.update();
+        1_000 - app.world().get::<Health>(goblin).unwrap().current
+    }
+
+    #[test]
+    fn the_heros_slot_against_a_class_raises_its_strike_at_one_of_it() {
+        // 20 against the side 8 is 30 (#3417); against another side, 20.
+        let of_it = lost_to_a_slot_against(8);
+        let other = lost_to_a_slot_against(5);
+        assert_eq!(other, 20);
+        assert!(of_it > other, "{of_it} {other}");
     }
 
     #[test]
@@ -2770,6 +2959,8 @@ mod tests {
             spells: [1.0; 4],
             cast: opensacred_rules::fight::CAST_SPEED,
             attributes: [0.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
         });
         let mut item = opensacred_rules::fight::ItemValues::default();
         item.bonuses[0] = opensacred_rules::fight::Bonus {
@@ -2846,6 +3037,8 @@ mod tests {
             spells: [1.0; 4],
             cast: opensacred_rules::fight::CAST_SPEED,
             attributes: [0.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
         });
         let mut item = opensacred_rules::fight::ItemValues::default();
         item.bonuses[0] = opensacred_rules::fight::Bonus {
