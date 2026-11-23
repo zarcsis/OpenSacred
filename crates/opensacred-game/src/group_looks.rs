@@ -74,6 +74,44 @@ pub(crate) fn flash(world: &mut World, member: Entity, colour: u32) {
     crate::puffs::spawn_in(world, burst, at, None);
 }
 
+/// `member`'s figures in the generic sparks of the variant 0 of the colour `colour`, its figure as
+/// it stands now moved onto each of `places` on the ground, world `(x, z)` (the 856 by the FX
+/// event `0x50` made at each: the Vampiress's dash, `0x50F857`, #3468).
+pub(crate) fn figures_at(world: &mut World, member: Entity, places: &[[f32; 2]], colour: u32) {
+    let Some((at, points)) = figure(world, member) else {
+        return;
+    };
+    let mut points: Vec<[f32; 3]> = points
+        .into_iter()
+        .map(|point| crate::puffs::local(point, at))
+        .collect();
+    if points.is_empty() {
+        points.push([0.0; 3]);
+    }
+    // Each figure as high over its place's ground as the member stands over its own.
+    let heights = world.get_resource::<crate::terrain::Heights>();
+    let here = heights.and_then(|heights| heights.at(at.x, at.z));
+    let places: Vec<Vec3> = places
+        .iter()
+        .map(|&[x, z]| {
+            let there = heights.and_then(|heights| heights.at(x, z));
+            let rise = here.zip(there).map_or(0.0, |(here, there)| there - here);
+            Vec3::new(x, at.y + rise, z)
+        })
+        .collect();
+    debug!(
+        "group looks: {member} leaves {} figures in sparks",
+        places.len()
+    );
+    for place in places {
+        let Some(mut dice) = world.get_resource_mut::<Dice>() else {
+            return;
+        };
+        let burst = particles::generic_sparks(&points, colour, &mut dice.0);
+        crate::puffs::spawn_in(world, burst, place, None);
+    }
+}
+
 /// `bearer`'s glows of a poison's strike, the generic system's variant 6 at its figure by its
 /// type's size (`0x560872`; its `items.pak +0x14`, `0x428CE0`, `arrows::Size`, the hero's and a
 /// type's of none 50; #3081).

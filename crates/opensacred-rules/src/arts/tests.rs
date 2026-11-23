@@ -1312,6 +1312,25 @@ fn the_claw_jump_strikes_and_holds_the_creatures_about_her_landing() {
 }
 
 #[test]
+fn the_dash_leaves_her_figure_every_thirty_steps_behind_her() {
+    // Seen: a dash ended at its 450th step along the screen's horizontal left 15 figures, its
+    // steps 0 to 420.
+    let points = dash_sparks([0.0, 0.0], [450.0, -450.0]);
+    assert_eq!(points.len(), 15);
+    assert_eq!(points[0], [0.0, 0.0]);
+    assert_eq!(points[1], [30.0, -30.0]);
+    assert_eq!(points[14], [420.0, -420.0]);
+    // Along the longer axis, the other following; none for a dash of no step.
+    assert_eq!(
+        dash_sparks([10.0, 20.0], [100.0, 50.0]),
+        [[10.0, 20.0], [40.0, 30.0], [70.0, 40.0]]
+    );
+    assert_eq!(dash_sparks([0.0, 0.0], [0.0, -61.0]).len(), 3);
+    assert!(dash_sparks([5.0, 5.0], [5.0, 5.0]).is_empty());
+    assert_eq!(DASH_SPARKS, 0xFF84_2222);
+}
+
+#[test]
 fn the_dash_puts_the_vampiress_at_its_point_within_its_reach() {
     assert_eq!(style(1028), Some(Style::Dash));
     assert_eq!(style(1029), Some(Style::Dash));

@@ -1752,9 +1752,17 @@ fn make(
                 end(&mut commands);
             }
             Style::Dash => {
-                // Below 0.8 left of its clip she is put at its point, starts its regeneration and
-                // ends (`0x50E6C0`).
+                // Below 0.8 left of its clip she runs her line, a figure of her in red sparks at
+                // every 30th step of it (`0x50F857`, #3468), is put at its point, starts its
+                // regeneration and ends (`0x50E6C0`).
                 if due(1.0 - arts::DASHES, done) {
+                    let places = arts::dash_sparks(
+                        transform.translation.xz().into(),
+                        playing.point.xz().into(),
+                    );
+                    commands.queue(move |world: &mut World| {
+                        crate::group_looks::figures_at(world, hero, &places, arts::DASH_SPARKS);
+                    });
                     body.teleport(&mut transform, playing.point);
                     arts.start(making.art);
                     end(&mut commands);
