@@ -1246,15 +1246,18 @@ fn pursue(
                 None => continue,
                 Some(ticks) => Some(ticks.saturating_add(1)),
             };
-            // One with no ranged weapon in hand searches a way to its target as its idle handler
-            // takes it up, which sets its standing clip to its pace's rate (#3562).
+            // By its hands, not by its fight at range, which the ice druid's bolts' effects give it
+            // (#3571): one with no ranged weapon in hand searches a way to its target as its idle
+            // handler takes it up, which sets its standing clip to its pace's rate (#3562), and
+            // shoots again a tick later than one with a bow.
+            let holds_ranged = arms.get(entity).is_ok_and(crate::npcs::Arms::ranged);
             if wait
                 .woken
-                .is_some_and(|woken| minds::searches_after_shot(woken, mind.ranged))
+                .is_some_and(|woken| minds::searches_after_shot(woken, holds_ranged))
             {
                 commands.entity(entity).insert(crate::npcs::SearchesWay);
             }
-            if wait.woken < Some(minds::shot_wake(mind.ranged)) {
+            if wait.woken < Some(minds::shot_wake(holds_ranged)) {
                 continue;
             }
             commands.entity(entity).remove::<crate::npcs::ShotEnded>();
