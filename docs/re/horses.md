@@ -131,7 +131,8 @@ Implemented in `opensacred-rules` (`horses`, `minds`) and `opensacred-game` (`ri
   - the horse's death, as it plays the slot 173, throws its rider down beside it, standing where alive (`0x53ECA0`, `0x551E40`);
   - the rider's death detaches him, slot 18 emptied on both, and he plays 168, else 173;
   - a player's hero knocked down (the strike's resolution `0x56B130` at `0x56E3B9`: a blow of at least its health from an attacker more than 4 or 5 levels above, `rand() & 1`) is first thrown off;
-  - a lethal blow on a rider (`0x56F8DB`) leaves him 1 health and kills his horse instead;
+    the knock-down comes before the lethal blow's test below in the same resolution and leaves the hero a ninth of its health, so a blow that knocks a rider down never fells his horse, which stands unhurt and stays his own (**seen** 2026-11-23, "What strikes a ridden horse" below);
+  - a lethal blow on a rider (`0x56F8DB`) leaves him 1 health and kills his horse instead (**seen** 2026-11-23, below);
   - a script's `Morph` of a ridden horse.
 - The creatures' update (`0x5375C0`) puts a rider whose horse no longer exists back into the world, and one whose horse is dead on his feet, the owners unlinked (the horse lost), the local player's interface told.
 
@@ -283,7 +284,26 @@ Read 2026-11-08 for #2288 in the code (**confirmed** where not marked), and seen
     - After a ride into the sector 50,39, three ice druids: every strike on the hero came through the horse, one handing on to a strike, 57 frames of one each; three orc shamans 67: their spells' 16 hits each through the horse, one strike each, their hand-to-hand strikes on the hero himself.
     - Got off and mounted again in that sector, without a crossing, three orc shamans: 26 of their spells' hits struck the hero twice in a frame, once himself and once through the horse, in 18 frames of one hit and 4 of two.
     - The horse's health never fell: 48 of 48 at its level 1, whole at each reading to its 95 of 95 at the level 5.
-    - Not seen: an arrow, the driver's creatures holding no bows; the guards' choice of the horse; the strikes' damage, the god mode sparing the hero each.
+    - Not seen in that run: an arrow, the driver's creatures holding no bows; the guards' choice of the horse; the strikes' damage, the god mode sparing the hero each.
+  - **Seen** 2026-11-23 (#3083, #3517; the driver of #448, bronze, the god mode off for the hits; the Seraphim on horses 551 of level 1 that the driver made, against the two soldiers 279 of level 25 of the fill of 48,38, whose rule gives them a bow of the pool 125, every item of which is a bow; the strike's resolution `0x56B130` traced, the handing on probed at `0x532016` with the horse and its rider, the gate's refusal at `0x531E6B`, the lethal blow's fall of the horse at `0x56F923` with the horse):
+    - **The arrows.**
+      Mounted at 3140,2461 in the sector 49,38, beside the archers' sector: 37 strikes of one archer's arrows, every one on the rider himself and none through the horse.
+      A second horse mounted in 49,38 and ridden across the border into 48,38: 37 strikes of both archers' arrows, every one handed on from the horse to the rider in its frame.
+      The gate refused none.
+    - **The damage.**
+      The hits on the rider: 143 at the level 22 on a horse in the mount's sector, 131, 135 and 145 through the horse after the crossing, each the rider's own resolution against his `D` and resistances; the horse's health stood at 48 of 48 at every handing on.
+    - **The horse in its rider's place.**
+      The rider at the level 22 set to 10 health, which her regeneration raised to 23 before the next hit, an arrow's lethal blow in the mount's sector left her 1 (23 to 1) and reached `0x56F923` with the horse, which died in that frame with its health whole (48 of 48) and read 0 of 48 in its dying state (the AI's state 9, the action 6) after; after the crossing, the same through the horse (15 to 1, the horse 1560 felled).
+      The rider stood on foot beside the dead horse, her most health back to 700 from 711, the horse's button gone from the portraits' column.
+    - **The knock-down first.**
+      At the level 1, 125 of 125 health on the horse, an arrow of the soldier 24 levels above her left her 13 (a ninth of 125, a blow of 112): she was knocked down and thrown off, the horse unhurt at 48 of 48 where it stood and still hers, its button in the portraits' column, and she mounted it again.
+      So a hero's horse falls in his place only where no knock-down takes the blow first: an attacker that the knock-down's test of the levels and its roll pass over, some 4 or 5 levels above him at most, or a hero knocked down twice already (docs/re/fight.md, "A knock-down"); an NPC rider is never knocked down.
+    - **The spells.**
+      Three orc shamans 67 of level 22, made hostile beside the rider of level 22 in the sector of her mount, 50,39: each hit of their spells struck her twice in one frame, once herself and once through the horse, 102 each, three pairs in two frames, and a fifth hit's lethal blow felled the horse (74 to 1).
+      So a spell's hit does twice its damage to a rider in the sector where he mounted.
+      A thief 313 of level 2 in the same fight: 5 strikes in melee, each on the rider himself.
+    - **The rider's listing**, which the reading above gives by the code, borne out: at each of the three throw-offs in the sector of the mount (the knock-down and the two lethal blows) the game's own log reported an object put into its sector a second time, as the rider, still listed there, came back into the world; at the fall after the crossing it reported nothing.
+    - Not seen: the guards' choice of the horse; an arrow turned aside by the horse's stats after a crossing.
 - A ridden horse takes the experience its rider earns: the creature's handler gives the points of its experience's event to its mount's stats too (`0x531664`–`0x5316EE`, `0x57E160`; the amounts not read).
   **Seen** 2026-11-22 in the same run: the horse of level 1 stood at the level 4 with 3,058 experience after its rider's kills of eleven creatures of level 15, and at 5 after seventeen, its most health rising with it, 48, 55, 66, 75 and 95.
 - A ridden horse dead throws its rider off and both lose the link: the horse is lost.
@@ -313,7 +333,7 @@ Read 2026-11-08 for #2288 in the code (**confirmed** where not marked), and seen
 - `0x52D7A0` and `0x52D610`, which the creatures' update calls for a rider and his horse.
 - The word `+0x94` and the table `0xAAD29C` that refuse a horse; `+0x263` and `+0x13C` 1234.
 - Where a horse stands after a load, and what becomes of an unregistered one.
-- An arrow at a rider, and a guard's choice of a ridden horse for its nearest foe, neither seen ("Health, harm and death", "What strikes a ridden horse"); how much of its rider's experience a horse takes.
+- A guard's choice of a ridden horse for its nearest foe, not seen ("Health, harm and death", "What strikes a ridden horse"); how much of its rider's experience a horse takes.
 - The horse models' own slots and the rider models' slots 165 to 169 and 193 to 234, on the files.
 
 ## In `opensacred-game`
