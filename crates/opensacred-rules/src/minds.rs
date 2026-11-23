@@ -7409,6 +7409,9 @@ mod tests {
         assert_eq!(raised[4], 1.500_000_1);
         assert_eq!(raised[5..], [1.500_000_1, 1.500_000_1]);
         assert!((raised[0] - 1.1).abs() < 1e-6 && raised[3] < HELD_SHOT_CHAIN);
+        // A chain of 1.5 itself is not below 1.5, nor one raised to 1.7 by the state 8.
+        assert_eq!(held_shot_chain(HELD_SHOT_CHAIN), HELD_SHOT_CHAIN);
+        assert_eq!(held_shot_chain(1.7), 1.7);
         // It goes on with less than 0.1 s of its clip left.
         assert!(held_shot_goes_on(0.099) && held_shot_goes_on(0.0) && !held_shot_goes_on(0.1));
         // An eighth into its clip, or from its start with the effect 17 or a gun.
