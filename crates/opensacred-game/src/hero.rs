@@ -131,8 +131,8 @@ pub struct Hero {
         crate::fight::Base,
         crate::fight::Holding,
     )>,
-    /// The model's dying clips, the slots 173 and 174 (`npcs`).
-    pub dying: Vec<String>,
+    /// The model's dying clips by their slots (`npcs::dying_names`).
+    pub dying: Vec<(u16, String)>,
     /// The model's pick-up, the slot 172, if it has one (`pickup`, #1219).
     pub pickup: Option<String>,
     /// The model's mount, ride and dismount (`forms::Clips::riding`, #2299).
@@ -486,8 +486,8 @@ pub struct Clips {
     pub bolts: [Option<Strike>; 2],
     /// The arts' actions' clips (`making`, #509).
     pub arts: Vec<ArtNode>,
-    /// The dying clips' nodes.
-    dying: Vec<AnimationNodeIndex>,
+    /// The dying clips' nodes by their slots.
+    dying: Vec<(u16, AnimationNodeIndex)>,
     /// The pick-up's node and clip, where the model has one (`pickup`, #1219).
     pub pickup: Option<(AnimationNodeIndex, Handle<AnimationClip>)>,
     /// The rider's mount's, ride's and dismount's nodes and clips, where the model has them
@@ -592,7 +592,11 @@ pub fn spawn(
             .iter()
             .filter_map(|(name, fractions)| Some((clip(name)?, *fractions)))
             .collect();
-        let dying: Vec<_> = hero.dying.iter().filter_map(|name| clip(name)).collect();
+        let (dying_slots, dying): (Vec<u16>, Vec<_>) = hero
+            .dying
+            .iter()
+            .filter_map(|(slot, name)| Some((*slot, clip(name)?)))
+            .unzip();
         let bolts = hero
             .bolts
             .clone()
@@ -681,7 +685,14 @@ pub fn spawn(
                 .zip(&nodes[3 + stances..])
                 .map(|((clip, fractions), &node)| (node, clip, fractions))
                 .collect(),
-            dying: nodes[3 + stances + strikes..3 + stances + strikes + dyings].to_vec(),
+            dying: dying_slots
+                .into_iter()
+                .zip(
+                    nodes[3 + stances + strikes..3 + stances + strikes + dyings]
+                        .iter()
+                        .copied(),
+                )
+                .collect(),
             arts: art_nodes,
             bolts,
             pickup,
@@ -1532,15 +1543,16 @@ pub fn fall(
         Option<Res<crate::game::Difficulty>>,
         Option<ResMut<crate::statistics::Tally>>,
     ),
-    (settings, gibs): (
+    (settings, gibs, mut dice): (
         Option<Res<crate::settings::Settings>>,
         Option<Res<crate::blood_fountains::Gibs>>,
+        Option<ResMut<crate::npcs::DyingDice>>,
     ),
     mut bodies: Query<(
         Entity,
         &mut Transform,
         &mut Body,
-        &Dies,
+        &mut Dies,
         Option<&mut Fallen>,
         Option<&mut crate::fight::Health>,
     )>,
@@ -1549,7 +1561,7 @@ pub fn fall(
     let Some(clips) = clips else {
         return;
     };
-    for (entity, mut transform, mut body, dies, fallen, health) in &mut bodies {
+    for (entity, mut transform, mut body, mut dies, fallen, health) in &mut bodies {
         let player = clips.player.and_then(|player| players.get_mut(player).ok());
         let Some(mut fallen) = fallen else {
             body.stop();
@@ -1572,10 +1584,16 @@ pub fn fall(
                             gibs.as_deref().map_or(0, |gibs| gibs.of(hero.creature)),
                         ),
                 });
+            // Its dying clip rolled as a creature's (`0x53EF90`–`0x53F31D`, #3400).
+            if let Some(dice) = dice.as_deref_mut() {
+                let slots: Vec<u16> = clips.dying.iter().map(|&(slot, _)| slot).collect();
+                dies.choice = crate::npcs::dying_choice(hero.creature, &slots, false, &mut dice.0);
+            }
             let index = usize::try_from(dies.choice).unwrap_or(0) % clips.dying.len().max(1);
-            if let (Some((mut player, mut transitions)), Some(&node)) =
+            if let (Some((mut player, mut transitions)), Some(&(slot, node))) =
                 (player, clips.dying.get(index))
             {
+                info!("hero: the hero dies by its slot {slot}");
                 transitions
                     .play(&mut player, node, BLEND)
                     .set_speed(speed.0);
@@ -1589,7 +1607,7 @@ pub fn fall(
         if fallen.puddle && fallen.lain >= opensacred_rules::undead::FIRST_LYING_TICK {
             let index = usize::try_from(dies.choice).unwrap_or(0) % clips.dying.len().max(1);
             let ended = match (player.as_ref(), clips.dying.get(index)) {
-                (Some((player, _)), Some(&node)) => player
+                (Some((player, _)), Some(&(_, node))) => player
                     .animation(node)
                     .is_none_or(bevy::animation::ActiveAnimation::is_finished),
                 _ => true,

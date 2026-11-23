@@ -98,8 +98,8 @@ use crate::{arts, drops, making};
 /// (#3217); the version 34 the art slots' second bank (#2928); the version 35 the lens's places
 /// of `SetMapIcon` (#2932); the version 36 a placement's fire of list 4 (#3286); the version 37
 /// a `ReplaceSpawn`'s flags word (#3073); the version 38 the mark of a bonus against the undead
-/// on a creature (#3385).
-pub const VERSION: u32 = 38;
+/// on a creature (#3385); the version 39 the dying clips by their slots (#3400).
+pub const VERSION: u32 = 39;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -1307,7 +1307,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (38, 0x1D68_D26C_6D4E_6692),
+            (39, 0x8DD9_C9D4_2DA5_A8B5),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
