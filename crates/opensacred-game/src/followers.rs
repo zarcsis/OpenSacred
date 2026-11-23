@@ -562,7 +562,7 @@ fn chain(
     mut kills: MessageReader<crate::fight::Kill>,
     mut dice: ResMut<Dice>,
     killers: Query<(&Follower, &Mind)>,
-    rising: Query<(Entity, &Rising), With<crate::npcs::Corpse>>,
+    rising: Query<(Entity, &Rising, &Transform), With<crate::npcs::Corpse>>,
 ) {
     for kill in kills.read() {
         let Ok((follower, mind)) = killers.get(kill.killer) else {
@@ -577,8 +577,10 @@ fn chain(
             level: mind.level.saturating_sub(1).max(1),
         });
     }
-    for (corpse, rises) in &rising {
+    for (corpse, rises, at) in &rising {
         commands.entity(corpse).remove::<Rising>();
+        // Its raising's pentagram where it lay (866, `0x52F606`, #3447).
+        crate::vamp_sights::raise(&mut commands, corpse, at.translation);
         raise(&mut commands, rises.master, corpse, rises.level, None);
     }
 }

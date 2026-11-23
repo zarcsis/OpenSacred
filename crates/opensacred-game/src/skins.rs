@@ -64,6 +64,28 @@ pub(crate) enum Overlay {
     Water,
     Vision(&'static str),
     Emerging,
+    /// The raised dead's blood lines (the state 11, `0x44AA8E`, #3447), for good.
+    Bloodlines,
+}
+
+/// The blood lines' texture, and their grey's middle and swing: `⌊192 + 64·sin(4t)⌋`, a pulse of
+/// about 1.57 s from 128 up (`0x44AACE`, the float 192.0 at `0x890D30`).
+const BLOODLINES_TEXTURE: &str = "FX_BLOODLINES";
+const BLOODLINES_MIDDLE: f64 = 192.0;
+const BLOODLINES_SWING: f64 = 64.0;
+const BLOODLINES_PULSE: f64 = 4.0;
+
+/// The blood lines' grey at `t` seconds, of the frame's values (`0x44AACE`), held at 255 at its
+/// top's 256.
+fn bloodlines_grey(t: f64) -> f32 {
+    let grey = BLOODLINES_SWING
+        .mul_add((BLOODLINES_PULSE * t).sin(), BLOODLINES_MIDDLE)
+        .floor()
+        .min(255.0)
+        / 255.0;
+    #[expect(clippy::cast_possible_truncation, reason = "a grey of 0 to 1")]
+    let grey = grey as f32;
+    grey
 }
 
 /// The emerging glow's seconds in all.
@@ -82,6 +104,7 @@ impl Overlay {
             Self::Vision(texture) => texture,
             // `DUMMYA_16`, white whole, which the glow's grey alone stands for.
             Self::Emerging => "DUMMYA_16",
+            Self::Bloodlines => BLOODLINES_TEXTURE,
         }
     }
 
@@ -97,6 +120,50 @@ impl Overlay {
         matches!(self, Self::Glow | Self::Water)
     }
 }
+
+/// A creature that wears the raised dead's blood lines already ([`bloodlines`]).
+#[derive(Component)]
+struct Bloodlined;
+
+/// Gives each creature of the raised dead's flag (`+0x1F4` bit `0x2000000`) its blood lines for
+/// good, once (the event `0x109` with 11 and `FX_BLOODLINES.TGA`; docs/re/effects.md, "The light
+/// strikes", #3447): the Vampiress's raised (1034, `0x511088`), the raised dead's kills that
+/// rise (`followers::chain`) and the scripts' creatures of `0x85` (`CreateNPC`'s `0x48343C`,
+/// `SetNPCState`'s `0x46176A`–`0x4618E7`); one of the scripts', no follower, takes the side 2 and
+/// the raising's pentagram at its feet too (866).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn bloodlines(
+    mut commands: Commands,
+    mut creatures: Query<
+        (
+            Entity,
+            &mut crate::ai::Mind,
+            &GlobalTransform,
+            Has<crate::followers::Follower>,
+        ),
+        (Without<Bloodlined>, Without<crate::npcs::Dies>),
+    >,
+) {
+    for (entity, mut mind, at, follows) in &mut creatures {
+        if mind.flags & crate::followers::RAISED == 0 {
+            continue;
+        }
+        debug!("skins: {entity} wears the blood lines");
+        commands
+            .entity(entity)
+            .insert((Bloodlined, Asked(Overlay::Bloodlines, f32::INFINITY)));
+        if !follows {
+            mind.side = SCRIPTS_RAISED_SIDE;
+            crate::vamp_sights::raise(&mut commands, entity, at.translation());
+        }
+    }
+}
+
+/// The side that a script's `0x85` puts its creature on (`0x48BE22`, `0x46176A`).
+const SCRIPTS_RAISED_SIDE: u8 = 2;
 
 /// An ask for a bearer's skin, of its seconds (`spells`, `stones`; a vision's for good, `npcs`).
 #[derive(Component, Clone, Copy)]
@@ -482,6 +549,8 @@ fn grey(overlay: Overlay, left: f32, real: f64) -> Color {
         Overlay::Cross => cross_skin_grey(real * 1000.0),
         Overlay::Vision(_) => vision_grey(real * 1000.0),
         Overlay::Emerging => emerging_glow(EMERGING_SECONDS - left).0,
+        // The skin's own timer counted by the real clock (**estimate**: its phase alone).
+        Overlay::Bloodlines => bloodlines_grey(real),
         Overlay::Glow | Overlay::Stone | Overlay::Water => 1.0,
     };
     Color::srgb(grey, grey, grey)
@@ -506,7 +575,8 @@ fn coordinates(overlay: Overlay, real: f64) -> Affine2 {
         | Overlay::Stone
         | Overlay::Water
         | Overlay::Vision(_)
-        | Overlay::Emerging => Affine2::IDENTITY,
+        | Overlay::Emerging
+        | Overlay::Bloodlines => Affine2::IDENTITY,
     }
 }
 
@@ -590,7 +660,7 @@ impl Plugin for SkinsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (hidden_by_set, ask, dress, run)
+            (hidden_by_set, bloodlines, ask, dress, run)
                 .chain()
                 .in_set(Playing)
                 .in_set(Unpaused),
@@ -601,6 +671,71 @@ impl Plugin for SkinsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_raised_creature_wears_the_blood_lines_and_a_scripts_takes_the_side_2() {
+        let mut app = App::new();
+        app.add_systems(Update, bloodlines);
+        let mind = |flags| {
+            crate::ai::Mind::new(
+                Vec3::ZERO,
+                flags,
+                (false, false),
+                None,
+                [70.0, 180.0],
+                (76, 3),
+            )
+        };
+        let raised = crate::followers::RAISED;
+        let scripts = app
+            .world_mut()
+            .spawn((mind(raised | 0x1), GlobalTransform::default()))
+            .id();
+        let master = app.world_mut().spawn_empty().id();
+        let followers = app
+            .world_mut()
+            .spawn((
+                mind(raised),
+                GlobalTransform::default(),
+                crate::followers::Follower::of(master),
+            ))
+            .id();
+        let plain = app
+            .world_mut()
+            .spawn((mind(0x1), GlobalTransform::default()))
+            .id();
+        let side = app
+            .world()
+            .get::<crate::ai::Mind>(followers)
+            .map(|m| m.side);
+        app.update();
+        let world = app.world();
+        assert!(world.get::<Bloodlined>(scripts).is_some());
+        assert!(
+            world
+                .get::<Asked>(scripts)
+                .is_some_and(|asked| asked.0 == Overlay::Bloodlines)
+        );
+        assert_eq!(
+            world.get::<crate::ai::Mind>(scripts).map(|m| m.side),
+            Some(2)
+        );
+        assert!(world.get::<Bloodlined>(followers).is_some());
+        assert_eq!(
+            world.get::<crate::ai::Mind>(followers).map(|m| m.side),
+            side
+        );
+        assert!(world.get::<Bloodlined>(plain).is_none());
+    }
+
+    #[test]
+    fn the_blood_lines_pulse_from_128_to_255_about_every_1_57_s() {
+        assert!((bloodlines_grey(0.0) - 192.0 / 255.0).abs() < 1e-6);
+        let top = std::f64::consts::FRAC_PI_8;
+        assert!((bloodlines_grey(top) - 1.0).abs() < 1e-6);
+        assert!((bloodlines_grey(3.0 * top) - 128.0 / 255.0).abs() < 1e-6);
+        assert!((bloodlines_grey(top + std::f64::consts::FRAC_PI_2) - 1.0).abs() < 1e-6);
+    }
 
     /// The grey is the original's value in the frame (#2169): an sRGB colour, which the material
     /// takes in linear light and its encoding gives back, so that the texels' values are
