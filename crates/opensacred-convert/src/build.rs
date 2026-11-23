@@ -728,7 +728,10 @@ mod tests {
                 Make::ScriptIndex
             )
         );
-        // The bytecode of a source, Luau's own; a source that does not compile fails.
+        // The bytecode of a source, Luau's own, which `mlua` loads as bytecode as the game's
+        // scripts load it (`opensacred-scripts`), whatever its version: a compiler newer than
+        // `mlua-sys`'s reader would make it read as text (#869, #3559). A source that does not
+        // compile fails.
         let bytecode = crate::luau::compile(
             "local F = {}
 F[\"f\"] = function()
@@ -738,10 +741,17 @@ return F
 ",
         )
         .unwrap();
+        let lua = mlua::Lua::new();
+        let file: mlua::Table = lua
+            .load(&bytecode[..])
+            .set_mode(mlua::chunk::ChunkMode::Binary)
+            .eval()
+            .unwrap();
         assert!(
-            bytecode
-                .first()
-                .is_some_and(|&version| (3..=11).contains(&version))
+            file.get::<mlua::Function>("f")
+                .unwrap()
+                .call::<bool>(())
+                .unwrap()
         );
         assert!(crate::luau::compile("F[").is_err());
         assert_eq!(
