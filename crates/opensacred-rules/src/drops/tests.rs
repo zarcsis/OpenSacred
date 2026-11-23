@@ -1938,6 +1938,85 @@ fn a_made_items_bonuses_count_by_their_weight_into_its_names_digit() {
 }
 
 #[test]
+fn a_made_mages_staff_takes_the_numbered_staff_of_its_band_and_leading_element() {
+    use crate::fight::Bonus;
+    let rules = Rules::default();
+    // The roots 1876, of the quality 3, and 1715, of 15, of the class 24.
+    let templates = Templates::new(&[named_template(1876, 24), named_template(1715, 24)], &[]);
+    let catalogue = catalogue(&[
+        (1876, 5, record(0x3_0000, [1, 1], [24, 0, 0])),
+        (1715, 5, record(0xF_0000, [1, 1], [24, 0, 0])),
+    ]);
+    let tables = (&rules, &catalogue, &templates);
+    let slots = |effects: &[u32], quality: u8| {
+        let mut values = ItemValues {
+            quality,
+            ..ItemValues::default()
+        };
+        for (slot, &effect) in values.bonuses.iter_mut().zip(effects) {
+            *slot = Bonus {
+                condition: 0,
+                effect,
+                value: 1,
+            };
+        }
+        values
+    };
+    let mut texts: Vec<String> = (2650..2730).map(|n: u32| n.to_string()).collect();
+    texts.extend([
+        "1876".to_owned(),
+        "1715".to_owned(),
+        "EWT_Magierstab".to_owned(),
+    ]);
+    let texts: Vec<&str> = texts.iter().map(String::as_str).collect();
+    let named = |item, values| made_name(tables, (item, values, false), &texts);
+    // The root 1876 keeps its own name, whatever its slots.
+    assert_eq!(named(1876, slots(&[28], 0)).as_deref(), Some("1876"));
+    // Another takes the number of its leading group, seen in the original for the band 0: the
+    // spell 28 gives 2658, 16 gives 2654, 11 gives 2662 and 30 gives 2666.
+    assert_eq!(named(1715, slots(&[28], 0)).as_deref(), Some("2658"));
+    assert_eq!(named(1715, slots(&[16], 0)).as_deref(), Some("2654"));
+    assert_eq!(named(1715, slots(&[11], 0)).as_deref(), Some("2662"));
+    assert_eq!(named(1715, slots(&[30], 0)).as_deref(), Some("2666"));
+    // The first group's spells and its skill's effect: the offset 0.
+    assert_eq!(
+        named(1715, slots(&[615, 0x1_0004], 0)).as_deref(),
+        Some("2650")
+    );
+    // Its count above 2 steps on, at most 3; the quality's band 20 on, by its bits 18 and 19.
+    assert_eq!(named(1715, slots(&[5, 11, 23], 0)).as_deref(), Some("2663"));
+    assert_eq!(
+        named(1715, slots(&[5, 11, 23, 24, 614, 5], 0)).as_deref(),
+        Some("2665")
+    );
+    assert_eq!(named(1715, slots(&[7], 4)).as_deref(), Some("2686"));
+    assert_eq!(named(1715, slots(&[7], 15)).as_deref(), Some("2726"));
+    // A tie, or no slot of the groups: the generic name; a number without a text likewise.
+    assert_eq!(
+        named(1715, slots(&[28, 16], 0)).as_deref(),
+        Some("EWT_Magierstab")
+    );
+    assert_eq!(
+        named(1715, slots(&[806, 813], 0)).as_deref(),
+        Some("EWT_Magierstab")
+    );
+    assert_eq!(
+        made_name(tables, (1715, slots(&[28], 0), false), &["EWT_Magierstab"]).as_deref(),
+        Some("EWT_Magierstab")
+    );
+    // A plain staff of no text of its own takes the number too, never a composed name.
+    assert_eq!(
+        made_name(
+            tables,
+            (1876, slots(&[28], 0), false),
+            &["2658", "Gen_st_ph_Magierstab"]
+        )
+        .as_deref(),
+        Some("2658")
+    );
+}
+
+#[test]
 fn a_made_item_keeps_its_own_name_or_takes_its_weapon_kinds_word() {
     let rules = Rules::default();
     // Gloves of the weapons' category keep a name of their own that has a text, unless of a set.

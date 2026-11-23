@@ -48,8 +48,22 @@ const WORDS: [&str; 33] = [
 ];
 /// The class of the two-handed sword, whose word is the sword's where its type's weapon kind is 1.
 const TWO_HANDED_SWORD: usize = 4;
-/// The class of the mage's staffs, which keep their type's own name where it has a text.
+/// The class of the mage's staffs, which keep their type's own name where it has a text, else
+/// take a numbered staff's ([`staff_number`]).
 const MAGE_STAFF: usize = 24;
+/// The Mage's four spells of each element and the skill's effect beside them, by which the
+/// count of a made mage's staff's bonus slots names it, and the offset of each group's number
+/// (`0x5C2E50`; docs/re/items.md, "The mage's staff's number"): the elements 1, 3, 2, 4 and 5.
+const STAFF_GROUPS: [([u32; 5], u32); 5] = [
+    ([4, 27, 34, 35, 615], 0),
+    ([2, 16, 25, 26, 616], 4),
+    ([1, 28, 29, 33, 617], 8),
+    ([5, 11, 23, 24, 614], 12),
+    ([7, 30, 31, 32, 618], 16),
+];
+/// The first of the 80 numbered mage's staffs (`Weapon.pak` 2650 to 2729), four bands of 20 by
+/// the quality, each of five fours by the element.
+const STAFF_NUMBERS: u32 = 2650;
 /// The class of the gloves, which keep their type's own name where it has a text and they are
 /// of the weapons' category.
 const GLOVES: usize = 27;
@@ -91,7 +105,9 @@ pub(super) fn roll(values: Option<&ItemValues>, dice: &mut impl Dice) -> Option<
 ///   below 13, else `gr_`), its element's (`fe_`, `ma_` or `gi_` for an element whose share
 ///   passes 51, 41 or 31 per cent, else `ph_`; [`element`]) and its class's word, the word 38 or,
 ///   at −1, the one of its weapon kind; the gloves of the weapons' category and the mage's staffs
-///   keep their type's own name where it has a text, and outside the 33 classes no word;
+///   keep their type's own name where it has a text, and outside the 33 classes no word; a mage's
+///   staff of no name of its own takes a numbered staff's ([`staff_number`]) where that has a
+///   text, else the generic name, never a composed one;
 /// - with the count `n` of its bonuses ([`bonuses`]), the composed name and the highest digit
 ///   from `n` down that has a text, or for `n` 0 the digit 1 by the roll of one in two, else the
 ///   composed name alone where it has a text.
@@ -122,16 +138,16 @@ pub fn name(
     };
     let word = match usize::try_from(class) {
         Ok(TWO_HANDED_SWORD) if record.is_some_and(|r| r.kind == 1) => WORDS[0],
+        // A mage's staff ends here (`0x5C39CE`): its own name, else the numbered staff's of its
+        // band and its leading element, else the generic name (#3092).
         Ok(MAGE_STAFF) => {
-            if let Some(own) = own() {
-                return Some(own);
-            }
-            // Of another record the original names it by one of 40 numbers and a change of
-            // `0x5C2E50`, not read: the generic name stays.
-            if !plain {
-                return generic;
-            }
-            WORDS[MAGE_STAFF]
+            return own()
+                .or_else(|| {
+                    staff_number(values)
+                        .map(|number| number.to_string())
+                        .filter(|key| known(key))
+                })
+                .or(generic);
         }
         Ok(GLOVES) if catalogue.categories.get(&root) == Some(&WEAPONS) => {
             if let Some(own) = own() {
@@ -159,6 +175,29 @@ pub fn name(
             .find_map(|digit| known_key(format!("{composed}{digit}")))
     };
     digit.or_else(|| known_key(composed)).or(generic)
+}
+
+/// The number of the staff whose name a made mage's staff of the values `values` takes
+/// (`0x5C2E50`, which writes over the namer's `rand() % 40`): its bonus slots counted by their
+/// effects alone in the five [`STAFF_GROUPS`], and of the group whose count `c` is above each
+/// other's `2650 + 20·⌊q/4⌋ + its offset + min(max(c − 2, 0), 3)`, `q` its quality (the bits 18
+/// and 19 of `+0x04`); none where no group leads.
+fn staff_number(values: &ItemValues) -> Option<u32> {
+    let counts = STAFF_GROUPS.map(|(effects, _)| {
+        values
+            .bonuses
+            .iter()
+            .filter(|bonus| effects.contains(&(bonus.effect & 0xFFFF)))
+            .count()
+    });
+    let (lead, &most) = counts.iter().enumerate().max_by_key(|&(_, count)| *count)?;
+    let ties = counts.iter().filter(|&&count| count == most).count();
+    if most == 0 || ties > 1 {
+        return None;
+    }
+    let step = u32::try_from(most).unwrap_or(0).saturating_sub(2).min(3);
+    let band = (u32::from(values.quality) >> 2) & 3;
+    Some(STAFF_NUMBERS + 20 * band + STAFF_GROUPS[lead].1 + step)
 }
 
 /// The class of a weapon of the kind `kind` (`Weapon.pak +0x1E`) whose template's word 38 is
