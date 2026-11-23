@@ -1,15 +1,20 @@
 //! The dryad ghosts (#1964; docs/re/effects.md, "The dryad ghost"): for its type 1249
 //! (`TYPE_NPC_DUMMY`) a sector's fill makes the FX object 1162, which makes a dummy 1249 at its
 //! place and hunts as its caster (`0x480D40`, the FX event `0xA6`). The dummy draws nothing
-//! (`0x44B6F4`), and as the maker returns it past the creature maker's flags (`+0x1F4`) it never
-//! wakes: hostile without the flag 1, the hero's look leaves it idle (`minds`). The ghost rises
-//! from the ground and flies at the nearest creature hostile to the
-//! dummy within about 316, the hero or a follower, at its neck, turning toward it at 3 radians a
-//! second at most, and hovers where it is without one; it turns back from a cell it may not walk
-//! on and off the ground (`0x5A7DBF`). Once a second it strikes every such creature within its
-//! size and theirs (`0x5B17AB`, `opensacred_rules::fight::Rules::dryad_ghost_damages`). It looks as
-//! a lost soul with blue dots (`lost_souls`) and loops `HELF_AHNEN_LOOP` (2058); it goes with its
-//! dummy.
+//! (`0x44B6F4`), though the pointer picks it ([`Dummy`], `under_cursor`), and as the maker returns
+//! it past the creature maker's flags (`+0x1F4`) the hero's look does not wake it: hostile without
+//! the flag 1, it stays idle (`minds`) until struck (`ai`). The ghost rises from the ground and
+//! flies at the nearest creature hostile to the dummy on its floor within about 316, the hero or a
+//! follower, at its neck, turning toward it at 3 radians a second at most, and hovers where it is
+//! without one; it keeps its target on any floor while it lives, lets it go as it dies, and ends
+//! as it is destroyed (`0x5A7DFA`); it turns back from a cell it may not walk on and off the
+//! ground (`0x5A7DBF`). At the end of each run it puts its dummy at its own place (`0x5A9AE0`), so
+//! that the dummy rides with it into the cells and sectors it crosses, neither stepping nor
+//! striking of its own once struck awake. Once a second it strikes
+//! every such creature within its size and theirs (`0x5B17AB`,
+//! `opensacred_rules::fight::Rules::dryad_ghost_damages`). It looks as a lost soul with blue dots
+//! (`lost_souls`) and loops `HELF_AHNEN_LOOP` (2058); it ends at once with its dummy, destroyed or
+//! dead (`0x5A9B87`, `0x5ABDF0`).
 
 use bevy::prelude::*;
 use opensacred_rules::particles::{
@@ -19,7 +24,7 @@ use opensacred_rules::particles::{
 
 use crate::crowd::InTheWay;
 use crate::fight::{Health, Hit};
-use crate::frame::{Playing, Unpaused};
+use crate::frame::{Playing, Step, Unpaused};
 use crate::game::AppState;
 use crate::hero::Body;
 use crate::npcs::Dies;
@@ -28,6 +33,11 @@ use crate::{ai, arrows, iso};
 
 /// The bones a ghost aims at, the first its target has (`0x44CBB0` of 1: the bones 3 and 0).
 const AIM: [&str; 2] = ["Bip01 Neck", "__Root"];
+
+/// A ghost's dummy (1249), which draws nothing and which the pointer picks at its ghost's place
+/// while it lives (`0x44CF20`; docs/re/effects.md, "The dryad ghost").
+#[derive(Component, Debug, Clone, Copy)]
+pub(crate) struct Dummy;
 
 /// A ghost: its dummy, its level, whether it stands at its height yet, the creature it hunts, its
 /// heading and its time to its next strike.
@@ -56,7 +66,7 @@ fn make(
             continue;
         }
         mind.thinks.flags &= !MAKERS_FLAGS;
-        commands.entity(dummy).insert(Visibility::Hidden);
+        commands.entity(dummy).insert((Visibility::Hidden, Dummy));
         let ghost = commands
             .spawn((
                 Ghost {
@@ -87,8 +97,33 @@ type Prey<'a> = (
     Option<&'a arrows::Size>,
 );
 
+/// The ghost's hunt as its target stands: kept while it lives on any floor, let go as it dies
+/// for the nearest sought at once, and the ghost ended where it is destroyed (`0x5A7DFA`–
+/// `0x5A7E7C`).
+#[derive(Debug, PartialEq, Eq)]
+enum Hunt {
+    Keeps,
+    Seeks,
+    Ends,
+}
+
+/// What becomes of a ghost's hunt of `target`, of which `exists` tells whether it is in the world
+/// and `lives` whether it lives there.
+fn hunt(
+    target: Option<Entity>,
+    exists: impl Fn(Entity) -> bool,
+    lives: impl Fn(Entity) -> bool,
+) -> Hunt {
+    match target {
+        Some(target) if !exists(target) => Hunt::Ends,
+        Some(target) if lives(target) => Hunt::Keeps,
+        _ => Hunt::Seeks,
+    }
+}
+
 /// Flies each ghost a frame on and strikes about it (`0x5A6680` under the flag `0x10000`,
-/// `0x5AB490`, `0x5ABD80`); a ghost whose dummy is gone goes, its dots fading after it.
+/// `0x5AB490`, `0x5ABD80`), and puts its dummy at its place (`0x5A9AE0`); a ghost whose dummy or
+/// target is destroyed, or whose dummy dies, ends at once, its dots fading after it.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their filters"
@@ -96,18 +131,24 @@ type Prey<'a> = (
 fn fly(
     (mut commands, time, mut hits): (Commands, Res<Time>, MessageWriter<Hit>),
     mut ghosts: Query<(Entity, &mut Ghost, &mut Transform)>,
-    dummies: Query<(&ai::Mind, Option<&crate::npcs::Arms>), Without<Dies>>,
-    heroes: Query<(Entity, &GlobalTransform, &Health, &Body), Without<Dies>>,
-    followers: Query<
-        (
-            Entity,
-            &GlobalTransform,
-            &Health,
-            &InTheWay,
-            Option<&arrows::Size>,
-        ),
-        (With<crate::followers::Follower>, Without<Dies>),
+    mut dummies: Query<
+        (&ai::Mind, Option<&crate::npcs::Arms>, &mut Transform),
+        (Without<Dies>, Without<Ghost>),
     >,
+    (targets, heroes, followers): (
+        Query<(&Health, Has<Dies>, &GlobalTransform)>,
+        Query<(Entity, &GlobalTransform, &Health, &Body), Without<Dies>>,
+        Query<
+            (
+                Entity,
+                &GlobalTransform,
+                &Health,
+                &InTheWay,
+                Option<&arrows::Size>,
+            ),
+            (With<crate::followers::Follower>, Without<Dies>),
+        >,
+    ),
     (children, bones, worn): (
         Query<&Children>,
         Query<(&Name, &GlobalTransform)>,
@@ -117,10 +158,11 @@ fn fly(
 ) {
     let dt = time.delta_secs();
     for (entity, mut ghost, mut transform) in &mut ghosts {
-        let Ok((mind, arms)) = dummies.get(ghost.dummy) else {
+        if !dummies.contains(ghost.dummy) {
+            debug!("dryad ghosts: {entity} ends, its dummy gone or dead");
             commands.entity(entity).despawn();
             continue;
-        };
+        }
         let level = ghost.level;
         // It starts on the ground at its dummy's place, once its ground is in (`0x480D40`).
         if !ghost.placed {
@@ -149,11 +191,22 @@ fn fly(
             .collect();
         let here = transform.translation;
         let distance = |at: &GlobalTransform| (at.translation().xz() - here.xz()).length();
-        // Its target while it lives on its level, else the nearest within its look.
-        if !ghost
-            .target
-            .is_some_and(|target| prey.iter().any(|&(p, ..)| p == target))
-        {
+        // Its target while it lives on any floor; else the nearest on its own within its look.
+        let state = hunt(
+            ghost.target,
+            |target| targets.contains(target),
+            |target| {
+                targets
+                    .get(target)
+                    .is_ok_and(|(health, dies, _)| !dies && health.current > 0)
+            },
+        );
+        if state == Hunt::Ends {
+            debug!("dryad ghosts: {entity} ends, its target gone");
+            commands.entity(entity).despawn();
+            continue;
+        }
+        if state == Hunt::Seeks {
             ghost.target = prey
                 .iter()
                 .filter(|(_, at, ..)| distance(at) < DRYAD_GHOST_LOOKS)
@@ -164,11 +217,8 @@ fn fly(
             }
         }
         let aim = ghost.target.and_then(|target| {
-            crate::making::bone(target, &AIM, &children, (&bones, &worn)).or_else(|| {
-                prey.iter()
-                    .find(|&&(p, ..)| p == target)
-                    .map(|(_, at, ..)| at.translation())
-            })
+            crate::making::bone(target, &AIM, &children, (&bones, &worn))
+                .or_else(|| targets.get(target).ok().map(|(.., at)| at.translation()))
         });
         // Without one it hovers, aiming 10 over its place.
         let (aim, speed) = match aim {
@@ -201,6 +251,14 @@ fn fly(
         }
         ghost.heading = heading;
         transform.translation = next;
+        // Its dummy rides with it, at its place (`0x5A9AE0`–`0x5A9B95`), which makes nothing of
+        // the fight it takes up when struck: no step and no strike of its own (seen, #3443).
+        if let Ok((.., mut place)) = dummies.get_mut(ghost.dummy) {
+            place.translation = next;
+            commands
+                .entity(ghost.dummy)
+                .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
+        }
         if ghost.cooldown > 0.0 {
             continue;
         }
@@ -214,6 +272,9 @@ fn fly(
         if struck.is_empty() {
             continue;
         }
+        let Ok((mind, arms, _)) = dummies.get(ghost.dummy) else {
+            continue;
+        };
         let skill_2 = arms.map_or(0, |arms| arms.skill_level(mind.level, 2));
         let damages = rules
             .as_ref()
@@ -242,6 +303,32 @@ pub struct DryadGhostsPlugin;
 
 impl Plugin for DryadGhostsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (make, fly).chain().in_set(Playing).in_set(Unpaused));
+        app.add_systems(
+            Update,
+            (make, fly)
+                .chain()
+                .after(Step::Npcs)
+                .before(Step::Models)
+                .in_set(Playing)
+                .in_set(Unpaused),
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_ghost_keeps_a_living_target_lets_a_dead_one_go_and_ends_with_a_destroyed_one() {
+        let mut world = World::new();
+        let [living, dead, gone] = [(); 3].map(|()| world.spawn_empty().id());
+        world.despawn(gone);
+        let exists = |target| target != gone;
+        let lives = |target| target == living;
+        assert_eq!(hunt(Some(living), exists, lives), Hunt::Keeps);
+        assert_eq!(hunt(Some(dead), exists, lives), Hunt::Seeks);
+        assert_eq!(hunt(Some(gone), exists, lives), Hunt::Ends);
+        assert_eq!(hunt(None, exists, lives), Hunt::Seeks);
     }
 }
