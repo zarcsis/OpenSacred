@@ -17,6 +17,32 @@ pub const STEPS: usize = 4;
 const LEAST_TIME: f32 = 0.001;
 /// What a step changed costs at a master by its level (`0x4D2770`).
 const PRICE_PER_LEVEL: u32 = 100;
+/// The jumps, which a combo's step gives another creature always (`0x4FE870`, #3433).
+pub const JUMPS: [u16; 3] = [1003, 1017, 1032];
+/// The Daemon's arts of the kind 2 that keep their step's creature (`0x4FE870`).
+pub const KEEP_THEIR_CREATURE: [u16; 5] = [1094, 1097, 1098, 1099, 1100];
+/// The class of `Creature.pak`'s animals, and a step's score's three parts (`0x4FE870`).
+const ANIMALS: u8 = 6;
+const SCORE: u32 = 5;
+const LEVELS_WITHIN: u32 = 5;
+
+/// A creature's score for a combo's step of the kind 1 whose own creature the hero may not strike
+/// (`0x4FE870` at `0x4FEA68`–`0x4FEF73`; docs/re/arts.md, "A combo's run", #3433): 5 for one not
+/// of `Creature.pak`'s class 6, the animals; 5 for one nearer the hero than the step's creature,
+/// `nearer`; 5 for one whose level is within 5 of the hero's (**hypothesis**: 5 apart counts).
+pub fn step_score(class: u8, nearer: bool, (level, hero_level): (u32, u32)) -> u32 {
+    let mut score = 0;
+    if class != ANIMALS {
+        score += SCORE;
+    }
+    if nearer {
+        score += SCORE;
+    }
+    if level.abs_diff(hero_level) <= LEVELS_WITHIN {
+        score += SCORE;
+    }
+    score
+}
 
 /// A combo's step: its art and the level it makes it at, the art's with its bonus as the step took
 /// it.
@@ -195,6 +221,18 @@ fn narrow(value: f64) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_steps_score_counts_a_non_animal_a_nearer_one_and_a_near_level() {
+        use super::step_score;
+        assert_eq!(step_score(2, true, (10, 12)), 15);
+        assert_eq!(step_score(6, true, (10, 12)), 10);
+        assert_eq!(step_score(2, false, (10, 12)), 10);
+        assert_eq!(step_score(2, true, (10, 15)), 15);
+        assert_eq!(step_score(2, true, (10, 16)), 10);
+        assert_eq!(step_score(2, true, (16, 10)), 10);
+        assert_eq!(step_score(6, false, (1, 30)), 0);
+    }
+
     use opensacred_data::tables::WeaponArt;
 
     use super::*;

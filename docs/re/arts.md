@@ -537,7 +537,7 @@ A slot that holds a combo runs it with the right button since #1531 (below).
 
 In `opensacred-game` since #1531 (`combos::ComboRun`, `opensacred_rules::combos::used` and `refilled`): the right button with a combo on it runs a ready one on the hostile creature under the cursor, the console's `combos make` on the nearest; its steps are orders of their arts at their levels (`making::Making::level`), the next given once 0.7 of the step's clip has played or its action ended, a dead creature replaced by the nearest hostile one alive and a boon made on the hero; the combo stops where the hero's order ends before its art played; the arts' uses go to the combos while it runs and until the hero stands idle; a yellow potion fills them.
 **Seen** in the game beside the original's numbers: the same combo's first step at once, the mark and the regeneration from 0 (0.8 s, then 2.3), the arts' own regeneration not started, the second step after 3.2 s; 1071 made alone after it ran its regeneration (12.4 s left, 1070's 5.4).
-Not followed: the choice anew of the kinds 1, 2 and 4, the jumps' other creature and the combo's end where none is found (above, #3433).
+Since #3433 the game's steps choose their creature as above (`combos::target_of`, `opensacred_rules::combos::step_score`), from the hero's list as his look keeps it (`crowd::Nearest`) and the dead about him, each step's creature the next one's, the combo ending where a jump, the kind 1 or the kind 4 finds none.
 A combo not ready does nothing, with Ctrl too, in the game as in the original, whose walk under Ctrl was seen to do nothing for an art not ready ("The right button" below).
 
 ## The combos page
