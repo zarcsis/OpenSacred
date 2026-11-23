@@ -6973,6 +6973,7 @@ pub struct Following {
     side: u8,
     stands: ways::InTheWay,
     escorted: bool,
+    listed: bool,
     hands: Vec<(u32, Hand, Option<fight::ItemValues>)>,
     given: Option<crate::mercenaries::Given>,
     effects: Option<crate::effects::Effects>,
@@ -7006,10 +7007,11 @@ type FollowerParts<'a> = (
     Option<f32>,
 );
 
-/// A follower as a save keeps it: of the flag 4 where `escorted`, standing `stood`, of the mind
-/// `mind` and the stand `stands`, and what [`FollowerParts`] adds.
+/// A follower as a save keeps it: of the flag 4 where `escorted`, with an entry in the column
+/// where `listed`, standing `stood`, of the mind `mind` and the stand `stands`, and what
+/// [`FollowerParts`] adds.
 fn followed(
-    escorted: bool,
+    (escorted, listed): (bool, bool),
     stood: Stood,
     (mind, stands): (&ai::Mind, ways::InTheWay),
     (placed, ranked, arms, (given, effects), rises, lain): FollowerParts<'_>,
@@ -7021,6 +7023,7 @@ fn followed(
         side: mind.side,
         stands,
         escorted,
+        listed,
         hands: arms
             .holding
             .iter()
@@ -7067,8 +7070,8 @@ pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
         .get_resource::<Time<bevy::time::Real>>()
         .map_or(0.0, Time::<bevy::time::Real>::elapsed_secs_f64);
     let order = world
-        .get_resource::<crate::bar::Entries>()
-        .map(|entries| entries.0.clone())
+        .get_resource::<crate::followers::List>()
+        .map(|list| list.0.clone())
         .unwrap_or_default();
     let entry = |entity: Entity| {
         order
@@ -7089,7 +7092,12 @@ pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
             )| {
                 let stood = stood_of((transform, way.level), health, (false, false), heights)?;
                 let kept = (placed, ranked, arms, extra, rises, None);
-                let mut following = followed(follower.escorted(), stood, (mind, way.stands), kept);
+                let mut following = followed(
+                    (follower.escorted(), follower.listed()),
+                    stood,
+                    (mind, way.stands),
+                    kept,
+                );
                 if let Some(queue) = queue {
                     following.queue = queue.saved(now);
                 }
@@ -7112,7 +7120,7 @@ pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
                 let mind = (&stashed.mind, stashed.way.stands);
                 Some((
                     entry(entity),
-                    followed(follower.escorted(), stood, mind, kept),
+                    followed((follower.escorted(), follower.listed()), stood, mind, kept),
                 ))
             },
         );
@@ -7162,6 +7170,7 @@ pub fn mount_of(world: &mut bevy::prelude::World) -> Option<Following> {
         side: mind.side,
         stands: way.stands,
         escorted: false,
+        listed: false,
         hands: arms.map_or_else(Vec::new, |arms| {
             arms.holding
                 .iter()
@@ -7317,12 +7326,14 @@ pub fn follow_again(world: &mut bevy::prelude::World, followers: Vec<Following>)
         return;
     };
     let count = followers.len();
+    let mut hired = Vec::new();
     for following in followers {
-        let (flags, side, stands, escorted) = (
+        let (flags, side, stands, escorted, listed) = (
             following.flags,
             following.side,
             following.stands,
             following.escorted,
+            following.listed,
         );
         let (rises, lain, queue) = (following.rises, following.lain, following.queue.clone());
         let entity = match world.run_system_cached_with(respawn_following, following) {
@@ -7340,7 +7351,8 @@ pub fn follow_again(world: &mut bevy::prelude::World, followers: Vec<Following>)
             continue;
         };
         creature.remove::<(crate::followers::Hired, fight::Unfought)>();
-        crate::followers::rehire(world, entity, master, escorted);
+        crate::followers::rehire(world, entity, master, (escorted, listed));
+        hired.push(entity);
         if let Some(mut mind) = world.get_mut::<ai::Mind>(entity) {
             mind.flags = flags;
             mind.side = side;
@@ -7364,6 +7376,10 @@ pub fn follow_again(world: &mut bevy::prelude::World, followers: Vec<Following>)
             bevy::log::info!("npcs: a saved follower lies again, {lain:.1} s lain");
         }
         queue.give_now(world, entity);
+    }
+    // The hero's list in the save's order (`followers::List`, #3102).
+    if let Some(mut list) = world.get_resource_mut::<crate::followers::List>() {
+        list.0 = hired;
     }
     bevy::log::info!("npcs: the save's {count} followers back beside the hero");
 }
@@ -11386,7 +11402,12 @@ fn morph(
             // A follower stays its master's (#2839).
             if let Some(&follower) = follower {
                 commands.queue(move |world: &mut bevy::prelude::World| {
-                    crate::followers::rehire(world, made, follower.master, follower.escorted());
+                    crate::followers::rehire(
+                        world,
+                        made,
+                        follower.master,
+                        (follower.escorted(), follower.listed()),
+                    );
                 });
             }
             match placed {
@@ -16417,7 +16438,7 @@ mod tests {
             let entity = world
                 .spawn((arms, at, mind.clone(), way, health(current)))
                 .id();
-            crate::followers::rehire(world, entity, hero, false);
+            crate::followers::rehire(world, entity, hero, (false, true));
             entity
         };
         let lay = |world: &mut bevy::prelude::World, entity: Entity, rises: bool| {
@@ -16503,6 +16524,7 @@ mod tests {
                 creature: true,
             },
             escorted: true,
+            listed: true,
             hands: given.to_vec(),
             given: Some(crate::mercenaries::Given::default()),
             effects: None,
@@ -17443,7 +17465,7 @@ mod tests {
             .spawn((arms(), GlobalTransform::default(), Dies::new(0)))
             .id();
         let follower = world.spawn((arms(), GlobalTransform::default())).id();
-        crate::followers::rehire(&mut world, follower, living, false);
+        crate::followers::rehire(&mut world, follower, living, (false, true));
         // One that the scripts keep to rise again keeps its arms (`+0x2B7` bit 8, #3088).
         let rises = world
             .spawn((arms(), GlobalTransform::default(), RisesAgain))
