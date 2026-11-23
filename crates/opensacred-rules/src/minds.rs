@@ -168,7 +168,9 @@ const ANIMALS: u8 = 6;
 /// `0x423580`): its side's row of [`FRIENDS`] without the heroes' bit, or its type
 /// [`AGAINST_ALL`]. The flags word's bit `0x40000`, which turns the answer over, is the field
 /// `Mind::turned`'s. An animal that a bearer of the items' bonus 864 makes its foe is the field
-/// `Mind::foe_of_bearer`'s (#3395); a horse taken by its rider's side is not followed (#3083).
+/// `Mind::foe_of_bearer`'s (#3395). A ridden horse keeps the horses' side, where the original's
+/// takes its rider's: it stands aside under its rider, every hit that reaches it striking the
+/// rider once (docs/decisions/fight.md, "A ridden horse's hit strikes its rider once").
 pub fn hostile_to_heroes(side: u8, creature: u32) -> bool {
     hostile(side, creature, HEROES, 0)
 }
