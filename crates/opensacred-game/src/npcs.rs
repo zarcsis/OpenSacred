@@ -10281,6 +10281,11 @@ pub(crate) fn lift(commands: &mut Commands, entity: Entity, stashed: &Stashed) {
 pub struct ScriptQueue(std::collections::VecDeque<Queued>);
 
 impl ScriptQueue {
+    /// Whether no step waits.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
     /// Its steps as a save keeps them ([`SavedQueue`]), the real clock at `now` seconds.
     pub fn saved(&self, now: f64) -> SavedQueue {
         SavedQueue(self.0.iter().map(|step| step.saved(now)).collect())
