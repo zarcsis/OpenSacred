@@ -8,7 +8,8 @@
 //! whole, each ghost a blue face over the plane of the height 0, added by its alpha, both beating
 //! once a second, untinted by the night, each at its place in the original's order of drawing
 //! (`fx::Orders::at`). As the original's, the field is made anew, its pills all back, at each
-//! coming of its sector.
+//! coming of its sector; a save keeps each field laid as it stands, which its load puts back in
+//! place of a field made anew, its eaten pills eaten still ([`Again`], #3450).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -51,6 +52,53 @@ struct Looks {
     ghosts: Option<Handle<Effect>>,
 }
 
+/// The fields that a loaded save kept (#3450; docs/re/effects.md, "The scripts' traps", "The
+/// save"), each put back onto the field of its point, laid already ([`put_back`]) or as it lays
+/// ([`lay`]), in place of one laid anew: the original's load brings the field's objects back and
+/// runs no `Enter` of the sectors it kept marked.
+#[derive(Resource, Default)]
+pub(crate) struct Again(pub Vec<script_traps::Field>);
+
+impl Again {
+    /// The kept field of the point `origin`, taken.
+    fn take(&mut self, origin: [f32; 2]) -> Option<script_traps::Field> {
+        let index = self.0.iter().position(|field| same(field.origin, origin))?;
+        Some(self.0.swap_remove(index))
+    }
+
+    /// Whether it keeps a field of the point `origin`.
+    fn holds(&self, origin: [f32; 2]) -> bool {
+        self.0.iter().any(|field| same(field.origin, origin))
+    }
+}
+
+/// Whether two fields' points are one: a record's point placed again.
+fn same(a: [f32; 2], b: [f32; 2]) -> bool {
+    (a[0] - b[0]).abs() < 1.0 && (a[1] - b[1]).abs() < 1.0
+}
+
+/// The fields as they stand, to save (#3450): those that a load kept and that wait for their
+/// sectors, then each laid field of another point.
+pub(crate) fn saved(world: &mut World) -> Vec<script_traps::Field> {
+    let mut fields = world
+        .get_resource::<Again>()
+        .map(|again| again.0.clone())
+        .unwrap_or_default();
+    let kept = Again(fields.clone());
+    let mut laid = world.query::<&Laid>();
+    fields.extend(
+        laid.iter(world)
+            .filter(|laid| !kept.holds(laid.field.origin))
+            .map(|laid| laid.field.clone()),
+    );
+    fields
+}
+
+/// Forgets the fields that a loaded save kept, as another game loads or the menu comes.
+fn forget(mut again: ResMut<Again>) {
+    again.0.clear();
+}
+
 /// The fields' dice (`rand()`; **estimate**: any seed).
 #[derive(Resource)]
 struct Dice(Rng);
@@ -66,8 +114,41 @@ fn walkable(heights: &Heights, at: [f32; 2]) -> bool {
     heights.walkable_at(cell_of(at[0], at[1]), None)
 }
 
-/// Lays each new field whose sector is in (`0x5A40E2`): its pills and ghosts, and the meshes
-/// that draw them.
+/// The heights of the ground under each pill of `field`, by its pieces' indices.
+fn grounds(field: &script_traps::Field, heights: &Heights) -> Vec<f32> {
+    field
+        .pieces
+        .iter()
+        .map(|piece| match piece {
+            Piece::Pill { at, .. } => heights.standing(at[0], at[1], None).unwrap_or(0.0),
+            Piece::Ghost(_) => 0.0,
+        })
+        .collect()
+}
+
+/// Puts each field that a loaded save kept back onto the field of its point laid already, as the
+/// load's sectors laid it anew before the save's world was put back (#3450).
+fn put_back(mut again: ResMut<Again>, mut fields: Query<&mut Laid>, heights: Option<Res<Heights>>) {
+    if again.0.is_empty() {
+        return;
+    }
+    let Some(heights) = heights else {
+        return;
+    };
+    for mut laid in &mut fields {
+        if let Some(field) = again.take(laid.field.origin) {
+            info!(
+                "pill fields: the field at {:?} as the save kept it",
+                cell_of(field.origin[0], field.origin[1])
+            );
+            laid.grounds = grounds(&field, &heights);
+            laid.field = field;
+        }
+    }
+}
+
+/// Lays each new field whose sector is in (`0x5A40E2`): its pills and ghosts, or those that a
+/// loaded save kept of its point ([`Again`]), and the meshes that draw them.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
@@ -76,11 +157,12 @@ fn lay(
     mut commands: Commands,
     fields: Query<(Entity, &Transform), (With<Field>, Without<Laid>)>,
     (heights, data, server): (Option<Res<Heights>>, Option<Res<Data>>, Res<AssetServer>),
-    (mut looks, mut effects, mut meshes, mut dice): (
+    (mut looks, mut effects, mut meshes, mut dice, mut again): (
         ResMut<Looks>,
         ResMut<Assets<Effect>>,
         ResMut<Assets<Mesh>>,
         ResMut<Dice>,
+        ResMut<Again>,
     ),
 ) {
     let Some(heights) = heights else {
@@ -108,15 +190,10 @@ fn lay(
             looks.ghosts = image(GHOST_TEXTURE)
                 .map(|image| effects.add(particle_material(image, AlphaMode::Add)));
         }
-        let field = script_traps::Field::new(origin, |at| walkable(&heights, at), &mut dice.0);
-        let grounds = field
-            .pieces
-            .iter()
-            .map(|piece| match piece {
-                Piece::Pill { at, .. } => heights.standing(at[0], at[1], None).unwrap_or(0.0),
-                Piece::Ghost(_) => 0.0,
-            })
-            .collect();
+        let field = again.take(origin).unwrap_or_else(|| {
+            script_traps::Field::new(origin, |at| walkable(&heights, at), &mut dice.0)
+        });
+        let grounds = grounds(&field, &heights);
         info!(
             "pill fields: a field of {} pieces at {:?}",
             field.pieces.len(),
@@ -226,13 +303,69 @@ impl Plugin for PillFieldsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Dice>()
             .init_resource::<Looks>()
+            .init_resource::<Again>()
+            .add_systems(OnEnter(AppState::Loading), forget)
+            .add_systems(OnEnter(AppState::Menu), forget)
             .add_systems(
                 Update,
-                (lay, run)
+                (put_back, lay, run)
                     .chain()
                     .in_set(Playing)
                     .in_set(Unpaused)
                     .run_if(in_state(AppState::InGame)),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A field of the point `origin` laid on ground walked on everywhere, its first pill taken
+    /// where `eaten`.
+    fn field(origin: [f32; 2], eaten: bool) -> script_traps::Field {
+        let mut field = script_traps::Field::new(origin, |_| true, &mut crate::seed::dice(1));
+        if eaten && let Some(Piece::Pill { taken, .. }) = field.pieces.first_mut() {
+            *taken = true;
+        }
+        field
+    }
+
+    #[test]
+    fn a_kept_field_is_taken_by_its_point_alone() {
+        let mut again = Again(vec![
+            field([100.0, 200.0], true),
+            field([900.0, 50.0], false),
+        ]);
+        assert!(again.take([5_000.0, 5_000.0]).is_none());
+        assert!(again.holds([100.5, 199.5]));
+        let taken = again.take([100.5, 199.5]).unwrap();
+        assert_eq!(taken, field([100.0, 200.0], true));
+        assert!(!again.holds([100.0, 200.0]));
+        assert!(again.take([100.0, 200.0]).is_none());
+        assert_eq!(again.0, vec![field([900.0, 50.0], false)]);
+        // Apart by a whole unit along either axis, a point is another.
+        assert!(!again.holds([901.0, 50.0]));
+        assert!(!again.holds([900.0, 51.0]));
+    }
+
+    #[test]
+    fn a_save_keeps_the_fields_laid_and_those_a_load_kept() {
+        let mut world = World::new();
+        for (origin, eaten) in [([100.0, 200.0], false), ([900.0, 50.0], true)] {
+            world.spawn(Laid {
+                field: field(origin, eaten),
+                grounds: Vec::new(),
+                meshes: [Handle::default(), Handle::default()],
+            });
+        }
+        assert_eq!(saved(&mut world).len(), 2);
+        // A field that a load kept and has not put back yet stands for its point's laid field.
+        world.insert_resource(Again(vec![field([100.0, 200.0], true)]));
+        let fields = saved(&mut world);
+        assert_eq!(fields.len(), 2);
+        assert!(fields.contains(&field([100.0, 200.0], true)));
+        assert!(fields.contains(&field([900.0, 50.0], true)));
+        assert!(!fields.contains(&field([100.0, 200.0], false)));
     }
 }

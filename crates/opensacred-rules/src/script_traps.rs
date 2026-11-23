@@ -59,7 +59,10 @@ const GHOST_HALF: f32 = 15.0;
 const BEAT: f32 = 3.0;
 
 /// A piece of a field.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+// Named apart from another saved type of its name, which the saves' layout test traces by
+// name (#2306); postcard writes no names.
+#[serde(rename = "TrapPiece")]
 pub enum Piece {
     /// A pill at its place on the ground, until the hero takes it.
     Pill { at: [f32; 2], taken: bool },
@@ -70,7 +73,7 @@ pub enum Piece {
 /// A ghost of a field (`0x5A8C45`…`0x5A914E`): its grid's indices, its heading (`+0xA4`, 0 to 3:
 /// the world's +x, +y, −x, −y), its step toward the next point (`+0xA8`, 0 to 1), and its place
 /// in the world as the last frame left it.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Ghost {
     pub i: i32,
     pub j: i32,
@@ -167,7 +170,7 @@ pub struct Touched {
 /// A field of pills and ghosts (`cParticleSystem_trap02_parent` and its object): its point, its
 /// pieces in the order made, the cooldown of its ghosts' strike (`+0x11C`), and its clock, by
 /// which every pill and ghost beats in step.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Field {
     pub origin: [f32; 2],
     pub pieces: Vec<Piece>,
@@ -299,7 +302,7 @@ const LIGHT: f32 = 150.0;
 
 /// The two timers of a maker of fences (`+0xA8`, `+0xAC`), both 0 as it is made, so that both
 /// fences come at its first frame.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Fences {
     slow: f32,
     fast: f32,
@@ -328,7 +331,7 @@ impl Fences {
 /// point, its length, its index from the fence's far end, its two joints' indices into the
 /// manager's table of random vectors (`+0x20FC`, `+0x2100`) and their sways (`+0x2104`,
 /// `+0x2108`), and whether it is of the fast fence.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Segment {
     pub start: [f32; 3],
     pub length: f32,
@@ -416,7 +419,7 @@ pub fn sway_table(dice: &mut impl Dice) -> [[f32; 3]; 256] {
 
 /// A segment flying (`cParticleSystem_trap03_laser`): its place in the models' frame about its
 /// maker's point, its clock, its fade, its speed, its glow's half side and its strike's cooldown.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Laser {
     pub segment: Segment,
     pub place: [f32; 3],
