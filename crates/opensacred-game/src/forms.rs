@@ -40,7 +40,7 @@ pub struct Clips {
     /// hits' fractions (`0x4DCB80`, #1371).
     pub bolts: [Option<(String, [f32; 2])>; 2],
     pub arts: Vec<hero::ArtClipName>,
-    pub dying: Vec<String>,
+    pub dying: Vec<(u16, String)>,
     pub pickup: Option<String>,
     /// The rider's clips (`riding`, #2299): its mount, the slot 165, its ride, 169 else 166
     /// (`opensacred_rules::horses::ride_slot`), and its dismount, 167.

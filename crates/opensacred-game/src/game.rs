@@ -855,12 +855,7 @@ pub fn clips_of(
     let arts = making::clips(kind, class, slots.as_ref(), points);
     let dying = slots
         .as_ref()
-        .map(|slots| {
-            [173, 174]
-                .iter()
-                .filter_map(|&slot| slots.slot(slot).map(str::to_owned))
-                .collect()
-        })
+        .map(crate::npcs::dying_names)
         .unwrap_or_default();
     let pickup = slots
         .as_ref()

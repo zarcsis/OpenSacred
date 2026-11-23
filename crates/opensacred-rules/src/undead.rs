@@ -64,6 +64,53 @@ pub fn beside_soulcatcher(distance: f32, size: f32) -> bool {
     distance < SOULCATCHER_SIZE + size
 }
 
+/// The dying clips' slots: the two plain ones and the falls flat, 228 and its five others.
+pub const DYING_A: u16 = 173;
+pub const DYING_B: u16 = 174;
+pub const DYING_FLAT: u16 = 228;
+/// The flat falls' other slots, 229 to 233.
+pub const DYING_FLAT_OTHERS: std::ops::RangeInclusive<u16> = 229..=233;
+/// The types that take the flat fall once more in a roll of two (`0x53EF90`–`0x53F31D`).
+const FALLING_FLAT: std::ops::RangeInclusive<u32> = 140..=146;
+
+/// The slot of the dying clip of a creature of the type `creature` that does not ride, whose
+/// model has a clip in a slot where `has` holds it, rolled at each death on `dice`
+/// (`0x53EF90`–`0x53F31D`; docs/re/fight.md, "The bodies' end", "The dying clip"; #3400): 174
+/// where `rand() % 100 + 1` is at least 20, at least 50 for a model with no flat fall, else 173;
+/// a 174 the model lacks becomes 173 and stays it; otherwise, with a flat fall, five rolls of six
+/// give 228, and one of two of those one of 229 to 233 at random where the model has it; the
+/// types 140 to 146 then take 228 in a roll of two where they have it; a slot without a clip
+/// gives 173.
+pub fn dying_slot(
+    creature: u32,
+    has: impl Fn(u16) -> bool,
+    dice: &mut impl crate::spawning::Dice,
+) -> u16 {
+    let flat = has(DYING_FLAT);
+    let threshold = if flat { 20 } else { 50 };
+    let mut slot = if dice.below(100) + 1 >= threshold {
+        DYING_B
+    } else {
+        DYING_A
+    };
+    if slot == DYING_B && !has(DYING_B) {
+        return DYING_A;
+    }
+    if flat && dice.below(6) != 0 {
+        slot = DYING_FLAT;
+        if dice.below(2) == 0 {
+            let other = DYING_FLAT_OTHERS.start() + u16::try_from(dice.below(5)).unwrap_or(0);
+            if has(other) {
+                slot = other;
+            }
+        }
+    }
+    if FALLING_FLAT.contains(&creature) && flat && dice.below(2) == 0 {
+        slot = DYING_FLAT;
+    }
+    if has(slot) { slot } else { DYING_A }
+}
+
 /// The medium spider, whose body vanishes at its first tick of lying, with no effect, held or not
 /// (`0x540037`–`0x540485`, #2504): it would split into small spiders 71 only on the machine of the
 /// player who controls it (`+0x2B5`), which no creature of a game of one player names (**seen**:
@@ -814,6 +861,48 @@ mod tests {
         assert_eq!([0, 1, 2].map(vanishes_after), [2.0, 5.0, 20.0]);
         assert_eq!([0, 1, 2].map(destroyed_after), [7.0, 10.0, 25.0]);
         assert!((0..=2).all(|detail| vanishes_after(detail) < destroyed_after(detail)));
+    }
+
+    /// Dice that answer `rolls` in turn, each below its `n`.
+    struct Rolls(Vec<u32>);
+
+    impl crate::spawning::Dice for Rolls {
+        fn below(&mut self, n: u32) -> u32 {
+            let roll = if self.0.is_empty() {
+                0
+            } else {
+                self.0.remove(0)
+            };
+            roll.min(n.saturating_sub(1))
+        }
+    }
+
+    #[test]
+    fn the_dying_clip_is_rolled_as_the_originals() {
+        let slot = |creature, slots: &[u16], rolls: &[u32]| {
+            dying_slot(creature, |s| slots.contains(&s), &mut Rolls(rolls.to_vec()))
+        };
+        let plain = [DYING_A, DYING_B];
+        let flat = [DYING_A, DYING_B, DYING_FLAT];
+        // Without a flat fall: 174 from a roll of 50 (`rand() % 100` of 49) up, else 173.
+        assert_eq!(slot(76, &plain, &[49]), DYING_B);
+        assert_eq!(slot(76, &plain, &[48]), DYING_A);
+        // With one: 174 from 20 up, then five rolls of six fall flat, one of two of those one
+        // of 229 to 233 where the model has it.
+        assert_eq!(slot(1, &flat, &[19, 0]), DYING_B);
+        assert_eq!(slot(1, &flat, &[18, 0]), DYING_A);
+        assert_eq!(slot(1, &flat, &[19, 3, 1]), DYING_FLAT);
+        assert_eq!(slot(1, &flat, &[0, 5, 1]), DYING_FLAT);
+        assert_eq!(slot(1, &flat, &[0, 5, 0, 2]), DYING_FLAT);
+        assert_eq!(slot(1, &[DYING_A, DYING_FLAT, 231], &[0, 5, 0, 2]), 231);
+        // A 174 the model lacks is 173 and stays it, whatever the flat fall.
+        assert_eq!(slot(1, &[DYING_A, DYING_FLAT], &[99, 5, 0]), DYING_A);
+        // The types 140 to 146 take the flat fall once more in a roll of two.
+        assert_eq!(slot(140, &flat, &[0, 0, 0]), DYING_FLAT);
+        assert_eq!(slot(140, &flat, &[0, 0, 1]), DYING_A);
+        assert_eq!(slot(147, &flat, &[0, 0, 0]), DYING_A);
+        // A model with no 173 still gives 173, which plays nothing.
+        assert_eq!(slot(76, &[], &[99]), DYING_A);
     }
 
     #[test]

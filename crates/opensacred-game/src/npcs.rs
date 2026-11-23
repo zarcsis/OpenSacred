@@ -569,9 +569,10 @@ struct ClipNames {
     fun: [Option<String>; 4],
     /// Its attack's clips (`motions::Slots::attacks`).
     attacks: Vec<String>,
-    /// Its dying clips, the slots 173 and 174 (`*_DYING_A`, `*_DYING_B`; **hypothesis** for the
-    /// dying action 6's choice).
-    dying: Vec<String>,
+    /// Its dying clips by their slots: 173 and 174 (`*_DYING_A`, `*_DYING_B`) and the flat
+    /// falls 228 to 233, of which [`die`] rolls one at each death
+    /// (`opensacred_rules::undead::dying_slot`, #3400); a rider's 168, else 173.
+    dying: Vec<(u16, String)>,
     /// Whether its model has no clip in the slot 173, by which its body vanishes at its first
     /// tick of lying (`0x426250(type, 0xAD)`, `0x4117B0`; `bodies`, #2514).
     unfallen: bool,
@@ -607,7 +608,7 @@ impl ClipNames {
             fun: [None, None, None, None],
             fun_slots: 0,
             attacks: vec![walk.clone()],
-            dying: vec![walk.clone()],
+            dying: vec![(opensacred_rules::undead::DYING_A, walk.clone())],
             attack_slot: SCUTTLE,
             defend: Some(SCUTTLE),
             walk: Some(walk),
@@ -632,7 +633,11 @@ impl ClipNames {
                 .map(|name| vec![name.to_owned()])
                 .unwrap_or_default(),
             dying: named(RIDING_DEATH)
-                .or_else(|| named(173))
+                .map(|name| (RIDING_DEATH, name))
+                .or_else(|| {
+                    named(opensacred_rules::undead::DYING_A)
+                        .map(|name| (opensacred_rules::undead::DYING_A, name))
+                })
                 .into_iter()
                 .collect(),
             fun: [None, None, None, None],
@@ -651,10 +656,7 @@ impl ClipNames {
             fly: slots.slot(FLY).map(str::to_owned),
             stance: slots.stance(class).map(str::to_owned),
             attacks: slots.attacks(class),
-            dying: [173, 174]
-                .iter()
-                .filter_map(|&slot| slots.slot(slot).map(str::to_owned))
-                .collect(),
+            dying: dying_names(slots),
             unfallen: slots.slot(173).is_none(),
             talk: slots.talk().map(str::to_owned),
             fun: [180, 181, 182, 183].map(|slot| slots.slot(slot).map(str::to_owned)),
@@ -664,6 +666,47 @@ impl ClipNames {
             attack_slot: motions::Slots::attack_slot(class),
             defend: slots.defend_slot(class),
         }
+    }
+}
+
+/// The dying clips of a model of `slots` by their slots, the plain falls 173 and 174 and the
+/// flat ones 228 to 233 that it has (`0x53EF90`–`0x53F31D`, #3400).
+pub(crate) fn dying_names(slots: &motions::Slots) -> Vec<(u16, String)> {
+    use opensacred_rules::undead::{DYING_A, DYING_B, DYING_FLAT, DYING_FLAT_OTHERS};
+    [DYING_A, DYING_B, DYING_FLAT]
+        .into_iter()
+        .chain(DYING_FLAT_OTHERS)
+        .filter_map(|slot| slots.slot(slot).map(|name| (slot, name.to_owned())))
+        .collect()
+}
+
+/// The index among `dying`, the dying clips by their slots, of the one that a death of the type
+/// `creature` takes: rolled ([`opensacred_rules::undead::dying_slot`]), the first where it rides,
+/// 0 where none is the slot rolled.
+pub(crate) fn dying_choice(
+    creature: u32,
+    dying: &[u16],
+    rides: bool,
+    dice: &mut crate::spawning::Rng,
+) -> u32 {
+    if rides {
+        return 0;
+    }
+    let slot = opensacred_rules::undead::dying_slot(creature, |slot| dying.contains(&slot), dice);
+    dying
+        .iter()
+        .position(|&had| had == slot)
+        .and_then(|index| u32::try_from(index).ok())
+        .unwrap_or(0)
+}
+
+/// The dice of the dying clips' rolls (`rand()` at `0x53EF90`).
+#[derive(Resource)]
+pub(crate) struct DyingDice(pub(crate) crate::spawning::Rng);
+
+impl Default for DyingDice {
+    fn default() -> Self {
+        Self(crate::seed::dice(0x228))
     }
 }
 
@@ -1615,7 +1658,7 @@ impl Npc {
         let (Some(graph), Some(player)) = (&self.graph, self.player) else {
             return false;
         };
-        let Some(&node) = graph
+        let Some(&(_, node)) = graph
             .dying
             .get(usize::try_from(choice).unwrap_or(0) % graph.dying.len().max(1))
         else {
@@ -1673,7 +1716,8 @@ struct Clips {
     fun: [Option<AnimationNodeIndex>; 4],
     /// The attack's clips, each with its clip and the fractions at which it hits.
     attacks: Vec<(AnimationNodeIndex, Handle<AnimationClip>, [f32; 2])>,
-    dying: Vec<AnimationNodeIndex>,
+    /// The dying clips by their slots ([`ClipNames::dying`]).
+    dying: Vec<(u16, AnimationNodeIndex)>,
     /// The clips of the slots that the scripts' `PlayAnim`s played, added to its graph as they
     /// come (#1277), each with its clip.
     scripted: HashMap<u16, (AnimationNodeIndex, Handle<AnimationClip>)>,
@@ -8380,9 +8424,9 @@ pub fn animate(
                 .names
                 .dying
                 .iter()
-                .filter_map(|name| {
+                .filter_map(|(slot, name)| {
                     let clip = gltf.named_animations.get(name.as_str())?;
-                    Some(graph.add_clip(clip.clone(), 1.0, root))
+                    Some((*slot, graph.add_clip(clip.clone(), 1.0, root)))
                 })
                 .collect();
             let attacks = npc
@@ -12688,7 +12732,11 @@ pub(crate) fn die(
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     catchers: Query<(&Transform, &hero::Body, &crate::effects::Effects), Without<Npc>>,
-    (speed, settings): (Res<hero::GameSpeed>, Option<Res<crate::settings::Settings>>),
+    (speed, settings, mut dice): (
+        Res<hero::GameSpeed>,
+        Option<Res<crate::settings::Settings>>,
+        ResMut<DyingDice>,
+    ),
 ) {
     let detail = crate::settings::detail(settings.as_deref());
     for (entity, npc, mut dies, (mind, way), (rises, named), (at, size)) in &mut dying {
@@ -12750,10 +12798,19 @@ pub(crate) fn die(
         let Ok((mut player, mut transitions)) = players.get_mut(player) else {
             continue;
         };
-        if let Some(&node) = graph
+        // Its dying clip rolled at its death (`0x53EF90`–`0x53F31D`, #3400); a body put back
+        // lies by the one it fell by.
+        if !dies.fallen
+            && let Some(mind) = mind
+        {
+            let slots: Vec<u16> = graph.dying.iter().map(|&(slot, _)| slot).collect();
+            dies.choice = dying_choice(mind.creature, &slots, mind.rides.is_some(), &mut dice.0);
+        }
+        if let Some(&(slot, node)) = graph
             .dying
             .get(usize::try_from(dies.choice).unwrap_or(0) % graph.dying.len().max(1))
         {
+            bevy::log::debug!("npcs: {entity} dies by its slot {slot}");
             // A body put back lies as it fell: its clip run through in a frame.
             let (blend, speed) = if dies.fallen {
                 (Duration::ZERO, FALLEN_SPEED)
@@ -12774,7 +12831,7 @@ pub(crate) fn dying_ended(npc: &Npc, dies: &Dies, players: &Query<&AnimationPlay
         return true;
     };
     let index = usize::try_from(dies.choice).unwrap_or(0) % graph.dying.len().max(1);
-    let Some(&node) = graph.dying.get(index) else {
+    let Some(&(_, node)) = graph.dying.get(index) else {
         return true;
     };
     players
@@ -14420,6 +14477,7 @@ pub struct NpcsPlugin;
 impl Plugin for NpcsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Retextured>()
+            .init_resource::<DyingDice>()
             .add_message::<ArtHit>()
             .init_resource::<AreaChanges>()
             .init_resource::<Morphs>()
@@ -14476,6 +14534,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(bevy::prelude::MinimalPlugins)
             .init_resource::<hero::GameSpeed>()
+            .init_resource::<DyingDice>()
             .add_systems(Update, die);
         let mut effects = crate::effects::Effects::default();
         effects.add(
@@ -14530,7 +14589,7 @@ mod tests {
             walk: Some("WALK".to_owned()),
             run: Some("RUN".to_owned()),
             attacks: vec!["ATTACK".to_owned()],
-            dying: vec!["DIE".to_owned()],
+            dying: vec![(173, "DIE".to_owned())],
             attack_slot: 79,
             ..ClipNames::default()
         };
@@ -14542,7 +14601,7 @@ mod tests {
         );
         assert_eq!(
             (spider.attacks, spider.dying),
-            (vec!["WALK".to_owned()], vec!["WALK".to_owned()])
+            (vec!["WALK".to_owned()], vec![(173, "WALK".to_owned())])
         );
         assert_eq!((spider.attack_slot, spider.defend), (27, Some(27)));
         // Any other creature's as they are.
