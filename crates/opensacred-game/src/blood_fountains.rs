@@ -77,9 +77,13 @@ fn read(mut commands: Commands, data: Option<Res<Data>>) {
 }
 
 /// Starts a fountain at each creature that dies and bleeds, with the violence on (`0x53F37C`):
-/// none with a dialogue (`+0x245`), none that follows the hero (its master the local player) and
-/// none of the hero; in one case of ten (`0x53F38F`), at the bone of a part of six that its death
-/// rolls (`+0x574`, which the original rolls as it makes the creature), the sixth none.
+/// none with a dialogue (`+0x245`), none that follows the hero (its master the local player); the
+/// hero as any creature, of its type, the class 1 and its gib set, so that the heroes' types 1 to
+/// 7 bleed none (`0x4281F0`) and the Dwarf (8) and the Daemon (9) spurt (#3401); in one case of
+/// ten (`0x53F38F`), at the bone of a part of six that its death rolls (`+0x574`, which the
+/// original rolls as it makes the creature), the sixth none. A hero keeps its first fountain's
+/// bone ([`Bled`]), its rise clearing none of `+0xB0`'s bits, so that its later fountains spurt
+/// from it and its later puddles lie under it (`bodies`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -87,14 +91,18 @@ fn read(mut commands: Commands, data: Option<Res<Data>>) {
 fn spurt(
     mut commands: Commands,
     settings: Option<Res<Settings>>,
-    gibs: Option<Res<Gibs>>,
+    (gibs, hero): (Option<Res<Gibs>>, Option<Res<crate::hero::Hero>>),
     dying: Query<
-        (Entity, &crate::ai::Mind, &GlobalTransform),
+        (
+            Entity,
+            Option<&crate::ai::Mind>,
+            &GlobalTransform,
+            (Has<crate::hero::Body>, Option<&Bled>),
+        ),
         (
             Added<Dies>,
             Without<Talk>,
             Without<crate::followers::Follower>,
-            Without<crate::hero::Body>,
         ),
     >,
     (children, bones, worn): (
@@ -107,28 +115,38 @@ fn spurt(
     if !settings.is_some_and(|settings| settings.gameplay.violence) {
         return;
     }
-    for (entity, mind, at) in &dying {
-        let set = gibs.as_ref().map_or(0, |gibs| gibs.of(mind.creature));
-        if !particles::bleeds(mind.creature, mind.class, set)
-            || !particles::spurts_at_death(&mut dice.0)
-        {
+    for (entity, mind, at, (is_hero, bled)) in &dying {
+        let (creature, class) = match (mind, is_hero) {
+            (_, true) => (
+                hero.as_deref().map_or(0, |hero| hero.creature),
+                opensacred_rules::minds::HEROES,
+            ),
+            (Some(mind), false) => (mind.creature, mind.class),
+            (None, false) => continue,
+        };
+        let set = gibs.as_ref().map_or(0, |gibs| gibs.of(creature));
+        if !particles::bleeds(creature, class, set) || !particles::spurts_at_death(&mut dice.0) {
             continue;
         }
-        let part = dice.0.below(particles::BLOOD_PARTS);
-        let Some(name) = usize::try_from(part)
-            .ok()
-            .and_then(|part| particles::BLOOD_BONES.get(part))
-        else {
-            continue;
+        // A hero's later fountains spurt from its first's bone.
+        let name = match bled {
+            Some(bled) => bled.0,
+            None => {
+                let part = dice.0.below(particles::BLOOD_PARTS);
+                let Some(&name) = usize::try_from(part)
+                    .ok()
+                    .and_then(|part| particles::BLOOD_BONES.get(part))
+                else {
+                    continue;
+                };
+                name
+            }
         };
         let Some(bone) = crate::making::bone_entity(entity, &[name], &children, (&bones, &worn))
         else {
             continue;
         };
-        debug!(
-            "blood fountains: {entity}, a {} of the set {set}, bleeds from its {name}",
-            mind.creature
-        );
+        debug!("blood fountains: {entity}, a {creature} of the set {set}, bleeds from its {name}");
         commands.entity(entity).insert(Bled(name));
         commands.spawn((
             Fountain {
