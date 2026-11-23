@@ -2315,6 +2315,25 @@ pub fn dash_end(
         .unwrap_or(to)
 }
 
+/// The points of the Vampiress's dash from `from` to its end `to` at which a figure of her in red
+/// sparks is made (`0x50F857`, the 856 of the variant 0 in [`DASH_SPARKS`]; #3468): every
+/// [`DASH_STEP`]th step from 0 along the line's longer axis before its end, the other axis
+/// following, as [`dash_end`] steps it; seen, 15 of them along a dash ended at its 450th step.
+pub fn dash_sparks(from: [f32; 2], to: [f32; 2]) -> Vec<[f32; 2]> {
+    let delta = [0, 1].map(|i| f64::from(to[i] - from[i]).trunc());
+    let steps = delta[0].abs().max(delta[1].abs());
+    (0_u32..)
+        .map(|k| f64::from(k * DASH_STEP))
+        .take_while(|&count| count < steps)
+        .map(|count| {
+            [0, 1].map(|i| narrow(f64::from(from[i]) + (delta[i] * count / steps).trunc()))
+        })
+        .collect()
+}
+
+/// The colour of the dash's figures in sparks (`0xFF842222`, a red).
+pub const DASH_SPARKS: u32 = 0xFF84_2222;
+
 /// The equipment's slot of the Dwarf's cannon (`+0x1DC`, the category 33's).
 pub const CANNON_SLOT: u8 = 14;
 
