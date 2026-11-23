@@ -2289,7 +2289,9 @@ impl Bonus {
     }
 
     /// Whether its condition's bits 8 to 11 admit a holder of the type `holder` (`0x568B30`): 0
-    /// or 7, else the holder's type, 6 the Vampiress's both, 6 and 7.
+    /// or 7, else the holder's type, 6 the Vampiress's both, 6 and 7; the Dwarf's 8 and the
+    /// Daemon's 9 their own type alone, where the original admits every holder for 8 to 15
+    /// (docs/decisions/items.md, "A class's bonus for its own type alone").
     fn admits(self, holder: u32) -> bool {
         let [_, kind] = self.condition.to_le_bytes();
         let kind = u32::from(kind & 0xF);

@@ -304,6 +304,7 @@ Read 2026-11-08 for #2288 in the code (**confirmed** where not marked), and seen
       A thief 313 of level 2 in the same fight: 5 strikes in melee, each on the rider himself.
     - **The rider's listing**, which the reading above gives by the code, borne out: at each of the three throw-offs in the sector of the mount (the knock-down and the two lethal blows) the game's own log reported an object put into its sector a second time, as the rider, still listed there, came back into the world; at the fall after the crossing it reported nothing.
     - Not seen: the guards' choice of the horse; an arrow turned aside by the horse's stats after a crossing.
+  - `opensacred-game` strikes the rider once for each such hit: its ridden horse keeps the horses' side and stands aside under him, nothing taking its health but the lethal blow it falls by in his place (`riding::Ridden`, `riding::fell`), so the double hit in the sector of the mount is repaired (docs/decisions/fight.md, "A ridden horse's hit strikes its rider once").
 - A ridden horse takes the experience its rider earns: the creature's handler gives the points of its experience's event to its mount's stats too (`0x531664`–`0x5316EE`, `0x57E160`; the amounts not read).
   **Seen** 2026-11-22 in the same run: the horse of level 1 stood at the level 4 with 3,058 experience after its rider's kills of eleven creatures of level 15, and at 5 after seventeen, its most health rising with it, 48, 55, 66, 75 and 95.
 - A ridden horse dead throws its rider off and both lose the link: the horse is lost.
