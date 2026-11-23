@@ -172,10 +172,11 @@ impl Plugin for DayNightPlugin {
     fn build(&self, app: &mut App) {
         embedded_asset!(app, "night.wesl");
         app.add_plugins(FullscreenMaterialPlugin::<Night>::default())
+            .init_resource::<Rates>()
             .add_systems(Startup, make_glow)
             .add_systems(
                 Update,
-                (tick, light, glow, shadows)
+                (rates, tick, light, glow, shadows)
                     .chain()
                     // The light of where the hero stands in this frame's picture, a dungeon's from
                     // the frame it arrives in (#1650).
@@ -361,9 +362,63 @@ pub fn parse_time(text: &str) -> Result<Clock, String> {
     Ok(Clock::at(hours, minutes))
 }
 
-/// Advances the clock by the frame's time.
-pub fn tick(time: Res<Time>, mut clock: ResMut<Clock>) {
-    clock.advance(f64::from(time.delta_secs()));
+/// The clock's rates of the day, from 07:00 to 19:59, and of the night, the rest (`+0x10`,
+/// `+0x14`), which the local hero's items' effects 851 and 850 slow at each recomputation of its
+/// stats (`opensacred_rules::fight::clock_rates`, docs/re/daynight.md, "The clock", #3496); 1.0
+/// each without them.
+#[derive(Resource, Clone, Copy, Debug, PartialEq)]
+pub struct Rates(pub [f32; 2]);
+
+impl Default for Rates {
+    fn default() -> Self {
+        Self([1.0; 2])
+    }
+}
+
+/// The day's hours of the clock's rates, from 07:00 to 19:59, in minutes (`0x4176C0`).
+const DAYS_RATE: std::ops::Range<f64> = 420.0..1200.0;
+
+impl Rates {
+    /// The rate at the minute `minutes` of the day: the day's from 07:00 to 19:59, else the
+    /// night's.
+    pub fn at(&self, minutes: f64) -> f32 {
+        if DAYS_RATE.contains(&minutes) {
+            self.0[0]
+        } else {
+            self.0[1]
+        }
+    }
+}
+
+/// Sets the clock's rates by the hero's items, as each recomputation of its stats does.
+fn rates(
+    hero: Query<
+        (
+            Option<&crate::fight::Holding>,
+            Option<&crate::fight::Combat>,
+        ),
+        With<crate::hero::Body>,
+    >,
+    mut rates: ResMut<Rates>,
+) {
+    let new = hero.iter().next().map_or([1.0; 2], |(holding, combat)| {
+        holding.map_or([1.0; 2], |holding| {
+            opensacred_rules::fight::clock_rates(
+                &holding.0.items,
+                crate::drops::attributes_of(combat),
+            )
+        })
+    });
+    if rates.0 != new {
+        bevy::log::debug!("daynight: the clock's rates of the day and the night {new:?}");
+        rates.0 = new;
+    }
+}
+
+/// Advances the clock by the frame's time at its rate of the hour.
+pub fn tick(time: Res<Time>, mut clock: ResMut<Clock>, rates: Res<Rates>) {
+    let rate = rates.at(clock.minutes());
+    clock.advance(f64::from(time.delta_secs() * rate));
 }
 
 /// The frame's colour by the night: the ramp of the light's level, and the part of the day's
@@ -755,6 +810,20 @@ pub fn light(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_clock_runs_at_the_days_rate_from_seven_to_eight_at_night() {
+        let rates = Rates([0.5, 2.0]);
+        assert_eq!(rates.at(419.0), 2.0);
+        assert_eq!(rates.at(420.0), 0.5);
+        assert_eq!(rates.at(1199.0), 0.5);
+        assert_eq!(rates.at(1200.0), 2.0);
+        assert_eq!(Rates::default().at(0.0), 1.0);
+        // A frame at the rate 0.5 by day advances it by half.
+        let mut clock = Clock::at(12, 0);
+        clock.advance(f64::from(10.0 * rates.at(clock.minutes())));
+        assert_eq!(clock.minutes(), 12.0 * 60.0 + 2.0);
+    }
 
     #[test]
     fn an_untinted_part_shows_within_the_view_and_its_margin() {
