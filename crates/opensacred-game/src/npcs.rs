@@ -1625,6 +1625,11 @@ pub(crate) struct Hits {
 }
 
 impl Npc {
+    /// Its hits' share of a strike: a half with two weapons ([`Hits`]).
+    pub(crate) fn share(&self) -> f32 {
+        self.hits.share
+    }
+
     /// The slot of the clip that its fidget `fidget` plays (`0x54EA30`, #1364): a fun clip's own,
     /// or its attack's first.
     pub(crate) fn fidget_slot(&self, fidget: minds::Fidget) -> u16 {

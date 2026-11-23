@@ -2046,7 +2046,15 @@ fn foes_panel(
 type Foes<'w, 's> = (
     Option<Res<'w, crate::statistics::Kills>>,
     Option<Res<'w, crate::talk::Portraits>>,
-    Query<'w, 's, &'static crate::fight::Combat, With<crate::hero::Body>>,
+    Query<
+        'w,
+        's,
+        (
+            &'static crate::fight::Combat,
+            Option<&'static crate::fight::Holding>,
+        ),
+        With<crate::hero::Body>,
+    >,
 );
 
 /// What the statistics tab's game history reads: its records, the hero's gold, and the images
@@ -2114,9 +2122,10 @@ fn show(
         .flatten();
     let graph = (book.shown && book.tab == TABS - 1)
         .then(|| {
-            let hero = heroes.iter().next()?;
+            let (hero, holding) = heroes.iter().next()?;
             let gold = pack.as_deref().map_or(0, |pack| pack.gold);
-            let now = crate::statistics::LevelRecord::of(hero.damage, hero.resistance, gold);
+            let share = holding.map_or(1.0, |holding| holding.0.share());
+            let now = crate::statistics::LevelRecord::of(hero.damage, hero.resistance, gold, share);
             Some(Graph {
                 points: history.as_deref()?.points(now),
             })
@@ -2124,7 +2133,7 @@ fn show(
         .flatten();
     let foes = (book.shown && book.tab == TABS - 1)
         .then(|| {
-            let hero = heroes.iter().next().map(|combat| &combat.0);
+            let hero = heroes.iter().next().map(|(combat, _)| &combat.0);
             kills
                 .as_deref()
                 .map(|kills| (latest_rows(kills, hero), frequent_rows(kills)))
