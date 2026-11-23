@@ -513,6 +513,25 @@ What the first step found (2026-10-21, Windows 11, #449):
   `state` shows the interface's own view in a game: the mouse's point and the point before, what the cursor holds, the controls under each point and the keyboard's focus.
   `ui` lists the windows shown, their controls' names, classes and rectangles, and a tooltip's links (the first window's and the tutorial's OK and Skip Tutorial) by the scripts' functions they run; `ui press WINDOW CONTROL` clicks the middle of one by its name, as a player does; `new-game --leave-open` leaves the first window to it.
   `point #ID` gives an object's own pixel, an item's on the ground, which a click takes up.
+* What failed in the runs of #3443 and #3452, read and run on 2026-11-22/23 for #3492, the original's side in the notes each names, and the way that a patch of the driver proved in the running original:
+  * **The saves' rows.**
+    The host counted the quick save `GAME00.PAK` among the list's rows, which the original's window shows apart above them (docs/re/menus.md, "The saves' window"): each `load` took the next save, the last save's the empty row, and a `save` over a save's name wrote into the next save.
+    It also took a load as started only once the engine's loading flag showed, which a load from the main menu never showed, and so reported that the load did not start (docs/re/saves.md, "The file").
+    The way: the rows are the saves of `save/` but the slot 0's, of a game of one player (the header's `+0x2C` 0), sorted by their files' names, and the quick save is loaded by its own picture; the agent hooks `cCommand_armaPlay::execute` (`0x7561E0`), and the host takes a load as started once that ran with the mode 1, refusing a slot other than the save's.
+    **Seen** with the patch: six loads from the main menu and eight in a game, each of the slot asked, and a `save` over `s-fence` written into its own file; before it, the load of the slot 13 had loaded the slot 14.
+  * **The clock's rates.**
+    `day-speed` wrote the rates once, and the original sets them to 1.0 at every recomputation of the hero's stats and with every engine's new clock (docs/re/daynight.md, "The clock"): the clock and the scripts' timers ran on after the next effect, item or load.
+    The way: the agent holds the rates asked until `day-speed 1`, writing them back as the clock's setters (`0x417640`, `0x417680`) return and at each frame where the clock's differ, after a load's new clock.
+    **Seen** with the patch: the clock stood at 08:01:44 through an effect's start and end, both recomputations reaching `0x579C58`, and the rates of a load's new clock were written back at its first frame.
+  * **An art on a target the pick does not give.**
+    The right button sends the order to the creature that the cursor's pick gives, which gave none at a body (docs/re/arts.md, "The right button").
+    The way: `arts make ART ID` sends the hero the right button's order (the event `0x105` through `0x617030`, the art of the hero's form by `0x552370`) with the creature asked, alive or dead, as its target.
+    **Seen** with the patch: the Vampiress's 1023 made her night's form, and then 1034 on a goblin's body raised it; by day the original refuses 1034, a night art.
+    The spell 52 needed nothing: four right clicks with it selected cast it, and the #3452 runs' goblin stood behind firs that the bolt flew toward.
+  * **The end at the fences' door.**
+    The exit 4 of #3443's run was the agent's own end, its record "no heartbeat from the host for 5 s" 0.44 s after a load at 4463,593 whose game's records spanned 6.5 s, 2,387 of them dropped.
+    Ten more loads of the same save, from the main menu and in a game, by five hosts, with the game's log and without it (two), the agent's limit at 5 s and at 1.5 s (two), did not repeat it: each load took 1 to 2 s, the heartbeat's calls, timed in two of them, answered within 0.5 s, and the agent's watchdog, timed in five, never ran more than 0.5 s late, so that what held the beats then is open (**hypothesis**: the host's handling of the flood of the game's records, each printed and flushed twice, delayed the heartbeat's replies).
+    The host's `state` waits a load out, as its world's snapshot waits for the next frame (about 2 s for the fences' save in a game).
 
 The maintainer's play (#551, asked for on 2026-10-22): the original on the screen, its 1024 × 768 scaled to the whole monitor with its proportions kept, played with the maintainer's own mouse and keyboard while the driver's commands stay at hand.
 

@@ -1883,6 +1883,7 @@ Their FX events take the event's direction and the flag `0x40`, so each flies le
 **Seen** 2026-11-05 beside the original: the Mage's whirlwinds' dark green dust about her and along their way, gone where a tree stops them; the fire bolt's teal and white glow at the caster's hand and at its target alike in size and colour (Sharifo's in the game, the Mage's taught the spell 52 in the original).
 Each puff of the dust takes its own colour about the ground's by 16 since #3155 (`BoltTrail::with_ground`, `WINDSTRIKE_SPREAD`).
 Not run on #3443 (2026-11-22): the Mage taught the spell 52 by the driver (at the levels 1 and 6), selected and made by a right click on a goblin four cells away, turned to it but sent no bolt, three times, where the spell 5 selected so was made at once; the one puff at the bolt's end stays a **hypothesis** from the code.
+**Seen** 2026-11-23 for #3492: at the Mage's start the same order sent the bolt, the glow at his hand and the ball flying toward the firs that stood between him and the goblin, and the goblin struck by nothing (**hypothesis**: the firs' cells stopped the bolt); in the open the bolts struck (docs/re/arts.md, "The right button").
 Not followed: the fire bolt's one puff at its hit or a cell that stops it (#3457); its Direct3D light follows since #2106.
 
 ## The ice splinters
