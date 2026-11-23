@@ -452,6 +452,12 @@ pub(crate) fn resolve(
         }
         let (mut attacker, mut defender, mut blow) =
             weighed(attacker.0, defending, side, (level, health.level), &rules);
+        // A poison's own strike makes no record of the struck one against its attacker, which
+        // gives the resistances, so that it meets none (`0x56B6AA`, `0x56B929`; docs/re/fight.md,
+        // "The poison", #3482).
+        if hit.poison {
+            defender.resistance = [0.0; opensacred_rules::fight::KINDS];
+        }
         // The Dwarf's steel pierces what he strikes: its physical resistance over the effect's
         // value over 100 (`0x56C723`).
         let pierces = effects.get(hit.attacker).ok().and_then(|held| {
@@ -2625,6 +2631,79 @@ mod tests {
         assert_eq!(app.world().get::<Health>(victim).unwrap().current, 0);
         assert!(app.world().resource::<Experience>().points > before);
         assert!(app.world().resource::<Messages<Kill>>().is_empty());
+    }
+
+    /// What a creature of a poison's resistance of 50 lost to a strike of 8 poison, a poison's own
+    /// strike where `poison`.
+    fn lost_to_eight_poison(poison: bool) -> u32 {
+        let combat = |resistance| {
+            Combat(opensacred_rules::fight::Combat {
+                attack: 200.0,
+                defence: 10.0,
+                damage: [[0.0; 2]; 4],
+                resistance,
+                damping: [0; 4],
+                speed: 140.0,
+                pace: 130.0,
+                multipliers: [1.0; 4],
+                resistance_factors: [1.0; 4],
+                spells: [1.0; 4],
+                cast: opensacred_rules::fight::CAST_SPEED,
+                attributes: [0.0; 6],
+            })
+        };
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<Hit>()
+            .add_message::<Kill>()
+            .add_message::<Struck>()
+            .add_message::<crate::voices::Speak>()
+            .add_message::<crate::sfx::Blow>()
+            .add_message::<crate::remarks::Remark>()
+            .add_message::<crate::drops::PileFromHit>()
+            .add_message::<crate::sfx::Play>()
+            .insert_resource(Dice(Rng::of(0, 0, 0)))
+            .init_resource::<Experience>()
+            .init_resource::<Rules>()
+            .add_systems(Update, resolve);
+        let world = app.world_mut();
+        let health = Health {
+            current: 1_000,
+            most: 1_000,
+            level: 1,
+        };
+        let poisoner = world
+            .spawn((combat([0.0; 4]), health, GlobalTransform::default()))
+            .id();
+        let target = world
+            .spawn((
+                combat([0.0, 0.0, 0.0, 50.0]),
+                health,
+                GlobalTransform::default(),
+            ))
+            .id();
+        world.write_message(Hit {
+            attacker: poisoner,
+            target,
+            share: 1.0,
+            ranged: false,
+            art: None,
+            fixed: Some([0.0, 0.0, 0.0, 8.0]),
+            sure: true,
+            poison,
+            ward: false,
+            hurled: false,
+        });
+        app.update();
+        1_000 - app.world().get::<Health>(target).unwrap().current
+    }
+
+    #[test]
+    fn a_poisons_own_strike_meets_no_resistance() {
+        // No record of the struck one: its 8 whole (`0x56B6AA`, #3482); a strike of fixed poison
+        // that is no poison's own meets the resistance of 50.
+        assert_eq!(lost_to_eight_poison(true), 8);
+        assert!(lost_to_eight_poison(false) < 8);
     }
 
     #[test]
