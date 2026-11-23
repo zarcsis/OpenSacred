@@ -1947,6 +1947,20 @@ pub fn marks(effect: u32) -> bool {
     )
 }
 
+/// The items' bonus that makes their bearer and the animals foes (`0x360`, docs/re/fight.md,
+/// "The animals' foe", #3395).
+pub const ANIMALS_FOE: u32 = 864;
+
+/// Whether the items `items` make their bearer a foe of the animals: one of their bonus slots of
+/// no class of opponents carries [`ANIMALS_FOE`], whatever its value (the stats' recomputation,
+/// `0x57A9AD`).
+pub fn foes_of_animals(items: &[ItemValues]) -> bool {
+    items.iter().flat_map(|item| item.bonuses).any(|bonus| {
+        let [class, _] = bonus.condition.to_le_bytes();
+        bonus.effect & 0xFFFF == ANIMALS_FOE && (class == 0 || class == 13)
+    })
+}
+
 /// The items' effect of the luck (`0x348`), added to a killer's 100 ([`items_luck`]).
 pub const LUCK: u32 = 840;
 /// The items' effect of the experience (`0x34B`), its value per cent of a kill's base that the
@@ -9308,6 +9322,28 @@ mod tests {
         assert!(!counts_against_class(0x2005, 806));
         assert!(counts_against_class(0x6005, 806));
         assert!(!counts_against_class(0x2080, 808));
+    }
+
+    #[test]
+    fn an_item_of_the_bonus_864_makes_its_bearer_a_foe_of_the_animals() {
+        let item = |condition: u16, effect: u32| {
+            let mut bonuses = [Bonus::default(); BONUSES];
+            bonuses[2] = Bonus {
+                condition,
+                effect,
+                value: 3,
+            };
+            ItemValues {
+                bonuses,
+                ..ItemValues::default()
+            }
+        };
+        assert!(!foes_of_animals(&[]));
+        assert!(foes_of_animals(&[item(0, LUCK), item(0, ANIMALS_FOE)]));
+        assert!(foes_of_animals(&[item(13, ANIMALS_FOE | 1 << 16)]));
+        // A slot against a class of opponents counts in no recomputation.
+        assert!(!foes_of_animals(&[item(6, ANIMALS_FOE)]));
+        assert!(!foes_of_animals(&[item(0, ANIMALS_FOE + 1)]));
     }
 
     #[test]

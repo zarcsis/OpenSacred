@@ -872,15 +872,33 @@ fn steal(world: &mut World, opened: &Opened) {
 /// Breaks the soldiers' friendship with the heroes while the hero bears a horse's theft's effect
 /// 19, and mends it as the effect ends (`0x584616`, `0x586D80`): each soldier's mind provoked,
 /// those that come into the world meanwhile too ([`opensacred_rules::minds::Mind::provoked`]).
-fn provoke(heroes: Query<&crate::effects::Effects, With<Body>>, mut minds: Query<&mut Mind>) {
-    let theft = heroes.iter().any(|effects| effects.holds(horses::THEFT));
-    for mut mind in &mut minds {
+///
+/// And makes each animal (the class 6) a foe of the hero while its items carry the bonus 864, but
+/// the hero's followers (`opensacred_rules::fight::foes_of_animals`, `0x42370C`, #3395).
+fn provoke(
+    heroes: Query<(&crate::effects::Effects, Option<&crate::fight::Holding>), With<Body>>,
+    mut minds: Query<(&mut Mind, Has<crate::followers::Follower>)>,
+) {
+    let theft = heroes
+        .iter()
+        .any(|(effects, _)| effects.holds(horses::THEFT));
+    let animals = heroes.iter().any(|(_, holding)| {
+        holding.is_some_and(|holding| opensacred_rules::fight::foes_of_animals(&holding.0.items))
+    });
+    for (mut mind, follows) in &mut minds {
         let provoked = theft && mind.side == opensacred_rules::minds::SOLDIERS;
         if mind.provoked != provoked {
             mind.provoked = provoked;
         }
+        let foe = animals && mind.class == ANIMALS && !follows;
+        if mind.foe_of_bearer != foe {
+            mind.foe_of_bearer = foe;
+        }
     }
 }
+
+/// The animals' class of `Creature.pak`.
+const ANIMALS: u8 = 6;
 
 /// The sale: the hero's horse let go and the trader's stable's again, its sector's once more, for
 /// 0.66 of its asking price (`horses::paid_for`); a dead one lost for nothing.

@@ -167,8 +167,8 @@ const ANIMALS: u8 = 6;
 /// Whether a creature of side `side` and type `creature` is hostile to the heroes (`0x548F60`,
 /// `0x423580`): its side's row of [`FRIENDS`] without the heroes' bit, or its type
 /// [`AGAINST_ALL`]. The flags word's bit `0x40000`, which turns the answer over, is the field
-/// `Mind::turned`'s. Not followed yet: the bearers of the items' bonus 864 (`+0x200` bit
-/// `0x10000000`), foes of the animals (#3395), and a horse taken by its rider's side (#3083).
+/// `Mind::turned`'s. An animal that a bearer of the items' bonus 864 makes its foe is the field
+/// `Mind::foe_of_bearer`'s (#3395); a horse taken by its rider's side is not followed (#3083).
 pub fn hostile_to_heroes(side: u8, creature: u32) -> bool {
     hostile(side, creature, HEROES, 0)
 }
@@ -842,6 +842,10 @@ pub struct Mind {
     /// relation of the sides 7 and 1 to 0, keeping the one before, which its end `0x586D80`
     /// puts back; #2320).
     pub provoked: bool,
+    /// Whether it is an animal (the class 6) that the hero's items' bonus 864 makes its foe
+    /// (`+0x200` bit `0x10000000`, `0x423580` at `0x42370C` and `0x423794`; docs/re/fight.md,
+    /// "The animals' foe", #3395): none of the hero's followers nor one of a master.
+    pub foe_of_bearer: bool,
     /// What a townsperson does (`+0x261`, [`activity`]), whose icon its draw shows while Alt is
     /// held ([`activity_icon`]); written as it takes up a doing, kept until the next.
     pub activity: u16,
@@ -989,6 +993,7 @@ impl Mind {
             descends: false,
             turned: false,
             provoked: false,
+            foe_of_bearer: false,
             activity: activity::NONE,
             fun: 0,
             woman: false,
@@ -1036,10 +1041,12 @@ impl Mind {
     }
 
     /// Whether it is hostile to the hero, by its side and its type (`0x548F60`,
-    /// [`hostile_to_heroes`]) or while its side's friendship is broken ([`Self::provoked`]), not
+    /// [`hostile_to_heroes`]) or while its side's friendship is broken ([`Self::provoked`]) or
+    /// the hero's items make it a foe ([`Self::foe_of_bearer`]), not
     /// by its flags, the other way about while its sides are turned over ([`Self::turned`]).
     pub fn hostile(&self) -> bool {
-        (hostile_to_heroes(self.side, self.creature) || self.provoked) != self.turned
+        (hostile_to_heroes(self.side, self.creature) || self.provoked || self.foe_of_bearer)
+            != self.turned
     }
 
     /// Whether it is awake (`sdk_WAKE`): a dormant creature does not look for the hero.
@@ -7566,6 +7573,17 @@ mod tests {
         }
         // The spiders of type 75, whatever their side.
         assert!(hostile_to_heroes(6, 75));
+        // A rabbit of its own side, a friend, a foe of the hero while the hero bears the bonus
+        // 864, and a friend again as it goes (#3395); turned over, the other way about.
+        let mut rabbit = Mind::new(Spot::default(), 0, (false, true), None, SPEEDS, (516, 6));
+        assert!(!rabbit.hostile());
+        rabbit.foe_of_bearer = true;
+        assert!(rabbit.hostile());
+        rabbit.turned = true;
+        assert!(!rabbit.hostile());
+        rabbit.turned = false;
+        rabbit.foe_of_bearer = false;
+        assert!(!rabbit.hostile());
         // The creature maker: a hostile bandit of class 7 on side 2, a peaceful goblin of class 2
         // on side 3, a rabbit on its own, an animal made hostile on side 2.
         assert_eq!(made_side(7, 279, true), 2);
