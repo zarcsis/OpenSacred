@@ -474,6 +474,8 @@ pub struct Effects {
     pub particles: Vec<Partikel>,
     /// The butterflies' effects that its `SetNPCState`s of `0x8C` give the hero (#3023).
     pub knock_outs: Vec<crate::knockouts::KnockOut>,
+    /// The bleedings that its `SetNPCState`s of `0x84` give the hero or end (#3444).
+    pub bleedings: Vec<crate::effects::ScriptBleeding>,
     /// The groups that its `GroupIsDead`s asked of and whether each was dead (`0x48C860`), by
     /// which the compass's blinking pin goes (`compass::GroupAsked`, #3104).
     pub groups: Vec<crate::compass::GroupAsked>,
@@ -508,6 +510,7 @@ impl Effects {
         self.random_items += other.random_items;
         self.particles.extend(other.particles);
         self.knock_outs.extend(other.knock_outs);
+        self.bleedings.extend(other.bleedings);
         self.groups.extend(other.groups);
         self.won.extend(other.won);
         self.autosaves.extend(other.autosaves);
@@ -1036,6 +1039,7 @@ impl Live {
             random_items: recorder.random_items,
             particles: recorder.particles,
             knock_outs: recorder.knock_outs,
+            bleedings: recorder.bleedings,
             groups: recorder.groups,
             won: recorder.won,
             autosaves: recorder.autosaves,
@@ -1225,6 +1229,8 @@ struct Recorder<'a> {
     /// The generic systems that its `Partikel`s start ([`Effects::particles`]).
     particles: Vec<Partikel>,
     knock_outs: Vec<crate::knockouts::KnockOut>,
+    /// The bleedings its `SetNPCState`s of `0x84` give or end ([`Effects::bleedings`]).
+    bleedings: Vec<crate::effects::ScriptBleeding>,
     /// The groups its `GroupIsDead`s asked of ([`Effects::groups`]).
     groups: Vec<crate::compass::GroupAsked>,
     /// The side quests that its `ExitQuest`s won ([`Effects::won`]).
@@ -1289,6 +1295,7 @@ impl<'a> Recorder<'a> {
             random_items: 0,
             particles: Vec::new(),
             knock_outs: Vec::new(),
+            bleedings: Vec::new(),
             groups: Vec::new(),
             won: Vec::new(),
             autosaves: Vec::new(),
@@ -1987,6 +1994,20 @@ impl Host for Recorder<'_> {
                         creature: None,
                         art,
                     });
+                }
+                // `0x84 (v, s)`: the effect 23 of the value `v` for `s` seconds with no source,
+                // both above 0; `(0, 0)` ends every effect 23 (`0x461D1F`–`0x461DBD`, #3444). Every
+                // record of the trees names the hero.
+                if hero && let [value, seconds, ..] = tags.numbers("_84").as_slice() {
+                    let bleeding = match (*value, *seconds) {
+                        (0, 0) => Some(crate::effects::ScriptBleeding(None)),
+                        (1.., 1..) => Some(crate::effects::ScriptBleeding(Some((
+                            f32::from(u16::try_from(*value).unwrap_or(u16::MAX)),
+                            f32::from(u16::try_from(*seconds).unwrap_or(u16::MAX)),
+                        )))),
+                        _ => None,
+                    };
+                    self.bleedings.extend(bleeding);
                 }
                 if hero && let [x, y, rest @ ..] = tags.numbers("_4D").as_slice() {
                     self.home = Some(Teleport {
@@ -2757,6 +2778,7 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
         window,
         particles,
         knock_outs,
+        bleedings,
         groups,
         autosaves,
         active,
@@ -2772,6 +2794,7 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
     }
     world.write_message_batch(particles);
     world.write_message_batch(knock_outs);
+    world.write_message_batch(bleedings);
     world.write_message_batch(window.sounds.into_iter().map(ScriptLine));
     world.write_message_batch(sounds);
     world.write_message_batch(remarks);
@@ -2863,6 +2886,7 @@ struct Queues<'w> {
     random_items: MessageWriter<'w, crate::stashes::RandomItem>,
     particles: MessageWriter<'w, Partikel>,
     knock_outs: MessageWriter<'w, crate::knockouts::KnockOut>,
+    bleedings: MessageWriter<'w, crate::effects::ScriptBleeding>,
     groups: MessageWriter<'w, crate::compass::GroupAsked>,
     won: MessageWriter<'w, crate::rewards::QuestWon>,
     autosaves: Option<ResMut<'w, crate::saves::AutoSaves>>,
@@ -2891,6 +2915,7 @@ impl Queues<'_> {
             .write_batch((0..effects.random_items).map(|_| crate::stashes::RandomItem));
         self.particles.write_batch(effects.particles);
         self.knock_outs.write_batch(effects.knock_outs);
+        self.bleedings.write_batch(effects.bleedings);
         self.groups.write_batch(effects.groups);
         self.won
             .write_batch(effects.won.into_iter().map(crate::rewards::QuestWon));
@@ -3254,6 +3279,7 @@ impl Plugin for ScriptsPlugin {
             .add_message::<ScriptLine>()
             .add_message::<Partikel>()
             .add_message::<crate::knockouts::KnockOut>()
+            .add_message::<crate::effects::ScriptBleeding>()
             .add_message::<crate::compass::GroupAsked>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
@@ -4013,6 +4039,7 @@ mod tests {
             .add_message::<ScriptLine>()
             .add_message::<Partikel>()
             .add_message::<crate::knockouts::KnockOut>()
+            .add_message::<crate::effects::ScriptBleeding>()
             .add_message::<crate::compass::GroupAsked>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
@@ -4076,6 +4103,7 @@ mod tests {
             .add_message::<ScriptLine>()
             .add_message::<Partikel>()
             .add_message::<crate::knockouts::KnockOut>()
+            .add_message::<crate::effects::ScriptBleeding>()
             .add_message::<crate::compass::GroupAsked>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
@@ -4952,6 +4980,7 @@ mod tests {
             .add_message::<crate::stashes::RandomItem>()
             .add_message::<Partikel>()
             .add_message::<crate::knockouts::KnockOut>()
+            .add_message::<crate::effects::ScriptBleeding>()
             .add_message::<crate::compass::GroupAsked>()
             .add_message::<crate::rewards::QuestWon>()
             .add_systems(Update, step_on);
