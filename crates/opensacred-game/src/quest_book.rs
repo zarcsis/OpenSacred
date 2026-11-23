@@ -32,10 +32,10 @@
 //!
 //! The statistics' book (#1579, `cUI_StatsTab`), without bookmarks, pages or arrows: the
 //! statistics block (`0x6DEE60`, #1611), the latest and the most frequent foes with their
-//! portraits (`0x6DDCC0`, `0x6DE2B0`, #1612) and the game history's graph (`0x6DE710`, #1613),
-//! of what `statistics` keeps.
+//! portraits (`0x6DDCC0`, `0x6DE2B0`, #1612), a latest foe's name under the pointer (#3109), and
+//! the game history's graph (`0x6DE710`, #1613), of what `statistics` keeps.
 //!
-//! Not followed yet: the item's model turning in the circle, the bar's button's pressed look,
+//! Not followed yet: the item's model turning in the circle (#3547), the bar's button's pressed look,
 //! and the place of a compass on a creature taken where the creature stands as the book is
 //! built, not as the quest was entered.
 
@@ -169,6 +169,12 @@ const LATEST_HEADER: [(&str, f32); 5] = [
 const LATEST_HEADER_Y: f32 = 192.0;
 const LATEST_RIGHTS: [f32; 5] = [625.0, 680.0, 750.0, 790.0, 840.0];
 const LATEST_ROWS: f32 = 211.0;
+/// A latest foe's portrait's tooltip (`0x6DDCC0`, `0x6DE1F4`–`0x6DE21A`, #3109): shown while the
+/// pointer stands within x 550 to 574 and its row's y − 2 to y + 14, the edges in (the portrait's
+/// upper 16 rows), its top left at (598, y + 6).
+const FOE_TIP_X: [f32; 2] = [550.0, 574.0];
+const FOE_TIP_Y: [f32; 2] = [-2.0, 14.0];
+const FOE_TIP_AT: Vec2 = Vec2::new(598.0, 6.0);
 /// The statistics tab's most frequent foes (`0x6DE2B0`, #1612): the title 48 above the rows, the
 /// header 24 above them each centred in 50, the rows 24 apart from y 500, each the type's portrait
 /// and the highest level, the hit chances at its first kill and the count at the right of their
@@ -464,7 +470,7 @@ const CLASS_PICTURE: f32 = 256.0;
 const PICTURE_MIDDLE: f32 = 684.0;
 
 /// The picture of a leaf's right page (`0x6B1FF0`): none, an art's icon (an image) at its own size,
-/// or the circle of a main quest's item of a height in cells (its model not followed). The
+/// or the circle of a main quest's item of a height in cells (its model not followed, #3547). The
 /// class's picture is its chapter's own ([`Chapter::own`]).
 #[derive(Clone, Debug, PartialEq)]
 enum Picture {
@@ -2513,6 +2519,72 @@ fn show(
     }
 }
 
+/// A latest foe's portrait's tooltip, the foe's name ([`foe_tip`]).
+#[derive(Component)]
+struct FoeTip;
+
+/// The row of the latest foes, of `rows` of them, whose portrait's tooltip the pointer at `at`
+/// asks for ([`FOE_TIP_X`], [`FOE_TIP_Y`]), and the row's y.
+fn foe_under(at: Vec2, rows: usize) -> Option<(usize, f32)> {
+    if !(FOE_TIP_X[0]..=FOE_TIP_X[1]).contains(&at.x) {
+        return None;
+    }
+    (0..rows).find_map(|row| {
+        let y = LATEST_ROWS + STATS_ROW * f32::from(u8::try_from(row).ok()?);
+        (y + FOE_TIP_Y[0]..=y + FOE_TIP_Y[1])
+            .contains(&at.y)
+            .then_some((row, y))
+    })
+}
+
+/// The statistics tab's latest foe's name under the pointer (the style `0x1B`, `0x75B430`): the
+/// type's name in the tooltips' panel with its border, its top left at (598, y + 6) of the row,
+/// kept 16 within the screen, shown at once and gone as the pointer leaves; the most frequent
+/// foes' portraits show none (`0x6DE2B0`; seen, #3109).
+fn foe_tip(
+    mut commands: Commands,
+    book: Res<Book>,
+    kills: Option<Res<crate::statistics::Kills>>,
+    (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
+    (images, assets, texts): (Option<Res<UiImages>>, Res<AssetServer>, Option<Res<Texts>>),
+    tips: Query<Entity, With<FoeTip>>,
+    mut shown: Local<Option<usize>>,
+) {
+    let foes: Vec<u32> = kills
+        .as_deref()
+        .filter(|_| book.shown && book.tab == TABS - 1)
+        .map(|kills| kills.latest().map(|foe| foe.creature).collect())
+        .unwrap_or_default();
+    let over = screen_point(&pointer, &ui_scale, &windows).and_then(|at| foe_under(at, foes.len()));
+    if over.map(|(row, _)| row) == *shown {
+        return;
+    }
+    *shown = over.map(|(row, _)| row);
+    for tip in &tips {
+        commands.entity(tip).try_despawn();
+    }
+    let Some((row, y)) = over else {
+        return;
+    };
+    let Some(name) = texts
+        .as_deref()
+        .zip(foes.get(row))
+        .and_then(|(texts, creature)| texts.named(&creature.to_string()))
+    else {
+        return;
+    };
+    let panel = crate::tooltip::spawn_tip_left_in(
+        &mut commands,
+        &assets,
+        (name, FOE_TIP_AT + Vec2::new(0.0, y)),
+        crate::tooltip::Frame::Screen,
+    );
+    commands.entity(panel).insert(FoeTip);
+    if let Some(images) = images {
+        crate::tooltip::add_border(&mut commands, (&images, &assets), panel);
+    }
+}
+
 /// The tabs' tooltips (the style `0x20B`), at the tab's top, 32 along.
 fn tooltip(
     mut commands: Commands,
@@ -2616,7 +2688,15 @@ impl Plugin for QuestBookPlugin {
             )
             .add_systems(
                 Update,
-                (hide_under_inventory, build, click, measure, show, tooltip)
+                (
+                    hide_under_inventory,
+                    build,
+                    click,
+                    measure,
+                    show,
+                    tooltip,
+                    foe_tip,
+                )
                     .chain()
                     .after(crate::inventory::Opened)
                     .run_if(in_state(AppState::InGame)),
@@ -2627,6 +2707,20 @@ impl Plugin for QuestBookPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_latest_foes_portrait_asks_its_tooltip_over_its_upper_16_rows() {
+        // The first row at y 211: from 209 to 225 and from x 550 to 574, the edges in.
+        assert_eq!(foe_under(Vec2::new(550.0, 209.0), 2), Some((0, 211.0)));
+        assert_eq!(foe_under(Vec2::new(574.0, 225.0), 2), Some((0, 211.0)));
+        assert_eq!(foe_under(Vec2::new(549.0, 215.0), 2), None);
+        assert_eq!(foe_under(Vec2::new(575.0, 215.0), 2), None);
+        assert_eq!(foe_under(Vec2::new(560.0, 208.0), 2), None);
+        assert_eq!(foe_under(Vec2::new(560.0, 226.0), 2), None);
+        // The second row 24 below; a row the tab does not list asks none.
+        assert_eq!(foe_under(Vec2::new(560.0, 240.0), 2), Some((1, 235.0)));
+        assert_eq!(foe_under(Vec2::new(560.0, 240.0), 1), None);
+    }
 
     #[test]
     fn a_character_of_the_system_font_takes_its_bytes_cell() {
