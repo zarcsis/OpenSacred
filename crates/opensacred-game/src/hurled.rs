@@ -269,6 +269,7 @@ fn fly(
                 poison: false,
                 ward: false,
                 hurled: true,
+                object: false,
             });
         }
         if struck.is_none() && share < 1.0 {

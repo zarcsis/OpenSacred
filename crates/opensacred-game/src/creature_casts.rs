@@ -590,6 +590,7 @@ fn act(
                     poison: false,
                     ward: true,
                     hurled: false,
+                    object: true,
                 });
                 crate::lightning_strikes::strike(&mut commands, place, false);
             }
@@ -1036,6 +1037,7 @@ fn act(
                         poison: false,
                         ward: true,
                         hurled: false,
+                        object: false,
                     });
                 }
             }
@@ -1370,6 +1372,7 @@ fn burn(
                     poison: false,
                     ward: false,
                     hurled: false,
+                    object: true,
                 });
                 flame.cooldown = 1.0;
             }
@@ -1546,6 +1549,7 @@ fn throw(
                     poison: false,
                     ward: true,
                     hurled: false,
+                    object: true,
                 });
             }
         }
@@ -1584,6 +1588,7 @@ fn throw(
                     poison: false,
                     ward: true,
                     hurled: false,
+                    object: true,
                 });
                 continue;
             }
@@ -1722,6 +1727,7 @@ fn home(
                 poison: false,
                 ward: false,
                 hurled: false,
+                object: true,
             });
         }
         bursts.write(crate::homing_fires::Bursts {

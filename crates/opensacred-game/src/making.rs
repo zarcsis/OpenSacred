@@ -1321,6 +1321,7 @@ fn make(
             poison: false,
             ward: false,
             hurled: false,
+            object: false,
             attacker: hero,
             target,
             share: playing.factor,
@@ -2261,6 +2262,7 @@ fn make(
                                 poison: false,
                                 ward: false,
                                 hurled: false,
+                                object: false,
                             });
                             if !mind.big && knocks_back(&mut dice.0, playing.level, mind) {
                                 commands
@@ -3125,6 +3127,7 @@ fn blades(
                 poison: false,
                 ward: false,
                 hurled: false,
+                object: false,
                 attacker: hero,
                 target: entity,
                 share: playing.factor,
@@ -3319,6 +3322,7 @@ fn knock(
                     poison: false,
                     ward: false,
                     hurled: false,
+                    object: false,
                 });
                 commands
                     .entity(other)

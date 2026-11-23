@@ -55,6 +55,11 @@ pub struct Hit {
     /// they take neither the record's raises (the survival's, `0x56A50F`) nor the fixed damages'
     /// (`0x56C156`), the hit's roll that of the attacker's own strike.
     pub hurled: bool,
+    /// Whether it is the strike of an effect's object, a spell's or another FX object's
+    /// (`0x5ABD80` at `0x5ABE3F`–`0x5ABE5D`), whose record names the object for its weapon, of the
+    /// category 12: it plays no sound at its target and calls no line of the struck one
+    /// (`0x5320D2`, `0x532745`; docs/re/sound.md, "The weapons", #3471).
+    pub object: bool,
 }
 
 /// A strike from nobody, an attacker's id of 0: a fire smoke's or a bursting geyser's (`fx`,
@@ -680,12 +685,16 @@ pub(crate) fn resolve(
             (false, Some(art)) => art_landed(&attacker, &defender, blow, art, &mut dice.0),
             (false, None) => strike_landed(&attacker, &defender, blow, &mut dice.0),
         };
-        // At the target, the striker's weapon's hit or parry (`0x5320B2`, #712).
-        blows.write(crate::sfx::Blow::Target {
-            striker: hit.attacker,
-            target: hit.target,
-            landed: landed.is_some_and(|landed| landed.damage > 0),
-        });
+        // At the target, the striker's weapon's hit or parry (`0x5320B2`, #712), none for an
+        // object's strike (#3471).
+        if !hit.object {
+            blows.write(crate::sfx::Blow::Target {
+                striker: hit.attacker,
+                target: hit.target,
+                landed: landed.is_some_and(|landed| landed.damage > 0),
+                physical: landed.is_some_and(|landed| landed.through[0] > 0.0),
+            });
+        }
         // The open wound's rolls of a strike that the struck one lives through, a miss's too
         // (#1727, M15): the struck one's own items' effect 857 for the hero's strike, the
         // attacker's sets' blocks, whether it bleeds already.
@@ -1109,8 +1118,9 @@ pub(crate) fn resolve(
             damage,
             most: health.most,
         });
-        // A hit that did damage makes its target speak, unless it falls (`0x532161`, #711).
-        if damage > 0 && health.current > 0 {
+        // A hit that did damage makes its target speak, unless it falls (`0x532161`, #711), or
+        // the hit is an object's (`0x5320D2`, #3471).
+        if damage > 0 && health.current > 0 && !hit.object {
             lines.write(crate::voices::Speak::hit(
                 hit.target,
                 health.current,
@@ -1347,7 +1357,7 @@ fn burn(
         ),
         Without<Dies>,
     >,
-    (mut struck, mut lines): (MessageWriter<Struck>, MessageWriter<crate::voices::Speak>),
+    mut struck: MessageWriter<Struck>,
 ) {
     for burn in burns.read() {
         let Ok((mut health, defender, at, hero_hit, immortal, mind)) = targets.get_mut(burn.target)
@@ -1398,13 +1408,8 @@ fn burn(
             damage,
             most: health.most,
         });
-        if damage > 0 && health.current > 0 {
-            lines.write(crate::voices::Speak::hit(
-                burn.target,
-                health.current,
-                health.most,
-            ));
-        }
+        // A strike from nobody is an FX object's, of the category 12: no line of the struck one
+        // (`0x5320D2`, #3471).
         commands.spawn((
             Number {
                 at: at.translation() + Vec3::Y * NUMBER_ABOVE,
@@ -2532,6 +2537,7 @@ mod tests {
                     poison: false,
                     ward: false,
                     hurled: false,
+                    object: false,
                 });
             }
         }
@@ -2541,6 +2547,73 @@ mod tests {
         assert_eq!(current(immortal), health.current);
         assert_eq!(current(marked), health.current);
         assert!(app.world().get::<crate::npcs::RisesAgain>(marked).is_some());
+    }
+
+    #[test]
+    fn an_objects_hit_plays_no_sound_at_its_target_and_calls_no_line() {
+        let combat = Combat(opensacred_rules::fight::Combat {
+            attack: 200.0,
+            defence: 10.0,
+            damage: [[20.0, 30.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+            resistance: [0.0; 4],
+            damping: [0; 4],
+            speed: 140.0,
+            pace: 130.0,
+            multipliers: [1.0; 4],
+            resistance_factors: [1.0; 4],
+            spells: [1.0; 4],
+            cast: opensacred_rules::fight::CAST_SPEED,
+            attributes: [0.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
+        });
+        let health = Health {
+            current: 1_000_000,
+            most: 1_000_000,
+            level: 1,
+        };
+        let heard = |object: bool| {
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins)
+                .add_message::<Hit>()
+                .add_message::<Kill>()
+                .add_message::<Struck>()
+                .add_message::<crate::voices::Speak>()
+                .add_message::<crate::sfx::Blow>()
+                .add_message::<crate::remarks::Remark>()
+                .add_message::<crate::drops::PileFromHit>()
+                .add_message::<crate::sfx::Play>()
+                .insert_resource(Dice(Rng::of(0, 0, 0)))
+                .init_resource::<Experience>()
+                .init_resource::<Rules>()
+                .add_systems(Update, resolve);
+            let world = app.world_mut();
+            let caster = world.spawn((combat, GlobalTransform::default())).id();
+            let target = world
+                .spawn((combat, health, GlobalTransform::default()))
+                .id();
+            world.write_message(Hit {
+                attacker: caster,
+                target,
+                share: 1.0,
+                ranged: true,
+                art: None,
+                fixed: Some([40.0, 0.0, 0.0, 0.0]),
+                sure: true,
+                poison: false,
+                ward: false,
+                hurled: false,
+                object,
+            });
+            app.update();
+            let world = app.world();
+            (
+                world.resource::<Messages<crate::sfx::Blow>>().len(),
+                world.resource::<Messages<crate::voices::Speak>>().len(),
+            )
+        };
+        assert_eq!(heard(false), (1, 1));
+        assert_eq!(heard(true), (0, 0));
     }
 
     /// The attacker's health and the health that the struck one lost after one sure strike of
@@ -2616,6 +2689,7 @@ mod tests {
             poison,
             ward: false,
             hurled: false,
+            object: false,
         });
         app.update();
         let current = |entity| app.world().get::<Health>(entity).unwrap().current;
@@ -2679,6 +2753,7 @@ mod tests {
             poison: false,
             ward: false,
             hurled,
+            object: false,
         });
         app.update();
         1_000 - app.world().get::<Health>(target).unwrap().current
@@ -2768,6 +2843,7 @@ mod tests {
             poison: false,
             ward: false,
             hurled: false,
+            object: false,
         });
         app.update();
         assert_eq!(app.world().get::<Health>(victim).unwrap().current, 0);
@@ -2837,6 +2913,7 @@ mod tests {
             poison,
             ward: false,
             hurled: false,
+            object: false,
         });
         app.update();
         1_000 - app.world().get::<Health>(target).unwrap().current
@@ -2931,6 +3008,7 @@ mod tests {
             poison: false,
             ward: false,
             hurled: false,
+            object: false,
         });
         app.update();
         1_000 - app.world().get::<Health>(goblin).unwrap().current
@@ -3066,6 +3144,7 @@ mod tests {
                 poison: false,
                 ward,
                 hurled: false,
+                object: false,
             });
         }
         app.update();

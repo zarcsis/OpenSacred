@@ -110,6 +110,7 @@ fn explode(
                     poison: false,
                     ward: true,
                     hurled: false,
+                    object: false,
                 });
             }
         }

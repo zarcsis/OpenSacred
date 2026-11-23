@@ -625,6 +625,9 @@ pub enum Blow {
         striker: Entity,
         target: Entity,
         landed: bool,
+        /// Whether the blow's physical part came through the resistance (the record's `+0x0C`),
+        /// without which a hit of no weapon plays nothing (`0x5320E0`, #3471).
+        physical: bool,
     },
     Shot {
         shooter: Entity,
@@ -764,8 +767,14 @@ fn blows(
                 striker,
                 target,
                 landed,
+                physical,
             } => {
                 let armed = armed(striker);
+                // A hit of no weapon whose physical part came not through plays the type 0's
+                // sound, none (`0x5320E0`, `0x69357F`).
+                if landed && !physical && armed.weapon.is_none() {
+                    continue;
+                }
                 // A strike that does no damage to an animal sounds the miss of a weapon of its
                 // kinds, else nothing (`0x532731`).
                 let animal = minds

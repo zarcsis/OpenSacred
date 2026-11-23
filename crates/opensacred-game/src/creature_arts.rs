@@ -283,6 +283,7 @@ fn strike(
                 poison: false,
                 ward: false,
                 hurled: false,
+                object: false,
             });
         }
     }
@@ -722,6 +723,7 @@ fn daggers(
                 poison: false,
                 ward: false,
                 hurled: true,
+                object: false,
             });
         } else if share < 1.0 {
             continue;
