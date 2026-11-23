@@ -1,8 +1,10 @@
 //! The regions' kills (#1574; docs/re/maps.md, "The overview map"): the regions of the balance's
 //! seventh table, and each creature's death that someone caused counting its region down by one
 //! (`opensacred_rules::regions`, `0x424250`; **hypothesis**: every death counts, whoever the
-//! killer); the overview writes the hero's region's line (`overview`). A region's warning as its
-//! count first falls below 1,000 is logged, what it shows not read.
+//! killer); the overview writes the hero's region's line (`overview`). As a region's count first
+//! falls below 1,000 its warning shows as an info line (`info_lines`), and its last battle is set
+//! up: the scripts' function `RegionCounterZero<n>` of its number runs, which sets up its side
+//! quest 5080 + `n` (the engine's events `0xB` and `0x1A`, `0x618090`; #3420).
 
 use bevy::prelude::*;
 use opensacred_data::tables::Region;
@@ -59,10 +61,32 @@ fn begin(mut commands: Commands, data: Option<Res<Data>>) {
     commands.insert_resource(RegionKills { regions, kills });
 }
 
-/// Each death that someone caused counts its region down (`0x424250`).
+/// The warning's text of `warning` (`0x424250`): `UI_REGION_FINALBATTLE` while a region of 1 to 9
+/// has not warned, else `UI_REGION_ANCARIA`.
+fn warning_key(warning: regions::Warning) -> &'static str {
+    match warning {
+        regions::Warning::FinalBattle => "UI_REGION_FINALBATTLE",
+        regions::Warning::Ancaria => "UI_REGION_ANCARIA",
+    }
+}
+
+/// The scripts' function that sets up the last battle of the region of the number `number`
+/// (`RegionCounterZero1` to `9`, the engine's case `0x1A`).
+fn last_battle(number: u8) -> String {
+    format!("RegionCounterZero{number}")
+}
+
+/// Each death that someone caused counts its region down (`0x424250`); a region's first count
+/// below 1,000 shows its warning as an info line and runs the function of its last battle
+/// (#3420).
 fn count(
+    mut commands: Commands,
     mut region_kills: ResMut<RegionKills>,
-    streamer: Option<Res<crate::sectors::Streamer>>,
+    (streamer, texts, mut shown): (
+        Option<Res<crate::sectors::Streamer>>,
+        Option<Res<Texts>>,
+        ResMut<crate::info_lines::Shown>,
+    ),
     deaths: Query<(&Dies, &crate::ai::Mind, &GlobalTransform), Added<Dies>>,
 ) {
     let Some(streamer) = streamer else {
@@ -80,6 +104,24 @@ fn count(
         let RegionKills { regions, kills } = &mut *region_kills;
         if let Some(warning) = kills.kill(regions, area, mind.creature) {
             info!("regions: the area {area}'s region warns: {warning:?}");
+            let key = warning_key(warning);
+            let line = texts
+                .as_deref()
+                .and_then(|texts| texts.named(key))
+                .unwrap_or(key);
+            shown.0.push(line.to_owned());
+            let Some(region) =
+                regions::region_of(regions, area).and_then(|index| regions.get(index))
+            else {
+                continue;
+            };
+            let function = last_battle(region.index);
+            commands.queue(move |world: &mut World| {
+                match crate::scripts::run_function(world, &function) {
+                    Ok(lines) => info!("regions: {}", lines.join("; ")),
+                    Err(e) => warn!("regions: {e}"),
+                }
+            });
         }
     }
 }
@@ -92,5 +134,21 @@ impl Plugin for RegionsPlugin {
         app.init_resource::<RegionKills>()
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(Update, count.in_set(crate::frame::Playing));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_regions_warning_tells_its_battle_and_runs_its_function() {
+        assert_eq!(
+            warning_key(regions::Warning::FinalBattle),
+            "UI_REGION_FINALBATTLE"
+        );
+        assert_eq!(warning_key(regions::Warning::Ancaria), "UI_REGION_ANCARIA");
+        assert_eq!(last_battle(1), "RegionCounterZero1");
+        assert_eq!(last_battle(9), "RegionCounterZero9");
     }
 }
