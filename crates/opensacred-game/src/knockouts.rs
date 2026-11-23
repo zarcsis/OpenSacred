@@ -3,8 +3,9 @@
 //! 6081 and 6094 give for 10 s ([`KnockOut`]), added or renewed as `0x582D50` does
 //! (`effects::Effects::knock_out`), each time with an object 874 that circles its bearer's head
 //! with five blue butterflies for 150 ms a unit of the effect's art; a knock-down's, white for
-//! 6 s (`knock_down`); and those of a hero's follower that falls unconscious, white for its 20 s
-//! of lying (`followers`, #3087). Their system runs by `opensacred_rules::particles::Knockout`; it follows
+//! 6 s (`knock_down`); those of a hero's follower that falls unconscious, white for its 20 s
+//! of lying (`followers`, #3087); and a script's `SetNPCState` of `0x7F n`, white for `n` seconds
+//! (`npcs`, #3446). Their system runs by `opensacred_rules::particles::Knockout`; it follows
 //! the bearer's `Bip01 Head`, laid over its model as the original draws it after its bearer
 //! (`fx::Orders::over`), and the night tints it.
 
@@ -58,6 +59,13 @@ pub(crate) fn fainted(commands: &mut Commands, bearer: Entity) {
         opensacred_rules::particles::FAINTED_SECONDS,
         KNOCKED_DOWN_COLOUR,
     );
+}
+
+/// The white butterflies that a script's `SetNPCState` of `0x7F n` shows over the head of
+/// `bearer` for `n` seconds (`0x462180`, the object 874 of `1000·n` ms and white, #3446).
+pub(crate) fn white(commands: &mut Commands, bearer: Entity, seconds: u32) {
+    let seconds = f32::from(u16::try_from(seconds).unwrap_or(u16::MAX));
+    spawn(commands, bearer, seconds, KNOCKED_DOWN_COLOUR);
 }
 
 /// A system of butterflies for `seconds` in `colour` over the head of `bearer`.
