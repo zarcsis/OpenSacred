@@ -673,8 +673,13 @@ pub(crate) const OPPONENTS: [&str; 12] = [
 /// effect's colour (the kinds' for 801 to 808, gold for 840 to 868 but 854, else blue) the
 /// opponent it holds against and its text by the effect; none for an effect of no text. The
 /// life leech's (841) at the value that the strike takes on the game's difficulty, `leech` its
-/// factor, where the original's shows its face value (#1759).
+/// factor, where the original's shows its face value (#1759); none for a slot against a class of
+/// opponents that counts nowhere, which the original's lists
+/// (`opensacred_rules::fight::counts_against_class`, #3485).
 fn bonus_line(bonus: &Bonus, leech: f32, words: &Words) -> Option<Line> {
+    if !opensacred_rules::fight::counts_against_class(bonus.condition, bonus.effect) {
+        return None;
+    }
     let (c, e, a) = (
         u32::from(bonus.condition),
         bonus.effect & 0xFFFF,
