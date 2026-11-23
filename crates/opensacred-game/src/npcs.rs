@@ -145,6 +145,8 @@ const EMERGES: u8 = 0x8D;
 /// maker marks the types of `opensacred_rules::spells::VISIONS` (the object's `+0x14` bit
 /// `0x200000`, `0x48290F`, `0x4836BE`; docs/re/drawing.md, "The visions"; #3064).
 const VISION: u8 = 0xA1;
+/// The tag of `SetNPCState` that lets its creature's body go (`0x46224D`–`0x4622B6`, #3445).
+const RELEASES: u8 = 0x80;
 /// The operand of `CreateNPC` whose value of 0 or more arms its creature by the `MakeGroup` rules
 /// that the last `Enter` left, as a fill's (`sdk_CREATENPC` at `0x48488E`, `0x47F8E0`; #3072).
 const BY_RULES: u8 = 0x54;
@@ -2649,6 +2651,10 @@ struct State {
     /// Whether its `0xA1` marks the creature a vision ([`VISION`]; `0x461540` sets the bit and
     /// nothing of the record clears it).
     vision: bool,
+    /// Whether its `0x80` lets the creature's body go ([`RELEASES`]): the flags word's `0x2000`
+    /// cleared, its talk taken away, and a dead one's stamp put back so that its body vanishes a
+    /// second later (`bodies::Released`).
+    releases: bool,
 }
 
 impl State {
@@ -2670,6 +2676,7 @@ impl State {
                 listed(ops).then_some(false)
             },
             vision: ops.iter().any(|op| op.tag == VISION),
+            releases: ops.iter().any(|op| op.tag == RELEASES),
             ..Self::default()
         };
         for op in ops {
@@ -2723,6 +2730,7 @@ impl State {
             || self.hire.is_some()
             || self.rises.is_some()
             || self.vision
+            || self.releases
     }
 
     /// The dialogue it leaves a creature that had `talk`: its own, or none for a horse it stocks.
@@ -11814,6 +11822,15 @@ pub(crate) fn script_records(
                 bevy::log::info!("npcs: the scripts set {name}'s dialogue as it lies dead");
             }
         }
+        // A dead creature's body let go (`0x80`, `0x46224D`–`0x4622B6`, #3445): its hold cleared,
+        // its talk taken away and its stamp put back, so that it vanishes a second later.
+        if state.releases {
+            for (entity, ..) in dying.iter().filter(|(_, named, ..)| named.0 == name) {
+                talk_to(&mut commands, entity, None);
+                commands.entity(entity).insert(crate::bodies::Released);
+                bevy::log::info!("npcs: the scripts let {name}'s body go");
+            }
+        }
         // A dead creature takes a vision's mark too (#3064): the Underworld's `Game_over` marks
         // Vilya as the same run's `SetHP` lifts her.
         if state.vision {
@@ -11867,6 +11884,15 @@ pub(crate) fn script_records(
                 && let Some(mind) = mind.as_ref()
             {
                 envision(commands.entity(entity), mind.creature);
+            }
+            // Its body let go before its death (`0x80`, #3445): no hold of the flags word, no
+            // talk, its body then going at its time after its death.
+            if state.releases {
+                if let Some(mind) = mind.as_mut() {
+                    mind.flags &= !opensacred_rules::undead::LIES_ON;
+                    mind.dialogue = false;
+                }
+                talk_to(&mut commands, entity, None);
             }
             match on_death {
                 Some(mut on_death) => state.restate(&mut on_death.0),
