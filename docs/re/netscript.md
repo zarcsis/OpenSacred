@@ -1043,7 +1043,8 @@ Since #2426 they give it their flags word too, and their side with it, as a crea
 Its quest (`0x75`) serves only the dynamic quests' table, which the release never fills ("The dynamic quests"), and is left out; `0x6B`, by which a dead follower rises, is followed since #2459 (`npcs::RisesAgain`, `followers::rise_again`), and the horses' stock itself since #2300 (`stables`; docs/re/horses.md, "The stables and the horse traders"); `0x67`'s healer since #2895 (`followers`, docs/re/ai.md, "Followers").
 Not followed, and why: `0x36`, which serves nothing; `0x73`'s mark of 64, the game taking a creature's mark by its type (`opensacred_rules::minds::marked`), and no `SetNPCState` of the 20 trees carrying it; `0x90`'s byte `+0x400`, a horse's class, which the game takes from its `CreateNPC` alone (docs/re/horses.md, "The stables and the horse traders"), no `SetNPCState` of the 20 trees carrying it.
 Since #3444 `0x84`'s bleeding of the hero and its end (`effects::ScriptBleeding`, `Effects::bleed_by_script`, `Effects::stop_bleeding`, the bearer's own strikes of the kind 17 in `effects::bleed`).
-Not followed yet: `0x80`'s release of a body, its stamp put back only for a creature dying already as the record runs (#3445), `0x7F`'s butterflies (#3446), and of `0x85` all but its bit in the word: its side, its skin and its pentagram (#3447).
+Since #3445 `0x80`'s release of a body (`npcs`, `bodies::Released`): the flags word's `0x2000` cleared and the talk taken away, and a creature dying already as the record runs vanishing a second later and destroyed six.
+Not followed yet: `0x7F`'s butterflies (#3446), and of `0x85` all but its bit in the word: its side, its skin and its pentagram (#3447).
 In the Seraphim's tree the `SetNPCState`s carry `0x03` 4 times, `0x11` 3 times and `0x63` 59 times (the stables' horses, of no dialogue already).
 
 ## The anim mode and the creatures' queues
