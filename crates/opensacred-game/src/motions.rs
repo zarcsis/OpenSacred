@@ -1,16 +1,96 @@
 //! A creature's clips by the original's motion slots (docs/re/motions.md): a model's file keeps,
 //! with each clip, the slots of its `ModelDesc` (docs/02 §4.1) that name it (`extras.slots`,
 //! §4.5), and the client plays for an action the slot that a table gives by the class of what
-//! the creature holds, or the nearest slot the model has (`0x5467A0`).
+//! the creature holds, or the nearest slot the model has (`0x5467A0`); and the motions' own
+//! factors of their clips' speed ([`Factors`]).
 
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use bevy::gltf::Gltf;
+use bevy::prelude::{
+    AnimationClip, App, AssetEvent, AssetId, Assets, First, MessageReader, Plugin, Res, ResMut,
+    Resource,
+};
 use serde_json::Value;
 
 use crate::files;
+
+/// The motions' own factors of their clips' speed (`MotionDesc +0x9C`, `floats_62[0]` of
+/// `tables/motions.ron`), which every clip's speed takes (`0x413610`,
+/// `opensacred_rules::minds::motion_factor`; docs/re/movement.md, "The motions' own factors"):
+/// those that apply, by the motion's name, and by the clips of the models loaded that bear it.
+#[derive(Resource, Default)]
+pub struct Factors {
+    /// By the motion's name, upper-cased without its `.GRN`; none before the tables are read.
+    by_name: Option<HashMap<String, f32>>,
+    by_clip: HashMap<AssetId<AnimationClip>, f32>,
+}
+
+impl Factors {
+    /// The factors of the motions of `motions` that apply.
+    fn of_motions(motions: &[opensacred_data::tables::Motion]) -> HashMap<String, f32> {
+        motions
+            .iter()
+            .filter_map(|motion| {
+                let factor = opensacred_rules::minds::motion_factor(motion.floats_62[0]);
+                let name = motion.name.to_ascii_uppercase();
+                let name = name.strip_suffix(".GRN").unwrap_or(&name).to_owned();
+                (factor != 1.0).then_some((name, factor))
+            })
+            .collect()
+    }
+
+    /// The factor of the clip `clip`'s speed, its motion's own where it applies, else 1.
+    pub fn of(&self, clip: impl Into<AssetId<AnimationClip>>) -> f32 {
+        self.by_clip.get(&clip.into()).copied().unwrap_or(1.0)
+    }
+}
+
+/// Takes the clips of each model as it loads into [`Factors`] by their motions' names, the
+/// tables read at the first.
+fn index(
+    mut events: MessageReader<AssetEvent<Gltf>>,
+    gltfs: Res<Assets<Gltf>>,
+    data: Option<Res<crate::game::Data>>,
+    mut factors: ResMut<Factors>,
+) {
+    let loaded: Vec<_> = events
+        .read()
+        .filter_map(|event| match event {
+            AssetEvent::Added { id }
+            | AssetEvent::Modified { id }
+            | AssetEvent::LoadedWithDependencies { id } => Some(*id),
+            _ => None,
+        })
+        .collect();
+    if loaded.is_empty() {
+        return;
+    }
+    let Factors { by_name, by_clip } = &mut *factors;
+    let by_name = by_name.get_or_insert_with(|| {
+        let motions = data.as_ref().and_then(|data| data.0.tables.motions().ok());
+        motions.map_or_else(HashMap::new, Factors::of_motions)
+    });
+    for gltf in loaded.into_iter().filter_map(|id| gltfs.get(id)) {
+        for (name, clip) in &gltf.named_animations {
+            if let Some(&factor) = by_name.get(name.as_ref()) {
+                by_clip.insert(clip.id(), factor);
+            }
+        }
+    }
+}
+
+/// The motions' own factors of their clips' speed.
+pub struct MotionsPlugin;
+
+impl Plugin for MotionsPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Factors>().add_systems(First, index);
+    }
+}
 
 /// What a creature does, of the client's actions (`0x5467A0`'s 0, 1 and 2): the clip it plays,
 /// and the gait it moves at.
@@ -380,6 +460,37 @@ mod tests {
         assert_eq!(gunner.attacks(12), ["XBOW_A", "XBOW_B"]);
         assert_eq!(gunner.attacks(14), ["XBOW_A", "XBOW_B"]);
         assert_eq!(Slots::of([(79, "BH_A")]).attacks(13), ["BH_A"]);
+    }
+
+    #[test]
+    fn the_motions_own_factors_that_apply_are_kept_by_name() {
+        let motion = |name: &str, factor| opensacred_data::tables::Motion {
+            name: name.to_owned(),
+            value_06: 0,
+            floats_46: [0.0; 4],
+            floats_62: [factor, 0.6, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            value_be: 0,
+        };
+        let factors = Factors::of_motions(&[
+            motion("MAGE_ATTACK_BOGEN_A.GRN", 1.4),
+            motion("sera_horse_attack_armbrust.grn", 0.8),
+            motion("INVALID_MOTION", 0.6),
+            motion("MAGE_ATTACK_ARMBRUST_A.GRN", 0.6),
+            motion("ELFF_ATTACK_BOGEN_A.GRN", 0.0),
+            motion("X_ONE.GRN", 1.0),
+        ]);
+        assert_eq!(
+            factors,
+            HashMap::from([
+                ("MAGE_ATTACK_BOGEN_A".to_owned(), 1.4),
+                ("SERA_HORSE_ATTACK_ARMBRUST".to_owned(), 0.8),
+            ])
+        );
+        // A clip of no motion with a factor plays at its rate.
+        assert_eq!(
+            Factors::default().of(AssetId::<AnimationClip>::default()),
+            1.0
+        );
     }
 
     #[test]

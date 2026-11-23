@@ -97,12 +97,14 @@ impl Attack {
 }
 
 /// The strike the hero plays (the attack action 3, `0x4E4CF0`): its clip's node, its length,
-/// the fractions at which it hits, how many hits it has sent, and the bolt it shoots, if it is a
-/// shot of bolts (the action 8, `0x4DCB80`).
+/// its motion's own factor of its speed (`motions::Factors`), the fractions at which it hits, how
+/// many hits it has sent, and the bolt it shoots, if it is a shot of bolts (the action 8,
+/// `0x4DCB80`).
 #[derive(Component)]
 pub struct Striking {
     node: AnimationNodeIndex,
     length: f32,
+    factor: f32,
     fractions: [f32; 2],
     struck: u8,
     bolt: Option<Bolt>,
@@ -244,7 +246,7 @@ fn engage(
     mut dice: ResMut<Dice>,
     clips: Option<Res<Clips>>,
     speed: Res<GameSpeed>,
-    animations: Res<Assets<AnimationClip>>,
+    (animations, factors): (Res<Assets<AnimationClip>>, Res<crate::motions::Factors>),
     mut heroes: Query<
         (
             Entity,
@@ -443,7 +445,8 @@ fn engage(
             // With the button held, the next strike starts before this one's clip ends, the one
             // fading into the other over what is left (`0x5491F0`, #707).
             let rate = rate(striking.bolt);
-            let left = (striking.length - active.seek_time()).max(0.0) / (speed.0 * rate);
+            let left = (striking.length - active.seek_time()).max(0.0)
+                / (speed.0 * rate * striking.factor);
             if attack.held
                 && !attack.at_once
                 && !attack.ends
@@ -582,9 +585,12 @@ fn engage(
         let share = the_hero.as_ref().map_or(1.0, |the_hero| {
             minds::strike_clip_share(the_hero.creature, class, !attack.spoke)
         });
+        // Times its motion's own factor, the bows' and the crossbows' of some classes
+        // (`0x413610`, #3567).
+        let factor = factors.of(clip);
         transitions
             .play(&mut player, *node, blend)
-            .set_speed(speed.0 * rate(bolt) * if bolt.is_some() { 1.0 } else { share });
+            .set_speed(speed.0 * rate(bolt) * factor * if bolt.is_some() { 1.0 } else { share });
         attack.asked = false;
         attack.phase = Phase::Deciding;
         // The attack's first strike speaks (`0x4E52D1`, the action's sub-state 0); the strikes it
@@ -610,6 +616,7 @@ fn engage(
         commands.entity(hero).insert(Striking {
             node: *node,
             length,
+            factor,
             fractions: *fractions,
             struck: 0,
             bolt,
