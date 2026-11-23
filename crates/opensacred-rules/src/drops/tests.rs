@@ -1224,6 +1224,30 @@ fn a_drop_rises_and_falls_in_place_after_about_1_6_s() {
 }
 
 #[test]
+fn an_item_without_room_jumps_40_to_70_over_its_ground_and_lands_where_it_lay() {
+    // Raised by `⌊rand()/32767·30⌋` over its ground of 12, 40 at the least roll, 70 at the most
+    // alone, 54 halfway; straight up at 100, spinning by `R(−6, 6)`.
+    let raised = |roll| Flight::jumped([3.0, 4.0, 12.0], &mut script(&[roll, 12, 0, 6])).at[2];
+    assert_eq!(raised(0), 52.0);
+    assert_eq!(raised(32_767), 82.0);
+    assert_eq!(raised(32_766), 81.0);
+    assert_eq!(raised(16_384), 67.0);
+    let mut jump = Flight::jumped([3.0, 4.0, 12.0], &mut script(&[0, 12, 0, 6]));
+    assert_eq!(jump.velocity, [0.0, 0.0, 100.0]);
+    assert_eq!(jump.spin, [6.0, -6.0, 0.0]);
+    // Flown at 60 frames a second, it lands where it lay, on its ground, after about a second.
+    let dt = 1.0 / 60.0;
+    let mut t = 0.0;
+    while !jump.resting && t < 5.0 {
+        jump.step(dt, |_, _| 12.0);
+        t += dt;
+    }
+    assert!(jump.resting);
+    assert!((0.9..1.1).contains(&t), "{t}");
+    assert_eq!(jump.at, [3.0, 4.0, 12.0]);
+}
+
+#[test]
 fn a_rewards_item_lies_at_its_point_from_its_first_step() {
     // Made at rest with no flight (#2872): on the ground there at once, unturned, whatever the
     // frame's time.

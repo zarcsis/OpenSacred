@@ -1335,6 +1335,53 @@ pub(crate) fn throw_down(
     );
 }
 
+/// An item lying that the hero took without room in its backpack (`pickup`, `0x5592B0`), which
+/// jumps where it lies ([`jump`]).
+#[derive(Message, Clone, Copy, Debug)]
+pub(crate) struct Jump(pub(crate) Entity);
+
+/// Starts the jump of each item that found no room ([`Jump`]): on its ground there on the hero's
+/// level, raised 40 to 70, straight up and spinning ([`Flight::jumped`]), marked as the hero's
+/// (`+0xB0` bit `0x8000000`), so that where it lands out of the hero's reach it is moved to the
+/// hero ([`fly`]). It jumps once a take, where the original's take runs again as the clip goes on
+/// and starts it anew (**hypothesis**, docs/re/items.md, "Without room").
+fn jump(
+    mut commands: Commands,
+    mut jumps: MessageReader<Jump>,
+    (heights, mut dice): (Option<Res<Heights>>, ResMut<Dice>),
+    heroes: Query<&Body>,
+    mut lying: Query<(&mut Lying, &Transform), Without<Flying>>,
+) {
+    let level = heroes.iter().next().and_then(Body::level);
+    for &Jump(item) in jumps.read() {
+        let Ok((mut lying, transform)) = lying.get_mut(item) else {
+            continue;
+        };
+        let at = transform.translation;
+        let ground = heights
+            .as_deref()
+            .and_then(|heights| heights.standing(at.x, at.z, level))
+            .unwrap_or(at.y)
+            / up(1.0);
+        let flight = Flight::jumped([at.x, at.z, ground], &mut dice.0);
+        debug!(
+            "drops: {} jumps from {:.0} over its ground",
+            lying.dropped.item,
+            flight.at[2] - ground
+        );
+        lying.resting = false;
+        commands
+            .entity(item)
+            .remove::<models::Sinks>()
+            .insert(Flying {
+                flight,
+                level,
+                upright: drops::upright(lying.dropped.item),
+                marked: true,
+            });
+    }
+}
+
 /// Puts `dropped` into the world on its `flight` on `level`, marked as the hero's or not, its
 /// model, if it was converted, with its texture.
 fn lay(
@@ -2038,6 +2085,7 @@ impl Plugin for DropsPlugin {
             .init_resource::<LastJewel>()
             .init_resource::<Played>()
             .add_message::<PileFromHit>()
+            .add_message::<Jump>()
             .add_observer(dies)
             .add_systems(Startup, begin)
             .add_systems(Update, read)
@@ -2052,7 +2100,8 @@ impl Plugin for DropsPlugin {
             })
             .add_systems(
                 Update,
-                (play, fly, piles_from_hits)
+                (play, jump, fly, piles_from_hits)
+                    .chain()
                     .after(Step::Npcs)
                     .in_set(Playing)
                     .in_set(Unpaused),
