@@ -182,7 +182,7 @@ fn run(
         look.placed = Some(origin);
         transform.translation = origin;
         let order = if ask.follows {
-            orders.behind(ask.bearer)
+            orders.borne_by(ask.bearer)
         } else {
             orders.at(origin)
         };

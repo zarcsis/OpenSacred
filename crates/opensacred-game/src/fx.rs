@@ -783,14 +783,20 @@ impl Quads {
     /// creature drawn after the system covers it; a vertex further back keeps its depth, hidden
     /// by a creature drawn before the system in front of it, as the original's depth test hides
     /// it (#2188).
+    /// A system that its bearer carries ([`Orders::borne_by`]) lays each vertex as
+    /// [`Self::as_drawn`] does.
     pub(crate) fn in_order(&mut self, order: Option<InOrder>, origin: Vec3) {
         let Some(order) = order else {
             return;
         };
         for position in &mut self.positions {
-            *position = order
-                .no_nearer(Vec3::from_array(*position), origin)
-                .to_array();
+            let vertex = Vec3::from_array(*position);
+            *position = if order.drawn {
+                order.drawn(vertex, origin)
+            } else {
+                order.no_nearer(vertex, origin)
+            }
+            .to_array();
         }
     }
 
@@ -886,6 +892,9 @@ pub(crate) struct InOrder {
     /// The upper storey's floor that the system stands on, if any, whose plane the order lies
     /// no further back than.
     floor: Option<OnFloor>,
+    /// Whether its system is drawn as its bearer's model's texels, each vertex at its own depth
+    /// from the root ([`Orders::over`], [`Self::drawn`]), rather than no nearer than its place.
+    drawn: bool,
 }
 
 /// An upper storey's floor under a system, as `models.wesl`'s `on_floor` lays a model standing
@@ -937,12 +946,15 @@ pub(crate) struct Orders<'w, 's> {
 }
 
 impl Orders<'_, '_> {
-    /// The depth of a system that `bearer` carries: at its model's place, just behind the model;
-    /// on an upper storey's floor, no further back than the floor's plane where each of its
-    /// vertices shows, as the model's (`models.wesl`'s `on_floor`, #2220). `None`, its quads at
-    /// their own depths, where `bearer` has no model in the order or the world has no camera.
-    pub(crate) fn behind(&self, bearer: Entity) -> Option<InOrder> {
-        self.borne(bearer, |_| BODY)
+    /// The depth of a system that `bearer` carries, as the original draws it after its bearer's
+    /// model, each of its quads at its particle's own depth, so that what lies before the model's
+    /// surface covers it and what lies behind it stays hidden ([`Self::over`], laid by
+    /// [`Quads::in_order`]; docs/re/drawing.md, "The models", #3458); on an upper storey's floor,
+    /// no further back than the floor's plane where each of its vertices shows, as the model's
+    /// (`models.wesl`'s `on_floor`, #2220). `None`, its quads at their own depths, where `bearer`
+    /// has no model in the order or the world has no camera.
+    pub(crate) fn borne_by(&self, bearer: Entity) -> Option<InOrder> {
+        self.over(bearer)
     }
 
     /// The depth of a system that the original draws after the model of `bearer` standing in its
@@ -950,11 +962,15 @@ impl Orders<'_, '_> {
     /// the model's root and its place, each of the system's vertices keeping its own depth from
     /// the root as the model's texels keep theirs ([`Quads::as_drawn`]), [`OVER`] nearer, so that
     /// a quad before the model's surface covers it and one behind it stays hidden. `None` as
-    /// [`Self::behind`].
+    /// [`Self::borne_by`].
     pub(crate) fn over(&self, bearer: Entity) -> Option<InOrder> {
         // The root's own depth from its anchor whole, as `models.wesl` takes a texel's, where
         // `InOrder::of` takes it along the ground.
         self.borne(bearer, |rise| -OVER - rise)
+            .map(|order| InOrder {
+                drawn: true,
+                ..order
+            })
     }
 
     /// The depth of a system that `bearer` carries, `behind` units of its own depth behind its
@@ -1169,6 +1185,7 @@ impl InOrder {
                 + CHAIN * anchor.w
                 + SQUEEZE * (own - behind),
             floor: None,
+            drawn: false,
         }
     }
 }

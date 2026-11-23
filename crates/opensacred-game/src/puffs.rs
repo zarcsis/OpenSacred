@@ -248,7 +248,7 @@ fn run(
         // system before the creature (#2188).
         let order = (*follows).map_or_else(
             || orders.at(transform.translation),
-            |follows| orders.behind(follows),
+            |follows| orders.borne_by(follows),
         );
         quads.in_order(order, transform.translation);
         quads.into_mesh(&mut mesh);

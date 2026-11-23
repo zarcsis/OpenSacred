@@ -191,7 +191,10 @@ fn run(
                 [0.0, 0.0, 0.0, ALPHA],
             );
         }
-        quads.in_order(orders.behind(caster).or_else(|| orders.at(origin)), origin);
+        quads.in_order(
+            orders.borne_by(caster).or_else(|| orders.at(origin)),
+            origin,
+        );
         transform.translation = origin;
         if let Some(mut mesh) = meshes.get_mut(&dots.mesh) {
             quads.into_mesh(&mut mesh);

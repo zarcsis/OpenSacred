@@ -136,7 +136,7 @@ fn run(
             .map(GlobalTransform::translation)
             .ok();
         if bearer.is_some() {
-            shown.order = orders.behind(shown.bearer);
+            shown.order = orders.borne_by(shown.bearer);
         }
         let place = bearer.or(shown.before);
         let Some(place) = place else {

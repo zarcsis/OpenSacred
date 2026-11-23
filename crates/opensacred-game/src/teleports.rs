@@ -151,7 +151,7 @@ fn run(
             // Just behind its caster while it rides on him, else at its place, as the original
             // draws the system before the creature (#2188).
             let order = if shown.rides {
-                orders.behind(shown.caster)
+                orders.borne_by(shown.caster)
             } else {
                 orders.at(transform.translation)
             };

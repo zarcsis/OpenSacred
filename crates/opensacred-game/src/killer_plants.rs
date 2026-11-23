@@ -115,7 +115,7 @@ fn run(
     for (entity, mut plant, place) in &mut plants {
         // Just behind the plant's model, as the original draws the system before the creature
         // (#2188).
-        let (order, origin) = (orders.behind(entity), place.translation());
+        let (order, origin) = (orders.borne_by(entity), place.translation());
         let Plant { plant, dots, glow } = &mut *plant;
         plant.update(dt);
         let colour = plant.colour;

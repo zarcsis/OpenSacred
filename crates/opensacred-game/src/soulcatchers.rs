@@ -215,7 +215,7 @@ fn twirl(
             );
         }
         // Just behind his model, as the original draws the system before the creature (#2188).
-        let order = orders.behind(look.bearer);
+        let order = orders.borne_by(look.bearer);
         for (mut quads, mesh) in runs
             .into_iter()
             .chain([glow])

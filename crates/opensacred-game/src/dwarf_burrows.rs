@@ -317,7 +317,7 @@ fn run(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&dome.glow) {
-            glow.in_order(orders.behind(dome.bearer), place);
+            glow.in_order(orders.borne_by(dome.bearer), place);
             glow.into_mesh(&mut mesh);
         }
     }

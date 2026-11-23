@@ -225,7 +225,7 @@ fn burn(
         // so heads its cell's list, drawn before a creature standing in its cell (#2188).
         if burning {
             skin.order = match skin.bearer {
-                Some(bearer) => orders.behind(bearer),
+                Some(bearer) => orders.borne_by(bearer),
                 None => orders.at(skin.place),
             };
         }

@@ -190,7 +190,7 @@ fn whirl(
         };
         transform.translation = head.translation;
         // Just behind his model, as the original draws the system before the creature (#2188).
-        let order = orders.behind(look.bearer);
+        let order = orders.borne_by(look.bearer);
         if let Ok(mut light) = lights.get_mut(look.light) {
             light.translation = world(look.look.ring(0)[0]);
         }

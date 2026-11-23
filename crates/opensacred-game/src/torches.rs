@@ -229,7 +229,7 @@ fn burn(
         // system before the creature (#2188).
         let order = flame
             .holder
-            .map_or_else(|| orders.at(flame.origin), |holder| orders.behind(holder));
+            .map_or_else(|| orders.at(flame.origin), |holder| orders.borne_by(holder));
         for (handle, mut part) in flame.parts.iter().zip(parts) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
                 part.in_order(order, Vec3::ZERO);

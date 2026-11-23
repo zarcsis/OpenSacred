@@ -223,7 +223,7 @@ fn run_claws(
         }
         if let Some(mut mesh) = meshes.get_mut(&claw.mesh) {
             // Just behind her model, as the original draws the system before the creature (#2188).
-            quads.in_order(orders.behind(claw.caster), Vec3::ZERO);
+            quads.in_order(orders.borne_by(claw.caster), Vec3::ZERO);
             quads.into_mesh(&mut mesh);
         }
     }

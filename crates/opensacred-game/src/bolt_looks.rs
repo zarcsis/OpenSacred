@@ -369,7 +369,7 @@ fn run(
         // A bolt at its place in the order, which a moving object heads in its cell; a look that
         // follows a creature just behind its model (#2188).
         let order = match look.follows.filter(|_| look.bolt.is_none()) {
-            Some(target) => orders.behind(target),
+            Some(target) => orders.borne_by(target),
             None => orders.at(look.place),
         };
         for (handle, mut part) in look.parts.iter().zip(quads) {

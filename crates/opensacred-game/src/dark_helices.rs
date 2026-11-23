@@ -117,7 +117,7 @@ fn run(
             crate::beacons::ribbon_quads(&mut quads, &helix.look.ribbons(), helix.look.colour());
         }
         if let Some(mut mesh) = meshes.get_mut(&helix.mesh) {
-            quads.in_order(orders.behind(helix.caster), root);
+            quads.in_order(orders.borne_by(helix.caster), root);
             quads.into_mesh(&mut mesh);
         }
     }

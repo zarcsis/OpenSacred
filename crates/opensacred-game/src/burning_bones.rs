@@ -172,7 +172,7 @@ fn run(
         if let Some(mut mesh) = meshes.get_mut(&*mesh) {
             // Just behind the creature it burns, as the original draws the system before the
             // creature (#2188).
-            quads.in_order(orders.behind(fire.target), place.translation);
+            quads.in_order(orders.borne_by(fire.target), place.translation);
             quads.into_mesh(&mut mesh);
         }
         fire.last = Some(to);

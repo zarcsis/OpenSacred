@@ -298,7 +298,7 @@ fn ring_on(
         if let Ok(mut light) = lights.get_mut(ring.light) {
             light.translation = head;
         }
-        let order = orders.behind(ring.target);
+        let order = orders.borne_by(ring.target);
         for (handle, mut part) in ring.parts.iter().zip([runes, glows, glow]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
                 part.in_order(order, neck);
@@ -326,7 +326,7 @@ fn pentagram_on(
         // At its creature while it is there, else at its place, before a creature standing on it.
         if let Ok(at) = places.get(sight.target) {
             sight.place = at.translation();
-            sight.order = orders.behind(sight.target);
+            sight.order = orders.borne_by(sight.target);
         } else {
             sight.order = orders.at(sight.place);
         }

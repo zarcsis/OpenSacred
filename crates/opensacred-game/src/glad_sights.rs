@@ -187,7 +187,7 @@ fn run(
                 [1.0, 1.0, 1.0, alpha],
             );
         }
-        let order = orders.behind(sight.caster);
+        let order = orders.borne_by(sight.caster);
         for (handle, mut part) in sight.meshes.iter().zip(quads) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
                 part.in_order(order, Vec3::ZERO);

@@ -234,7 +234,7 @@ fn run(
         );
         // Just behind its bearer's model, as the original draws the system before the creature
         // (#2188).
-        let order = orders.behind(shown.bearer);
+        let order = orders.borne_by(shown.bearer);
         for (handle, mut part) in shown.parts.iter().zip(quads) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
                 part.in_order(order, transform.translation);

@@ -344,7 +344,7 @@ fn run(
         // it follows (#2188), else at its place once its caster is gone.
         let order = sight
             .caster
-            .map_or_else(|| orders.at(sight.place), |caster| orders.behind(caster));
+            .map_or_else(|| orders.at(sight.place), |caster| orders.borne_by(caster));
         for (mut quads, mesh) in [dots, glow].into_iter().zip(&sight.meshes) {
             if let Some(mut mesh) = meshes.get_mut(mesh) {
                 quads.in_order(order, Vec3::ZERO);

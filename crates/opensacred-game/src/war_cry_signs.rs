@@ -159,7 +159,7 @@ fn run(
                 rays.push_corners(corners, uvs, [r, g, b, alpha]);
             }
         }
-        let order = orders.behind(sign.bearer);
+        let order = orders.borne_by(sign.bearer);
         for (handle, mut part) in sign.meshes.iter().zip([glow, rays]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
                 part.in_order(order, origin);
