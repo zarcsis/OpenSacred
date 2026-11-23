@@ -334,7 +334,8 @@ fn begin(
 /// fireball a bolt toward its target's place, the whirlwind a fan of bolts along the line to it,
 /// the lightning a strike on its target, the meteors a hail about its target's place as the cast
 /// was ordered, the stone the effect 15 on the hero for 3 s, as a creature casts it (`0x52494F`,
-/// `0x5B5CC8`), refused on a hero that an effect of the stone holds already (`0x582B00`); and each
+/// `0x5B5CC8`), refused on a hero that an effect of the stone holds already (`0x582B00`), or on the
+/// creature that the hero's set 52 turned it onto (#3437), which it stuns as long; and each
 /// other spell that the game follows as its arm tells.
 #[expect(
     clippy::type_complexity,
@@ -356,7 +357,7 @@ fn act(
     >,
     places: Query<&GlobalTransform>,
     (held, children, bones, worn): (
-        Query<Option<&crate::effects::Effects>, With<crate::hero::Body>>,
+        Query<(Option<&crate::effects::Effects>, Has<crate::hero::Body>)>,
         Query<&Children>,
         Query<(&Name, &GlobalTransform)>,
         crate::making::Worn,
@@ -598,7 +599,7 @@ fn act(
                 // The stone, or the plant cage about the hero (its objects 849, `0x52494F`): the
                 // effect 15 keyed by its spell, refused on a hero held by it already, 3 s as a
                 // creature casts it (`0x5B5CC8`).
-                let Ok(effects) = held.get(cast.target) else {
+                let Ok((effects, hero)) = held.get(cast.target) else {
                     continue;
                 };
                 if effects.is_some_and(|effects| effects.holds_any(&[cast.spell])) {
@@ -621,9 +622,17 @@ fn act(
                         .and_modify(move |mut effects| effects.add(effect, seconds));
                     // The stone's sight and skin as long (822, `stones`).
                     crate::stones::stone(&mut commands, cast.target, seconds);
+                    if !hero {
+                        // A creature that set 52 turned it onto stops and stands stunned.
+                        let mut stoned = commands.entity(cast.target);
+                        stoned.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
+                        stoned
+                            .entry::<Mind>()
+                            .and_modify(move |mut mind| mind.stunned(seconds));
+                    }
                 } else {
-                    // The cages about the hero (849, `plant_cages`), which hold her as they have
-                    // grown (#3166).
+                    // The cages about the hero (849, `plant_cages`), or about the creature that
+                    // set 52 turned them onto, which hold it as they have grown (#3166).
                     let cages = spells::count(record, level);
                     crate::plant_cages::cage(&mut commands, cast.target, cages, (false, seconds));
                 }

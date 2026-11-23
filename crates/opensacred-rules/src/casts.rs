@@ -585,6 +585,32 @@ pub fn mark_8(creature: u32) -> bool {
 /// `PLANTCAGE` (40), which the mark 8's magicians hold the hero with.
 pub const CAGE: u16 = 40;
 
+/// Onto whom a hold that set 52 turns goes (docs/re/sets.md, "The holds turned by set 52").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Turned {
+    /// The caster itself, by an odd coin (its own id `+0xC`).
+    Caster,
+    /// The first creature of the hero's list of hostiles (`0xAD3CE0`), the one nearest him, by
+    /// an even coin.
+    Nearest,
+}
+
+/// Whether a hold, the stone or the plant cage, ordered at a target that answers the query `0x4F`
+/// (`uncaged`, set 52's six pieces) is turned, and onto whom: a roll `rand() % 3` of 0, then a
+/// coin `rand() % 2`, odd for the caster (`0x4D540A`, `0x4D61B1`, `0x4D7BE6`, `0x4DA6C4`;
+/// docs/re/sets.md, "The holds turned by set 52", #3437); a target without it costs no roll.
+/// The order's point stays its first target's.
+pub fn turned_hold(uncaged: bool, rng: &mut impl Dice) -> Option<Turned> {
+    if !uncaged || rng.below(3) != 0 {
+        return None;
+    }
+    Some(if rng.below(2) == 1 {
+        Turned::Caster
+    } else {
+        Turned::Nearest
+    })
+}
+
 /// Whether a magician of the mark 8 casts the plant cage at the hero (`0x4D5F33`): as the mark 1's
 /// stone ([`holds`]), its level above 7; Anducar (182) and his demon (183) never.
 pub fn cages(
@@ -1938,6 +1964,30 @@ mod tests {
 
     /// Dice that answer `rolls` in turn, each below its `n`.
     struct Rolls(Vec<u32>);
+
+    #[test]
+    fn set_52_turns_a_hold_in_one_case_of_three_by_a_coin() {
+        use super::{Turned, turned_hold};
+        // No roll at all for a target without the flag.
+        let mut rolls = Rolls(vec![0, 1]);
+        assert_eq!(turned_hold(false, &mut rolls), None);
+        assert_eq!(rolls.0, [0, 1]);
+        // A roll of 0 turns it, the coin's 1 onto the caster, its 0 onto the nearest hostile.
+        assert_eq!(
+            turned_hold(true, &mut Rolls(vec![0, 1])),
+            Some(Turned::Caster)
+        );
+        assert_eq!(
+            turned_hold(true, &mut Rolls(vec![0, 0])),
+            Some(Turned::Nearest)
+        );
+        // A roll of 1 or 2 leaves it, and draws no coin.
+        for roll in [1, 2] {
+            let mut rolls = Rolls(vec![roll, 1]);
+            assert_eq!(turned_hold(true, &mut rolls), None);
+            assert_eq!(rolls.0, [1]);
+        }
+    }
 
     impl crate::spawning::Dice for Rolls {
         fn below(&mut self, n: u32) -> u32 {

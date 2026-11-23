@@ -508,3 +508,20 @@ fn a_kind_dominates_past_its_count_of_items_strictly_above_the_others() {
     let last = item([2.0, 1.0, 2.0, 3.0], [0.0; KINDS]);
     assert_eq!(dominance(&vec![last; 6]), [false, false, false, true]);
 }
+
+#[test]
+fn set_55_refuses_two_knocks_in_three_and_set_52_answers_the_holds() {
+    let none = Stats::default();
+    let steady = Stats {
+        flags: STEADY,
+        ..Stats::default()
+    };
+    let uncaged = Stats {
+        flags: UNCAGED,
+        ..Stats::default()
+    };
+    let refused: Vec<bool> = (0..6).map(|roll| steady.refuses_knock(roll)).collect();
+    assert_eq!(refused, [false, true, true, false, true, true]);
+    assert!(uncaged.turns_holds() && !steady.turns_holds() && !none.turns_holds());
+    assert!(!(0..6).any(|roll| none.refuses_knock(roll) || uncaged.refuses_knock(roll)));
+}
