@@ -463,5 +463,6 @@ A new marker starts one of four sonar rings at (512, 711), `FX_SONAREFFECT` tint
 **Seen** in the game: at the Seraphim's start the needle points at the novice as she walks to the benches, and turns as the hero moves; `quest trigger 9` turned it at quest 9's target with a sonar.
 Since #1569 the outer pin (image 137 on its ellipse of 58 × 29) points at the world map's pin (docs/re/maps.md, "The pin").
 Since #3105 a named target is sought among the scripts' objects too (`npcs::ObjectName`), and one of a sector away from the world at its placement's cell (`npcs::Npcs::object_away`), for the compass, the world map's icons, the overview's arrows and the quest book alike (`compass::Seek`); **seen** in the game: side quest 15001's novice's plant, `nowhere` before, at 3252,2546.
-Not followed: the blinking pin of `GroupIsDead`'s creature (#3104), and the way into a dungeon (#3419), the way out of one showing for a frame alone in the original (above).
+Since #3104 the blinking pin of `GroupIsDead`'s creature (`compass`: the nearest living member within 25,000 of the hero, 60 s of the real time, the outer and the inner pin in turn every 300 ms).
+Not followed: the way into a dungeon (#3419), the way out of one showing for a frame alone in the original (above).
 Since #3535 the game's inner pin stays whole within its quest's radius, as the original's ("The compass" above, **seen**).

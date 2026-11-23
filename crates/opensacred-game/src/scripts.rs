@@ -474,6 +474,9 @@ pub struct Effects {
     pub particles: Vec<Partikel>,
     /// The butterflies' effects that its `SetNPCState`s of `0x8C` give the hero (#3023).
     pub knock_outs: Vec<crate::knockouts::KnockOut>,
+    /// The groups that its `GroupIsDead`s asked of and whether each was dead (`0x48C860`), by
+    /// which the compass's blinking pin goes (`compass::GroupAsked`, #3104).
+    pub groups: Vec<crate::compass::GroupAsked>,
     /// The side quests that its `ExitQuest`s won, each of which may give the hero a rune of its
     /// class (`0x46D362`, `rewards`; #1386).
     pub won: Vec<u32>,
@@ -505,6 +508,7 @@ impl Effects {
         self.random_items += other.random_items;
         self.particles.extend(other.particles);
         self.knock_outs.extend(other.knock_outs);
+        self.groups.extend(other.groups);
         self.won.extend(other.won);
         self.autosaves.extend(other.autosaves);
         self.active = other.active.or(self.active);
@@ -1032,6 +1036,7 @@ impl Live {
             random_items: recorder.random_items,
             particles: recorder.particles,
             knock_outs: recorder.knock_outs,
+            groups: recorder.groups,
             won: recorder.won,
             autosaves: recorder.autosaves,
             active: recorder.active,
@@ -1220,6 +1225,8 @@ struct Recorder<'a> {
     /// The generic systems that its `Partikel`s start ([`Effects::particles`]).
     particles: Vec<Partikel>,
     knock_outs: Vec<crate::knockouts::KnockOut>,
+    /// The groups its `GroupIsDead`s asked of ([`Effects::groups`]).
+    groups: Vec<crate::compass::GroupAsked>,
     /// The side quests that its `ExitQuest`s won ([`Effects::won`]).
     won: Vec<u32>,
     /// The numbers of its `AutoSave`s ([`Effects::autosaves`]).
@@ -1282,6 +1289,7 @@ impl<'a> Recorder<'a> {
             random_items: 0,
             particles: Vec::new(),
             knock_outs: Vec::new(),
+            groups: Vec::new(),
             won: Vec::new(),
             autosaves: Vec::new(),
             active: None,
@@ -1472,11 +1480,19 @@ impl Host for Recorder<'_> {
         // group never made is dead. At the start, before the world, not known.
         if name == "group_is_dead" {
             return match (self.living, tags.numbers("_0B").last()) {
-                (Some(living), Some(&group)) => Handled::Answer(
-                    u32::try_from(group)
-                        .ok()
-                        .is_none_or(|group| !living.contains(&(npcs::SCRIPT_GROUP | group))),
-                ),
+                (Some(living), Some(&group)) => {
+                    let group = u32::try_from(group).ok();
+                    let dead =
+                        group.is_none_or(|group| !living.contains(&(npcs::SCRIPT_GROUP | group)));
+                    // The compass's blinking pin toward its nearest member, or none (#3104).
+                    if let Some(group) = group.filter(|_| ran.is_empty()) {
+                        self.groups.push(crate::compass::GroupAsked {
+                            group: npcs::SCRIPT_GROUP | group,
+                            dead,
+                        });
+                    }
+                    Handled::Answer(dead)
+                }
                 _ => Handled::Unknown,
             };
         }
@@ -2741,10 +2757,12 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
         window,
         particles,
         knock_outs,
+        groups,
         autosaves,
         active,
         ..
     } = effects;
+    world.write_message_batch(groups);
     if let Some(mut saves) = world.get_resource_mut::<crate::saves::AutoSaves>() {
         saves.0.extend(autosaves);
     }
@@ -2845,6 +2863,7 @@ struct Queues<'w> {
     random_items: MessageWriter<'w, crate::stashes::RandomItem>,
     particles: MessageWriter<'w, Partikel>,
     knock_outs: MessageWriter<'w, crate::knockouts::KnockOut>,
+    groups: MessageWriter<'w, crate::compass::GroupAsked>,
     won: MessageWriter<'w, crate::rewards::QuestWon>,
     autosaves: Option<ResMut<'w, crate::saves::AutoSaves>>,
     halt: Option<ResMut<'w, crate::pause::Halt>>,
@@ -2872,6 +2891,7 @@ impl Queues<'_> {
             .write_batch((0..effects.random_items).map(|_| crate::stashes::RandomItem));
         self.particles.write_batch(effects.particles);
         self.knock_outs.write_batch(effects.knock_outs);
+        self.groups.write_batch(effects.groups);
         self.won
             .write_batch(effects.won.into_iter().map(crate::rewards::QuestWon));
         if let Some(saves) = self.autosaves.as_mut() {
@@ -3234,6 +3254,7 @@ impl Plugin for ScriptsPlugin {
             .add_message::<ScriptLine>()
             .add_message::<Partikel>()
             .add_message::<crate::knockouts::KnockOut>()
+            .add_message::<crate::compass::GroupAsked>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
             .add_message::<crate::stashes::RandomItem>()
@@ -3992,6 +4013,7 @@ mod tests {
             .add_message::<ScriptLine>()
             .add_message::<Partikel>()
             .add_message::<crate::knockouts::KnockOut>()
+            .add_message::<crate::compass::GroupAsked>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
             .add_message::<crate::stashes::RandomItem>()
@@ -4054,6 +4076,7 @@ mod tests {
             .add_message::<ScriptLine>()
             .add_message::<Partikel>()
             .add_message::<crate::knockouts::KnockOut>()
+            .add_message::<crate::compass::GroupAsked>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
             .add_message::<crate::stashes::RandomItem>()
@@ -4929,6 +4952,7 @@ mod tests {
             .add_message::<crate::stashes::RandomItem>()
             .add_message::<Partikel>()
             .add_message::<crate::knockouts::KnockOut>()
+            .add_message::<crate::compass::GroupAsked>()
             .add_message::<crate::rewards::QuestWon>()
             .add_systems(Update, step_on);
         app.world_mut().insert_non_send(live);

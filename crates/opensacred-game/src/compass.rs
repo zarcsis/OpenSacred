@@ -7,8 +7,12 @@
 //! scripts (`npcs::ScriptName`); the direction is the target's place less the hero's turned
 //! by 45° alone, not squashed as the isometric view squashes it (`0x4A5980`, #3244), φ the
 //! angle clockwise from up. The outer pin, image 137 on an ellipse of
-//! 58 × 29, points at the world map's pin (#1569). Not followed: the blinking pin of
-//! `GroupIsDead`'s creature, objects named by `CreateObj`, and the way across a dungeon's mouth.
+//! 58 × 29, points at the world map's pin (#1569). The marker 3, the creature that a script's
+//! `GroupIsDead` found the nearest living member of its group, blinks for 60 s of the real time,
+//! every 300 ms the outer pin on the outer ellipse and then the inner pin on the inner one, drawn
+//! after the needle and before the other pins (`0x48C860`, `0x6E3F70`; docs/re/interface.md, "The
+//! compass", #3104). Not followed: objects named by `CreateObj`, and the way across a dungeon's
+//! mouth.
 //! A creature that lives away from the world is sought where it stands away (#2406).
 
 use bevy::ecs::system::SystemParam;
@@ -47,6 +51,30 @@ struct Pointer(Marker);
 #[derive(Component)]
 struct OuterPin;
 
+/// The marker 3's two pins: on the outer ellipse where `true`, on the inner one where `false`.
+#[derive(Component)]
+struct GroupPin(bool);
+
+/// What a script's `GroupIsDead` asked of a group (its `Mind::group`) and found (`0x48C860`,
+/// `scripts`).
+#[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GroupAsked {
+    pub group: u32,
+    pub dead: bool,
+}
+
+/// The marker 3 (`+0x7704`, `+0x7708`, `+0x7718`, `+0x771C`): the creature that `GroupIsDead`
+/// found the nearest living member of its group, and the real time in seconds until which it
+/// shows; a group found dead clears it.
+#[derive(Resource, Default)]
+struct Blinking(Option<(Entity, f64)>);
+
+/// How long the marker 3 stays, in seconds of the real time, how far its member is sought, and
+/// how long each of its two pins shows (`0x48CA63`–`0x48CA8B`, `0x6E3F70`).
+const BLINKS_FOR: f64 = 60.0;
+const MEMBER_WITHIN: f32 = 25_000.0;
+const BLINK_MS: u128 = 300;
+
 /// A sonar's ring, while it spreads.
 #[derive(Component, Default)]
 struct Ring(Option<f32>);
@@ -62,7 +90,7 @@ fn spawn(
     let Ok(bar) = bars.single() else {
         return;
     };
-    for (marker, index) in [(Marker::Main, NEEDLE), (Marker::Side, PIN)] {
+    let pointer = |commands: &mut Commands, marker: Marker, index: u32| {
         let size = images.size(index);
         let (image, node) = bar::piece(&images, &assets, index, CENTRE - size / 2.0, BAR.min);
         commands.entity(bar).with_child((
@@ -74,7 +102,23 @@ fn spawn(
             ZIndex(2),
             Pickable::IGNORE,
         ));
+    };
+    pointer(&mut commands, Marker::Main, NEEDLE);
+    // The marker 3's pins after the needle, before the markers 1 and 2 (`0x6E3F70`).
+    for (outer, index) in [(true, OUTER_PIN), (false, PIN)] {
+        let size = images.size(index);
+        let (image, node) = bar::piece(&images, &assets, index, CENTRE - size / 2.0, BAR.min);
+        commands.entity(bar).with_child((
+            GroupPin(outer),
+            image,
+            node,
+            UiTransform::IDENTITY,
+            Visibility::Hidden,
+            ZIndex(2),
+            Pickable::IGNORE,
+        ));
     }
+    pointer(&mut commands, Marker::Side, PIN);
     let size = images.size(OUTER_PIN);
     let (image, node) = bar::piece(&images, &assets, OUTER_PIN, CENTRE - size / 2.0, BAR.min);
     commands.entity(bar).with_child((
@@ -274,6 +318,94 @@ fn point(
     }
 }
 
+/// Keeps the marker 3 by what `GroupIsDead` found (`0x48C860`): of a group alive, its member
+/// nearest the hero within 25,000 for 60 s of the real time from now; a group dead clears it.
+fn group_asked(
+    mut asked: MessageReader<GroupAsked>,
+    time: Res<Time<Real>>,
+    mut blinking: ResMut<Blinking>,
+    heroes: Query<&GlobalTransform, With<Body>>,
+    members: Query<
+        (
+            Entity,
+            &GlobalTransform,
+            &crate::ai::Mind,
+            &crate::fight::Health,
+        ),
+        Without<crate::npcs::Dies>,
+    >,
+) {
+    let hero = heroes.iter().next().map(GlobalTransform::translation);
+    for asked in asked.read() {
+        if asked.dead {
+            blinking.0 = None;
+            continue;
+        }
+        let Some(hero) = hero else {
+            continue;
+        };
+        let nearest = members
+            .iter()
+            .filter(|(_, _, mind, health)| {
+                mind.group == Some(asked.group)
+                    && mind.flags & crate::followers::RAISED == 0
+                    && health.current > 0
+            })
+            .map(|(entity, at, ..)| (entity, (at.translation() - hero).xz().length()))
+            .filter(|&(_, d)| d <= MEMBER_WITHIN)
+            .min_by(|a, b| a.1.total_cmp(&b.1));
+        if let Some((member, _)) = nearest {
+            blinking.0 = Some((member, time.elapsed_secs_f64() + BLINKS_FOR));
+        }
+    }
+}
+
+/// Whether the marker 3 shows its outer pin at the real time of `ms` milliseconds: an even
+/// `⌊ms/300⌋`, the inner one at an odd (`0x6E3F70`).
+fn outer_phase(ms: u128) -> bool {
+    (ms / BLINK_MS).is_multiple_of(2)
+}
+
+/// The marker 3's pins: while it stands, toward its creature, the outer pin on its ellipse at an
+/// even 300 ms of the real time and the inner one at an odd, each turned by its angle; gone at
+/// its 60 s or with its creature.
+fn point_group(
+    time: Res<Time<Real>>,
+    mut blinking: ResMut<Blinking>,
+    heroes: Query<&GlobalTransform, With<Body>>,
+    places: Query<&GlobalTransform, Without<crate::npcs::Dies>>,
+    images: Res<UiImages>,
+    mut pins: Query<(&GroupPin, &mut Node, &mut UiTransform, &mut Visibility)>,
+) {
+    let now = time.elapsed_secs_f64();
+    if blinking.0.is_some_and(|(_, until)| now >= until) {
+        blinking.0 = None;
+    }
+    let hero = heroes.iter().next().map(GlobalTransform::translation);
+    let phi = blinking
+        .0
+        .and_then(|(member, _)| places.get(member).ok())
+        .zip(hero)
+        .map(|(at, hero)| angle(direction(hero.xz(), at.translation().xz())));
+    let outer = outer_phase(time.elapsed().as_millis());
+    for (pin, mut node, mut transform, mut visibility) in &mut pins {
+        let Some(phi) = phi.filter(|_| pin.0 == outer) else {
+            visibility.set_if_neq(Visibility::Hidden);
+            continue;
+        };
+        visibility.set_if_neq(Visibility::Inherited);
+        transform.rotation = Rot2::radians(phi);
+        let (axes, index) = if pin.0 {
+            (OUTER, OUTER_PIN)
+        } else {
+            (INNER, PIN)
+        };
+        let at = on_ellipse(phi, axes) - images.size(index) / 2.0 - BAR.min;
+        node.left = Val::Px(at.x);
+        node.top = Val::Px(at.y);
+    }
+}
+
 /// Turns the outer pin on its ellipse of 58 × 29 toward the world map's pin, the marker 2
 /// (`0x4A63E0`), hidden while no pin is placed.
 fn point_outer(
@@ -343,10 +475,17 @@ pub struct CompassPlugin;
 impl Plugin for CompassPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Targets>()
-            .add_systems(OnEnter(AppState::InGame), spawn.after(bar::spawn))
+            .init_resource::<Blinking>()
+            .add_message::<GroupAsked>()
+            .add_systems(
+                OnEnter(AppState::InGame),
+                (spawn.after(bar::spawn), |mut blinking: ResMut<Blinking>| {
+                    blinking.0 = None;
+                }),
+            )
             .add_systems(
                 Update,
-                (aim, point, point_outer, sonar)
+                (aim, point, point_outer, group_asked, point_group, sonar)
                     .after(bar::fill)
                     .run_if(in_state(AppState::InGame)),
             );
@@ -356,6 +495,12 @@ impl Plugin for CompassPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_group_pin_blinks_outer_then_inner_every_300_ms() {
+        let phases: Vec<bool> = [0, 299, 300, 599, 600, 900].map(outer_phase).to_vec();
+        assert_eq!(phases, [true, true, false, false, true, false]);
+    }
 
     #[test]
     fn the_angle_runs_clockwise_from_up() {
