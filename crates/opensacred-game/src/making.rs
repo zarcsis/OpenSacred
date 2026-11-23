@@ -718,7 +718,7 @@ fn make(
         Query<&crate::crowd::InTheWay>,
         MessageWriter<crate::sfx::PlayAt>,
     ),
-    (nearest, heights, mut fires, mut sparks, worn, mut rings, mut impacts, dungeons): (
+    (nearest, heights, mut fires, mut sparks, worn, mut rings, mut impacts, dungeons, wielded): (
         Res<crate::crowd::Nearest>,
         Res<crate::terrain::Heights>,
         MessageWriter<crate::sfx::Gunfire>,
@@ -727,6 +727,7 @@ fn make(
         MessageWriter<crate::poison_rings::Made>,
         MessageWriter<crate::gun_fires::Impact>,
         Option<Res<crate::daynight::Dungeons>>,
+        Query<(Entity, &crate::npcs::Wielded, &crate::models::OrderedWith)>,
     ),
 ) {
     let (Some(clips), Some(arts)) = (clips, arts.as_mut()) else {
@@ -2959,70 +2960,97 @@ fn make(
                 let Some(record) = tables.weapon_arts.iter().find(|a| a.id == making.art) else {
                     continue;
                 };
-                let radius = |reach| rundum_radius(record, playing.level, reach);
-                let point = bone(hero, &WEAPON_BONES, &children, (&bones, &worn))
-                    .or_else(|| bone(hero, &[HAND_BONE], &children, (&bones, &worn)))
-                    .unwrap_or(here);
-                let found: Vec<(Entity, Candidate)> = creatures
-                    .iter()
-                    .enumerate()
-                    .map(|(index, (entity, at, mind, health))| {
-                        (
-                            entity,
-                            Candidate {
-                                id: u32::try_from(index).unwrap_or(u32::MAX),
-                                distance: whole_distance(at.translation(), point),
-                                reach: reach(mind),
-                                hostile: mind.hostile() && health.current > 0,
-                            },
-                        )
-                    })
-                    .collect();
-                let last = playing.last.and_then(|last| {
-                    found
+                // About the effects' bone of the item in the right hand, else the hand's own,
+                // its radius truncated; then about the bone of the item in the left hand, its
+                // radius whole (docs/re/arts.md, "A `Rundum`'s run", #3120).
+                let held_bone = |half: usize| {
+                    wielded
                         .iter()
-                        .find(|(entity, _)| *entity == last)
-                        .map(|&(_, c)| c.id)
-                });
-                let candidates: Vec<Candidate> = found.iter().map(|&(_, c)| c).collect();
-                if let Some(&(chosen, _)) = rundum_target(&candidates, radius, last)
-                    .and_then(|id| usize::try_from(id).ok())
-                    .and_then(|index| found.get(index))
-                {
-                    hits.write(hit(chosen, &playing));
-                    sparks.write(Spark {
-                        art: making.art,
-                        by: hero,
-                        on: chosen,
+                        .find(|(_, hand, by)| by.0 == hero && hand.half() == half)
+                        .and_then(|(model, ..)| {
+                            bone(model, &WEAPON_BONES, &children, (&bones, &worn))
+                        })
+                };
+                let hand = || bone(hero, &[HAND_BONE], &children, (&bones, &worn));
+                for (point, truncated) in rundum_points((held_bone(1), hand), held_bone(0), here) {
+                    let radius = |reach| {
+                        let radius = rundum_radius(record, playing.level, reach);
+                        if truncated { radius.trunc() } else { radius }
+                    };
+                    let found: Vec<(Entity, Candidate)> = creatures
+                        .iter()
+                        .enumerate()
+                        .map(|(index, (entity, at, mind, health))| {
+                            (
+                                entity,
+                                Candidate {
+                                    id: u32::try_from(index).unwrap_or(u32::MAX),
+                                    distance: whole_distance(at.translation(), point),
+                                    reach: reach(mind),
+                                    hostile: mind.hostile() && health.current > 0,
+                                },
+                            )
+                        })
+                        .collect();
+                    let last = playing.last.and_then(|last| {
+                        found
+                            .iter()
+                            .find(|(entity, _)| *entity == last)
+                            .map(|&(_, c)| c.id)
                     });
-                    playing.last = Some(chosen);
-                    // A fifth of its time again for each new creature struck, by its class
-                    // (`0x50F318`, `0x50758A`, `0x505434`, `0x50BAC7`, `0x50DA5D`; #2995).
-                    if arts::rundum_hops(making.art) {
-                        arts.start_with(making.art, arts::RUNDUM_HOP, Some(making.art));
-                    }
-                    // The whirling blow knocks back each creature it strikes by a kick's roll
-                    // (`0x5038F0` at `0x50522A`).
-                    if playing.style == Style::Whirl
-                        && let Ok((_, _, mind, _)) = creatures.get(chosen)
-                        && knocks_back(&mut dice.0, playing.level, mind)
+                    let candidates: Vec<Candidate> = found.iter().map(|&(_, c)| c).collect();
+                    if let Some(&(chosen, _)) = rundum_target(&candidates, radius, last)
+                        .and_then(|id| usize::try_from(id).ok())
+                        .and_then(|index| found.get(index))
                     {
-                        commands
-                            .entity(chosen)
-                            .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
-                            .insert(Knocked {
-                                by: hero,
-                                from: here,
-                                left: to_f32(arts::whirl_knockback(record, playing.level)),
-                                held: 0.0,
-                                throw: None,
-                                unheld: false,
-                            });
+                        hits.write(hit(chosen, &playing));
+                        sparks.write(Spark {
+                            art: making.art,
+                            by: hero,
+                            on: chosen,
+                        });
+                        playing.last = Some(chosen);
+                        // A fifth of its time again for each new creature struck, by its class
+                        // (`0x50F318`, `0x50758A`, `0x505434`, `0x50BAC7`, `0x50DA5D`; #2995).
+                        if arts::rundum_hops(making.art) {
+                            arts.start_with(making.art, arts::RUNDUM_HOP, Some(making.art));
+                        }
+                        // The whirling blow knocks back each creature it strikes by a kick's roll
+                        // (`0x5038F0` at `0x50522A`).
+                        if playing.style == Style::Whirl
+                            && let Ok((_, _, mind, _)) = creatures.get(chosen)
+                            && knocks_back(&mut dice.0, playing.level, mind)
+                        {
+                            commands
+                                .entity(chosen)
+                                .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
+                                .insert(Knocked {
+                                    by: hero,
+                                    from: here,
+                                    left: to_f32(arts::whirl_knockback(record, playing.level)),
+                                    held: 0.0,
+                                    throw: None,
+                                    unheld: false,
+                                });
+                        }
                     }
                 }
             }
         }
     }
+}
+
+/// The points about which a `Rundum` looks for a creature in turn, and whether the radius of each
+/// is truncated (docs/re/arts.md, "A `Rundum`'s run", #3120): the effects' bone of the item in the
+/// right hand (`right`), else the hand's own (`hand`), else its place `here`, truncated; then the
+/// bone of the item in the left hand (`left`), whole, where it has one.
+fn rundum_points(
+    (right, hand): (Option<Vec3>, impl FnOnce() -> Option<Vec3>),
+    left: Option<Vec3>,
+    here: Vec3,
+) -> impl Iterator<Item = (Vec3, bool)> {
+    let right = right.or_else(hand).unwrap_or(here);
+    std::iter::once((right, true)).chain(left.map(|left| (left, false)))
 }
 
 /// Whether an art of the level in play `level` may knock back the creature of `mind` at all
@@ -3436,6 +3464,22 @@ impl Plugin for MakingPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rundum_looks_about_the_right_blade_then_the_left_one() {
+        let (right, hand, left, here) = (Vec3::X, Vec3::Y, Vec3::Z, Vec3::ONE);
+        let points = |r, h: Option<Vec3>, l| rundum_points((r, || h), l, here).collect::<Vec<_>>();
+        assert_eq!(
+            points(Some(right), Some(hand), Some(left)),
+            [(right, true), (left, false)]
+        );
+        // No weapon's bone in the right hand: the hand's own; the left's alone without its hand.
+        assert_eq!(points(None, Some(hand), None), [(hand, true)]);
+        assert_eq!(
+            points(None, None, Some(left)),
+            [(here, true), (left, false)]
+        );
+    }
 
     /// Sector (0, 0) walked on, but for the column of cells 3, open at the row `gap` if any.
     fn column_walled(gap: Option<usize>) -> crate::terrain::Heights {
