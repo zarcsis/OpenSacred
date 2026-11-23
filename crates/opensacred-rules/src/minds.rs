@@ -1094,6 +1094,24 @@ impl Mind {
         true
     }
 
+    /// Struck by an attacker hostile to it, a creature hostile to the local hero or that hero's
+    /// follower turns on it (the event 5's handler's tail, `0x535A72`–`0x535C45`; docs/re/ai.md,
+    /// "Foes among the creatures", #3470): it takes the flags' bit 0, and, neither `busy` (a
+    /// script's order queued, a cast, its weapon arts' action, a door's way) nor playing its own
+    /// strike or shot (`striking`, which only an attacker of a mark of the bit `0x80` breaks), it
+    /// takes the AI's state 4, or 8 with a ranged weapon, deciding, its attacker its target, as it
+    /// does in that state already. Whether it takes its attacker.
+    pub fn turns_on(&mut self, busy: bool, striking: bool) -> bool {
+        self.flags |= 0x1;
+        if busy || striking {
+            return false;
+        }
+        self.fighting = true;
+        self.deciding = true;
+        self.active = false;
+        true
+    }
+
     /// A follower sent at a foe by the event `0x100` (`0x52FA63`): it takes the AI's state 4, or 8
     /// with a ranged weapon, as any creature does, unless it fights already; whether it does.
     pub fn sent_at(&mut self) -> bool {
@@ -4929,6 +4947,22 @@ mod tests {
         let mut goblin = Mind::new(at(0.0, 0.0), 0x1, (true, false), None, SPEEDS, (76, 2));
         assert!(goblin.sent_at());
         assert_eq!(goblin.cast(&sight(270.0), &cast, || true, &mut rolls), None);
+    }
+
+    #[test]
+    fn a_struck_creature_turns_on_its_attacker_unless_busy_or_striking() {
+        // A dormant goblin of no bit 0 struck: it takes the bit and the state 4, deciding (#3470).
+        let mut goblin = Mind::new(at(0.0, 0.0), 0x4000, (false, false), None, SPEEDS, (76, 2));
+        assert!(!goblin.fighting);
+        assert!(goblin.turns_on(false, false));
+        assert!(goblin.fighting && goblin.deciding && !goblin.active);
+        assert_eq!(goblin.flags & 0x1, 0x1);
+        // Busy or in its own strike, it keeps what it does, the bit taken all the same.
+        for (busy, striking) in [(true, false), (false, true)] {
+            let mut other = Mind::new(at(0.0, 0.0), 0x4000, (false, false), None, SPEEDS, (76, 2));
+            assert!(!other.turns_on(busy, striking));
+            assert!(!other.fighting && other.flags & 0x1 == 0x1);
+        }
     }
 
     #[test]

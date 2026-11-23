@@ -157,6 +157,18 @@ impl Mind {
         goes
     }
 
+    /// A creature struck turns on its attacker, the hero where `attacker` is none
+    /// (`minds::Mind::turns_on`, #3470); whether it does.
+    pub fn turns_on(&mut self, attacker: Option<Entity>, busy: bool, striking: bool) -> bool {
+        let turns = self
+            .thinks
+            .turns_on(busy || self.opening.is_some(), striking);
+        if turns {
+            self.foe = attacker;
+        }
+        turns
+    }
+
     /// A creature sent at the hero (the event `0x100` of a script's `Attack`, #1830); whether it
     /// goes.
     pub fn send_at_hero(&mut self) -> bool {
@@ -233,6 +245,76 @@ fn point(spot: Spot, y: f32) -> Vec3 {
 fn odd(home: Spot) -> bool {
     let (x, y) = paths::cell_of(home.x, home.y);
     (x + y).rem_euclid(2) == 1
+}
+
+/// The mark's bit of an attacker whose strike turns a creature that plays its own strike or
+/// shot (`0x535DD3`): no hero's.
+const TURNS_STRIKERS: u16 = 0x80;
+
+/// Turns each creature struck by an attacker hostile to it on that attacker, where it is hostile
+/// to the hero or the hero's follower, no horse ridden and alive (the event 5's handler's tail,
+/// `0x535A72`–`0x535C45`; docs/re/ai.md, "Foes among the creatures", #3470): it takes the AI's
+/// state 4 or 8 against it, unless a script's order waits for it, it casts or makes a weapon art,
+/// or its own strike or shot plays and the attacker's mark has no bit `0x80`.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn turn_on_attackers(
+    mut hits: MessageReader<crate::fight::Hit>,
+    heroes: Query<(), With<Body>>,
+    mut minds: Query<
+        (
+            &mut Mind,
+            (
+                Has<crate::creature_casts::Casting>,
+                Has<crate::creature_arts::Ordered>,
+                Has<crate::creature_arts::Makes>,
+                Option<&crate::npcs::ScriptQueue>,
+            ),
+            Has<crate::npcs::Strikes>,
+        ),
+        (Without<crate::npcs::Dies>, Without<crate::riding::Ridden>),
+    >,
+) {
+    for hit in hits.read() {
+        if hit.attacker == hit.target {
+            continue;
+        }
+        let by_hero = heroes.contains(hit.attacker);
+        let attacker = if by_hero {
+            None
+        } else {
+            match minds.get(hit.attacker) {
+                Ok((mind, ..)) => Some((mind.thinks.clone(), mind.mark())),
+                Err(_) => continue,
+            }
+        };
+        let Ok((mut mind, (casting, ordered, makes, queue), striking)) = minds.get_mut(hit.target)
+        else {
+            continue;
+        };
+        if !mind.hostile() {
+            continue;
+        }
+        let hostile_to_it = attacker
+            .as_ref()
+            .is_none_or(|(other, _)| mind.thinks.hostile_to(other));
+        if !hostile_to_it {
+            continue;
+        }
+        let busy = casting || ordered || makes || queue.is_some_and(|queue| !queue.is_empty());
+        let breaks = attacker
+            .as_ref()
+            .is_some_and(|(_, mark)| mark & TURNS_STRIKERS != 0);
+        let foe = (!by_hero).then_some(hit.attacker);
+        if mind.turns_on(foe, busy, striking && !breaks) {
+            debug!(
+                "ai: {} turns on {}, which struck it",
+                hit.target, hit.attacker
+            );
+        }
+    }
 }
 
 /// A Fetzer struck while it chooses takes its phase (`0x535C78`, #2568).
@@ -3248,7 +3330,9 @@ impl Plugin for AiPlugin {
             )
             .add_systems(
                 Update,
-                (alarm, fetzers_struck).in_set(Step::Crowd).before(think),
+                (alarm, fetzers_struck, turn_on_attackers)
+                    .in_set(Step::Crowd)
+                    .before(think),
             );
     }
 }
@@ -3256,6 +3340,42 @@ impl Plugin for AiPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dormant_goblin_struck_by_the_hero_turns_on_it() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<crate::fight::Hit>()
+            .add_systems(Update, turn_on_attackers);
+        let hero = app.world_mut().spawn(Body::standing()).id();
+        let goblin = app
+            .world_mut()
+            .spawn(Mind::new(
+                Vec3::ZERO,
+                0x4000,
+                (false, false),
+                None,
+                [70.0, 180.0],
+                (76, 2),
+            ))
+            .id();
+        assert!(app.world().get::<Mind>(goblin).unwrap().hostile());
+        app.world_mut().write_message(crate::fight::Hit {
+            attacker: hero,
+            target: goblin,
+            share: 1.0,
+            ranged: false,
+            art: None,
+            fixed: None,
+            sure: true,
+            poison: false,
+            ward: false,
+            hurled: false,
+        });
+        app.update();
+        let mind = app.world().get::<Mind>(goblin).unwrap();
+        assert!(mind.fighting() && mind.foe().is_none());
+    }
 
     #[test]
     fn the_hero_goes_unseen_in_the_water_form_or_the_dark_elfs_set_while_it_attacks_nothing() {
