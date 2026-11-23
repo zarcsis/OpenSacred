@@ -276,7 +276,7 @@ pub const TABLE: &[Entry] = &[
     at(51, 6, Flag(0x1_0000)),
     at(52, 2, Skill(31, 5.0)),
     at(52, 3, Attribute(3, 10.0)),
-    at(52, 6, Flag(0x800)),
+    at(52, 6, Flag(UNCAGED)),
     at(53, 2, Skill(33, 5.0)),
     at(53, 3, Give::Arts(&[55], 3.0)),
     at(54, 2, Skill(11, 5.0)),
@@ -286,7 +286,7 @@ pub const TABLE: &[Entry] = &[
     at(55, 3, Skill(25, 5.0)),
     at(55, 4, AttackTimes(0.15)),
     at(55, 6, Attribute(0, 10.0)),
-    at(55, 8, Flag(0x1000)),
+    at(55, 8, Flag(STEADY)),
     at(55, 10, Flag(0x4000_0000)),
     at(56, 2, Skill(25, 5.0)),
     at(56, 4, Attribute(3, 10.0)),
@@ -571,6 +571,13 @@ pub const BINDS: u32 = 0x100_0000;
 /// wearer's arrows pass through what they hit (`0x5BBD87`; [`Stats::pierces`],
 /// `crate::arrows::passes`).
 pub const PIERCES: u32 = 0x1000_0000;
+/// The stats' flag `+0x4F0` bit `0x1000` (set 55 at 8), by which its wearer refuses a knock-back
+/// in two cases of three (`0x55D260`'s query `0x50`; docs/re/sets.md §5, #3437).
+pub const STEADY: u32 = 0x1000;
+/// The stats' flag `+0x4F0` bit `0x800` (set 52 at 6), by which a creature's hold ordered at its
+/// wearer, the stone or the plant cage, is turned one cast in three (`0x55D260`'s query `0x4F`,
+/// [`crate::casts::turned_hold`], #3437).
+pub const UNCAGED: u32 = 0x800;
 
 /// The magic defence's terms while the flag [`WARDS`] holds, each `c·D` where its set reaches
 /// its count, added in turn (M17, `0x561897`–`0x561A68`).
@@ -873,6 +880,18 @@ impl Stats {
     /// it may be struck down instead.
     pub fn strikes_fleeing(&self) -> bool {
         self.flags & STRIKES_FLEEING != 0
+    }
+
+    /// Whether the wearer refuses a knock-back of the roll `roll` (`rand()`): its flag [`STEADY`]
+    /// and the roll's rest of 3 not 0.
+    pub fn refuses_knock(&self, roll: u32) -> bool {
+        self.flags & STEADY != 0 && !roll.is_multiple_of(3)
+    }
+
+    /// Whether the wearer answers the query `0x4F`, by which the creatures' holds ordered at it
+    /// may be turned: its flag [`UNCAGED`].
+    pub fn turns_holds(&self) -> bool {
+        self.flags & UNCAGED != 0
     }
 
     /// Whether the wearer's flag [`SNOWS`] holds, by which the weather snows.

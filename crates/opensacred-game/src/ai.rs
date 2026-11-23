@@ -1387,6 +1387,9 @@ fn pursue(
                     at_hero: foe.is_none(),
                     hero_level,
                     held: hero_held,
+                    // The hero of set 52's six pieces, whose holds may be turned (#3437).
+                    uncaged: foe.is_none()
+                        && holding.is_some_and(|holding| holding.0.sets.turns_holds()),
                     // The hero with a bow or a crossbow in a hand (`0x54A2A0`), or the Mage (the
                     // type 3), by which a creature of the mark 4 takes its special the more
                     // (#3263); a creature fought, none.
@@ -1824,6 +1827,26 @@ fn pursue(
                 commands.entity(entity).remove::<Walk>().insert(
                     crate::creature_casts::Casting::new(spell, variant, aimed, hero),
                 );
+            }
+            // A hold that the hero's set 52 turns (#3437): cast toward the hero still, at the
+            // caster itself or at the hero's nearest hostile; with none listed it casts nothing
+            // (**hypothesis**: the launch test refuses an order at no creature), and no level's
+            // test (**hypothesis**: the launch test lets the caster through).
+            Pursues::HoldsTurned { spell, onto } => {
+                transform.rotation = crate::hero::facing(hero - here);
+                let aimed = match onto {
+                    opensacred_rules::casts::Turned::Caster => Some(entity),
+                    opensacred_rules::casts::Turned::Nearest => nearest.hostiles.first().copied(),
+                };
+                if let Some(aimed) = aimed {
+                    debug!("ai: {entity} casts {spell} toward the hero, turned onto {aimed}");
+                    commands
+                        .entity(entity)
+                        .remove::<Walk>()
+                        .insert(crate::creature_casts::Casting::new(spell, 0, aimed, hero));
+                } else {
+                    debug!("ai: {entity}'s {spell} turned onto no hostile of the hero");
+                }
             }
             Pursues::Faces => {
                 if walk.is_none() {

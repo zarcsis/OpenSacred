@@ -559,13 +559,14 @@ fn fly(
     mut commands: Commands,
     time: Res<Time>,
     heights: Res<Heights>,
-    (mut hits, ranks, mut sounds, mut ends, mut pops, experience): (
+    (mut hits, ranks, mut sounds, mut ends, mut pops, experience, (holdings, mut dice)): (
         MessageWriter<fight::Hit>,
         Query<&fight::Ranked>,
         MessageWriter<crate::sfx::Play>,
         MessageWriter<crate::bolt_looks::Ended>,
         MessageReader<Pops>,
         Option<Res<fight::Experience>>,
+        (Query<&fight::Holding>, ResMut<Dice>),
     ),
     mut flying: Query<(Entity, &mut Flying, &mut Transform, &mut Visibility)>,
     (shooters, heroes, children, bones, worn): (
@@ -767,7 +768,16 @@ fn fly(
                     let level = experience
                         .as_deref()
                         .map_or(1, |experience| experience.level);
-                    if opensacred_rules::spells::whirlwind_knocks_back(below, level, false, false) {
+                    // Set 55 refuses two knock-backs in three, its slide going on as it was
+                    // (`0x531AE8`'s query `0x50`, `0x55D260`; docs/re/sets.md §5, #3437).
+                    let refused = holdings
+                        .get(target)
+                        .is_ok_and(|holding| holding.0.sets.refuses_knock(dice.0.below(32_768)));
+                    if refused {
+                        debug!("bolts: the hero's set refuses {entity}'s knock-back");
+                    } else if opensacred_rules::spells::whirlwind_knocks_back(
+                        below, level, false, false,
+                    ) {
                         debug!("bolts: {entity} knocks the hero back {left:.0}");
                         commands
                             .entity(target)
@@ -838,12 +848,23 @@ fn fly(
 #[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct Flown;
 
+/// The dice of the hero's refusal of a whirlwind's knock-back (`0x55D260`'s `rand`, #3437).
+#[derive(Resource)]
+struct Dice(opensacred_rules::spawning::Rng);
+
+impl Default for Dice {
+    fn default() -> Self {
+        Self(crate::seed::dice(0x3437))
+    }
+}
+
 /// The bolts.
 pub struct BoltsPlugin;
 
 impl Plugin for BoltsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_message::<Fire>()
+        app.init_resource::<Dice>()
+            .add_message::<Fire>()
             .add_message::<Launch>()
             .add_message::<Pops>()
             .add_systems(

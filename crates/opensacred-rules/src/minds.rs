@@ -1858,10 +1858,7 @@ impl Mind {
             ) {
                 self.stands = casts::STANDS;
                 renew(self, &mut |n| rng.below(n));
-                return Some(Pursues::Casts {
-                    spell: casts::STONE,
-                    variant: 0,
-                });
+                return Some(hold(casts::STONE, cast.uncaged, rng));
             }
         }
         if !casts::casting(cast.crowded, cast.nearest, rng.below(3)) {
@@ -2158,11 +2155,10 @@ impl Mind {
                 (cast.held, clear()),
             ) {
                 renew(self, rng.below(3));
-                return casts(if own == OwnMark::AnducarsGuard {
-                    casts::GUARDS_FIRE
-                } else {
-                    casts::CAGE
-                });
+                if own == OwnMark::AnducarsGuard {
+                    return casts(casts::GUARDS_FIRE);
+                }
+                return Some(hold(casts::CAGE, cast.uncaged, rng));
             }
         }
         match own {
@@ -2309,10 +2305,7 @@ impl Mind {
                 (cast.held, clear()),
             ) {
                 renew(self, rng.below(3));
-                return Pursues::Casts {
-                    spell: casts::CAGE,
-                    variant: 0,
-                };
+                return hold(casts::CAGE, cast.uncaged, rng);
             }
         }
         if let Some(band) = self.keeps_mages_band(sight) {
@@ -3310,6 +3303,15 @@ pub struct Pursuit {
 /// (docs/re/ai.md, "The flyers"), which take off as they flee wounded (`0x4E1336`).
 const FLY_LOOP: [u32; 3] = [513, 589, 590];
 
+/// The order of a hold at the hero, the stone or the plant cage: turned where its set 52 turns
+/// it ([`casts::turned_hold`], #3437), else cast at the hero.
+fn hold(spell: u16, uncaged: bool, rng: &mut impl Dice) -> Pursues {
+    match casts::turned_hold(uncaged, rng) {
+        Some(onto) => Pursues::HoldsTurned { spell, onto },
+        None => Pursues::Casts { spell, variant: 0 },
+    }
+}
+
 /// What a caster sees beyond its [`Pursuit`] ([`Mind::cast`], #1852).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CastSight {
@@ -3319,6 +3321,9 @@ pub struct CastSight {
     pub at_hero: bool,
     pub hero_level: u32,
     pub held: bool,
+    /// Whether its target answers the query `0x4F` (set 52's six pieces), by which a hold at it
+    /// may be turned ([`casts::turned_hold`], #3437).
+    pub uncaged: bool,
     /// Whether it is a boss or a champion.
     pub elite: bool,
     /// The hero's hostiles of the marks 8 and `0x200` fighting hand to hand (`0x4D4670`).
@@ -3509,6 +3514,9 @@ pub enum Pursues {
     Strikes(Option<u32>),
     /// A caster casts its spell of the variant at its target (#1852, [`Mind::cast`]).
     Casts { spell: u16, variant: u8 },
+    /// A caster's hold at the hero, the stone or the plant cage, that the hero's set 52 turns
+    /// onto another ([`casts::turned_hold`], #3437): cast toward the hero still, it holds `onto`.
+    HoldsTurned { spell: u16, onto: casts::Turned },
     /// A caster stands facing its target, or walks on.
     Faces,
     /// A caster walks to the point of its band.
@@ -4866,6 +4874,7 @@ mod tests {
             at_hero: true,
             hero_level: 3,
             held: false,
+            uncaged: false,
             elite: false,
             hostiles: 0,
             crowded: false,
@@ -4997,6 +5006,7 @@ mod tests {
             at_hero: true,
             hero_level: 3,
             held: false,
+            uncaged: false,
             elite: false,
             hostiles: 0,
             crowded: false,
@@ -5111,6 +5121,7 @@ mod tests {
             at_hero: true,
             hero_level: 3,
             held: false,
+            uncaged: false,
             elite: false,
             hostiles: 0,
             crowded: false,
@@ -5195,6 +5206,7 @@ mod tests {
             at_hero: true,
             hero_level: 3,
             held: false,
+            uncaged: false,
             elite: false,
             hostiles: 0,
             crowded: true,
@@ -5227,6 +5239,60 @@ mod tests {
         );
         mind.fighting = true;
         mind
+    }
+
+    #[test]
+    fn the_ice_druid_and_the_guards_hold_the_hero_and_set_52_turns_the_cage() {
+        use crate::spawning::Script;
+        let decide = |creature: u32, uncaged: bool, rolls: Vec<u32>| {
+            let mut mind = Mind::new(
+                at(0.0, 0.0),
+                0x1,
+                (true, false),
+                None,
+                SPEEDS,
+                (creature, 2),
+            );
+            mind.fighting = true;
+            mind.level = 10;
+            let cast = CastSight {
+                uncaged,
+                ..hornets_cast(0, (0, false), false)
+            };
+            mind.cast(
+                &hornets_sight(600.0, false),
+                &cast,
+                || true,
+                &mut Script::new(rolls),
+            )
+        };
+        let casts = |spell| Some(Pursues::Casts { spell, variant: 0 });
+        // A roll of 2 of 4 holds the hero, the deadline's roll after it: the ice druid's and the
+        // prince's guards' cage, Anducar's guards' fire.
+        assert_eq!(decide(141, false, vec![2, 0]), casts(casts::CAGE));
+        assert_eq!(decide(205, false, vec![2, 0]), casts(casts::CAGE));
+        assert_eq!(decide(184, false, vec![2, 0]), casts(casts::GUARDS_FIRE));
+        // At a hero of set 52 a roll of 0 of 3 turns the cage, an odd coin onto the caster, an
+        // even one onto the hero's nearest hostile; a roll of 1 leaves it; the fire never turns.
+        let turned = |onto| {
+            Some(Pursues::HoldsTurned {
+                spell: casts::CAGE,
+                onto,
+            })
+        };
+        assert_eq!(
+            decide(141, true, vec![2, 0, 0, 1]),
+            turned(casts::Turned::Caster)
+        );
+        assert_eq!(
+            decide(205, true, vec![2, 0, 0, 0]),
+            turned(casts::Turned::Nearest)
+        );
+        assert_eq!(decide(141, true, vec![2, 0, 1]), casts(casts::CAGE));
+        assert_eq!(
+            decide(184, true, vec![2, 0, 0, 1]),
+            casts(casts::GUARDS_FIRE)
+        );
     }
 
     #[test]
@@ -6180,6 +6246,7 @@ mod tests {
             at_hero: true,
             hero_level: 3,
             held: false,
+            uncaged: false,
             elite: false,
             hostiles: 0,
             crowded: false,

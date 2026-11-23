@@ -5,7 +5,7 @@ Read 2026-11-01 for #1727 by code: the disassembly of `0x5711F0`, `0x571710` (it
 **Confirmed** by code and the emulation unless marked otherwise; nothing here is seen in the running original yet, but set 3's flag at four pieces (docs/re/interface.md, "The labels on Alt").
 `D` is the difficulty's factor (`0x51CEF0`, `0x55E070`, `0x55E0F0`): 1.0, 1.34, 1.67, 2.0, 2.34 for `0x182EE44` 0 to 4; `⌊c·D⌋` is `0x55E070(c)`, the float product truncated (`__ftol`); `c·D` a float added as it is.
 The stats block is the creature's `+0x3A8` (so the stats' `+0x148` is the creature's `+0x4F0`, `+0x14C`/`+0x150` its `+0x4F4`/`+0x4F8`).
-Implemented in `opensacred-rules` (`set_bonuses`, `fight`, `drops`, `undead`, `minds`, `arrows`) and `opensacred-game` (`equipment`, `tooltip/set`, `set_icon`, `held`, `labels`).
+Implemented in `opensacred-rules` (`set_bonuses`, `fight`, `drops`, `undead`, `minds`, `arrows`, `casts`) and `opensacred-game` (`equipment`, `tooltip/set`, `set_icon`, `held`, `labels`, `bolts`, `creature_casts`).
 
 ## 1. Counting the pieces: the recomputation and `0x5711F0`
 
@@ -389,7 +389,7 @@ A creature in the water form itself is drawn so by its own state; the effect's d
 | `0x100` | 47 ≥ 5 | `SEELESCHADEN` | 0x7C2 group |
 | `0x200` | 45 ≥ 5 | `GEHEIMSCHADEN` | 0x7C2 group |
 | `0x400` | 41 ≥ 6 | `DUNKELSCHADEN` | 0x7C2 group |
-| `0x800` | 52 ≥ 6 | `NOROOT` | the creature's query `0x4F` (`0x55D260` at `0x55DADC`), which five of the creatures' casts ask of their target: the magicians' plant cage (40, `0x4D3524` to `0x4D3573` in the mark 8's chooser) is turned, in one cast of three (`rand() % 3` of 0), by a coin onto the caster itself or onto the first creature of the hero's list of hostiles (`0xAD3CE0`); the other four (`0x4D53F9`, `0x4D619C`, `0x4D7BD5`, `0x4DA6AF`) not read further |
+| `0x800` | 52 ≥ 6 | `NOROOT` | the creature's query `0x4F` (`0x55D260` at `0x55DADC`), which five of the creatures' orders of a hold ask of their target (`0x4D53F9`, `0x4D619C`, `0x4D7BD5`, `0x4DA6AF`, `0x4D3536`): four of them turn the stone 25 or the plant cage 40, in one cast of three, onto the caster itself or onto the first creature of the hero's list of hostiles (`0xAD3CE0`) by a coin, and the mark 8's chooser's turn is lost (below, "The holds turned by set 52") |
 | `0x1000` | 55 ≥ 8 | `NOSTUNN` | the creature's query `0x50` (`0x55D260` at `0x55DB27`), which the knockback's event 3 asks (`0x531AE8`): with the bit, two knockbacks of three are refused (`rand() % 3` not 0; docs/re/arts.md, "The kicks") |
 | `0x2000` | 40 ≥ 4 | `TIERSCHRECK` | not found |
 | `0x4000` | 58 ≥ 6 | `UI_SET_FLUCHT` | `0x4E1052` (the melee's flight, docs/re/fight.md) |
@@ -415,6 +415,31 @@ A creature in the water form itself is drawn so by its own state; the effect's d
 
 The bits 4 and 8, which the arts' regeneration reads (`0x562470`: the time an art's use adds taken down to 0.8 of it, docs/re/arts.md, "The regeneration"), no case of `0x571710` sets, and nothing else either (read 2026-11-22 for #3112, **confirmed** by a byte scan of the code for every instruction that writes at the displacement `+0x148` or `+0x4F0`: on the stats only the stats' maker `0x55E29E`, the recomputation's clearing `0x57978C`, the serialiser `0x586695`, `0x586878` and `0x586A1C`, and the cases' `or`s of the bits above; **seen** 2026-11-23 for #3480 with set 27's six pieces, the word 0 at each art's start and its time whole, docs/re/arts.md, "The regeneration").
 The creature's query handler (`0x55D260`) reads three bits more as answers: the query `0x4E` the bit `0x2`, which `0x5FCC0F` asks of the local hero (not read further), the query `0x4F` the bit `0x800` and the query `0x50` the bit `0x1000` (the table above).
+
+**The holds turned by set 52** (read 2026-11-23 for #3437 in the Ghidra project alone, the running original held by another session: what the code does is read, what the turned casts do in play a **hypothesis** until seen).
+The five askers of the query `0x4F` are all in the fight's specials (`0x4D4E50`, docs/re/ai.md, "The creatures' spells"), each where it orders a hold of the spell 25 (the flesh to stone) or 40 (the plant cage), and each asks it of the creature that the order is at, the fight's target (the order block's `+0x104` as the specials read it before they write the order).
+
+| asker | mark (types) | spell | what a yes does |
+|---|---|---|---|
+| `0x4D53F9` | 1, the hold on the hero (`0x4D51ED`: the mummies 44, 64 to 66, the magic skeletons 48 and 80, the orc shaman 67) | 25 | turned (`0x4D540A` to `0x4D544E`) |
+| `0x4D619C` | 8, the hold on the hero (`0x4D5F54`: the mark's casters but Anducar 182 and his demon 183) | 40 | turned (`0x4D61B1` to `0x4D61E8`, `0x4D5449`) |
+| `0x4D7BD5` | `0x209` (`0x4D79E0`: the ice druid 141) | 40 | turned, its rolls by `0x443B20` (`0x4D7BE6` to `0x4D7C1D`) |
+| `0x4DA6AF` | `0x218` (`0x4DA3CE`: the prince's guards) | 40 | turned (`0x4DA6C4` to `0x4DA6FB`, `0x4D5449`) |
+| `0x4D3536` | 8, the chooser (`0x4D31C0`) where its choice is 40 | 40 | lost (below) |
+
+- The order of the draws: the query first; the roll of three only where the target answers yes (in the chooser also only where the spell chosen is 40 and the target lives); the coin only where that roll gives 0.
+  A target without the bit costs no `rand()`.
+- The roll is `rand() % 3`, 0 turning the cast (the ice druid's `0x443B20(0, 2)`, the same `rand() % 3`).
+- The coin is `rand() % 2` (`and 0x80000001`; the ice druid's `0x443B20(0, 1)`): an odd `rand()` makes the order's target (`+0x100`) the caster's own id (`+0xC`), an even one the id at the head of the hero's list of hostiles (`0xAD3CE0`), the creature hostile to the hero nearest him (docs/re/motions.md, "The fight stance").
+- Nothing else of the order changes: the spell, its caster, the state 6, the deadline `+0x24D`, whom it fights after (`+0x110`) and the order's point, sector's word and floor (`+0x104` to `+0x114`), all written from the first target before the query, stay.
+  The cast (`0x51E110`) turns the caster to that point, the hero's place (the cage's case at `0x520352`, by `0x4DBC10` or `0x44DD90`; the stone's alike), and the cage's act (`0x522480` at `0x52634B`) puts its cages about the creature that the order's target names (`0x5FE000` of the action block's first word, the order's `+0x100` that the state 6 copies to `+0x154`, `0x51CFD0`), as many and for as long as at the hero, the caster's level and spell unchanged.
+  So the caster casts toward the hero, and the cages hold the caster itself or the hero's nearest hostile in his stead (**hypothesis**: the launch test `0x51D840` letting the caster through as its own target, its levels' test passing since `0.4·l + 5·L` is above `l`, and the stone's act taking its target as the cage's does, not read).
+- The list empty: the hero's look writes the list's entries only where it finds a hostile and keeps the count apart (docs/re/motions.md, "The fight stance"), so that the coin's even side then takes the id that the last look put first, which may name a creature gone, dead or far off, or 0 where no look has found one since the process started.
+  A 0, or an id that names nothing, is refused by the cast's launch test (the launch type 1 asks a target), and the cast ends without a hold (**hypothesis**, not read further).
+  The list is seldom empty here: the hold's caster stands within 1,500 of the hero, and the look lists the hero's hostiles within about 1,900 to 2,600 of him, the caster usually among them.
+- In the chooser (`0x4D3524` to `0x4D3573`) the coin's write is lost: the chooser's end looks up its target again from `+0x104` (`0x4D38FB`), which the coin left alone, and writes the order's target, point, sector's word and floor from it (`0x4D3A8F` to `0x4D3B62`).
+  The cage it chooses therefore goes at its first target whatever the coin gave, and the turn costs only its `rand()`s; the four other paths write their order before the query and leave the turn standing.
+- The bit comes from the sets alone (the scan of the writers of `+0x4F0`, above), so that the turned holds are those at a hero wearing set 52's six pieces (**hypothesis**: no creature but a hero wears a set).
 
 The flags `+0x148` are cleared at the start of each recomputation for the local hero only; another player's are not (not followed: a network game's).
 
@@ -476,4 +501,5 @@ And since #2813 the pieces in the sockets of the items worn and held count as pi
 Set 42's arts by night, every art held in the Vampiress's night form, follow since #2930 (`set_bonuses::Give::DayArts`), her change of form making her values anew.
 Since #2931 the dominance bonus of section 1 (`opensacred_rules::set_bonuses::dominance`): `equipment::refit` counts the hero's own items, the ridden horse's bridle, the worn ones and those in the hands, each with what its sockets' items add to it, into `set_bonuses::Stats::dominance`; `fight::combat_with` adds 0.15 to each kind's resistance factor reached, not times `D`, before the sets' factors; and the set icon shows while a kind is reached (`set_icon`).
 **Seen** in the game beside the original's frames (#2931): the Seraphim's eighth item of the physical kind, a ring, raised her physical resistance's factor by 0.15 (the game's `stats`), and the icon's list began with the same line, an empty line after it.
-Not followed yet: the other flags' readers (section 5).
+And since #3437 set 55's `0x1000` and set 52's `0x800` (section 5): a whirlwind's knock-back of the hero is refused in two cases of three (`Stats::refuses_knock`, `bolts`), its slide under way going on, and a creature's hold at the hero, the stone or the plant cage, is turned in one case of three onto the caster or the hero's nearest hostile (`Stats::turns_holds`, `opensacred_rules::casts::turned_hold`, `minds`, `ai`, `creature_casts`), the mark 8's chooser's cage not ("The holds turned by set 52").
+Not followed yet: the other flags' readers (section 5), and the query `0x50`'s second ground, the bonus 861 (docs/re/arts.md, "The kicks").
