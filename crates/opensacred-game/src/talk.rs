@@ -1364,6 +1364,15 @@ pub(crate) fn notices(
         if mode == CLICKS {
             crate::inventory::play(&mut sounds, crate::inventory::CLICK);
         }
+        // A count's line, made of its parts (`scripts::count_line`, #3448).
+        if let Some(line) = texts
+            .as_deref()
+            .and_then(|texts| scripts::count_line(&key, texts))
+        {
+            info!("talk: the player is shown {line}");
+            shown.0.push(line);
+            continue;
+        }
         match texts
             .as_deref()
             .and_then(|texts| texts.named(resource(&key)))
