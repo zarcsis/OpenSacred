@@ -22,8 +22,15 @@ use crate::game::{AppState, Data};
 use crate::models::{self as model_looks, Anchors, ModelMaterial, Pass, in_order};
 use crate::{daynight, iso};
 
-/// The arrowproof, whose turned aside arrows flash it (`0x5614E1`).
+/// The arrowproof, whose turned aside arrows flash it (`0x5614E1`), and the spellproof, whose
+/// turned aside spells flash it (`0x562254`, #3172).
 const ARROWPROOF: u32 = 1045;
+const SPELLPROOF: u32 = opensacred_rules::spells::SPELLPROOF;
+
+/// Whether a ward of the arrows' (`arrows`) or of the spells' flashes for a turn of `art`.
+fn flashes_for(arrows: bool, art: u32) -> bool {
+    art == if arrows { ARROWPROOF } else { SPELLPROOF }
+}
 
 /// A ward to show about its bearer, made with its effect (`making`): its bearer, whether it is
 /// the arrowproof's, and its effect's seconds.
@@ -197,8 +204,8 @@ fn dress(
 
 /// Runs each ward a frame on (`0x7A0940`, `0x7A0380`) and draws it (`0x7A0A60`, `0x7A0490`): its
 /// model at its bearer's root, scaled across by its breadth and upright by its rise, turned
-/// about the upright, in its grey; an arrow the arrowproof sends back flashes it; it goes once it
-/// has sunk, or with its bearer.
+/// about the upright, in its grey; an arrow the arrowproof sends back, or a spell the spellproof
+/// turns aside, flashes it; it goes once it has sunk, or with its bearer.
 fn run(
     mut commands: Commands,
     time: Res<Time>,
@@ -211,11 +218,7 @@ fn run(
     ),
 ) {
     let dt = time.delta_secs();
-    let flashed: Vec<Entity> = flashes
-        .read()
-        .filter(|flash| flash.1 == ARROWPROOF)
-        .map(|flash| flash.0)
-        .collect();
+    let flashed: Vec<(Entity, u32)> = flashes.read().map(|flash| (flash.0, flash.1)).collect();
     for (entity, mut ward, mut transform) in &mut shown {
         let ward = &mut *ward;
         let Ok(place) = places.get(ward.bearer).map(GlobalTransform::translation) else {
@@ -223,7 +226,10 @@ fn run(
             commands.entity(entity).despawn();
             continue;
         };
-        if ward.arrows && flashed.contains(&ward.bearer) {
+        if flashed
+            .iter()
+            .any(|&(bearer, art)| bearer == ward.bearer && flashes_for(ward.arrows, art))
+        {
             ward.look.flash();
         }
         ward.look.update(dt);
@@ -264,5 +270,20 @@ impl Plugin for DarkWardsPlugin {
                 .in_set(Unpaused)
                 .run_if(in_state(AppState::InGame)),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_ward_flashes_for_what_it_turns_aside() {
+        assert!(flashes_for(true, ARROWPROOF) && !flashes_for(true, SPELLPROOF));
+        assert!(flashes_for(false, SPELLPROOF) && !flashes_for(false, ARROWPROOF));
+        assert!(!flashes_for(
+            false,
+            u32::from(opensacred_rules::spells::SHIELD_WALL)
+        ));
     }
 }

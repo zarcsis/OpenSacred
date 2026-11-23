@@ -2542,7 +2542,8 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
 `opensacred-game` draws the two since #1092 (`dark_wards`, `opensacred_rules::particles::DarkWard`) about the hero who makes the art, with their models' clips looping, under his model (`models::Pass::Under`, as the original draws the system before the creature, #2178), and flashes the arrowproof at each arrow it sends back (`shields::Flash`).
 **Seen** 2026-11-07 in the game (not beside the original): the arrowproof's magenta rings rising about the Dark Elf and standing, the spellproof's cyan rings with it, both under his model and under a creature in a row in front of him.
 The spellproof turns spells aside by its effect `0x1A` since #2945 (`fight::resolve`, `spells::share_turned`).
-Not followed yet: its flash at a spell it turns aside (#3172), and the wards made at an admitted target other than the Dark Elf (#3124).
+Since #3172 the spellproof flashes at each spell it turns aside, a strike's or a gift's (`dark_wards`, `fight`).
+Not followed yet: the wards made at an admitted target other than the Dark Elf (#3124).
 
 ## The Dark Elf's casts
 
