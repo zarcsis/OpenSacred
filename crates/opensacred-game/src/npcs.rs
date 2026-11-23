@@ -8970,11 +8970,27 @@ const DEFENDING_BACK: f32 = 0.2;
 /// clip's end, or 0.2 s before it for the slots 53 to 65 (`0x545204`), and the creature stands
 /// again (`stance`). As the clip passes their shares, a cast's act is marked ([`ClipActs`]) and
 /// an art's hits are sent ([`ArtHit`]). A slot its model lacks plays nothing, a cast of one
-/// acting at once.
+/// acting at once. Shaddar's clip of the slot 163 never ends: at each world's tick past its blend
+/// in where the share of its span left is below 0.35 or above 0.85 it leaps back to its half,
+/// with no blend, so that his body holds one stretch of it (`0x544C58`–`0x544DC3`,
+/// `opensacred_rules::shaddar::held_clip_leaps`, #3449), until another clip takes its place.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's query carries its filters"
+)]
 fn script_clips(
     mut commands: Commands,
-    data: Res<Npcs>,
-    mut npcs: Query<(Entity, &mut Npc, &mut ScriptClip, Option<&fight::Combat>), Without<Dies>>,
+    (data, tick): (Res<Npcs>, Res<WorldTick>),
+    mut npcs: Query<
+        (
+            Entity,
+            &mut Npc,
+            &mut ScriptClip,
+            Option<&fight::Combat>,
+            Option<&ai::Mind>,
+        ),
+        Without<Dies>,
+    >,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     (gltfs, clips): (Res<Assets<Gltf>>, Res<Assets<AnimationClip>>),
     mut graphs: ResMut<Assets<AnimationGraph>>,
@@ -8984,7 +9000,7 @@ fn script_clips(
         MessageWriter<ArtHit>,
     ),
 ) {
-    for (entity, mut npc, mut clip, combat) in &mut npcs {
+    for (entity, mut npc, mut clip, combat, mind) in &mut npcs {
         let Some(player_entity) = npc.player else {
             continue;
         };
@@ -8993,6 +9009,28 @@ fn script_clips(
         };
         if let Some((node, handle)) = clip.playing.clone() {
             let length = clips.get(&handle).map_or(0.0, AnimationClip::duration);
+            if clip.slot == opensacred_rules::shaddar::HELD_SLOT
+                && mind.is_some_and(|mind| mind.creature == SHADDAR)
+            {
+                if transitions.get_main_animation() != Some(node) {
+                    bevy::log::debug!("npcs: {entity}'s held clip gives way to another");
+                    commands.entity(entity).remove::<ScriptClip>();
+                } else if tick.seconds.is_some()
+                    && length > 0.0
+                    && let Some(active) = player.animation_mut(node)
+                    && active.elapsed() >= CLIP_IN.as_secs_f32()
+                    && opensacred_rules::shaddar::held_clip_leaps(
+                        (length - active.seek_time()).max(0.0) / length,
+                    )
+                {
+                    if active.is_finished() {
+                        active.replay();
+                    }
+                    active.seek_to(length / 2.0);
+                    bevy::log::debug!("npcs: {entity}'s held clip leaps back to its half");
+                }
+                continue;
+            }
             // A cast's act at its share of the clip, or as it ends.
             let acts = clip.acts_at.is_some_and(|share| {
                 player.animation(node).is_none_or(|active| {

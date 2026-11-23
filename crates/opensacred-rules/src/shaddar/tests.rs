@@ -189,3 +189,12 @@ fn the_balance_gives_the_slaves_their_strike_and_speed() {
     assert_eq!(rules.slave_damages(), [100.0; 4]);
     assert_eq!(rules.slave_speed(), 85.0);
 }
+
+#[test]
+fn shaddars_held_clip_leaps_back_to_its_half_outside_its_stretch() {
+    // At its first tick near its start, and past 0.65 of its span.
+    assert!(held_clip_leaps(0.99) && held_clip_leaps(0.851) && held_clip_leaps(0.34));
+    assert!(held_clip_leaps(0.0));
+    // Within its stretch it plays on.
+    assert!(!held_clip_leaps(0.85) && !held_clip_leaps(0.5) && !held_clip_leaps(0.35));
+}
