@@ -1285,6 +1285,47 @@ pub const ICE_DRUID_STROLL_STANDS: u8 = 3;
 pub const ICE_DRUID: u32 = 141;
 pub const ICE_DRUIDS_ART_SLOT: u16 = 154;
 
+/// The hell golems, whose Gladiator's `Attacke` plays their own slots ([`attacke_slot`]).
+pub const HELL_GOLEMS: [u32; 2] = [204, 350];
+/// The minimummies, likewise.
+pub const MINIMUMMIES: [u32; 4] = [192, 329, 342, 343];
+
+/// The slot that a creature of the type `creature`, holding what is of the class `class`, plays
+/// for the Gladiator's `Attacke` ([`GLADIATORS_ATTACKE`]) in place of its class's, where it is one
+/// of the six types that play their own (`0x502667`–`0x5028A5`; docs/re/arts.md, "The arts'
+/// clips", #3428), by `dice`: a hell golem by a coin (`rand() % 2`) the `Attacke`'s slot by what
+/// it holds, 212 for the class 2 and 211 for any other, or the first attack of its class, 89 for
+/// the class 2, 79 bare-handed and 84 for any other; a minimummy, whatever it holds, 144 in one
+/// case of three (`rand() % 3` of 0), else 145 or 146 by a coin. None for another type or art.
+pub fn attacke_slot(
+    creature: u32,
+    class: u8,
+    art: u16,
+    dice: &mut impl crate::spawning::Dice,
+) -> Option<u16> {
+    if art != GLADIATORS_ATTACKE {
+        return None;
+    }
+    if HELL_GOLEMS.contains(&creature) {
+        let two_handed = class == 2;
+        return Some(match (dice.below(2), two_handed, class) {
+            (0, true, _) => 212,
+            (0, false, _) => 211,
+            (_, true, _) => 89,
+            (_, false, 0) => 79,
+            _ => 84,
+        });
+    }
+    if MINIMUMMIES.contains(&creature) {
+        return Some(if dice.below(3) == 0 {
+            144
+        } else {
+            145 + u16::try_from(dice.below(2)).unwrap_or(0)
+        });
+    }
+    None
+}
+
 /// The slot that the creature of the type `creature` plays for `art` in place of the Seraphim's
 /// own ([`ICE_DRUIDS_ART_SLOT`]), where it has one.
 pub fn ice_druids_slot(creature: u32, art: u16) -> Option<u16> {
@@ -1893,5 +1934,50 @@ mod tests {
         // None below the caster's own: herself.
         assert_eq!(least_share(&[(0, 10, 100), (1, 40, 150)]), Some(0));
         assert_eq!(least_share::<u8>(&[]), None);
+    }
+
+    /// Dice that answer `rolls` in turn, each below its `n`.
+    struct Rolls(Vec<u32>);
+
+    impl crate::spawning::Dice for Rolls {
+        fn below(&mut self, n: u32) -> u32 {
+            let roll = if self.0.is_empty() {
+                0
+            } else {
+                self.0.remove(0)
+            };
+            roll.min(n.saturating_sub(1))
+        }
+    }
+
+    #[test]
+    fn the_hell_golems_and_the_minimummies_play_their_own_attacke() {
+        use super::{GLADIATORS_ATTACKE, attacke_slot};
+        let slot = |creature, class, rolls: &[u32]| {
+            attacke_slot(
+                creature,
+                class,
+                GLADIATORS_ATTACKE,
+                &mut Rolls(rolls.to_vec()),
+            )
+        };
+        // A hell golem: by a coin the Attacke's slot by what it holds, or its first attack.
+        assert_eq!(
+            (slot(204, 2, &[0]), slot(204, 1, &[0]), slot(350, 0, &[0])),
+            (Some(212), Some(211), Some(211))
+        );
+        assert_eq!(
+            (slot(204, 2, &[1]), slot(204, 0, &[1]), slot(350, 1, &[1])),
+            (Some(89), Some(79), Some(84))
+        );
+        // A minimummy: 144 in one case of three, else 145 or 146 by a coin, whatever it holds.
+        assert_eq!(slot(192, 0, &[0]), Some(144));
+        assert_eq!(
+            (slot(329, 1, &[1, 0]), slot(343, 2, &[2, 1])),
+            (Some(145), Some(146))
+        );
+        // Another type, or another art, none.
+        assert_eq!(slot(76, 0, &[0]), None);
+        assert_eq!(attacke_slot(204, 0, 1058, &mut Rolls(vec![0])), None);
     }
 }
