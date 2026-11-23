@@ -97,7 +97,8 @@ fn tick(world: Res<WorldTick>, mut rings: Query<&mut Ring>) {
 
 /// Sets the hero's ring at each tick: 4 s while it fights, an attack's target, a strike or an art
 /// under way; else 1 s while a hostile creature is within 350, or 1,000 with a ranged weapon
-/// (`0x547070`), though it held more.
+/// (`0x547070`), or while the stance's bit of a shoo holds (`0x599A86`, `ai::Shoos`, #3150),
+/// though it held more.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -111,7 +112,11 @@ fn hero(
             &Transform,
             Option<&mut Ring>,
             Option<&crate::attack::Attack>,
-            (Has<crate::attack::Striking>, Has<crate::making::Playing>),
+            (
+                Has<crate::attack::Striking>,
+                Has<crate::making::Playing>,
+                Has<crate::ai::Shoos>,
+            ),
             Option<&crate::fight::Holding>,
         ),
         (With<Body>, Without<Dies>),
@@ -121,7 +126,7 @@ fn hero(
     if world.seconds.is_none() {
         return;
     }
-    for (entity, at, ring, attack, (striking, making), holding) in &mut heroes {
+    for (entity, at, ring, attack, (striking, making, shoos), holding) in &mut heroes {
         let fights = striking || making || attack.is_some_and(|attack| attack.target().is_some());
         let within = if holding.is_some_and(|holding| holding.0.ranged) {
             RING_NEAR_RANGED
@@ -135,7 +140,7 @@ fn hero(
         };
         let timer = if fights {
             Some(RING_FIGHTS)
-        } else if near() {
+        } else if shoos || near() {
             Some(RING_NEAR)
         } else {
             None

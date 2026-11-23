@@ -2422,6 +2422,8 @@ fn behave(
     let night = clock.phase() == Phase::Night;
     let mut walks = Vec::new();
     let mut turns: Vec<(Entity, Vec3)> = Vec::new();
+    // The last child shooed this tick, which the hero faces (#3150).
+    let mut shooed: Option<Vec3> = None;
     let mut stops: Vec<Entity> = Vec::new();
     // The doings written on others than the one deciding: a meeting's partner's (`0x4FC650`).
     let mut doings: Vec<(Entity, u16)> = Vec::new();
@@ -2905,6 +2907,7 @@ fn behave(
                         }
                         Child::Shooed(to) => {
                             mind.activity = activity::WALKS;
+                            shooed = Some(here);
                             let to = point(to, here.y);
                             walks.push((entity, Walk::run(to, way.level, mind.run)));
                         }
@@ -3072,6 +3075,46 @@ fn behave(
     for (entity, at) in turns {
         if let Ok((_, mut transform, ..)) = creatures.get_mut(entity) {
             transform.rotation = crate::hero::facing(at - transform.translation);
+        }
+    }
+    if let Some(toward) = shooed {
+        commands.entity(the_hero).insert(Shoos {
+            toward,
+            left: SHOO_HOLDS,
+        });
+    }
+}
+
+/// How long the hero's stance's bit of a shoo holds, until its next look clears it (**estimate**:
+/// its look every 0.3 s; seen 0.08 to 0.33 s, #3517).
+const SHOO_HOLDS: f32 = 0.3;
+
+/// The hero's stance's bit of a shoo (`0x4F2C8C`; docs/re/ai.md, "Children and jugglers",
+/// #3150): it faces the child that it shooed last, `toward`, at once (`0x44DD90`), and its ring
+/// shows while the bit holds (`health_rings`), `left` seconds more.
+#[derive(Component, Clone, Copy, Debug)]
+pub(crate) struct Shoos {
+    pub toward: Vec3,
+    pub left: f32,
+}
+
+/// Turns the hero to the child it shoos at once, no clip turning it, and lets the shoo's bit go
+/// as its time runs out.
+fn face_shooed(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut heroes: Query<(Entity, &mut Transform, &mut Shoos), With<Body>>,
+) {
+    for (hero, mut transform, mut shoos) in &mut heroes {
+        if shoos.is_changed() {
+            let to = (shoos.toward - transform.translation).with_y(0.0);
+            if to.length_squared() > 0.0 {
+                transform.rotation = crate::hero::facing(to);
+            }
+        }
+        shoos.left -= time.delta_secs();
+        if shoos.left <= 0.0 {
+            commands.entity(hero).remove::<Shoos>();
         }
     }
 }
@@ -3339,7 +3382,8 @@ impl Plugin for AiPlugin {
                 (alarm, fetzers_struck, turn_on_attackers)
                     .in_set(Step::Crowd)
                     .before(think),
-            );
+            )
+            .add_systems(Update, face_shooed.in_set(Step::Crowd).after(behave));
     }
 }
 
