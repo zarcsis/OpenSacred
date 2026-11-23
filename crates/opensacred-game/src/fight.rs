@@ -469,6 +469,19 @@ pub(crate) fn resolve(
         } else {
             victim.map_or(0, |victim| victim.creature)
         };
+        // The purple potions that either bears, which raise their bearer against an undead and
+        // lower an undead against their bearer in both records (`0x569A29`–`0x569D72`, #3483).
+        let potions_of = |entity: Entity| {
+            effects
+                .get(entity)
+                .map(|held| potions::banishing(&held.list()))
+                .unwrap_or_default()
+        };
+        let (striker_potions, struck_potions) = (potions_of(hit.attacker), potions_of(hit.target));
+        let is_undead = |mind: Option<&crate::ai::Mind>| {
+            mind.is_some_and(|mind| mind.class == opensacred_rules::undead::CLASS)
+        };
+        let (striker_undead, struck_undead) = (is_undead(mind), is_undead(victim));
         let mut striking = attacker.0;
         if hit.fixed.is_none() || hit.hurled {
             let against = HurledAt {
@@ -479,6 +492,12 @@ pub(crate) fn resolve(
                 &items_of(holding, caster_arms),
                 striking.attributes,
                 against,
+            )
+            .with_potions(
+                &striker_potions,
+                struck_undead,
+                &struck_potions,
+                striker_undead,
             );
             let raised = striking.striking_with(&add);
             striking = if hit.hurled {
@@ -495,7 +514,13 @@ pub(crate) fn resolve(
                 thrower: target_type,
                 ..opponent(hero, mind, (holding, caster_arms, saddle))
             };
-            let add = against_class(&items_of(guarded, arms), defending.attributes, against);
+            let add = against_class(&items_of(guarded, arms), defending.attributes, against)
+                .with_potions(
+                    &struck_potions,
+                    striker_undead,
+                    &striker_potions,
+                    struck_undead,
+                );
             defending = defending.struck_with(&add);
         }
         // The two's stored attributes, by which their items' rare effects grow (`0x568C40`), and
