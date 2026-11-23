@@ -457,12 +457,6 @@ struct Placement {
     /// Whether the start made it, its script or a quest it entered rather than a sector's
     /// function: its creature takes its level as the game starts ([`place`]).
     started: bool,
-    /// Whether it is an object of the start's outside the 3 × 3 sectors about its start, which the
-    /// original's start keeps in the interpreter's list `+0x364` rather than making it, and which
-    /// its sector's `Enter` makes again each time, flagged `0x4000` ([`MadeAgain`], #2292). The
-    /// start's tree gives it as a game loads; a save keeps no placement of the start's.
-    #[serde(skip)]
-    made_again: bool,
     /// Whether it is an effect of the start's of a type off the persistent list outside the 3 × 3
     /// sectors about its start, which the original makes at once in a sector that no `Enter` has
     /// marked and its tick ends at its first run (`0x5A6210`, [`ends_at_start`], #3049): never
@@ -1123,7 +1117,6 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         size: kind.size,
         made: (true, false),
         started: false,
-        made_again: false,
         ended: false,
         dialogue: false,
         trades: 0,
@@ -1522,13 +1515,6 @@ pub struct Object {
     /// (`containers::pick`, #1978).
     pub level: Level,
 }
-
-/// An object of the start's that its sector's `Enter` made again from the interpreter's list
-/// `+0x364` (`0x4939F0` at `0x494924`), flagged `0x4000` (`+0x14`): a creature that went for it as
-/// a door in its way opens it not (`0x53BF19`, `ai::open`, #2292). The original flags an emptied
-/// container alone so (docs/re/fight.md, "Doors in the way"), no door (#3398).
-#[derive(Component, Clone, Copy, Debug)]
-pub struct MadeAgain;
 
 /// The texture a placed model takes in place of its own: its item's (`items.pak +0x08`).
 #[derive(Component)]
@@ -4010,7 +3996,6 @@ impl Makers {
             size: arrows::size(item.words_14[0]),
             made: (origin.enter, true),
             started: origin.started,
-            made_again: false,
             ended: false,
             dialogue: record.kind == CREATE_NPC
                 && ops.iter().any(|o| {
@@ -4717,28 +4702,14 @@ impl Npcs {
         let equips = set_states(&records, &made, &mut placements);
         makers.equip(equips, &mut placements, &mut model_slots)?;
         // The start's objects outside the 3 × 3 about its `StartPosition`, the sectors that no
-        // `Enter` has marked yet (`+0x30` bit `0x800`), which its `CreateObj`s keep in the
-        // interpreter's list `+0x364` rather than making them (`0x486AA7`), their sectors' `Enter`
-        // making them each time (#2292): its chests, barrels and the like, not its effects, made
-        // before (`0x48907C`).
+        // `Enter` has marked yet (`+0x30` bit `0x800`): its effects of the types off the
+        // persistent list there end at once (#3049). Its chests, barrels and the like there, which
+        // its `CreateObj`s keep in the interpreter's list `+0x364` for their sectors' `Enter` to
+        // make each time (`0x486AA7`, #2292), are placed as any other, the emptied ones by their
+        // placements (#1380; docs/re/fight.md, "The containers that an `Enter` makes again").
         if let Some(((x, y), _)) = start_position(tree) {
             let side = u32::try_from(SIDE).unwrap_or(64);
             let start = (x / side, y / side);
-            let mut again = 0;
-            for placement in placements
-                .iter_mut()
-                .filter(|p| p.object && p.started && !p.special && p.fx_loop.is_none())
-            {
-                let sector = (placement.cell.0 / side, placement.cell.1 / side);
-                placement.made_again =
-                    sector.0.abs_diff(start.0) > 1 || sector.1.abs_diff(start.1) > 1;
-                again += usize::from(placement.made_again);
-            }
-            bevy::log::debug!(
-                "npcs: {again} of the start's objects lie outside its 3 x 3, made again by their \
-                 sectors' Enter"
-            );
-            // Its effects of the types off the persistent list there end at once (#3049).
             for placement in placements.iter_mut().filter(|p| p.object && p.started) {
                 let kind = placement.creature.0;
                 let effect = items.get(&kind).is_some_and(|item| category(item) == FX);
@@ -7560,9 +7531,6 @@ fn spawn(
             at: position,
             level,
         });
-        if placement.made_again {
-            entity.insert(MadeAgain);
-        }
         if placement.blocks {
             entity.insert(crowd::InTheWay::object(level));
         }
@@ -12669,8 +12637,9 @@ pub struct Stashed {
 }
 
 /// Lays each dying NPC down: its dying clip once, its walk, its strike, its mind and its place in
-/// the way gone, what it was kept ([`Corpse`]), and its mind and place kept aside where it may
-/// rise again or the scripts name it ([`Stashed`]).
+/// the way gone, what it was kept ([`Corpse`]), its death's stamp put back where it dies beside a
+/// soulcatcher ([`crate::bodies::PutBack`]), and its mind and place kept aside where it may rise
+/// again or the scripts name it ([`Stashed`]).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -12683,11 +12652,14 @@ pub(crate) fn die(
         &mut Dies,
         (Option<&ai::Mind>, Option<&crowd::InTheWay>),
         (Has<RisesAgain>, Has<ScriptName>),
+        (Option<&Transform>, Option<&arrows::Size>),
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
-    speed: Res<hero::GameSpeed>,
+    catchers: Query<(&Transform, &hero::Body, &crate::effects::Effects), Without<Npc>>,
+    (speed, settings): (Res<hero::GameSpeed>, Option<Res<crate::settings::Settings>>),
 ) {
-    for (entity, npc, mut dies, (mind, way), (rises, named)) in &mut dying {
+    let detail = crate::settings::detail(settings.as_deref());
+    for (entity, npc, mut dies, (mind, way), (rises, named), (at, size)) in &mut dying {
         if dies.played {
             continue;
         }
@@ -12701,6 +12673,26 @@ pub(crate) fn die(
                 hostile: mind.hostile(),
                 flags: mind.flags,
             });
+            // Beside a soulcatcher's object 869 on its level, as its death is stamped
+            // (`0x53E889`–`0x53E8F0`, #3387): every time counted from its death comes sooner.
+            let size = size.map_or(arrows::size(0), |size| size.0);
+            let beside = at.is_some_and(|at| {
+                catchers.iter().any(|(catcher, body, effects)| {
+                    effects.holds(opensacred_rules::arts::SOULCATCHER)
+                        && body.level() == way.level
+                        && opensacred_rules::undead::beside_soulcatcher(
+                            (catcher.translation - at.translation).xz().length(),
+                            size,
+                        )
+                })
+            });
+            if beside && !dies.fallen {
+                let back = opensacred_rules::undead::soulcatcher_back(detail);
+                bevy::log::debug!(
+                    "npcs: {entity} dies beside a soulcatcher, its stamp {back} s back"
+                );
+                commands.entity(entity).insert(crate::bodies::PutBack(back));
+            }
             // One that may rise or that the scripts name, whose `SetHP` or queue may lift it
             // (#2459, #2477).
             if rises || named {
@@ -13115,6 +13107,7 @@ fn strike(
                     sure: false,
                     poison: false,
                     ward: false,
+                    hurled: false,
                     attacker: entity,
                     target: strikes.target,
                     share: npc.hits.share,
@@ -13265,9 +13258,9 @@ fn first_fight(
 /// it stands in (`opensacred_rules::fight::Rank::held`) and makes its values anew with its health
 /// refilled, its items as they are, even where the hold keeps its level, as the original's does
 /// at each such kill, and bursts it into its sparks (`0x57F504`, `level_sparks`, #2762). Not
-/// followed: the same share of a rider's mount or a horse's rider (`+0x1EC`, #3393), and the
-/// master's taking of a follower's kill (#3394); a blue potion's effect adds to the kill's
-/// experience (#1353).
+/// followed: the same share of a rider's mount or a horse's rider (`+0x1EC`, #3393); a follower of
+/// the hero earns nothing, its kill going to the hero (`fight::resolve`, #3394); a blue potion's
+/// effect adds to the kill's experience (#1353).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -14445,6 +14438,58 @@ mod tests {
     use opensacred_data::netscript::{Function, Operand};
 
     use super::*;
+
+    #[test]
+    fn a_death_beside_a_soulcatcher_on_its_level_puts_its_stamp_back() {
+        let mut app = App::new();
+        app.add_plugins(bevy::prelude::MinimalPlugins)
+            .init_resource::<hero::GameSpeed>()
+            .add_systems(Update, die);
+        let mut effects = crate::effects::Effects::default();
+        effects.add(
+            opensacred_rules::fight::Effect::new(opensacred_rules::arts::SOULCATCHER, 1.0),
+            40.0,
+        );
+        app.world_mut()
+            .spawn((Transform::default(), hero::Body::standing(), effects));
+        let dying = |app: &mut App, x: f32, level: Level| {
+            app.world_mut()
+                .spawn((
+                    Transform::from_xyz(x, 0.0, 0.0),
+                    Npc {
+                        gltf: Handle::default(),
+                        model: String::new(),
+                        names: ClipNames::default(),
+                        graph: None,
+                        player: None,
+                        hands_empty: true,
+                        instrument: None,
+                        hits: Hits {
+                            class: 0,
+                            share: 1.0,
+                        },
+                        pace: 1.0,
+                    },
+                    Dies::new(0),
+                    ai::Mind::new(Vec3::ZERO, 1, (false, false), None, [70.0, 180.0], (76, 2)),
+                    crowd::InTheWay::of(0, 0, level),
+                ))
+                .id()
+        };
+        // A goblin warrior of the size 50 within 550 of him, one beyond, one on another level.
+        let near = dying(&mut app, 540.0, None);
+        let far = dying(&mut app, 560.0, None);
+        let upstairs = dying(&mut app, 100.0, Some((0, 0, 1)));
+        app.update();
+        let back = |entity| {
+            app.world()
+                .get::<crate::bodies::PutBack>(entity)
+                .map(|back| back.0)
+        };
+        assert_eq!(back(near), Some(18.0));
+        assert_eq!(back(far), None);
+        assert_eq!(back(upstairs), None);
+    }
 
     #[test]
     fn the_small_spider_plays_its_walk_for_every_action() {

@@ -55,6 +55,16 @@ impl Follower {
     pub fn escorted(&self) -> bool {
         self.escorted
     }
+
+    /// A follower of `master` that fights, for a test.
+    #[cfg(test)]
+    pub(crate) fn of(master: Entity) -> Self {
+        Self {
+            master,
+            stepping_off: false,
+            escorted: false,
+        }
+    }
 }
 
 /// What a script's `CreateNPC` or `SetNPCState` does to its creature (#657): hires it as the

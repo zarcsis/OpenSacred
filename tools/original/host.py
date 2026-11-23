@@ -1660,7 +1660,8 @@ def main():
     server.shutdown()
     code = host.exit_code if host.exit_code is not None else 1
     # After a `quit`, the game's own end that hung (ended by the host) or crashed past its WinMain is a fault of its
-    # end, not of its play: since #3183 seen after the driver's `kill` above all, its root not found.
+    # end, not of its play: its Granny teardown breaks the heap after creatures' deaths, which the agent's `close`
+    # leaves out (#3183, #3378; docs/re/window.md, "The game's end"), so that this warning should no longer come.
     if host.quitting and code != 0:
         journal.push('WARN', 'host', f"the game's end after the quit did not finish cleanly (code {code}): a fault of "
                      'its end, not of its play (#3183)')

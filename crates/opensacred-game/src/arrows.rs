@@ -530,7 +530,10 @@ fn fly(
                         };
                         arrow.flight.turn(direction);
                         arrow.shooter = hero_entity;
-                        arrow.target = old;
+                        // Its target the hero that sent it back (`+0x204`), which it meets no
+                        // more: it strikes the first creature hostile to the hero on its way, its
+                        // old shooter of no preference (#3397).
+                        arrow.target = hero_entity;
                         arrow.share = ward.value;
                         transform.rotation = pointing(arrow.flight.velocity());
                     }
@@ -629,6 +632,7 @@ fn fly(
             sure: false,
             poison: false,
             ward: false,
+            hurled: false,
             attacker: arrow.shooter,
             target: on,
             share: arrow.share,

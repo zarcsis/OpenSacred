@@ -2,7 +2,9 @@
 //! or 2 s after its death by the options' detail (`opensacred_rules::undead::vanishes_after`,
 //! `0x54101B`), then vanishes at once, its figure in pale green sparks rising where it lay (780
 //! homing on nothing, `soul_sparks`), and is destroyed 25, 10 or 7 s after its death
-//! (`undead::destroy`); time alone counts, not the hero's distance nor the bodies' number. A body
+//! (`undead::destroy`); time alone counts, not the hero's distance nor the bodies' number, but a
+//! death beside the Dark Elf's soulcatcher, which puts its stamp back by 18, 3 or 1 s ([`PutBack`],
+//! `0x53E889`, #3387). A body
 //! lies on while its flags word holds `0x2000` (the tag `0x45`), a death's function still stands
 //! for it, it has a dialogue, a stable's stamp or the trader's, or it rises again
 //! (`npcs::RisesAgain`), and vanishes at the first check once the hold ends (`0x54140A`). Some
@@ -44,6 +46,19 @@ struct Lies {
     demon: bool,
 }
 
+/// The seconds that a death beside the Dark Elf's soulcatcher put its stamp back
+/// (`opensacred_rules::undead::soulcatcher_back`, `npcs::die`, #3387), by which its body vanishes,
+/// is destroyed and rises that much sooner (`undead`).
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PutBack(pub(crate) f32);
+
+impl PutBack {
+    /// The seconds that `put_back` puts a time counted from the death back, none without one.
+    pub(crate) fn of(put_back: Option<&Self>) -> f32 {
+        put_back.map_or(0.0, |back| back.0)
+    }
+}
+
 /// A body to lay its blood puddle under ([`puddle`]), of its creature's type, whose gib set
 /// colours it: an NPC's at its first tick of lying, the hero's as its dying clip ends
 /// (`hero::fall`, #3082).
@@ -78,7 +93,7 @@ fn lie(
             &Corpse,
             &Dies,
             &GlobalTransform,
-            Option<&Npc>,
+            (Option<&Npc>, Option<&PutBack>),
             (Has<Bursts>, Has<RisesAgain>, Has<Vision>),
         ),
         Added<Corpse>,
@@ -94,7 +109,7 @@ fn lie(
     let violence = settings
         .as_deref()
         .is_some_and(|settings| settings.gameplay.violence);
-    for (entity, corpse, dies, at, npc, (bursts, rises, vision)) in &lying {
+    for (entity, corpse, dies, at, (npc, put_back), (bursts, rises, vision)) in &lying {
         if bursts
             || dies.rises
             || corpse.class == undead::CLASS
@@ -117,10 +132,11 @@ fn lie(
             kept: false,
             stoned: false,
         };
+        let back = PutBack::of(put_back);
         let time = if dies.fallen {
             0.0
         } else {
-            undead::vanishes_after(detail)
+            undead::vanishes_after(detail) - back
         };
         let set = gibs.as_deref().map_or(0, |gibs| gibs.of(corpse.creature));
         commands.entity(entity).insert((
@@ -132,7 +148,7 @@ fn lie(
                 puddle: violence && !dies.fallen && !rises && undead::puddles(corpse.creature, set),
                 demon: !dies.fallen && undead::BIG_DEMONS.contains(&corpse.creature),
             },
-            Destroyed(undead::destroyed_after(detail)),
+            Destroyed(undead::destroyed_after(detail) - back),
         ));
     }
 }
@@ -458,6 +474,48 @@ mod tests {
         assert!(app.world().get::<Destroyed>(body).is_some());
         assert_eq!(app.world().resource::<Seen>().0, [body]);
         assert!(app.world().get::<Corpse>(named).is_some());
+    }
+
+    #[test]
+    fn a_body_whose_stamp_a_soulcatcher_put_back_vanishes_2_s_after_its_death() {
+        use bevy::time::TimeUpdateStrategy;
+        use std::time::Duration;
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+                250,
+            )))
+            .add_message::<crate::souls::Vanished>()
+            .init_resource::<Seen>()
+            .add_systems(Update, (lie, vanish, seen).chain());
+        let body = app
+            .world_mut()
+            .spawn((
+                corpse(0),
+                Dies::new(0),
+                GlobalTransform::default(),
+                PutBack(undead::soulcatcher_back(2)),
+            ))
+            .id();
+        app.update();
+        // Destroyed 7 s after its death.
+        assert_eq!(
+            app.world()
+                .get::<Destroyed>(body)
+                .map(|destroyed| destroyed.0),
+            Some(7.0)
+        );
+        // 1.25 or 1.5 s: it lies.
+        for _ in 0..5 {
+            app.update();
+        }
+        assert!(app.world().get::<Corpse>(body).is_some());
+        // 2.25 or 2.5 s: its soul has left.
+        for _ in 0..4 {
+            app.update();
+        }
+        assert!(app.world().get::<Corpse>(body).is_none());
+        assert_eq!(app.world().resource::<Seen>().0, [body]);
     }
 
     #[test]

@@ -174,15 +174,36 @@ pub fn drain(
         });
 }
 
-/// Each undead that lies its time stands again ([`stand`]).
+/// Each undead that lies its time stands again ([`stand`]), once its dying clip has played: 4 s
+/// after its death, sooner where its stamp was put back beside a soulcatcher, as soon as its clip
+/// ends at the detail 2 (`crate::bodies::PutBack`, #3387; docs/re/fight.md, "The bodies' end").
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
 fn rise(
     mut commands: Commands,
     time: Res<Time>,
-    mut lying: Query<(Entity, &mut Rises), With<Corpse>>,
+    mut lying: Query<
+        (
+            Entity,
+            &mut Rises,
+            (Option<&crate::bodies::PutBack>, Option<&Npc>, Option<&Dies>),
+        ),
+        With<Corpse>,
+    >,
+    players: Query<&AnimationPlayer>,
 ) {
-    for (corpse, mut rises) in &mut lying {
+    for (corpse, mut rises, (put_back, npc, dies)) in &mut lying {
         rises.lies -= time.delta_secs();
-        if rises.lies > 0.0 {
+        if rises.lies > crate::bodies::PutBack::of(put_back) {
+            continue;
+        }
+        let played = match (npc, dies) {
+            (Some(npc), Some(dies)) => crate::npcs::dying_ended(npc, dies, &players),
+            _ => true,
+        };
+        if !played {
             continue;
         }
         let hostile = rises.hostile;
@@ -399,7 +420,16 @@ pub fn change(world: &mut World, fallen: Entity, rises: Rises, (choice, by_creat
 )]
 fn last(
     mut commands: Commands,
-    lying: Query<(Entity, &Corpse, &Dies, &GlobalTransform, Has<Bursts>), Added<Corpse>>,
+    lying: Query<
+        (
+            Entity,
+            &Corpse,
+            &Dies,
+            &GlobalTransform,
+            (Has<Bursts>, Option<&crate::bodies::PutBack>),
+        ),
+        Added<Corpse>,
+    >,
     settings: Option<Res<crate::settings::Settings>>,
     (mut sounds, gibs, mut thrown): (
         MessageWriter<Play>,
@@ -407,7 +437,7 @@ fn last(
         MessageWriter<crate::body_parts::Burst>,
     ),
 ) {
-    for (entity, corpse, dies, at, bursts) in &lying {
+    for (entity, corpse, dies, at, (bursts, put_back)) in &lying {
         if bursts {
             let set = gibs.as_ref().map_or(0, |gibs| gibs.of(corpse.creature));
             burst(
@@ -421,9 +451,11 @@ fn last(
         if dies.rises {
             continue;
         }
-        let destroyed = Destroyed(undead::destroyed_after(crate::settings::detail(
-            settings.as_deref(),
-        )));
+        // Destroyed so long after the death, its stamp put back beside a soulcatcher (#3387).
+        let destroyed = Destroyed(
+            undead::destroyed_after(crate::settings::detail(settings.as_deref()))
+                - crate::bodies::PutBack::of(put_back),
+        );
         if corpse.creature == undead::FIRE_GHOUL {
             commands.entity(entity).insert((BurnsAfterClip, destroyed));
             continue;

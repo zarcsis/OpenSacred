@@ -32,7 +32,7 @@ The window procedure (`0x812BF0`; Ghidra has it as a label, not a function) firs
 |---|---|
 | `WM_CREATE` | (not read) |
 | `WM_DESTROY` | logs `message: WM_DESTROY` (observed) and posts the quit with 0 |
-| `WM_CLOSE` | logs, then `terminateApp` (`0x817580`): stops the threads and subsystems, destroys the display (`dxDriver7::~dxDriver7`), and, in full screen, restores the display mode (`ChangeDisplaySettingsA(NULL, 0)`); the window is then destroyed |
+| `WM_CLOSE` | logs, then `terminateApp` (`0x817580`): stops the threads and subsystems, destroys the display (`dxDriver7::~dxDriver7`), and, in full screen, restores the display mode (`ChangeDisplaySettingsA(NULL, 0)`); the window is then destroyed ("The game's end" below) |
 | `WM_ACTIVATEAPP` | logs `WindowProc_engine(%d, %d) WM_ACTIVATEAPP`; active: clears the flag `0x20000` of the engine's flags word `0x182EE38` and calls `SetFocus` on its window; inactive: sets the flag; either way posts a sound event, and in full screen (the display's `+0x90` is 1) sets the display mode again |
 | `WM_SETCURSOR` | hides the system's cursor (`SetCursor(NULL)`) and answers 1 |
 
@@ -145,3 +145,31 @@ The keys that ask for a shot are in "The input" above (Print Screen in the menus
 
 `logPrintf` (`0x66EF40`, `printf`'s arguments) writes the game's log: when the log is on (`0x17E7F60`), into `DEBUG.LOG` (and `ExpLog.LOG`) and to the debugger's output.
 With the GOG installation's settings the files stay empty but for `log closed`; the driver formats the calls itself (observed: about 330 records from the start to the main menu, the display modes of the two Direct3D devices among them).
+
+## The game's end
+
+Read 2026-11-22 for #3378 (**confirmed** by code unless marked otherwise; "seen" in the running original under the driver).
+`terminateApp` (`0x817580`) ends the program's parts in this order, most of them named in the game's log:
+
+1. the engine (`0x60D740`, its virtual destructor; `cEngine::~cEngine()`): the interface's thread and the render thread ended, the stats' manager, the objects' manager with every object deleted (`cObjectManager::~cObjectManager()`), the kernel's listeners, and Granny's statistics (`0x404940`: the sequences still queued for closing, and each control still listed by its three ids);
+2. the menus (`0x6A16B0`), the interface's manager (`0x756FB0`) and the cache of models (`0x411650`, `cGrannyModelManager::flushCache()`, each model freed with its count of instances);
+3. Granny (`0x4016D0`, which destroys `cGranny`, `0xAA42C4`, by `0x401410` and frees it): under its critical section (`+0x10`) the sequences still queued closed (`GrannyCloseSequence`), the expired textures taken, five poses closed (`GrannyClosePose`) and Granny itself (`GrannyClose`);
+4. the sound (`0x677190`, its manager at `0x17E9FA4`, destroyed by `0x676770`): its 64 buffers (`+0xB804`, 20 bytes apart) freed without a lock (`0x692CF0`), then `Terminate MSS` (`0x676B10`) under the sound's mutex: the six streams, the 28 samples' handles, the sound pak's handle, the 3D provider and `AIL_shutdown`;
+5. then the other managers (the particle systems', `cParticleSystemManager::~cParticleSystemManager()`, among them), the fonts, the game's own heap (`HeapDestroy` of `0x182EE58`) and the display (`dxDriver7::~dxDriver7()`), and in full screen the display mode.
+
+The sound's mutex is a Win32 mutex at the sound manager's `+0x60`, taken by `0x66FA00` (`WaitForSingleObject` with no timeout) and given back by `0x66FA10` (`ReleaseMutex`), in the sound's functions only (the frame's sound update `0x67A7A0` among them, which the render thread calls).
+Granny's critical section is taken by `0x66FA40` and left by `0x66FA50`, as is the kernel's (`+0x30`, docs/re/objects.md, "The render thread's frame").
+Granny's update of a frame (`0x401920`, from the render loop, and from the interface's thread in the frames it draws itself) advances Granny's time by the frame's when that is below 1 s, while the game's time runs, and takes the frame's time off a countdown (`+0x00`); once that is below 0 it closes, under the critical section, every sequence queued in its list `+0x28` (8 bytes each) and sets the countdown back from `+0x04`.
+A sequence is queued by `0x403E10`, under the critical section, which halves the countdown while more than 32 wait.
+
+**The end that breaks after deaths** (**seen** 2026-11-22, the driver's runs of #3378, each a new game of the Seraphim with eight ogres 39 and four trolls 49 made about her, then their deaths, then the driver's `quit`).
+
+- Where the end breaks: inside Granny's teardown, after `cGranny::~cGranny()` is logged.
+  In a run that hung, the main thread stayed busy there, running and not waiting, in ntdll's heap code under granny.dll's call of msvcrt's `free`, until the host ended it 15 s on; in others an access violation in ntdll's heap code, reading a garbage address, was taken inside it, the end went on through `Terminate MSS` to `WinMain`'s return, and the process crashed past `ExitProcess` (`0xC0000005`), or, in two runs, hung there.
+  At the hang the sound's mutex was free (a wait of 0 from another thread took it), so the hang is not the sound's, as #3378 first read it, but Granny's, whose next line, `Terminate MSS`, never came.
+  Every heap of the process was valid (`HeapValidate`) at each line of the end's log up to `cGranny::~cGranny()` in a run whose end then hung: the heap breaks within Granny's own teardown.
+- What leads to it: the creatures' deaths in the game, however they come.
+  The ends broke after the driver's `kill` in 28 runs of 53, whether its strikes were made in the frame's function or right after the world's tick, through the hero's own strike function (`0x4EA3F0`) or the driver's event, one victim a frame or all at once, with the drops left out, under the kernel's lock or with the game's time standing, the quit at once or 30 s on, the game's volumes 0 or 64 (`--mute`), and with eight goblin warriors 76 killed (2 of 3), eight ogres (1 of 3) or four trolls (0 of 3) in place of the twelve; after deaths that the creatures' own update made from a health of 0, with no killer, in 3 of 3; and after the game's own strikes, the Seraphim's own spin attack (1069) killing three to five of them, in 3 of 5.
+  They never broke where nobody died: the driver's strikes that killed none in 3 runs, the spin attack that killed none in 2, and quits made before the creatures set to a health of 0 had begun their dying actions (but for two in one run) in 3; nor after the hero's own strikes by clicks, three ogres killed one by one and the quit at once in 2 runs, eight creatures killed over a minute in 1.
+- **Hypothesis** for the link: a death's model loaded anew (docs/re/fight.md, "The bodies' end"), which adds an instance to its model in the cache, leaves a Granny object that the cache's flush (step 2) frees under it, so that `GrannyClose` (step 3) walks freed memory; neither the object nor the count's meaning was read.
+- With the call of step 3 made to do nothing (the driver's `quit`, docs/03 §3.8), the same runs ended cleanly in 14 of 14, the twelve deaths by the driver's `kill` (in 12, two of them with `--mute`, one with the drops and the experience traced) and those of the spin attack (in 2) alike: the sound's and the display's ends ran as ever, and the process exited with 0, in 4 of them some 3 s after `WinMain`'s return rather than at once (**hypothesis**: Granny's own cleanup as its library is unloaded).
