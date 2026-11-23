@@ -134,5 +134,5 @@ Since #2343 the overview's ground is at the alpha 255 less the options' map tran
 
 Since #2933 the buttons glow under the pointer and show their tooltips over the map, the pin's button its image 231 while the pin's mode holds, and the edges their arrows (`world_map`, `cursors`; docs/re/cursor.md).
 **Seen** beside the original's frames: both tooltips, the glow, the pin's button pressed in the pin's mode and four of the arrows.
-Not followed yet: the warnings' info lines and the regions' last battles, the quests 5081 to 5089 that their `RegionCounterZero` functions set up (above, #3420).
+Since #3420 a region's warning shows as an info line and runs its `RegionCounterZero` function, which sets up its last battle, the quests 5081 to 5089 (`regions`).
 The icons of the traders that `SetNPCState` makes are left out (docs/decisions/interface.md, "No map icon for a trader that a script makes").
