@@ -250,8 +250,8 @@ const NEXT_AT: f32 = 0.7;
 /// A press of the right button with a combo on it (the engine's `+0x58` 2, its id at `+0x5A`):
 /// where no combo runs and that one is ready (`0x581A60`), it runs from its first step, on the
 /// hostile creature that the cursor picks (`under_cursor`) and the point of the ground there
-/// (`0x530186` to `0x530276`); a combo not ready does nothing (with Ctrl held the original's posts another event,
-/// not followed).
+/// (`0x530186` to `0x530276`); a combo not ready does nothing, under Ctrl too, where the walk to
+/// himself that the original's posts does nothing (`0x5301E6` to `0x530224`, #3434).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"

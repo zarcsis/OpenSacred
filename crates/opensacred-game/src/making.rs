@@ -367,17 +367,19 @@ pub(crate) fn point_reached(
 }
 
 /// On a press of the right button on a hostile creature alive that the cursor picks
-/// (`under_cursor`), the hero makes the selected art on it (a launch on an enemy, the type 1), its attack ending; with the art not ready it walks
-/// to the creature's place instead, as the original's handler of the order takes it (about
-/// `0x52FE40`, docs/re/arts.md, "The right button", #654; with Ctrl held the original's posts
-/// another event, not followed). A press of the left button ends an order not yet under way.
+/// (`under_cursor`), the hero makes the selected art on it (a launch on an enemy, the type 1), its
+/// attack ending; with the art not ready it walks to the creature's place instead, as the
+/// original's handler of the order takes it (about `0x52FE40`, docs/re/arts.md, "The right
+/// button", #654), and with Ctrl held does nothing, the walk to himself that the original's then
+/// posts doing nothing (`0x52FE9D`, seen, #3434). A press of the left button ends an order not yet
+/// under way.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, its queries with their filters"
 )]
 pub(crate) fn aim(
     mut commands: Commands,
-    buttons: Res<ButtonInput<MouseButton>>,
+    (buttons, keys): (Res<ButtonInput<MouseButton>>, crate::controls::Keys),
     (pointer, under, heights): (
         Res<crate::hud::Pointer>,
         Res<crate::under_cursor::UnderCursor>,
@@ -575,6 +577,13 @@ pub(crate) fn aim(
                             .then_some(ground),
                         level: None,
                     });
+            }
+            Err(_)
+                if arts.arts.get(art).is_some()
+                    && !arts.arts.ready(art)
+                    && keys.pressed(crate::controls::Action::StrikeAtOnce) =>
+            {
+                info!("making: {art} is not ready: under Ctrl the hero does nothing");
             }
             Err(_) if arts.arts.get(art).is_some() && !arts.arts.ready(art) => {
                 info!("making: {art} is not ready: the hero walks to {target}");
