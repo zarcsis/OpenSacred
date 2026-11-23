@@ -755,6 +755,7 @@ pub(crate) struct Taking<'w, 's> {
     tables: Option<Res<'w, crate::drops::Tables>>,
     shown: Option<Res<'w, crate::inventory::Shown>>,
     remarks: MessageWriter<'w, crate::remarks::Remark>,
+    jumps: MessageWriter<'w, crate::drops::Jump>,
     wearer: Wearing<'w, 's>,
     sets: Option<ResMut<'w, crate::sets::WeaponSets>>,
     settings: Option<Res<'w, crate::settings::Settings>>,
@@ -886,14 +887,15 @@ impl Taking<'_, '_> {
             let onto_the_cursor = lying.dropped.kind != Kind::Gold
                 && self.shown.as_deref().is_some_and(|shown| shown.0)
                 && self.pack.hold(lying.dropped.clone(), size);
-            // Without room it stays where it lies (the jump of `0x5592B0` not followed), the
-            // hero saying so (the event (8, 3), #1324).
+            // Without room it jumps where it lies (`0x5592B0`, `drops::Jump`, #3093), the hero
+            // saying so (the event (8, 3), #1324).
             if !onto_the_cursor && !self.pack.take(lying.dropped.clone(), size) {
                 info!(
                     "pickup: no room in the backpack for {} of {size:?}",
                     lying.dropped.item
                 );
                 self.remarks.write(crate::remarks::Remark::CantCarry);
+                self.jumps.write(crate::drops::Jump(item));
                 return;
             }
             // Gold sounds through the gold's handler (`Pack::add_gold`).

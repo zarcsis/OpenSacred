@@ -2675,6 +2675,11 @@ pub const THROWN_AT: f32 = 60.0;
 const RISES: f32 = 190.0;
 /// How fast an item dropped off the cursor rises at first (`0x611620`).
 const DROPPED_RISES: f32 = 50.0;
+/// How fast an item that finds no room in the backpack jumps up (`0x5592B0`), and the least
+/// height over its ground that it jumps from and the most more.
+const JUMPS: f32 = 100.0;
+const JUMPS_FROM: u32 = 40;
+const JUMPS_MORE: u32 = 30;
 /// How fast a part thrown off rises at first (`0x550580`, the float `0x43160000`).
 const FLUNG_RISES: f32 = 150.0;
 /// The height's fall in a second of a drop's flight, in units of the models' height a second,
@@ -2723,6 +2728,25 @@ impl Flight {
         Self {
             at: [x, y, THROWN_AT],
             velocity,
+            angles: [0.0; 3],
+            spin,
+            resting: false,
+            arc: None,
+            turns: true,
+        }
+    }
+
+    /// An item that the hero takes without room in its backpack, jumping where it lies
+    /// (`0x5592B0`; docs/re/items.md, "Without room"): on its ground at the point `(x, y)` of the
+    /// height `ground`, raised `⌊rand()/32767·30 + 40⌋` over it, 40 to 70, with the velocity
+    /// `(0, 0, 100)` and the spin `R(−6, 6)` about each axis, drawn in that order.
+    pub fn jumped([x, y, ground]: [f32; 3], dice: &mut impl Dice) -> Self {
+        let raised = JUMPS_FROM + dice.below(32_768) * JUMPS_MORE / 32_767;
+        let mut roll = |half: u32| to_f32(dice.below(2 * half + 1)) - to_f32(half);
+        let spin = [roll(6), roll(6), roll(6)];
+        Self {
+            at: [x, y, ground + to_f32(raised)],
+            velocity: [0.0, 0.0, JUMPS],
             angles: [0.0; 3],
             spin,
             resting: false,
