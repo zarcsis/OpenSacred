@@ -471,6 +471,18 @@ pub const BFG_BEYOND: f32 = 200.0;
 /// objects 801 0.1 s apart; **hypothesis**: the same for every clip).
 pub const RAILGUN_SECOND: f32 = 0.1;
 
+/// The share of the loop of the clip in play past which a shot that plays no clip of its own
+/// looses its second [`Bolt::Railgun`], once at most 0.4 of the loop is left, its first at the
+/// shot's first tick (`0x4DCB80`; seen through 106 pairs, the least share at a second bolt 0.6056
+/// and the greatest at a tick before one 0.5982, #3303; docs/re/fight.md, "The archers").
+pub const SECOND_BOLT_AT: f32 = 0.6;
+
+/// Whether a shot that plays no clip looses its second railgun bolt at a tick where the clip in
+/// play has played `share` of its loop ([`SECOND_BOLT_AT`], #3562).
+pub fn second_bolt_due(share: f32) -> bool {
+    share >= SECOND_BOLT_AT
+}
+
 /// A bolt of the Seraphim's shots, the objects 801 (`FX_RAILGUN`) and 875 (`FX_BFG`)
 /// (docs/re/arts.md, "The Seraphim's bolts"): it leaves where she stands along the line to her
 /// target, flies straight at its speed for its time at most (`0x5A6680`), ends at a cell that may

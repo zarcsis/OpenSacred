@@ -1246,6 +1246,14 @@ fn pursue(
                 None => continue,
                 Some(ticks) => Some(ticks.saturating_add(1)),
             };
+            // One with no ranged weapon in hand searches a way to its target as its idle handler
+            // takes it up, which sets its standing clip to its pace's rate (#3562).
+            if wait
+                .woken
+                .is_some_and(|woken| minds::searches_after_shot(woken, mind.ranged))
+            {
+                commands.entity(entity).insert(crate::npcs::SearchesWay);
+            }
             if wait.woken < Some(minds::shot_wake(mind.ranged)) {
                 continue;
             }
