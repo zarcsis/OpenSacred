@@ -14,6 +14,17 @@ The renderer's update of a frame (`0x41A4F0`) advances it by the frame's time (t
 **Hypothesis**: the frame's time is in seconds, so a day of the game lasts an hour; the driver's reading agrees (docs/re/objects.md, "The clock": 08:31:06 a minute and a half into a new game).
 In a network game the server sets the clock (the message `0x8B` of `0x61B6F0`).
 
+Read 2026-11-23 for #3492 (**confirmed** by code, and **seen** in the running original where marked):
+
+- The clock's virtual table is `0x8908E8`: its destructor `0x417A40`, the advance `0x4176C0` and an empty slot; the renderer's update calls the advance through it (`0x41A675`), the minutes' carry `0x416F00` has no caller but the advance, and the advance scales its time by a rate, so a rate of 0 holds the clock.
+- Each engine makes the clock anew: the engine's destructor (`0x60D540`, at `0x60D63F`) destroys it through `0x417610`, and the engine's constructor makes it again (`0x417560` at `0x60B06B`) with both rates 1.0 before it sets the date and the time (`0x417A00`); so a load and a new game start their clock at the rates 1.0.
+  **Seen**: the rates that the driver had set to 0 were 1.0 again after an in-game load, the same clock's address reused.
+- The rates have two setters, `0x417640` for the day's (`+0x10`) and `0x417680` for the night's (`+0x14`), each of which makes a rate below 0.2 or above 5.0 1.0.
+  The stats' recomputation (`0x5796A0`) of the local player's hero calls both with 1.0 (`0x579C58` to `0x579C6D`, the 1.0 loaded into `EBX` at `0x579935`), and then, in its switch over the items' effects 801 to 869 (`0x57A5AC`, the byte table `0x57D5F4`), the effect 850 (`0x57AB65`) takes a tenth of its value (the float `0x890D9C`) off the night's rate and the effect 851 (`0x57ABC4`) a tenth off the day's, each through its setter.
+  So in play the rates lie from 0.2 to 5.0, both 1.0 without the effects 850 and 851, and every recomputation of the hero's stats sets them anew; only a write past the setters, as the driver's, makes one 0.
+  **Seen**: an effect given to the hero and its end each reached `0x579C58`, and the rates that the driver held at 0 were 1.0 at that frame; between two such recomputations the rates 0 held the clock (12:11 for 40 s, 08:06:20 for minutes).
+- The scripts' timers count the clock's minutes and nothing else: `0x416F00` runs them only when its seconds carry into a minute ("`SetTimer`'s minutes and the calendar" of docs/re/netscript.md), so a clock that stands runs no timer.
+
 ## The phases
 
 The renderer holds four times in minutes of the day, which its set-up writes (`0x417F00`): 200 (03:20), 320 (05:20), 1220 (20:20) and 1340 (22:20).
@@ -57,6 +68,7 @@ A hero's radius of 700 (`0x54A7B0`, its light's, "The light's level" above) beco
 ## In `opensacred-game`
 
 `daynight` keeps the clock (08:00 at the start, `--time HH:MM` for another hour), advances it by 24 seconds a second of the frames' time, and takes its phase and the night's level as above.
+Not followed: the hero's items' effects 850 and 851, which slow the night's and the day's rates ("The clock" above, #3496).
 The colour by the night is laid over the frame drawn, a fullscreen pass that multiplies each pixel's 8-bit values by it (`night.wesl`; the interface is drawn after it), rather than over each vertex: the same for the art, which the original multiplies by its vertices' colour, but not for what the original blends (docs/decisions/drawing.md, "Night as a pass over the frame").
 The light sources are the static objects of the light types in the loaded sectors, at their positions on the ground at height 0 (the original's are flat positions on the screen), the world's fires (`fx`, #1189), and the hero, of the radii above; the 32 nearest the screen's centre that reach the view light it, the distance taken on the screen in the original's pixels, both ways alike, as the original's.
 The Wood Elf's light is doubled by night, and the Vampiress's while she wears her night's form (`forms`).

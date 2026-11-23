@@ -24,6 +24,7 @@ const ADDRESSES = {
   engineFlags: ptr('0x182ee38'),      // a flags word; bit 0x20000: the application is inactive
   screenshotName: ptr('0xcdc918'),    // the name captureScreenshot formats, ".\Capture\shotNNNN.tga"
   grannyTeardown: ptr('0x4016d0'),    // terminateApp's call that destroys cGranny (0x401410) and frees it
+  armaPlay: ptr('0x7561e0'),          // cCommand_armaPlay::execute: thiscall, +4 its mode (1 a save's load), +8 the slot
 };
 const DRIVER_SHOTS = 0xa8;            // dxDriver7: screenshots asked for, taken at the next flip
 const DRIVER_FRAMES_CAPTURED = 0xac;  // dxDriver7: frames captured so far, 0 for a single shot
@@ -73,6 +74,7 @@ const state = {
   lastBeat: Date.now(),
   ending: false,
   exiting: false,        // the game ends itself: WinMain returned, or the C runtime's exit was called
+  plays: { count: 0, mode: null, slot: null },   // cCommand_armaPlay's runs: a save's load (mode 1) and its slot
 };
 let refusals = 0;
 let fakeHooks = 0x0bad0000;
@@ -1000,6 +1002,10 @@ const WORLD = {
   objects: ptr('0xad5c40'),          // sdk_OM: the object manager; its +4 and +8 the vector of the objects by id
   context: ptr('0x182ebe8'),         // sdk_CTX: the game's context; its +0x14 the local player's id
   clock: ptr('0xaa4540'),            // the clock (0x417560)
+  // The clock's setters of its day's and night's rates (thiscall (clock, rate), a rate outside 0.2 to 5.0 made 1.0),
+  // which the local hero's stats' recomputation (0x5796A0) calls with 1.0 and then for the items' effects 851 and 850.
+  setDayRate: ptr('0x417640'),
+  setNightRate: ptr('0x417680'),
   creature: ptr('0x8eb660'),         // cCreature's RTTI type descriptor
   teleport: ptr('0x54d9d0'),         // sdk_ENGINE_TP: thiscall (creature, cell x, cell y, floor, effect), 1 if placed
   setZoom: ptr('0x628130'),          // cWorldView_setZoom: thiscall (view, zoom)
@@ -1027,6 +1033,11 @@ const WORLD = {
   raiseArt: ptr('0x581f80'),         // the stats: thiscall (stats, index, levels, for good, no linked arts)
   startArt: ptr('0x562470'),         // the stats: thiscall (stats, time, kind, group), a use's regeneration of its kind
   setCombo: ptr('0x5813d0'),         // the stats: thiscall (stats, index, four arts as dwords, four levels as words, id)
+  // The right button's order (0x6172C0): the art of the creature's form (thiscall (creature, art, 0)), and the engine's
+  // sender of an order to a creature (thiscall (engine, creature, event)), which hands it to the creature's handler.
+  formArt: ptr('0x552370'),
+  sendOrder: ptr('0x617030'),
+  creatureEvent: ptr('0x89095c'),    // cEvent_creature's virtual table; an event of 0x44 bytes
   learnSkill: ptr('0x581120'),       // the stats: thiscall (stats, skill), into the first empty slot at the base 1, a
                                      // skill to learn (+0x44) taken, the stats made anew
   raiseSkill: ptr('0x5824a0'),       // the stats: thiscall (stats, slot, amount, 1), the slot's base raised by the
@@ -1131,6 +1142,8 @@ const addEffect = new NativeFunction(WORLD.addEffect, 'void',
   ['pointer', 'uint32', 'int32', 'float', 'float', 'uint32', 'uint32', 'uint32', 'uint32'], 'thiscall');
 const addGold = new NativeFunction(WORLD.addGold, 'void', ['pointer', 'int32'], 'thiscall');
 const makeObject = new NativeFunction(WORLD.makeObject, 'uint32', ['pointer', 'uint32'], 'thiscall');
+const formArt = new NativeFunction(WORLD.formArt, 'uint32', ['pointer', 'uint32', 'uint32'], 'thiscall');
+const sendOrder = new NativeFunction(WORLD.sendOrder, 'void', ['pointer', 'pointer', 'pointer'], 'thiscall');
 const slotOf = new NativeFunction(WORLD.slotOf, 'int32', ['pointer', 'uint32'], 'thiscall');
 const putInSlot = new NativeFunction(WORLD.putInSlot, 'void', ['pointer', 'uint32', 'uint32', 'uint32'], 'thiscall');
 const weatherEvent = new NativeFunction(WORLD.weatherEvent, 'void', ['pointer', 'pointer'], 'thiscall');
@@ -1201,6 +1214,7 @@ const world = {
   immortal: new Set(),   // the ids of the creatures `spawn --immortal` made, whose health strikes leave as it was
   fpu: {},         // by where it was read (frame, recompute, strike): {thread, word}, the x87 control word there
   made: null,      // while a command collects them: the ids of the objects sdk_CREATE makes
+  daySpeed: null,  // with `day-speed` other than 1: {day, night}, the clock's rates held through the clocks made anew
 };
 
 // The calling thread's x87 control word (fnstcw), whose bits 8 and 9 give the precision of its arithmetic: 0 for 24
@@ -1508,10 +1522,12 @@ const COMMANDS = {
     clock.add(CLOCK.fraction).writeFloat(0);
     return readClock();
   },
+  // The clock's rates, held until `day-speed 1`: each engine made, a load's and a new game's, makes its clock anew
+  // (0x60D540 destroys it through 0x417610, and 0x417560 makes it with both rates 1.0), so the frame writes them
+  // again where they differ (#3492).
   'day-speed': (engine, { day, night }) => {
-    const clock = WORLD.clock.readPointer();
-    clock.add(CLOCK.dayRate).writeFloat(day);
-    clock.add(CLOCK.nightRate).writeFloat(night);
+    world.daySpeed = day === 1 && night === 1 ? null : { day, night };
+    holdDaySpeed();
     return readClock();
   },
   zoom: (engine, { zoom }) => {
@@ -1595,7 +1611,7 @@ const COMMANDS = {
   // through the original's own functions, `ready` ends every art's regeneration, `use` starts it as a use of the
   // art does (#623), and `select` puts an art on the right button, the engine's +0x5A, with +0x58 1 for a weapon art
   // and 0 for a spell (#672, docs/re/arts.md, "The spells' objects").
-  arts: (engine, { id, learn, levels, ready, use, select }) => {
+  arts: (engine, { id, learn, levels, ready, use, select, make, target }) => {
     const object = id ? objectById(id) : hero();
     if (object === null || !isCreature(object)) {
       throw new Error(id ? `no creature ${id}` : 'no hero');
@@ -1623,6 +1639,28 @@ const COMMANDS = {
       }
       game.add(0x5a).writeU16(select);
       game.add(0x58).writeU8(select < 1000 ? 0 : 1);
+    }
+    if (make) {
+      // The right button's order as the engine's mouse handler makes it (0x6172C0, docs/re/arts.md, "The right
+      // button"): the event 0x105 to the hero, its target's id at +0x10 and place at +0x18, +0x1C, 100 at +0x28, the
+      // art's kind at +0x2C (0 a spell, 1 a weapon art), the art of the hero's form at +0x30 and the floor at +0x34;
+      // the sector's word +0x14 left 0, so that the sender hands it on as it is. Its target is any creature, a
+      // corpse among them, which the cursor's pick passes over for the hostile living ones and the items (#3492).
+      const goal = objectById(target);
+      if (goal === null || !isCreature(goal)) {
+        throw new Error(`no creature ${target}`);
+      }
+      const event = Memory.alloc(0x44);
+      event.writePointer(WORLD.creatureEvent);
+      event.add(4).writeU32(0x105);
+      event.add(0x10).writeU32(target);
+      event.add(0x18).writeS32(goal.add(CREATURE.x).readS32());
+      event.add(0x1c).writeS32(goal.add(CREATURE.y).readS32());
+      event.add(0x28).writeU32(100);
+      event.add(0x2c).writeU32(make < 1000 ? 0 : 1);
+      event.add(0x30).writeU32(formArt(object, make, 0));
+      event.add(0x34).writeU8(goal.add(CREATURE.floor).readU8());
+      sendOrder(ADDRESSES.engine.readPointer(), object, event);
     }
     if (use) {
       // An art's executor (0x562470, docs/re/arts.md): its time added to every art of its kind, 1 the spells (the
@@ -2242,6 +2280,24 @@ function madeBy(call) {
   }
 }
 
+// The rates `day-speed` holds, written back as the stats' recomputation sets the clock's (#3492): at once, before the
+// renderer's next advance of the clock, which the frame's own rewrite (holdDaySpeed) would follow by a frame.
+function installDaySpeed() {
+  for (const [setter, offset, which] of [[WORLD.setDayRate, CLOCK.dayRate, 'day'],
+    [WORLD.setNightRate, CLOCK.nightRate, 'night']]) {
+    Interceptor.attach(setter, {
+      onEnter() {
+        this.clock = this.context.ecx;
+      },
+      onLeave() {
+        if (world.daySpeed !== null) {
+          this.clock.add(offset).writeFloat(world.daySpeed[which]);
+        }
+      },
+    });
+  }
+}
+
 function installMade() {
   Interceptor.attach(WORLD.create, {
     onLeave(result) {
@@ -2319,6 +2375,21 @@ function installStrikes() {
   });
 }
 
+// The clock's rates that `day-speed` holds, written where the clock's differ (the clock 0x417560 makes, at 0xAA4540).
+function holdDaySpeed() {
+  const clock = WORLD.clock.readPointer();
+  if (clock.isNull()) {
+    return;
+  }
+  const { day, night } = world.daySpeed ?? { day: 1, night: 1 };
+  if (clock.add(CLOCK.dayRate).readFloat() !== day || clock.add(CLOCK.nightRate).readFloat() !== night) {
+    log('DEBUG', `day-speed: the clock ${clock} at ${readClock().time} ran at ${clock.add(CLOCK.dayRate).readFloat()}, ` +
+      `${clock.add(CLOCK.nightRate).readFloat()}: ${day}, ${night} written again`);
+    clock.add(CLOCK.dayRate).writeFloat(day);
+    clock.add(CLOCK.nightRate).writeFloat(night);
+  }
+}
+
 // A load or a new game makes a new hero of the same id (#565): the health kept is then the new one's own.
 function keepGodHealth() {
   const god = world.god;
@@ -2379,6 +2450,9 @@ function installWorld() {
       if (world.god !== null) {
         keepGodHealth();
       }
+      if (world.daySpeed !== null) {
+        holdDaySpeed();
+      }
     } catch (e) {
       log('ERROR', `the frame's jobs: ${e.stack ?? e}`);
     }
@@ -2387,6 +2461,7 @@ function installWorld() {
   Interceptor.replace(WORLD.tick, world.tick);
   installStrikes();
   installMade();
+  installDaySpeed();
   setInterval(() => {
     const now = Date.now();
     const late = world.jobs.filter((job) => now > job.deadline);
@@ -3044,6 +3119,18 @@ function installFlip() {
 
 // The game's own end. Frida unloads the script in its own hook of ExitProcess, before any of the agent's, so the
 // agent marks the end earlier: when WinMain returns, or when the C runtime's exit is called.
+// The saves' window's Load (0x71CC90, at 0x71D41D), the main menu's new game and the network's start run
+// cCommand_armaPlay::execute, its mode 1 a save's load from the slot at +8 (`GAME%.2d.PAK`), before the engine is made
+// anew: the host's `load` tells by it that the load started, and which save it took (#3492).
+function installPlays() {
+  Interceptor.attach(ADDRESSES.armaPlay, {
+    onEnter() {
+      const command = this.context.ecx;
+      state.plays = { count: state.plays.count + 1, mode: command.add(4).readU16(), slot: command.add(8).readS32() };
+    },
+  });
+}
+
 function installExit() {
   Interceptor.attach(ADDRESSES.WinMain, {
     onLeave(result) {
@@ -3226,14 +3313,26 @@ rpc.exports = {
       installMute();
     }
     installWorld();
+    installPlays();
     installExit();
     if (config.gameLog !== false) {
       installGameLog();
     }
     setInterval(runSchedule, 10);
     state.lastBeat = Date.now();
+    // The host's beats and this check both wait for the script's thread, which a load's flood of the game's log
+    // through the hooks keeps from running for seconds (#3492): the time the check itself ran late is the
+    // script's, not the host's silence, and the beats waiting behind it are counted as come.
+    let lastCheck = Date.now();
     setInterval(() => {
-      if (Date.now() - state.lastBeat > config.heartbeatTimeout) {
+      const now = Date.now();
+      const late = now - lastCheck - 500;
+      lastCheck = now;
+      if (late > 500) {
+        state.lastBeat += late;
+        log('DEBUG', `the script's thread ran ${late} ms late: the heartbeat's wait put off as long`);
+      }
+      if (now - state.lastBeat > config.heartbeatTimeout) {
         end(4, `no heartbeat from the host for ${config.heartbeatTimeout / 1000} s`);
       }
     }, 500);
@@ -3255,6 +3354,7 @@ rpc.exports = {
       player_has_window: playerHasWindow(),
       refusals,
       muted: config.muted ? mute.set : null,
+      plays: state.plays,
       ...frameStats(),
     };
   },

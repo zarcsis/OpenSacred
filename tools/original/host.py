@@ -63,6 +63,8 @@ SAVES_UP, SAVES_DOWN = (734, 347), (734, 655)   # the list's arrows, a row a cli
 SAVES_ROWS = 3                  # rows shown: the saves by their number, then one empty
 SAVES_NAME = lambda row: (455, 324 + 137 * row)    # a row's name field
 SAVES_PICTURE = lambda row: (135, 360 + 137 * row)  # a row's picture, which picks it
+SAVES_QUICK_PICTURE = (136, 112)   # the quick save's picture, above the list (docs/re/menus.md, "The saves' window")
+SAVE_NETWORK_OFFSET = 0x2C      # the header's network flag: the list of a game of one player shows the saves of 0
 SAVE_NAME_OFFSET = 0x500        # the save's name in save/GAMEnn.PAK, a C string
 SAVE_NAME = re.compile(r'[A-Za-z0-9 _.-]{1,24}')
 FPU_PRECISION = {0: '24 bits', 1: 'reserved', 2: '53 bits', 3: '64 bits'}   # the x87 control word's bits 8 and 9
@@ -482,10 +484,14 @@ class Host:
 
     def heartbeat(self):
         while not self.ended.is_set():
+            started = time.monotonic()
             try:
                 self.agent.heartbeat()
             except Exception:
                 pass
+            took = time.monotonic() - started
+            if took > 0.5:
+                self.journal.push('DEBUG', 'host', f'the heartbeat took {took:.2f} s')
             self.ended.wait(1)
 
     def watch(self):
@@ -751,7 +757,9 @@ class Host:
         if word in WORLD_COMMANDS:
             return {'output': WORLD_COMMANDS[word](self, rest.strip())}
         if word == 'saves':
-            return {'output': [f'{file} {name}' for file, name in self.saves()] or ['no saves']}
+            quick = self.quick_save()
+            lines = [f'{quick[0]} {quick[1]} (the quick save)'] if quick else []
+            return {'output': lines + [f'{file} {name}' for file, name in self.saves()] or ['no saves']}
         if word == 'ui':
             return {'output': self.command_ui(rest.strip())}
         if word in ('save', 'load'):
@@ -762,7 +770,8 @@ class Host:
             if word == 'save' and screen != 'game':
                 raise RuntimeError('save works in a game, not on the screen ' + str(screen))
             if word == 'load':
-                if name not in [n for _, n in self.saves()]:
+                quick = self.quick_save()
+                if name not in [n for _, n in self.saves()] and (quick is None or quick[1] != name):
                     raise RuntimeError(f'no save {name} (exec saves lists them)')
                 if screen not in ('menu', 'game'):
                     raise RuntimeError('load works from the main menu or a game, not on the screen ' + str(screen))
@@ -911,18 +920,30 @@ class Host:
             self.click(button, 1.5)
         self.wait_screen({'game'}, 30)
 
-    def saves(self):
-        """The saves of save/, in the order of the original's list (by their number), with their names."""
+    def save_files(self):
+        """The saves of save/ that the original's window lists (0x71EAA0): `(number, file, name)` of each
+        `GAMEnn.PAK` of a game of one player (the header's network flag 0), sorted by their files' names as text."""
         folder = os.path.join(self.game_dir, 'save')
         found = []
         for file in os.listdir(folder) if os.path.isdir(folder) else []:
-            match = re.fullmatch(r'GAME(\d+)\.PAK', file, re.IGNORECASE)
+            match = re.fullmatch(r'GAME(\d\d+)\.PAK', file, re.IGNORECASE)
             if match:
                 with open(os.path.join(folder, file), 'rb') as f:
-                    f.seek(SAVE_NAME_OFFSET)
-                    name = f.read(64).split(b'\0')[0].decode('latin-1')
+                    header = f.read(SAVE_NAME_OFFSET + 64)
+                if len(header) < SAVE_NAME_OFFSET + 64 or struct.unpack_from('<I', header, SAVE_NETWORK_OFFSET)[0]:
+                    continue
+                name = header[SAVE_NAME_OFFSET:].split(b'\0')[0].decode('latin-1')
                 found.append((int(match.group(1)), file, name))
-        return [(file, name) for _, file, name in sorted(found)]
+        return sorted(found, key=lambda save: save[1])
+
+    def saves(self):
+        """The rows of the original's list, in its order, with their names: every save but the slot 0's, the quick
+        save, which the window shows apart above the list (0x71EAA0)."""
+        return [(file, name) for number, file, name in self.save_files() if number != 0]
+
+    def quick_save(self):
+        """The quick save's file and name (`GAME00.PAK`, F9's), or None."""
+        return next(((file, name) for number, file, name in self.save_files() if number == 0), None)
 
     def open_saves(self):
         """Opens the list of saves: from a game through its menu, from the main menu through Load Game."""
@@ -973,21 +994,38 @@ class Host:
         self.journal.push('INFO', 'host', f'save {name}: {written[0]}')
 
     def load(self, name):
-        row = [n for _, n in self.saves()].index(name)
+        """Loads through the saves' window: the row of the first save of that name, else the quick save above the
+        list; the load has started once the window's Load ran cCommand_armaPlay with the save's slot (#3492), which
+        the engine made anew for a load from the main menu shows no loading screen for."""
+        saves = self.saves()
+        names = [n for _, n in saves]
+        quick = self.quick_save()
+        file = saves[names.index(name)][0] if name in names else quick[0]
+        slot = int(re.fullmatch(r'GAME(\d+)\.PAK', file, re.IGNORECASE).group(1))
+        plays = self.agent_state().get('plays', {}).get('count', 0)
         self.open_saves()
-        shown = self.show_row(row)
-        self.click(SAVES_PICTURE(shown), 0.5)
+        if name in names:
+            shown = self.show_row(names.index(name))
+            self.click(SAVES_PICTURE(shown), 0.5)
+        else:
+            self.click(SAVES_QUICK_PICTURE, 0.5)
         self.click(SAVES_LOAD, 1)
-        self.click(SAVES_CONFIRM, 1)
-        try:
-            self.wait_screen({'loading'}, 15)
-        except TimeoutError:
-            # In a game the original opens its saves' screen only away from hostiles (#634): its menu stays open.
-            if self.agent_state().get('screen') == 'paused':
-                self.agent.input({'key': 'Escape'})
-            raise RuntimeError("the load did not start: in a game the original's menu opens its saves only away "
-                               'from hostiles, so put the hero elsewhere first') from None
+        self.click(SAVES_CONFIRM, 0.2)
+        deadline = time.monotonic() + 15
+        while (played := self.agent_state().get('plays', {})).get('count', 0) == plays:
+            if self.ended.is_set() or time.monotonic() > deadline:
+                # In a game the original opens its saves' screen only away from hostiles (#634): its menu stays open.
+                if self.agent_state().get('screen') == 'paused':
+                    self.agent.input({'key': 'Escape'})
+                raise RuntimeError("the load did not start: in a game the original's menu opens its saves only "
+                                   'away from hostiles, so put the hero elsewhere first')
+            time.sleep(0.1)
+        if played.get('mode') != 1 or played.get('slot') != slot:
+            raise RuntimeError(f"the original loads the slot {played.get('slot')} (mode {played.get('mode')}), not "
+                               f'{file}: its list was not as save/ reads')
+        time.sleep(1)
         self.wait_screen({'game'}, 180)
+        self.journal.push('INFO', 'host', f'load {name}: {file}')
 
     # --- Traces ------------------------------------------------------------------------------------------------
 
@@ -1278,7 +1316,8 @@ class Host:
 
     def command_arts(self, rest):
         words = rest.split()
-        params = {'id': None, 'learn': None, 'levels': 1, 'ready': False, 'use': None, 'select': None}
+        params = {'id': None, 'learn': None, 'levels': 1, 'ready': False, 'use': None, 'select': None, 'make': None,
+                  'target': None}
         if words and words[0] == 'learn':
             if not 2 <= len(words) <= 3 or not all(w.isdigit() for w in words[1:]):
                 raise ValueError('arts learn ART [LEVELS]')
@@ -1292,10 +1331,13 @@ class Host:
             params['use'] = int(words[1])
         elif len(words) == 2 and words[0] == 'select' and words[1].isdigit():
             params['select'] = int(words[1])
+        elif len(words) == 3 and words[0] == 'make' and words[1].isdigit() and words[2].isdigit():
+            params['make'], params['target'] = int(words[1]), int(words[2])
         elif len(words) == 1 and words[0].isdigit():
             params['id'] = int(words[0])
         elif words:
-            raise ValueError('arts [ID], arts learn ART [LEVELS], arts ready, arts use ART or arts select ART')
+            raise ValueError('arts [ID], arts learn ART [LEVELS], arts ready, arts use ART, arts select ART or arts '
+                             'make ART TARGET')
         arts = self.world('arts', params)
         if not arts:
             return ['no combat arts']
