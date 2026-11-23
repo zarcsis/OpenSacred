@@ -151,7 +151,7 @@ fn blow(
             // the creature (#2188).
             let order = gust
                 .bearer
-                .map_or_else(|| orders.at(gust.place), |bearer| orders.behind(bearer));
+                .map_or_else(|| orders.at(gust.place), |bearer| orders.borne_by(bearer));
             quads.in_order(order, Vec3::ZERO);
             quads.into_mesh(&mut mesh);
         }

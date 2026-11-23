@@ -196,7 +196,7 @@ fn run(
         // original draws the system before the creature (#2188).
         let order = holders
             .get(look.model)
-            .map_or_else(|_| orders.at(origin), |holder| orders.behind(holder.0));
+            .map_or_else(|_| orders.at(origin), |holder| orders.borne_by(holder.0));
         let at = |bone: Entity| {
             places
                 .get(bone)

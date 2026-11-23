@@ -250,7 +250,7 @@ fn run(
             (&mut smoke, &mut Quads::default()),
         );
         let order = match firing.look.kind {
-            DwarfFire::Flamer => orders.behind(firing.shooter),
+            DwarfFire::Flamer => orders.borne_by(firing.shooter),
             _ => orders.at(world(point)),
         };
         for (handle, mut quads) in firing.meshes.iter().zip([over, added, smoke]) {

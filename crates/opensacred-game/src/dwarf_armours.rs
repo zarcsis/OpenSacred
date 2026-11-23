@@ -168,7 +168,7 @@ fn run(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&sight.mesh) {
-            quads.in_order(orders.behind(sight.bearer), origin);
+            quads.in_order(orders.borne_by(sight.bearer), origin);
             quads.into_mesh(&mut mesh);
         }
     }

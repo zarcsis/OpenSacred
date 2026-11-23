@@ -211,7 +211,7 @@ fn burn_on(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&light.mesh) {
-            quads.in_order(orders.behind(light.target), origin.translation);
+            quads.in_order(orders.borne_by(light.target), origin.translation);
             quads.into_mesh(&mut mesh);
         }
     }
@@ -262,7 +262,7 @@ fn glow_on(
             );
         }
         if let Some(mut mesh) = meshes.get_mut(&halo.mesh) {
-            quads.in_order(orders.behind(halo.target), head.translation());
+            quads.in_order(orders.borne_by(halo.target), head.translation());
             quads.into_mesh(&mut mesh);
         }
     }

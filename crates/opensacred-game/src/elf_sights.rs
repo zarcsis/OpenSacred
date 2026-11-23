@@ -171,7 +171,7 @@ fn ring(
         }
         let (point, half) = shown.look.star();
         quads[1].push(frame(point), half * s, 0.0, whole, MULTI_SHOT_GREEN);
-        let order = orders.behind(shown.bearer);
+        let order = orders.borne_by(shown.bearer);
         for (handle, mut part) in shown.parts.iter().zip(quads) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
                 part.in_order(order, root);
@@ -309,7 +309,7 @@ fn run(
                 shown.look.spark_colour(spark.life),
             );
         }
-        let order = orders.behind(shown.bearer);
+        let order = orders.borne_by(shown.bearer);
         for (handle, mut part) in shown.parts.iter().zip(quads) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
                 part.in_order(order, transform.translation);

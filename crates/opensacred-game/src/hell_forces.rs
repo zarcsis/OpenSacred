@@ -195,7 +195,7 @@ fn run(
                 );
             }
         }
-        let order = orders.behind(blade.bearer);
+        let order = orders.borne_by(blade.bearer);
         for (handle, mut quads) in blade.meshes.iter().zip([sparks, line]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
                 quads.in_order(order, origin);

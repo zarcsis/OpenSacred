@@ -4,7 +4,7 @@
 //! maglite_slices`) about its bearer's head (the FX event `0x2C`'s bone 20, kept on it at each
 //! frame by the flag `0x200`), untinted by the night, and lights the night about it by the
 //! spell's second value at its level. The ball lies just behind its bearer's model, in the
-//! original's order of drawing (`fx::Orders::behind`, #2220).
+//! original's order of drawing (`fx::Orders::borne_by`, #2220).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -146,7 +146,7 @@ fn keep(
             at.translation = head - place.translation();
         }
         let order = match shown.bearer {
-            Some(bearer) => orders.behind(bearer),
+            Some(bearer) => orders.borne_by(bearer),
             None => orders.at(place.translation()),
         };
         if let Some(mut mesh) = meshes.get_mut(&shown.mesh) {

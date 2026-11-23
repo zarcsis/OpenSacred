@@ -278,7 +278,7 @@ fn run(
             Look::Wall(wall) => walls(wall, &frame),
             Look::Regen(regen, clock, _) => regenerates(*regen, *clock, &frame),
         };
-        let order = orders.behind(sight.bearer);
+        let order = orders.borne_by(sight.bearer);
         for (handle, mut part) in sight.parts.iter().zip(quads) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
                 part.in_order(order, place);

@@ -279,7 +279,7 @@ fn run(
                 cry.look.colour(spark.life),
             );
         }
-        let order = orders.behind(cry.bearer);
+        let order = orders.borne_by(cry.bearer);
         for (handle, mut part) in cry.meshes.iter().zip([glow, sparks]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
                 part.in_order(order, place);

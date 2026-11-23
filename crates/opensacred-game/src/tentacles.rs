@@ -244,7 +244,7 @@ fn run(
             (&look.aura.rings(), &look.aura.runes),
             &look.runes,
             &mut meshes,
-            (orders.behind(aura.bearer), place.translation),
+            (orders.borne_by(aura.bearer), place.translation),
         );
     }
 }

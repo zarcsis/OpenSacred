@@ -281,7 +281,7 @@ fn run(
         }
         // Just behind its creature's model, as the original draws the system before the
         // creature it holds (#2188).
-        let order = orders.behind(cage.target);
+        let order = orders.borne_by(cage.target);
         for (handle, mut quads) in cage.meshes.iter().zip([dots, glow]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
                 quads.in_order(order, Vec3::ZERO);

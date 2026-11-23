@@ -167,7 +167,7 @@ fn run(
                 );
             }
         }
-        let order = orders.behind(greed.bearer);
+        let order = orders.borne_by(greed.bearer);
         for (handle, mut part) in greed.meshes.iter().zip(parts) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
                 part.in_order(order, transform.translation);

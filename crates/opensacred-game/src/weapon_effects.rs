@@ -299,7 +299,7 @@ fn run(
         transform.translation = origin;
         let order = holders
             .get(look.model)
-            .map_or_else(|_| orders.at(origin), |holder| orders.behind(holder.0));
+            .map_or_else(|_| orders.at(origin), |holder| orders.borne_by(holder.0));
         // A bone's place in the models' frame about the model's root.
         let at = |bone: Entity| {
             places

@@ -235,7 +235,7 @@ fn run(
         // list (#2188).
         let order = holders
             .get(look.arrow)
-            .map_or_else(|_| orders.at(origin), |holder| orders.behind(holder.0));
+            .map_or_else(|_| orders.at(origin), |holder| orders.borne_by(holder.0));
         let Shown {
             elemental,
             sparks,
