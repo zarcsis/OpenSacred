@@ -548,9 +548,97 @@ fn act(
     }
 }
 
+/// The main menu's question before it quits, asked by Esc (`0x712410`, #3421).
+#[derive(Component)]
+struct Asking;
+
+/// The answers to the main menu's question: OK quits (the reaction 5), Cancel stays (0).
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+enum Quits {
+    Yes,
+    No,
+}
+
+/// The number of the question that the main menu asks before it quits, 1 to 8, of a roll of
+/// `rand()` (`0x71248D`): `⌊roll/32767 · 7 + 1⌋`, the 8 for the largest roll alone.
+fn quit_question(roll: u32) -> u32 {
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a question's number of 1 to 8, as the original's float truncated"
+    )]
+    let number = (f64::from(roll) / 32_767.0 * 7.0 + 1.0) as u32;
+    number.clamp(1, 8)
+}
+
+/// The dice of the main menu's question (`rand()`; **estimate**: any seed).
+#[derive(Resource)]
+struct Questions(opensacred_rules::spawning::Rng);
+
+impl Default for Questions {
+    fn default() -> Self {
+        Self(crate::seed::dice(0x3421))
+    }
+}
+
+/// Asks the main menu's question before it quits in the busy dialog: one of
+/// `UI_BUSY_REALLY_QUIT1` to `8` at random over OK and Cancel (docs/re/menus.md, "The main menu",
+/// #3421); OK quits, Cancel closes it.
+fn ask_to_quit(
+    commands: &mut Commands,
+    (images, assets, texts): (&crate::choice::Images, &AssetServer, Option<&Texts>),
+    roll: u32,
+) {
+    let line = format!("UI_BUSY_REALLY_QUIT{}", quit_question(roll));
+    let buttons = crate::busy_dialog::spawn(
+        commands,
+        (images, assets, texts),
+        (
+            (Asking, DespawnOnExit(Screen::Main)),
+            (line.as_str(), "Do you really want to quit?"),
+        ),
+        &[
+            (
+                Quits::Yes,
+                crate::busy_dialog::OK_BESIDE,
+                ("UI_NET_OK", "OK"),
+            ),
+            (
+                Quits::No,
+                crate::busy_dialog::CANCEL,
+                ("UI_NET_CANCEL", "Cancel"),
+            ),
+        ],
+    );
+    for (entity, answer) in buttons {
+        commands.entity(entity).observe(
+            move |click: On<PointerClick>,
+                  mut commands: Commands,
+                  asked: Query<Entity, With<Asking>>,
+                  mut exit: MessageWriter<AppExit>| {
+                if click.button != PointerButton::Primary {
+                    return;
+                }
+                for question in &asked {
+                    commands.entity(question).despawn();
+                }
+                if answer == Quits::Yes {
+                    exit.write(AppExit::Success);
+                }
+            },
+        );
+    }
+}
+
 /// The arrows move the choice among the items that do anything, Enter does it, Esc goes back from
 /// a submenu or the heroes to the main menu, from the import to the classes, from the credits to
-/// the Extras (`0x7125B0`, seen).
+/// the Extras (`0x7125B0`, seen), and on the main menu asks whether to quit ([`ask_to_quit`]);
+/// while the question shows, the menu takes no key.
+#[expect(
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn keys(
     mut commands: Commands,
     keys: crate::controls::Keys,
@@ -558,7 +646,28 @@ fn keys(
     mut next: ResMut<NextState<Screen>>,
     mut chosen: ResMut<Chosen>,
     items: Query<(&Item, &Place)>,
+    asking: Query<(), With<Asking>>,
+    (images, assets, texts, mut questions): (
+        Option<Res<crate::choice::Images>>,
+        Res<AssetServer>,
+        Option<Res<Texts>>,
+        ResMut<Questions>,
+    ),
 ) {
+    if !asking.is_empty() {
+        return;
+    }
+    if keys.just_pressed(crate::controls::Action::Back)
+        && screen
+            .as_deref()
+            .is_some_and(|screen| *screen.get() == Screen::Main)
+    {
+        if let Some(images) = images.as_deref() {
+            let roll = questions.0.below(32_768);
+            ask_to_quit(&mut commands, (images, &assets, texts.as_deref()), roll);
+        }
+        return;
+    }
     if keys.just_pressed(crate::controls::Action::Back)
         && let Some(screen) = screen.filter(|screen| *screen.get() != Screen::Main)
     {
@@ -653,6 +762,7 @@ impl Plugin for MenuPlugin {
         app.add_sub_state::<Screen>()
             .add_message::<Show>()
             .init_resource::<Chosen>()
+            .init_resource::<Questions>()
             .init_resource::<Shown>()
             .init_resource::<Images>()
             .init_resource::<Words>()
@@ -720,6 +830,15 @@ mod tests {
             .collect();
         items.sort_unstable_by_key(|(place, _)| *place);
         items.into_iter().map(|(_, item)| item).collect()
+    }
+
+    #[test]
+    fn the_main_menus_question_is_one_of_eight_the_last_for_the_largest_roll_alone() {
+        assert_eq!(quit_question(0), 1);
+        assert_eq!(quit_question(4_680), 1);
+        assert_eq!(quit_question(4_681), 2);
+        assert_eq!(quit_question(32_766), 7);
+        assert_eq!(quit_question(32_767), 8);
     }
 
     #[test]
