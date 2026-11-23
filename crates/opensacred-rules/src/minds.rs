@@ -1535,6 +1535,24 @@ impl Mind {
         self.held_for(HELD.max(held));
     }
 
+    /// Knocked back by the Dwarf's cannon 1087, which clears the event's hold at once (`+0x200`
+    /// bit `0x40000`, `+0x204` 0, `0x51798E`; docs/re/arts.md, "The Dwarf's", #3430): it leaves
+    /// its fight and stands as a knocked creature does, but is not held, and thinks again as its
+    /// slide ends.
+    pub fn knocked_unheld(&mut self) {
+        self.leaves_fight();
+        self.to_door = false;
+    }
+
+    /// Held by the Gladiator's bare-handed `Attacke` (the slot 210, `0x502711`–`0x502772`;
+    /// docs/re/arts.md, "The arts' clips", #3429): the knock-back's hold (`+0x200` bit
+    /// `0x40000`), its timer set to fire no sooner than `seconds` on, without ending what it
+    /// does; so held it thinks nothing until its timer fires.
+    pub fn held_at_least(&mut self, seconds: f32) {
+        self.held = true;
+        self.clock = self.clock.min(self.period - seconds);
+    }
+
     /// Stunned where it stands by the Gladiator's jump (`0x4FF0B0` at `0x500973`): it leaves its
     /// fight and stands (`0x54E6D0`), and is held as a knocked creature is ([`Self::knocked`])
     /// for `seconds`, at least [`STUNNED`].
@@ -7417,6 +7435,33 @@ mod tests {
         assert!(stunned.held());
         stunned.think(&senses(0.11, false), |_| true, || false, &mut rng);
         assert!(!stunned.held());
+        // The cannon's knock leaves the fight and holds nothing (#3430).
+        let mut shot = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
+        shot.think(&senses(0.1, false), |_| true, || false, &mut rng);
+        assert!(shot.fighting);
+        shot.to_door = true;
+        shot.knocked_unheld();
+        assert!(!shot.held() && !shot.fighting && !shot.to_door);
+        // The bare-handed Attacke holds it 3 s at least, its fight kept (#3429).
+        let mut gripped = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
+        gripped.think(&senses(0.1, false), |_| true, || false, &mut rng);
+        assert!(gripped.fighting);
+        gripped.held_at_least(3.0);
+        assert!(gripped.held() && gripped.fighting);
+        for _ in 0..29 {
+            gripped.think(&senses(0.1, false), |_| true, || false, &mut rng);
+        }
+        assert!(gripped.held());
+        gripped.think(&senses(0.11, false), |_| true, || false, &mut rng);
+        assert!(!gripped.held());
+        // A timer due later than 3 s keeps its own.
+        let mut later = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
+        later.knocked(5.0);
+        later.held_at_least(3.0);
+        for _ in 0..45 {
+            later.think(&senses(0.1, false), |_| true, || false, &mut rng);
+        }
+        assert!(later.held());
     }
 
     #[test]

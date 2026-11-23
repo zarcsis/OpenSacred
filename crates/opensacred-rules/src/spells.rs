@@ -595,11 +595,22 @@ pub fn disk_slows(distance: f32) -> f32 {
     }
 }
 /// The hellfire's choice of a target (`0x5AFF86`): within 800 of the hero and 1,300 of it along
-/// each axis, of a weight of 1 and 3 more with a ranged weapon; else within 300 and the
-/// creature's size of it.
+/// each axis, of its weight ([`hellfire_weight`]); else within 300 and the creature's size of it.
 pub const HELLFIRE_HERO: f32 = 800.0;
 pub const HELLFIRE_BOX: f32 = 1300.0;
 pub const HELLFIRE_NEAR: f32 = 300.0;
+/// The marks' bits that `0x5B7BC0` admits, a caster's (the low byte of `+0x25F`).
+const HELLFIRE_MARKS: u16 = 0x25;
+
+/// A creature's weight among the hellfire's targets (`0x5AFF86`; docs/re/arts.md, "The Daemon's
+/// spells", 64, #3432): 1, 3 more with a ranged weapon in a hand (`ranged`), and 6 more where
+/// `0x5B7BC0` admits it, its mark `mark` holding a bit of `0x25` or a script's spell (`spell`,
+/// `+0x2B6`) not 0.
+pub fn hellfire_weight(ranged: bool, mark: u16, spell: u8) -> u32 {
+    let caster = mark & HELLFIRE_MARKS != 0 || spell != 0;
+    1 + if ranged { 3 } else { 0 } + if caster { 6 } else { 0 }
+}
+
 /// How long the hellfire grows before its first strike and shrinks after its last (`0x7B2CA0`:
 /// its growth by 0.5 a second, its flag `0x2000`, which lets it strike, set at its full growth
 /// and cleared past its seconds, #2114).
@@ -1307,6 +1318,19 @@ pub fn healing(spell: &Spell, level: u32, lore: f32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_hellfire_weighs_the_archers_and_the_casters() {
+        // 1, 3 more with a bow, 6 more of a caster's mark's bits 0x25 or a script's spell.
+        assert_eq!(hellfire_weight(false, 0, 0), 1);
+        assert_eq!(hellfire_weight(true, 0, 0), 4);
+        assert_eq!(hellfire_weight(false, 0x201, 0), 7);
+        assert_eq!(hellfire_weight(false, 0x4, 0), 7);
+        assert_eq!(hellfire_weight(false, 0x20, 0), 7);
+        assert_eq!(hellfire_weight(true, 0x8, 0), 4);
+        assert_eq!(hellfire_weight(false, 0, 12), 7);
+        assert_eq!(hellfire_weight(true, 0x21, 3), 10);
+    }
 
     #[test]
     fn a_spells_clip_is_its_lists_slot() {

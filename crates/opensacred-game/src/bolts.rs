@@ -792,6 +792,7 @@ fn fly(
                             left,
                             held: 0.0,
                             throw: None,
+                            unheld: false,
                         });
                 }
             }

@@ -12,6 +12,7 @@
 //! The order (the AI's state 11, `0x4FD0F0`) takes the action of the arts of the hero whose
 //! executor the creature's type has (`opensacred_rules::casts::executor`, `0x5500D0`): its clip
 //! is the slot of that class's art for what the creature holds (`opensacred_rules::arts::action`),
+//! the hell golems' and the minimummies' `Attacke` their own (`casts::attacke_slot`, #3428),
 //! of the creature's own model (its `*_SPECIAL_MULTI_*` and `*_SPECIAL_HHIT_*`), played once at
 //! its attack speed; its level in play `⌊L/5⌋ + 1`, times the balance's factor for a boss or a
 //! champion (`0x580A10`), and its strikes carry the art's factor at that level, halved for two
@@ -79,7 +80,11 @@ fn start(
         Option<&fight::Ranked>,
         Option<&npcs::Arms>,
     )>,
-    (arts_tables, rules): (Option<Res<crate::arts::HeroArts>>, Res<fight::Rules>),
+    (arts_tables, rules, mut dice): (
+        Option<Res<crate::arts::HeroArts>>,
+        Res<fight::Rules>,
+        ResMut<ClipDice>,
+    ),
 ) {
     for (entity, order, mind, rank, arms) in &ordered {
         commands.entity(entity).remove::<Ordered>();
@@ -95,8 +100,11 @@ fn start(
             ArtClip::Slot(slot) => slot,
             ArtClip::Attack => crate::motions::Slots::attack_slot(class),
         };
-        // The ice druid's own clip of the Seraphim's arts (`0x506017`, `0x506137`).
-        let slot = casts::ice_druids_slot(mind.creature, order.art).unwrap_or(slot);
+        // The ice druid's own clip of the Seraphim's arts (`0x506017`, `0x506137`), and the hell
+        // golems' and the minimummies' of the Gladiator's `Attacke` (`0x502667`, #3428).
+        let slot = casts::ice_druids_slot(mind.creature, order.art)
+            .or_else(|| casts::attacke_slot(mind.creature, class, order.art, &mut dice.0))
+            .unwrap_or(slot);
         let rank = rank.map_or(fight::Rank::Common, |rank| rank.0);
         let level = rules.creature_spell_level(mind.level, rank);
         let record = arts_tables.as_deref().and_then(|tables| {
@@ -520,6 +528,11 @@ struct Thrown {
 #[derive(Resource)]
 struct DaggerDice(crate::spawning::Rng);
 
+/// The dice of the clips that some types play for an art in place of their class's
+/// (`casts::attacke_slot`).
+#[derive(Resource)]
+struct ClipDice(crate::spawning::Rng);
+
 /// Each volley a frame on: its dagger thrown once its wait is over and its hand holds one, the
 /// creature turned to its target; a volley whose target or hand is gone ends.
 #[expect(
@@ -735,6 +748,7 @@ pub struct CreatureArtsPlugin;
 impl Plugin for CreatureArtsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(DaggerDice(crate::seed::dice(2575)))
+            .insert_resource(ClipDice(crate::seed::dice(3428)))
             .add_systems(
                 Update,
                 (at_range, start, strike, give, end)

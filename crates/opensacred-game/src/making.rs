@@ -1893,6 +1893,7 @@ fn make(
                                         left,
                                         held,
                                         throw: None,
+                                        unheld: false,
                                     });
                             }
                         }
@@ -1945,6 +1946,7 @@ fn make(
                             left: 0.0,
                             held: hold,
                             throw: Some(arts::Flight::new(along.into(), arts::THROW_RISE)),
+                            unheld: false,
                         });
                     hits.write(fight::Hit {
                         share: arts::hurl_factor(record, playing.level),
@@ -2268,6 +2270,8 @@ fn make(
                                         left: arts::CANNON_KNOCK,
                                         held: 0.0,
                                         throw: None,
+                                        // Its hold cleared at once (`0x51798E`, #3430).
+                                        unheld: true,
                                     });
                             }
                         }
@@ -2839,6 +2843,16 @@ fn make(
                     by: hero,
                     on: chosen,
                 });
+                // The Gladiator's bare-handed one holds its creature 3 s at least, as a knock does,
+                // without ending what it does (the slot 210, `0x502711`, #3429).
+                if making.art == opensacred_rules::casts::GLADIATORS_ATTACKE
+                    && holding.is_none_or(|holding| holding.0.class == 0)
+                {
+                    commands
+                        .entity(chosen)
+                        .entry::<Mind>()
+                        .and_modify(|mut mind| mind.held_at_least(BARE_ATTACKE_HOLD));
+                }
                 playing.target = chosen;
                 playing.struck += 1;
                 if playing.struck >= playing.points.len() {
@@ -2876,6 +2890,7 @@ fn make(
                                     left: to_f32(left),
                                     held: 0.0,
                                     throw: None,
+                                    unheld: false,
                                 });
                         }
                     }
@@ -2997,6 +3012,7 @@ fn make(
                                 left: to_f32(arts::whirl_knockback(record, playing.level)),
                                 held: 0.0,
                                 throw: None,
+                                unheld: false,
                             });
                     }
                 }
@@ -3225,6 +3241,9 @@ pub struct Knocked {
     /// `opensacred_rules::minds::Mind::knocked`), 0 for the others; a thrown one's whole hold.
     pub held: f32,
     pub throw: Option<arts::Flight>,
+    /// Whether it is held not at all, the cannon's (`opensacred_rules::minds::Mind::knocked_unheld`,
+    /// #3430).
+    pub unheld: bool,
 }
 
 /// A creature's flags word's bit of a boss (`+0x1F4` bit `0x80000`).
@@ -3308,6 +3327,7 @@ fn knock(
                         left: 0.0,
                         held: arts::BOWL_HOLD,
                         throw: Some(arts::bowled(flight.velocity, to_it)),
+                        unheld: false,
                     });
                 flight.velocity = flight.velocity.map(|v| v * arts::BOWL_KEEPS);
             }
@@ -3346,6 +3366,8 @@ fn held(knocked: On<Insert<Knocked>>, mut minds: Query<(&mut Mind, &Knocked)>) {
     if let Ok((mut mind, knock)) = minds.get_mut(knocked.entity) {
         if knock.throw.is_some() {
             mind.stunned(knock.held);
+        } else if knock.unheld {
+            mind.knocked_unheld();
         } else {
             mind.knocked(knock.held);
         }
@@ -3359,6 +3381,9 @@ fn held(knocked: On<Insert<Knocked>>, mut minds: Query<(&mut Mind, &Knocked)>) {
 const FLAMER_SOUND: u32 = 2113;
 const MORTAR_SOUND: u32 = 2114;
 const CANNON_SOUND: u32 = 2116;
+/// How long the Gladiator's bare-handed `Attacke` holds its creature at least, in seconds (the
+/// float 3.0 at `0x890768`, `0x502711`).
+const BARE_ATTACKE_HOLD: f32 = 3.0;
 
 /// A gun's object's sound at `at`.
 fn gun_sound(points: &mut MessageWriter<crate::sfx::PlayAt>, sound: u32, at: Vec3) {
