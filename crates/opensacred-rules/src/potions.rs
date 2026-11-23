@@ -292,6 +292,16 @@ pub fn banishes(effects: &[Effect]) -> bool {
         .any(|effect| effect.id == effects::DAMAGE_OF && effect.whole == BANISHES)
 }
 
+/// The values of the purple potions' effects of `effects`, which a strike's attack record reads
+/// against the undead (`0x569A29`–`0x569D72`, `fight::AgainstClass::with_potions`, #3483).
+pub fn banishing(effects: &[Effect]) -> Vec<f32> {
+    effects
+        .iter()
+        .filter(|effect| effect.id == effects::DAMAGE_OF && effect.whole == BANISHES)
+        .map(|effect| effect.value)
+        .collect()
+}
+
 /// The shares of a kill's base experience that the blue potions' effects of `effects` give their
 /// bearer more: the sum of their values (`0x57D860` at `0x57DC62`; `fight::experience_with`).
 pub fn mentored(effects: &[Effect]) -> f32 {
@@ -436,6 +446,8 @@ mod tests {
             ..Effect::new(effects::DAMAGE_OF, 0.5)
         };
         assert!(banishes(&[fire, purple]) && !banishes(&[fire, blue]));
+        assert_eq!(banishing(&[fire, purple, blue, purple]), [0.8, 0.8]);
+        assert!(banishing(&[fire, blue]).is_empty());
         assert!((mentored(&[purple, blue, fire]) - 0.5).abs() < f32::EPSILON);
         assert!(mentored(&[fire]).abs() < f32::EPSILON);
     }
