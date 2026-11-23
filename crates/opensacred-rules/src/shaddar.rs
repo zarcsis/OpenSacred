@@ -9,6 +9,9 @@
 //! screen's horizontal on the ground, `y` toward the viewer; docs/re/effects.md, "Their
 //! flight"), its rays in that frame about its place with `z` up; its reaches are the world's on
 //! the ground, in its units.
+//!
+//! And Shaddar's clip of the slot 163, which his death's records play on him and his standing
+//! action holds so that it never ends ([`held_clip_leaps`]).
 
 use crate::particles::{Block, Layer, Ramp, Spread, System};
 use crate::spawning::Dice;
@@ -24,6 +27,18 @@ pub const MARK_SECONDS: f32 = 5.0;
 /// A slave's size, by which it touches a creature within its size and the creature's
 /// (`0x5AB490`).
 pub const SLAVE_SIZE: f32 = 50.0;
+/// The slot of Shaddar's clip that his standing action holds (`0x544C58`–`0x544DC3`;
+/// docs/re/netscript.md, the `PlayAnim` paragraph).
+pub const HELD_SLOT: u16 = 163;
+
+/// Whether Shaddar's clip of [`HELD_SLOT`], `left` of its span left at a world's tick, leaps back
+/// to its half, with no blend: where `left` is below 0.35 or above 0.85 (the floats `0x891078`
+/// and `0x891220`), so that it plays from its half to 0.65 of its span again and again and never
+/// ends (`0x544C58`–`0x544DC3`; seen a leap every 0.66 s of a 4.011 s span, #3443).
+pub fn held_clip_leaps(left: f32) -> bool {
+    !(0.35..=0.85).contains(&left)
+}
+
 /// How far a hunter seeks a creature once its target is gone, squared (`0x600570`): about 316.
 pub const HUNT_REACH_SQUARED: f32 = 100_000.0;
 /// A hunter's most turn toward its target a second (`+0xE0`).
