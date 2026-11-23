@@ -2843,6 +2843,16 @@ fn make(
                     by: hero,
                     on: chosen,
                 });
+                // The Gladiator's bare-handed one holds its creature 3 s at least, as a knock does,
+                // without ending what it does (the slot 210, `0x502711`, #3429).
+                if making.art == opensacred_rules::casts::GLADIATORS_ATTACKE
+                    && holding.is_none_or(|holding| holding.0.class == 0)
+                {
+                    commands
+                        .entity(chosen)
+                        .entry::<Mind>()
+                        .and_modify(|mut mind| mind.held_at_least(BARE_ATTACKE_HOLD));
+                }
                 playing.target = chosen;
                 playing.struck += 1;
                 if playing.struck >= playing.points.len() {
@@ -3371,6 +3381,9 @@ fn held(knocked: On<Insert<Knocked>>, mut minds: Query<(&mut Mind, &Knocked)>) {
 const FLAMER_SOUND: u32 = 2113;
 const MORTAR_SOUND: u32 = 2114;
 const CANNON_SOUND: u32 = 2116;
+/// How long the Gladiator's bare-handed `Attacke` holds its creature at least, in seconds (the
+/// float 3.0 at `0x890768`, `0x502711`).
+const BARE_ATTACKE_HOLD: f32 = 3.0;
 
 /// A gun's object's sound at `at`.
 fn gun_sound(points: &mut MessageWriter<crate::sfx::PlayAt>, sound: u32, at: Vec3) {
