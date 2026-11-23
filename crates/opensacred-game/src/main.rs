@@ -136,6 +136,7 @@ mod hell_gates;
 mod hell_screams;
 mod help;
 mod hero;
+mod hero_defence;
 mod hero_held;
 mod hit_sparks;
 mod holding_sights;
@@ -669,7 +670,10 @@ fn run(cli: Cli) -> Result<AppExit> {
         held::HeldPlugin,
         help::HelpPlugin,
         hero::HeroPlugin,
+        hero_defence::HeroDefencePlugin,
         hero_held::HeroHeldPlugin,
+    ))
+    .add_plugins((
         hit_sparks::HitSparksPlugin,
         holy_lights::HolyLightsPlugin,
         homing_fires::HomingFiresPlugin,

@@ -4647,6 +4647,13 @@ impl Default for Blow {
 /// or a script's (`0x56B96A`–`0x56B9A5`, #2487): its `D` doubles against a strike.
 pub const PARRY_DEFENCE: f32 = 2.0;
 
+/// The further factor of a hero's defence in its defending clip, its own under Shift
+/// (`0x56B96A`–`0x56B9A5`, the float 4.0 at `0x89098C`; #3392): its `D` times [`PARRY_DEFENCE`]
+/// times this, eight times; and the factor of each of its four resistances (`0x56C6B4`–
+/// `0x56C70F`), twice.
+pub const HERO_DEFENCE: f32 = 4.0;
+pub const HERO_RESISTANCE: f32 = 2.0;
+
 /// The factor by which a strike weighs its defender's defence and resistances by the levels
 /// `(attacker, defender)` (`0x56B787`–`0x56B935`, #2495): where the defender is a creature below
 /// its attacker's level and the attacker above level 6, the factor of the levels ([`weighing`]) of

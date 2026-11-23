@@ -247,6 +247,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/hell_screams.rs`: The look of the Daemon's fear
 - `crates/opensacred-game/src/help.rs`: The keys' help
 - `crates/opensacred-game/src/hero.rs`: The hero
+- `crates/opensacred-game/src/hero_defence.rs`: The hero's defence under Shift
 - `crates/opensacred-game/src/hero_held.rs`: The hero held
 - `crates/opensacred-game/src/hit_sparks.rs`: The combat arts' hit sparks
 - `crates/opensacred-game/src/holding_sights.rs`: The holds' sights
