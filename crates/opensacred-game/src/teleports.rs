@@ -144,8 +144,8 @@ fn run(
             continue;
         }
         let mut quads = Quads::default();
-        for (at, half) in shown.look.sparks(&mut dice.0) {
-            quads.push_facing_turned(world(at), half * iso::MODEL_SCALE, 0.0, TELEPORT_CORNERS);
+        for (at, half, turn) in shown.look.sparks(&mut dice.0) {
+            quads.push_facing_turned(world(at), half * iso::MODEL_SCALE, turn, TELEPORT_CORNERS);
         }
         if let Some(mut mesh) = meshes.get_mut(&shown.mesh) {
             // Just behind its caster while it rides on him, else at its place, as the original

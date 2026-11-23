@@ -13319,13 +13319,14 @@ const TELEPORT_OPENS: f32 = 6.0;
 const TELEPORT_RISES: f32 = 25.0;
 const TELEPORT_HOLDS: f32 = 0.3;
 
-/// A spark of the teleport: its angle about the ring and its rate, its bob's phase, and for one
-/// that broke away its place, its velocity and its life.
+/// A spark of the teleport: its angle about the ring and its rate, its bob's phase, its star's
+/// turn, and for one that broke away its place, its velocity and its life.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct TeleportSpark {
     angle: f32,
     rate: f32,
     bob: f32,
+    turn: f32,
     loose: Option<([f32; 3], [f32; 3], f32)>,
 }
 
@@ -13347,7 +13348,8 @@ enum TeleportStage {
 /// whole circle, rises into a cylinder of 0 to 100, holds 0.3 s, when the hero is put at the
 /// arrival, and 0.3 s more, then sinks and closes as it came; a spark now and then breaks away,
 /// falls bouncing on the ground and shrinks, and comes back to the ring. Its time runs at the
-/// cast's rate; it is added by its alpha in its blue corners.
+/// cast's rate; it is added by its alpha in its blue corners, each star at a turn rolled over a
+/// whole turn as it is put on the ring and never turned after (the billboards' flags 5, #3455).
 #[derive(Clone, Debug)]
 pub struct TeleportSight {
     sparks: Vec<TeleportSpark>,
@@ -13359,8 +13361,8 @@ pub struct TeleportSight {
 }
 
 impl TeleportSight {
-    /// A sight at the cast's rate `rate` of the rolls of `dice`: each spark's bob's phase and its
-    /// rate of 0.5 to 3 a second either way.
+    /// A sight at the cast's rate `rate` of the rolls of `dice`: each spark's bob's phase, its
+    /// rate of 0.5 to 3 a second either way and its star's turn.
     pub fn new<D: Dice>(rate: f32, dice: &mut D) -> Self {
         let sparks = (0..TELEPORT_COUNT)
             .map(|_| {
@@ -13371,6 +13373,7 @@ impl TeleportSight {
                     angle: 0.0,
                     rate,
                     bob,
+                    turn: ROLLED_TURN * share(dice),
                     loose: None,
                 }
             })
@@ -13482,6 +13485,7 @@ impl TeleportSight {
                     let mut spark = spark;
                     spark.loose = if life <= 0.0 {
                         spark.angle = 0.0;
+                        spark.turn = ROLLED_TURN * share(dice);
                         None
                     } else {
                         Some((at, velocity, life))
@@ -13499,13 +13503,13 @@ impl TeleportSight {
         self.stage == TeleportStage::Done
     }
 
-    /// Its sparks, each a place about its own and a half side: the ring's of 7, the loose ones'
-    /// their life, now and then 10 to 12 more (`rand() % 51` 0).
-    pub fn sparks(&self, dice: &mut impl Dice) -> Vec<([f32; 3], f32)> {
+    /// Its sparks, each a place about its own, a half side and its star's turn: the ring's of 7,
+    /// the loose ones' their life, now and then 10 to 12 more (`rand() % 51` 0).
+    pub fn sparks(&self, dice: &mut impl Dice) -> Vec<([f32; 3], f32, f32)> {
         self.sparks
             .iter()
             .map(|spark| match spark.loose {
-                None => (self.ringed(spark), TELEPORT_SPARK),
+                None => (self.ringed(spark), TELEPORT_SPARK, spark.turn),
                 Some((at, _, life)) => {
                     let size = if dice.below(51) == 0 {
                         let more = f32::from(u16::try_from(dice.below(3)).unwrap_or(0));
@@ -13513,7 +13517,7 @@ impl TeleportSight {
                     } else {
                         life
                     };
-                    (at, size)
+                    (at, size, spark.turn)
                 }
             })
             .collect()
@@ -17838,13 +17842,45 @@ mod tests {
         }
         let sparks = sight.sparks(&mut dice);
         assert_eq!(sparks.len(), 500);
-        let ringed: Vec<_> = sparks.iter().filter(|(_, half)| *half == 7.0).collect();
-        assert!(ringed.iter().all(|(at, _)| {
+        let ringed: Vec<_> = sparks.iter().filter(|(_, half, _)| *half == 7.0).collect();
+        assert!(ringed.iter().all(|(at, ..)| {
             (at[0].hypot(at[1]) - 30.0).abs() < 1e-3 && (0.0..=100.0).contains(&at[2])
         }));
         assert!(
-            ringed.iter().any(|(at, _)| at[2] > 90.0) && ringed.iter().any(|(at, _)| at[2] < 10.0)
+            ringed.iter().any(|(at, ..)| at[2] > 90.0)
+                && ringed.iter().any(|(at, ..)| at[2] < 10.0)
         );
+        // Each star at a turn of its own over a whole turn, kept from frame to frame.
+        let turns: Vec<f32> = sparks.iter().map(|&(_, _, turn)| turn).collect();
+        assert!(turns.iter().all(|turn| (0.0..ROLLED_TURN).contains(turn)));
+        assert!(turns.iter().any(|&turn| turn > 3.0) && turns.iter().any(|&turn| turn < 1.0));
+        let ringed_turns: Vec<f32> = sight
+            .sparks
+            .iter()
+            .filter(|spark| spark.loose.is_none())
+            .map(|spark| spark.turn)
+            .collect();
+        sight.update(0.01, -10.0, &mut dice);
+        let kept: Vec<f32> = sight
+            .sparks
+            .iter()
+            .filter(|spark| spark.loose.is_none())
+            .map(|spark| spark.turn)
+            .collect();
+        assert_eq!(ringed_turns.len(), kept.len());
+        assert_eq!(ringed_turns, kept);
+    }
+
+    #[test]
+    fn a_teleports_loose_spark_takes_a_new_turn_as_it_comes_back_to_the_ring() {
+        let mut dice = Rng::of(5, 1, 4);
+        let mut sight = TeleportSight::new(1.0, &mut dice);
+        let turn = sight.sparks[0].turn;
+        sight.sparks[0].loose = Some(([0.0, 0.0, 50.0], [0.0; 3], 0.01));
+        sight.update(0.01, -10.0, &mut dice);
+        assert!(sight.sparks[0].loose.is_none());
+        assert_ne!(sight.sparks[0].turn, turn);
+        assert!((0.0..ROLLED_TURN).contains(&sight.sparks[0].turn));
     }
 
     #[test]

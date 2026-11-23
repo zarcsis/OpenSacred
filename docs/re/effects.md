@@ -2889,7 +2889,7 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
 `opensacred-game` draws them since #1092 (`teleports`, `opensacred_rules::particles::TeleportSight`) at the Mage's feet and at the arrival on the ground as his teleport acts (`spells`), the hero put there by `spells`'s own timer at the same moment.
 **Seen** 2026-11-06 in the game: the two blue rings opening, rising into cylinders, and closing; not beside the original, whose driver's right button on the ground did not make the Mage's teleport.
 **Seen** 2026-11-22 in the running original (#3443): the Mage taught the spell 1 by the driver, selected and made by a right click on the ground four cells away, the two rings opened as arcs, closed into rings and rose into cylinders at the Mage's feet and at the arrival, white and blue; at the 1024 × 768 frames the stars are a few pixels each and the rings saturate to white where they crowd, so that no star's turn could be told, and the fixed turns stay **confirmed** by code alone.
-Not followed: the sparks' fixed turns, drawn unturned (#3455).
+Since #3455 each star stands at its own turn, rolled over a whole turn as it is put on the ring and kept while it rides it or flies loose (`TeleportSight::sparks`).
 The fog about the arrival is the original's: the game stamps it as the hero's cell changes there (`explored`), which gives the same disc in the same frame or the next.
 
 ## The healing
