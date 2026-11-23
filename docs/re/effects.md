@@ -1572,7 +1572,8 @@ Read 2026-11-05 for #1964 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` makes it since #1964 (`dryad_ghosts`, `opensacred_rules::particles::{DRYAD_GHOST, LostSoul::dryad_ghost}`, `opensacred_rules::fight::Rules::dryad_ghost_damages`): each fill's dummy 1249 is hidden as it is made, its flags' low 16 bits cleared, and its ghost rises on the ground at its place, flies, strikes the hero and its followers and looks and sounds as described (`lost_souls`, `hums::Hum`); it goes with its dummy, its dots fading after it.
 Its strikes' sure hits of fixed damages from the dummy are the original's (above); its green Direct3D light follows since #2106, as the lost souls' (`lost_souls`).
-Not followed (#3453): the dummy riding with the ghost and its death ending the ghost (the game's dummy stays hidden where it was made, and the ghost goes as it goes), the target kept on another floor, and the ends at once of a target or a dummy destroyed; the pointer's pick of the dummy at the ghost, the hero's strikes at it and its waking when struck (#3453).
+Since #3453 the ghost puts its dummy at its own place at the end of each run, so that the dummy rides with it into the cells and sectors it crosses, keeps its target on any floor while it lives, lets it go as it dies, and ends at once where its target is destroyed or its dummy is destroyed or dies; the pointer picks the living dummy at the ghost though it draws nothing (`dryad_ghosts::Dummy`, `under_cursor`), and struck, it wakes (#3470).
+The dummy still goes with the sector that made it, as every creature of the game does, where the original's is put into the list of the ghost's cell.
 **Seen** 2026-11-05 at the sector 16,79 beside the original: the dummies of neither game showing or stirring; in both a green glow trailing blue dots that rose and flew at the Seraphim within some six cells and circled about her head, striking her.
 
 ## The raised creature's ring

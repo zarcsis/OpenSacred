@@ -181,6 +181,7 @@ type Creatures<'w, 's> = Query<
         &'static crate::fight::Health,
         Has<crate::npcs::Dies>,
         Has<crate::riding::Ridden>,
+        Has<crate::dryad_ghosts::Dummy>,
     ),
     Without<crate::hero::Body>,
 >;
@@ -230,12 +231,13 @@ fn choose(
     let view = View::new(*camera, ui_scale.0);
     let model = |entity: Entity, at: Vec3| view.model(&points.bounds_points(entity, &meshes), at);
     let mut drawn: Vec<(Entity, Class, Rect)> = Vec::new();
-    for ((entity, at, visibility), mind, health, dies, ridden) in &creatures {
-        if !shown(visibility) {
+    for ((entity, at, visibility), mind, health, dies, ridden, dummy) in &creatures {
+        let alive = !dies && health.current > 0;
+        // A dryad ghost's dummy draws nothing and is picked while it lives (`0x44CF20`).
+        if !shown(visibility) && !(dummy && alive) {
             continue;
         }
         let at = at.translation();
-        let alive = !dies && health.current > 0;
         let class = if alive && mind.hostile() {
             Class::Foe
         } else {
