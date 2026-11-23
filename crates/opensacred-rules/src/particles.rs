@@ -14479,8 +14479,21 @@ impl BoltTrail {
     }
 
     /// Its bolt's end: it makes no more; the whirlwind's at a cell that stops it, `at_once`, goes
-    /// at once with its puffs (`+0x74` bit 2).
-    pub fn end(&mut self, at_once: bool) {
+    /// at once with its puffs (`+0x74` bit 2); the fire bolt's at its hit or a cell that stops
+    /// it, not past its 2 s (`timed`), first bursts one puff more about its place, of the size 10,
+    /// turned at random, up to 15 off and flying off at up to 20 along each axis
+    /// (`0x7AAAC0`–`0x7AAB46`, #3457), of the trail's ramp and life.
+    pub fn end(&mut self, at_once: bool, timed: bool, dice: &mut impl Dice) {
+        if !self.out && self.kind == TrailKind::Shaddar && !timed {
+            let last = Block {
+                size: spread(10.0, 0.0),
+                angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+                velocity: spread([0.0; 3], [20.0; 3]),
+                offset: spread([0.0; 3], [15.0; 3]),
+                ..Block::default()
+            };
+            self.system.burst(&last, 1, SHADDAR_COUNT, dice);
+        }
         self.out = true;
         if at_once && self.kind == TrailKind::Windstrike {
             self.system.particles.clear();
@@ -21141,7 +21154,7 @@ mod tests {
                 && (44.0..=76.0).contains(&b)
         }));
         assert!(bytes.iter().any(|&[r, ..]| r < 112.0) && bytes.iter().any(|&[r, ..]| r > 128.0));
-        dust.end(true);
+        dust.end(true, false, &mut dice);
         assert!(dust.done());
         let mut smoke = BoltTrail::new(TrailKind::Shaddar);
         for _ in 0..30 {
@@ -21156,13 +21169,50 @@ mod tests {
                 .iter()
                 .all(|p| p.place.iter().all(|v| v.abs() < 20.0))
         );
-        smoke.end(false);
+        // Past its 2 s it makes no more.
+        let puffs = smoke.system.particles.len();
+        let mut timed = smoke.clone();
+        timed.end(false, true, &mut dice);
+        assert_eq!(timed.system.particles.len(), puffs);
+        // At its hit it bursts one more, of the size 10, within 15 of its place.
+        smoke.end(false, false, &mut dice);
+        assert_eq!(smoke.system.particles.len(), puffs + 1);
+        let last = smoke.system.particles.last().copied();
+        assert!(last.is_some_and(|p| {
+            p.size == 10.0
+                && p.life == 255.0
+                && p.place.iter().all(|v| v.abs() <= 15.0)
+                && p.velocity.iter().all(|v| v.abs() <= 20.0)
+        }));
+        // Ended once, it bursts no more.
+        smoke.end(false, false, &mut dice);
+        assert_eq!(smoke.system.particles.len(), puffs + 1);
         assert!(!smoke.done());
         for _ in 0..40 {
             smoke.update(1.0 / 60.0, ([0.0; 3], [0.0; 3]), &mut dice);
         }
         assert!(smoke.done());
         assert_eq!(BoltTrail::ramp().at(255.0)[3], 0.781);
+        // Each last puff turned, placed and flying off at random.
+        let lasts: Vec<_> = (0..20)
+            .filter_map(|_| {
+                let mut smoke = BoltTrail::new(TrailKind::Shaddar);
+                smoke.end(false, false, &mut dice);
+                smoke.system.particles.first().copied()
+            })
+            .collect();
+        assert_eq!(lasts.len(), 20);
+        assert!(lasts.iter().any(|p| p.angle.abs() > 0.5));
+        assert!(lasts.iter().any(|p| p.place.iter().any(|v| v.abs() > 3.0)));
+        assert!(
+            lasts
+                .iter()
+                .any(|p| p.velocity.iter().any(|v| v.abs() > 3.0))
+        );
+        // The whirlwind's dust bursts none.
+        let mut dust = BoltTrail::new(TrailKind::Windstrike);
+        dust.end(false, false, &mut dice);
+        assert!(dust.system.particles.is_empty());
     }
 
     #[test]

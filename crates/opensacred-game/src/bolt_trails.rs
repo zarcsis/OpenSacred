@@ -157,13 +157,15 @@ fn blow(
             Some(Ok(place)) => look.place = place.translation,
             _ => {
                 if let Some(bolt) = look.bolt.take() {
-                    // A cell that stops a whirlwind ends its dust at once (`+0x74` bit 2).
-                    let at_once = ended
-                        .iter()
-                        .find(|end| end.bolt == bolt)
-                        .is_some_and(|end| end.at_once || (!end.timed && end.hit.is_none()));
-                    debug!("bolt trails: {bolt} ends, at once {at_once}");
-                    look.trail.end(at_once);
+                    // A cell that stops a whirlwind ends its dust at once (`+0x74` bit 2); a fire
+                    // bolt's hit or a cell that stops it bursts its last puff, its 2 s run out none
+                    // (`0x7AAAC0`, #3457).
+                    let end = ended.iter().find(|end| end.bolt == bolt);
+                    let at_once =
+                        end.is_some_and(|end| end.at_once || (!end.timed && end.hit.is_none()));
+                    let timed = end.is_none_or(|end| end.timed);
+                    debug!("bolt trails: {bolt} ends, at once {at_once}, timed {timed}");
+                    look.trail.end(at_once, timed, &mut dice.0);
                 }
             }
         }
