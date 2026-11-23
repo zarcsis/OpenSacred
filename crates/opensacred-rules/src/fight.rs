@@ -4967,6 +4967,8 @@ pub fn weapon_comment(landed: &Landed, total: u32, most: u32) -> Option<u8> {
 
 /// The kind of the poison's damage, the last of [`KINDS`].
 const POISON: usize = 3;
+/// The fire's place among the kinds of damage.
+const FIRE_KIND: usize = 1;
 
 /// A strike's damage once it lands: each kind's rolled and let through by its resistance, less
 /// the damping, summed, and what the sum takes off the health ([`taken`]).
@@ -5021,6 +5023,27 @@ pub fn poisons(landed: &Landed, rng: &mut impl Dice) -> Option<Poison> {
         seconds: share,
         gathered: if key < 0x1_0000 { key } else { 0xEFFF },
     })
+}
+
+/// The effect that a strike of a wearer of sets 27 or 31 gives its defender, and that the
+/// Daemon's breath's fires spare (`0x26`, `0x5539D0`; docs/re/arts.md, "The Daemon's", #3438).
+pub const SPARED_BY_FIRE: u32 = 38;
+/// The most seconds of the effect 38 (`0x56E0B1`–`0x56E158`).
+const SPARED_MOST: f32 = 20.0;
+
+/// The seconds of the effect 38 that a strike which landed gives its defender from an attacker
+/// that marks for the fires (`crate::set_bonuses::Stats::marks_for_fire`; `0x56E0A4`, the hits
+/// of the kinds 17 and 18 the caller's to leave out): where the fire's damage as rolled `f` passes
+/// the defender's fire resistance `r`, `f/r` seconds, at most 20 (**estimate**: the seen effects
+/// lasted 3.7 to 4.3 s of a fire of 26 to 31 against 7.09, and 1.84 s of a burn's 13; the code's
+/// share not read further), 20 against a resistance of 0; none where `f` does not pass `r`.
+pub fn spared_by_fire(landed: &Landed) -> Option<f32> {
+    let (fire, resistance) = (landed.rolled[FIRE_KIND], landed.resistance[FIRE_KIND]);
+    if fire <= resistance {
+        return None;
+    }
+    // A resistance of 0 or below makes the share infinite, held at the most.
+    Some((fire / resistance.max(0.0)).min(SPARED_MOST))
 }
 
 /// A poison as a strike gives it ([`poisons`]): the effect 30's whole value, by which it slows
@@ -6431,6 +6454,24 @@ mod tests {
         // The level raises the attributes by a tenth each: a level-10 wolf's are 15, 19, 34, 24.
         let older = combat(&a_wolf(), 10, Holds::default(), &[], &rules);
         assert!(near(older.attack, 24.5) && near(older.defence, 30.2));
+    }
+
+    #[test]
+    fn a_fire_passing_its_resistance_marks_for_the_fires_by_its_share() {
+        let landed = |fire, resistance| Landed {
+            rolled: [0.0, fire, 0.0, 0.0],
+            resistance: [0.0, resistance, 0.0, 0.0],
+            ..Landed::default()
+        };
+        // As seen: 26 and 31 against 7.09, some 3.7 and 4.4 s; a burn's 13, 1.83 s.
+        let seconds = |fire, resistance| spared_by_fire(&landed(fire, resistance));
+        assert!(seconds(26.0, 7.09).is_some_and(|s| (s - 3.667).abs() < 0.01));
+        assert!(seconds(13.0, 7.09).is_some_and(|s| (s - 1.834).abs() < 0.01));
+        // At most 20, and 20 against no resistance; none where the fire does not pass it.
+        assert_eq!(seconds(500.0, 7.0), Some(20.0));
+        assert_eq!(seconds(5.0, 0.0), Some(20.0));
+        assert_eq!(seconds(7.0, 7.0), None);
+        assert_eq!(seconds(3.0, 7.0), None);
     }
 
     #[test]

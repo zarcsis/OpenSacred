@@ -100,6 +100,24 @@ impl Effects {
         true
     }
 
+    /// Adds the effect 38 from `source` for `seconds` (`0x56E0A4`, #3438): its own of that source
+    /// takes the new seconds, else a new one at the list's end.
+    pub fn spare(&mut self, seconds: f32, source: Entity) {
+        let id = opensacred_rules::fight::SPARED_BY_FIRE;
+        let held = self
+            .0
+            .iter_mut()
+            .find(|timed| timed.effect.id == id && timed.source == Some(source));
+        match held {
+            Some(timed) => timed.left = seconds,
+            None => self.0.push(Timed {
+                effect: Effect::new(id, 0.0),
+                left: seconds,
+                source: Some(source),
+            }),
+        }
+    }
+
     /// Adds a potion's effect 33 for `seconds` as `0x582D50` does (at `0x584328`): one of the
     /// same whole value alone, which keeps its place and value and takes the longer time.
     pub fn add_alone(&mut self, effect: Effect, seconds: f32) {

@@ -510,6 +510,14 @@ fn a_kind_dominates_past_its_count_of_items_strictly_above_the_others() {
 }
 
 #[test]
+fn sets_27_and_31_mark_for_the_fires() {
+    let worn = |set: u8, n: u32| stats(&wearing(set, n), Difficulty::Bronze, false);
+    assert!(worn(27, 6).marks_for_fire() && !worn(27, 5).marks_for_fire());
+    assert!(worn(31, 5).marks_for_fire() && !worn(31, 4).marks_for_fire());
+    assert!(!Stats::default().marks_for_fire());
+}
+
+#[test]
 fn set_55_refuses_two_knocks_in_three_and_set_52_answers_the_holds() {
     let none = Stats::default();
     let steady = Stats {
