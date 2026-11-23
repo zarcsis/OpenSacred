@@ -1163,30 +1163,28 @@ fn make(
                 rate = arts::panther_rate(reach);
             }
             if style == Style::Dash {
-                // Its point at its reach at most, the farthest of its line where she may stand
-                // with a straight way to it (`0x50E6C0`).
+                // A straight way to its point and a place to stand there, else it ends at once
+                // (`0x5139FA`); its line ends at the first thirtieth step beyond her reach, counted
+                // along its longer axis, where she may stand, else at its point (`0x50F6AD`).
                 let aimed = making.point.unwrap_or(point);
-                let reach = arts::dash_reach(record, level);
-                let [x, z] = arts::panther_point(here.xz().into(), aimed.xz().into(), reach, false);
-                let level = body.level();
-                let walkable = |cell| heights.walkable_on(cell, level);
-                let far = Vec3::new(x, here.y, z);
-                let along = (far - here).normalize_or_zero();
-                // From its point back toward her a cell at a time.
-                let reached = std::iter::successors(Some((far - here).length()), |&left| {
-                    (left > 0.0).then(|| (left - crate::iso::CELL).max(0.0))
-                })
-                .map(|left| here + along * left)
-                .find(|to| {
-                    walkable(crate::paths::cell_of(to.x, to.z))
-                        && crate::paths::clear(here.xz(), to.xz(), walkable)
-                });
-                let Some(reached) = reached else {
-                    info!("making: the dash has nowhere to go");
+                let floor = body.level();
+                let walkable = |cell| heights.walkable_on(cell, floor);
+                let stands = |at: Vec3| walkable(crate::paths::cell_of(at.x, at.z));
+                if !stands(aimed) || !crate::paths::clear(here.xz(), aimed.xz(), walkable) {
+                    info!(
+                        "making: the dash's point {:?} from {:?} has no straight way or may not \
+                         be stood on",
+                        crate::paths::cell_of(aimed.x, aimed.z),
+                        crate::paths::cell_of(here.x, here.z)
+                    );
                     end(&mut commands);
                     continue;
-                };
-                point = reached;
+                }
+                let reach = arts::dash_reach(record, level);
+                let [x, z] = arts::dash_end(here.xz().into(), aimed.xz().into(), reach, |at| {
+                    stands(Vec3::new(at[0], here.y, at[1]))
+                });
+                point = Vec3::new(x, here.y, z);
             }
             if matches!(style, Style::Jump | Style::Charge) {
                 // A jump, and the Daemon's charge, want a straight way to their point and a place

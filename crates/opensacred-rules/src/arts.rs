@@ -2247,12 +2247,41 @@ pub const LET_GO: f32 = 0.5;
 pub const DASHES: f32 = 0.8;
 pub const DASH_RATE: f32 = 5.0;
 
-/// How far the Vampiress's dash `record` goes at most at the level in play `level` (`0x50E6C0`):
-/// `[+0x60] + [+0x64]·L`, 400 + 25·L by day (1028), 500 + 50·L by night (1029); seen: a click 12
-/// cells off put her 8 cells off at level 1.
+/// The Vampiress's reach for her dash `record` at the level in play `level` (`0x50E6C0`):
+/// `[+0x60] + [+0x64]·L`, 400 + 25·L by day (1028), 500 + 50·L by night (1029), counted along the
+/// line's longer axis ([`dash_end`]); seen: a click 10 cells off along the screen's horizontal put
+/// her 8 cells off along each axis at level 1, 450 units.
 pub fn dash_reach(record: &WeaponArt, level: u32) -> u32 {
     let [base, step] = record.value_60.map(i64::from);
     u32::try_from(base + step * i64::from(level)).unwrap_or(0)
+}
+
+/// The steps of the dash's line at which she is put on it (`0x50F6AD`): every thirtieth.
+pub const DASH_STEP: u32 = 30;
+
+/// Where the Vampiress's dash from `from` to the action's point `to` ends (`0x50F6AD`): along the
+/// line a step of a whole unit along its longer axis at a time, the other axis following, she is
+/// put on the line's point at every [`DASH_STEP`]th step from 0, and the line ends at the first
+/// such step whose count is above her reach `reach` where she may stand (`stands`, `0x4EBC40`);
+/// else at `to`. So her reach is counted along the longer axis, and a dash along the world's
+/// diagonal goes √2 farther than one along a cell's side.
+pub fn dash_end(
+    from: [f32; 2],
+    to: [f32; 2],
+    reach: u32,
+    stands: impl Fn([f32; 2]) -> bool,
+) -> [f32; 2] {
+    let delta = [0, 1].map(|i| f64::from(to[i] - from[i]).trunc());
+    let steps = delta[0].abs().max(delta[1].abs());
+    (0_u32..)
+        .map(|k| f64::from(k * DASH_STEP))
+        .take_while(|&count| count < steps)
+        .filter(|&count| count > f64::from(reach))
+        .map(|count| {
+            [0, 1].map(|i| narrow(f64::from(from[i]) + (delta[i] * count / steps).trunc()))
+        })
+        .find(|&point| stands(point))
+        .unwrap_or(to)
 }
 
 /// The equipment's slot of the Dwarf's cannon (`+0x1DC`, the category 33's).
