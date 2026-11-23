@@ -1961,6 +1961,41 @@ pub fn foes_of_animals(items: &[ItemValues]) -> bool {
     })
 }
 
+/// The items' effects that slow the clock (docs/re/daynight.md, "The clock", #3496): 850 its
+/// night's rate, 851 its day's.
+pub const NIGHT_SLOWER: u32 = 850;
+pub const DAY_SLOWER: u32 = 851;
+
+/// A clock's rate as its setters set it (`0x417640`, `0x417680`): `rate` itself from 0.2 to 5.0,
+/// else 1.0.
+pub fn clock_rate(rate: f32) -> f32 {
+    if (0.2..=5.0).contains(&rate) {
+        rate
+    } else {
+        1.0
+    }
+}
+
+/// The clock's rates of the day and of the night that the local hero's items `items` of the
+/// stored attributes `attributes` give (the stats' recomputation `0x5796A0`): each 1.0
+/// (`0x579C58`–`0x579C6D`), then each of their bonus slots of no class of opponents of
+/// [`DAY_SLOWER`] takes a tenth of its value off the day's and of [`NIGHT_SLOWER`] off the
+/// night's, each through its setter ([`clock_rate`]; `0x57ABC4`, `0x57AB65`).
+pub fn clock_rates(items: &[ItemValues], attributes: [f32; 6]) -> [f32; 2] {
+    let a = attributes.map(whole);
+    let rate = |effect: u32| {
+        items
+            .iter()
+            .flat_map(|item| item.bonuses)
+            .filter(|bonus| {
+                let [class, _] = bonus.condition.to_le_bytes();
+                bonus.effect & 0xFFFF == effect && (class == 0 || class == 13)
+            })
+            .fold(1.0, |rate, bonus| clock_rate(rate - 0.1 * bonus.value(a)))
+    };
+    [rate(DAY_SLOWER), rate(NIGHT_SLOWER)]
+}
+
 /// The items' effect of the luck (`0x348`), added to a killer's 100 ([`items_luck`]).
 pub const LUCK: u32 = 840;
 /// The items' effect of the experience (`0x34B`), its value per cent of a kill's base that the
@@ -9483,6 +9518,54 @@ mod tests {
         assert_eq!(items_experience(&[], [0.0; 6]), 0.0);
         let share = items_experience(&[item(EXPERIENCE, [12, 5]), item(LUCK, [40, 0])], [0.0; 6]);
         assert!((share - 0.17).abs() < 1e-6, "{share}");
+    }
+
+    #[test]
+    fn the_items_effects_850_and_851_slow_the_clocks_night_and_day() {
+        let item = |slots: &[(u32, u16, i16)]| {
+            let mut bonuses = [Bonus::default(); BONUSES];
+            for (slot, &(effect, condition, value)) in slots.iter().enumerate() {
+                bonuses[slot] = Bonus {
+                    condition,
+                    effect,
+                    value,
+                };
+            }
+            ItemValues {
+                bonuses,
+                ..ItemValues::default()
+            }
+        };
+        assert_eq!(clock_rates(&[], [0.0; 6]), [1.0, 1.0]);
+        // A tenth of 851's 3 off the day's, of 850's 5 off the night's.
+        let rates = clock_rates(
+            &[item(&[(DAY_SLOWER, 0, 3)]), item(&[(NIGHT_SLOWER, 13, 5)])],
+            [0.0; 6],
+        );
+        assert!(
+            (rates[0] - 0.7).abs() < 1e-6 && (rates[1] - 0.5).abs() < 1e-6,
+            "{rates:?}"
+        );
+        // A slot against a class of opponents counts not; another effect none.
+        assert_eq!(
+            clock_rates(&[item(&[(DAY_SLOWER, 7, 3), (LUCK, 0, 9)])], [0.0; 6]),
+            [1.0, 1.0]
+        );
+        // Each slot through the setter: 9 makes 0.1, which it makes 1.0, and the next 3 then 0.7;
+        // a negative value speeds it, up to 5.0.
+        let rates = clock_rates(&[item(&[(DAY_SLOWER, 0, 9), (DAY_SLOWER, 0, 3)])], [0.0; 6]);
+        assert!((rates[0] - 0.7).abs() < 1e-6, "{rates:?}");
+        let rates = clock_rates(&[item(&[(NIGHT_SLOWER, 0, -20)])], [0.0; 6]);
+        assert!((rates[1] - 3.0).abs() < 1e-6, "{rates:?}");
+        assert_eq!(
+            clock_rates(&[item(&[(NIGHT_SLOWER, 0, -41)])], [0.0; 6]),
+            [1.0, 1.0]
+        );
+        // The setter's bounds.
+        assert_eq!(clock_rate(0.2), 0.2);
+        assert_eq!(clock_rate(5.0), 5.0);
+        assert_eq!(clock_rate(0.19), 1.0);
+        assert_eq!(clock_rate(5.01), 1.0);
     }
 
     #[test]
