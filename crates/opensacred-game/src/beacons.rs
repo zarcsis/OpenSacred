@@ -2,7 +2,10 @@
 //! docs/re/effects.md, the 856's variant 3): `ARROW2.GRN` in `ARROW2_GOLD`, turning and bobbing,
 //! with a helix of `FX_HELIX01` in the record's colour about it, added by its alpha, which climbs
 //! and fades in and out, and a light that pulses (`opensacred_rules::particles::Beacon`). The
-//! arrow is lit as the world's models are, the helix untinted by the night; neither ends.
+//! arrow is lit as the world's models are, the helix untinted by the night; neither ends. A save
+//! keeps each arrow's place and colour, which its load sets again in place of those its start made
+//! (#3456), as the original's save writes every live particle system and its load rebuilds each
+//! (`0x7CC3B0`).
 
 use bevy::prelude::*;
 use opensacred_rules::particles::{self, Beacon};
@@ -41,14 +44,51 @@ struct Looks {
     dice: Rng,
 }
 
-/// A gold arrow that stands: its beacon, its helix's colour, its arrow's model and its helix's
-/// mesh.
+/// A gold arrow that stands: its beacon, its helix's colour and the record's word of it, its
+/// arrow's model and its helix's mesh.
 #[derive(Component)]
 struct Set {
     beacon: Beacon,
     colour: [f32; 3],
+    word: u32,
     arrow: Option<Entity>,
     helix: Handle<Mesh>,
+}
+
+/// The arrows as they stand, to save (#3456): each one's place and its helix's colour
+/// (`0xAARRGGBB`).
+pub(crate) fn saved(world: &mut World) -> Vec<(Vec3, u32)> {
+    let mut unset = world.query::<(&Transform, &Unset)>();
+    let mut arrows: Vec<(Vec3, u32)> = unset
+        .iter(world)
+        .map(|(at, &Unset(colour))| (at.translation, colour))
+        .collect();
+    let mut set = world.query::<(&Transform, &Set)>();
+    arrows.extend(set.iter(world).map(|(at, set)| (at.translation, set.word)));
+    arrows
+}
+
+/// Sets again the arrows that a loaded save kept (#3456), in place of every arrow that the load's
+/// start made.
+pub(crate) fn again(world: &mut World, arrows: Vec<(Vec3, u32)>) {
+    let mut unset = world.query_filtered::<Entity, With<Unset>>();
+    let mut gone: Vec<Entity> = unset.iter(world).collect();
+    let mut set = world.query::<(Entity, &Set)>();
+    for (entity, set) in set.iter(world) {
+        gone.push(entity);
+        gone.extend(set.arrow);
+    }
+    for entity in gone {
+        world.despawn(entity);
+    }
+    for (at, colour) in arrows {
+        world.spawn((
+            Unset(colour),
+            Transform::from_translation(at),
+            Visibility::default(),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
 }
 
 /// The arrows' looks of a new game.
@@ -116,6 +156,7 @@ fn set(
             Set {
                 beacon,
                 colour: [r, g, b],
+                word: colour,
                 arrow,
                 helix: helix.clone(),
             },
@@ -210,5 +251,43 @@ impl Plugin for BeaconsPlugin {
                     .in_set(Unpaused)
                     .run_if(in_state(AppState::InGame)),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_save_keeps_the_arrows_and_a_load_sets_them_in_place_of_the_starts() {
+        let mut world = World::new();
+        let here = Vec3::new(10.0, 2.0, 30.0);
+        world.spawn((Unset(0xFFC0_8020), Transform::from_translation(here)));
+        let model = world.spawn_empty().id();
+        let there = Vec3::new(500.0, 0.0, 40.0);
+        world.spawn((
+            Set {
+                beacon: Beacon::new(&mut crate::seed::dice(1)),
+                colour: [1.0, 0.5, 0.25],
+                word: 0xFF20_4080,
+                arrow: Some(model),
+                helix: Handle::default(),
+            },
+            Transform::from_translation(there),
+        ));
+        let mut kept = saved(&mut world);
+        kept.sort_by(|a, b| a.0.x.total_cmp(&b.0.x));
+        assert_eq!(kept, [(here, 0xFFC0_8020), (there, 0xFF20_4080)]);
+        // A load's start made an arrow of its own: the save's alone stand, to be set.
+        again(&mut world, vec![(there, 0xFF20_4080)]);
+        assert!(world.get_entity(model).is_err());
+        let mut set = world.query::<&Set>();
+        assert_eq!(set.iter(&world).count(), 0);
+        let mut unset = world.query::<(&Transform, &Unset)>();
+        let unset: Vec<(Vec3, u32)> = unset
+            .iter(&world)
+            .map(|(at, &Unset(colour))| (at.translation, colour))
+            .collect();
+        assert_eq!(unset, [(there, 0xFF20_4080)]);
     }
 }

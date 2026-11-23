@@ -21,8 +21,8 @@
 //! in ([`crate::npcs::Npcs::remember`]); the hero's followers, put back beside it; its own horse,
 //! put back where it stood, with its bridle (#2301, #2316); the drops; the town stash; the
 //! merchants' stock; the land explored and the map's pin; the weather; the buildings' states
-//! (#2888); and the scripts' traps as they stand, the fields of pills and the fences of lightning
-//! (#3450).
+//! (#2888); the scripts' traps as they stand, the fields of pills and the fences of lightning
+//! (#3450); and the scripts' gold arrows (#3456).
 //!
 //! The quick save (#1988): F9 and Control+Z save the game as `QUICKSAVE` in the slot 0's file
 //! `GAME00` where the interface allows a save ([`allowed`]), F8 and Control+X load it. The
@@ -100,8 +100,8 @@ use crate::{arts, drops, making};
 /// of `SetMapIcon` (#2932); the version 36 a placement's fire of list 4 (#3286); the version 37
 /// a `ReplaceSpawn`'s flags word (#3073); the version 38 the mark of a bonus against the undead
 /// on a creature (#3385); the version 39 the dying clips by their slots (#3400); the version 40
-/// the scripts' traps as they stand (#3450).
-pub const VERSION: u32 = 40;
+/// the scripts' traps as they stand (#3450); the version 41 the scripts' gold arrows (#3456).
+pub const VERSION: u32 = 41;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -178,7 +178,7 @@ pub struct Scripts {
 /// as their sectors keep them going (`npcs::Creatures`), the hero's followers, the drops lying
 /// and flying, the town stash, the merchants' stock, the land explored and the sectors entered,
 /// the world map's pin, the weather, its timers of real time from the save's, the buildings'
-/// states, and the scripts' traps as they stand.
+/// states, the scripts' traps as they stand and their gold arrows.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct World {
     pub creatures: crate::npcs::Creatures,
@@ -202,6 +202,8 @@ pub struct World {
     /// fences of lightning, the makers' timers and the segments flying (#3450).
     pub fields: Vec<opensacred_rules::script_traps::Field>,
     pub fences: crate::laser_fences::Saved,
+    /// The scripts' gold arrows standing, each one's place and colour (`beacons`, #3456).
+    pub arrows: Vec<(Vec3, u32)>,
 }
 
 /// The saves' directory: `saves/` beside the settings' file, else in the configuration
@@ -531,6 +533,7 @@ fn world_of(world: &mut bevy::prelude::World) -> Result<World> {
             .unwrap_or_default(),
         fields: crate::pill_fields::saved(world),
         fences: crate::laser_fences::saved(world),
+        arrows: crate::beacons::saved(world),
     })
 }
 
@@ -717,7 +720,8 @@ fn import(world: &mut bevy::prelude::World) {
 /// explored, the map's pin and the weather, its timers on this run's real time; the drops, laid
 /// once the tables are read (`drops::Again`); the hero's followers beside it; its own horse
 /// where it stood, with its bridle (`npcs::mount_again`, `riding::bridle_again`); and the scripts'
-/// traps, put back onto those of their points (`pill_fields::Again`, `laser_fences::Again`).
+/// traps, put back onto those of their points (`pill_fields::Again`, `laser_fences::Again`); and
+/// their gold arrows, in place of those that the load's start made (`beacons::again`).
 fn restore_world(world: &mut bevy::prelude::World, kept: World) {
     let World {
         creatures: _,
@@ -735,6 +739,7 @@ fn restore_world(world: &mut bevy::prelude::World, kept: World) {
         buildings,
         fields,
         fences,
+        arrows,
     } = kept;
     world.insert_resource(stash);
     world.insert_resource(Wares(wares));
@@ -764,6 +769,7 @@ fn restore_world(world: &mut bevy::prelude::World, kept: World) {
     }
     world.insert_resource(crate::pill_fields::Again(fields));
     world.insert_resource(crate::laser_fences::Again(fences));
+    crate::beacons::again(world, arrows);
     info!("saves: the world is back");
 }
 
@@ -1320,7 +1326,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (40, 0x3D7D_8356_1E7A_8327),
+            (41, 0xE308_CAB6_BBE1_1E0C),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
