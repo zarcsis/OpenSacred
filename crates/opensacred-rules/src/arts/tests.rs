@@ -2172,6 +2172,9 @@ fn her_shots_are_bolts_while_their_effects_hold() {
     assert!((Bolt::Bfg.rate(1.4) - 2.1).abs() < 1e-6);
     assert!(Bolt::Railgun.goes() && !Bolt::Bfg.goes());
     assert_eq!((Bolt::Railgun.slot(), Bolt::Bfg.slot()), (164, 145));
+    // A shot of no clip ends at the tick after the railgun's second bolt, at the second after
+    // the BFG's (#3572).
+    assert_eq!((Bolt::Railgun.ends_after(), Bolt::Bfg.ends_after()), (1, 2));
     // The first table's 51 and 8 of GOG 2.28: 5 + 3·L physical and 6 + 4·L magic, 30 + 20·L
     // physical.
     let mut railgun = spell(51, [0, 0], 0);

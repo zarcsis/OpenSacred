@@ -8970,11 +8970,27 @@ const DEFENDING_BACK: f32 = 0.2;
 /// clip's end, or 0.2 s before it for the slots 53 to 65 (`0x545204`), and the creature stands
 /// again (`stance`). As the clip passes their shares, a cast's act is marked ([`ClipActs`]) and
 /// an art's hits are sent ([`ArtHit`]). A slot its model lacks plays nothing, a cast of one
-/// acting at once.
+/// acting at once. Shaddar's clip of the slot 163 never ends: at each world's tick past its blend
+/// in where the share of its span left is below 0.35 or above 0.85 it leaps back to its half,
+/// with no blend, so that his body holds one stretch of it (`0x544C58`–`0x544DC3`,
+/// `opensacred_rules::shaddar::held_clip_leaps`, #3449), until another clip takes its place.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's query carries its filters"
+)]
 fn script_clips(
     mut commands: Commands,
-    data: Res<Npcs>,
-    mut npcs: Query<(Entity, &mut Npc, &mut ScriptClip, Option<&fight::Combat>), Without<Dies>>,
+    (data, tick): (Res<Npcs>, Res<WorldTick>),
+    mut npcs: Query<
+        (
+            Entity,
+            &mut Npc,
+            &mut ScriptClip,
+            Option<&fight::Combat>,
+            Option<&ai::Mind>,
+        ),
+        Without<Dies>,
+    >,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     (gltfs, clips): (Res<Assets<Gltf>>, Res<Assets<AnimationClip>>),
     mut graphs: ResMut<Assets<AnimationGraph>>,
@@ -8984,7 +9000,7 @@ fn script_clips(
         MessageWriter<ArtHit>,
     ),
 ) {
-    for (entity, mut npc, mut clip, combat) in &mut npcs {
+    for (entity, mut npc, mut clip, combat, mind) in &mut npcs {
         let Some(player_entity) = npc.player else {
             continue;
         };
@@ -8993,6 +9009,28 @@ fn script_clips(
         };
         if let Some((node, handle)) = clip.playing.clone() {
             let length = clips.get(&handle).map_or(0.0, AnimationClip::duration);
+            if clip.slot == opensacred_rules::shaddar::HELD_SLOT
+                && mind.is_some_and(|mind| mind.creature == SHADDAR)
+            {
+                if transitions.get_main_animation() != Some(node) {
+                    bevy::log::debug!("npcs: {entity}'s held clip gives way to another");
+                    commands.entity(entity).remove::<ScriptClip>();
+                } else if tick.seconds.is_some()
+                    && length > 0.0
+                    && let Some(active) = player.animation_mut(node)
+                    && active.elapsed() >= CLIP_IN.as_secs_f32()
+                    && opensacred_rules::shaddar::held_clip_leaps(
+                        (length - active.seek_time()).max(0.0) / length,
+                    )
+                {
+                    if active.is_finished() {
+                        active.replay();
+                    }
+                    active.seek_to(length / 2.0);
+                    bevy::log::debug!("npcs: {entity}'s held clip leaps back to its half");
+                }
+                continue;
+            }
             // A cast's act at its share of the clip, or as it ends.
             let acts = clip.acts_at.is_some_and(|share| {
                 player.animation(node).is_none_or(|active| {
@@ -13188,8 +13226,10 @@ fn hits_within(size: u32, other: u32) -> f32 {
 /// second at the first tick after it at which the stance has played 0.6 of its loop
 /// (`opensacred_rules::arts::second_bolt_due`, #3562). A shot ends at the second tick after its
 /// arrow or its last bolt, whatever is left of its clip (`0x4DCB80`'s sub-state 2; seen, #3312),
-/// its creature then dormant ([`ShotEnded`]); one that played no clip starts its standing clip
-/// anew at the rate 1.0, blended in over 0.2 s from its other node ([`Clips::again`]).
+/// one that plays no clip at the first after a railgun's second bolt
+/// (`opensacred_rules::arts::Bolt::ends_after`, #3572), its creature then dormant
+/// ([`ShotEnded`]); one that played no clip starts its standing clip anew at the rate 1.0,
+/// blended in over 0.2 s from its other node ([`Clips::again`]).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -13252,8 +13292,8 @@ fn strike(
         let Some((node, length, fractions)) = strikes.playing else {
             // No clip: its first bolt at the first tick after its start, a railgun's second at the
             // first tick after it at which the clip in play has played 0.6 of its loop, and the
-            // shot's end at the second tick after its last, which starts its standing clip anew
-            // at the rate 1.0 (`0x4DCB80`, #3562).
+            // shot's end at the first tick after a railgun's second bolt, the second after a BFG's,
+            // which starts its standing clip anew at the rate 1.0 (`0x4DCB80`, #3562, #3572).
             if let (Some(BoltClip::Kept), Some(bolt)) = (&bolt_clip, strikes.bolt) {
                 if !std::mem::replace(&mut strikes.begun, true) || tick.seconds.is_none() {
                     continue;
@@ -13282,7 +13322,7 @@ fn strike(
                     }
                 } else if struck >= count {
                     strikes.after += 1;
-                    if strikes.after >= 2 {
+                    if strikes.after >= strikes.fires.unwrap_or(bolt).ends_after() {
                         commands
                             .entity(entity)
                             .remove::<Strikes>()

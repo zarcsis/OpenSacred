@@ -1236,10 +1236,11 @@ fn pursue(
             }
             commands.entity(entity).remove::<crate::npcs::StrikeEnded>();
         }
-        // After its shot it stands dormant until the hero's look wakes it, and its idle handler
-        // and its decisions take it up again two ticks later, three for one with no ranged weapon
-        // in hand, which goes through the melee state first (`0x542B20`, `0x547070`, `0x4E0300`,
-        // `0x4DBFC0`; seen 0.20 to 0.45 s and 0.30 to 0.67 s from a shot's end to the next, #3312).
+        // After its shot it stands dormant until the hero's look of a later tick wakes it, its
+        // idle handler takes it up in the look's own tick, and its decisions shoot again a tick
+        // later, two for one with no ranged weapon in hand, which goes through the melee state
+        // first (`0x542B20`, `0x547070`, `0x4E0300`, `0x4DBFC0`; seen 0.20 to 0.45 s and 0.30 to
+        // 0.67 s from a shot's end to the next, #3312, and tick by tick, #3572).
         if let Some(mut wait) = shot_ended {
             wait.woken = match wait.woken {
                 None if nearest.looked => Some(0),
@@ -1248,8 +1249,9 @@ fn pursue(
             };
             // By its hands, not by its fight at range, which the ice druid's bolts' effects give it
             // (#3571): one with no ranged weapon in hand searches a way to its target as its idle
-            // handler takes it up, which sets its standing clip to its pace's rate (#3562), and
-            // shoots again a tick later than one with a bow.
+            // handler takes it up in the look's tick, which sets its standing clip to its pace's
+            // rate where the shot's end's blend is over (#3562, #3572), and shoots again a tick
+            // later than one with a bow.
             let holds_ranged = arms.get(entity).is_ok_and(crate::npcs::Arms::ranged);
             if wait
                 .woken

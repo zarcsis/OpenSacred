@@ -4683,12 +4683,13 @@ pub fn motion_factor(factor: f32) -> f32 {
     }
 }
 
-/// How many ticks after the hero's look wakes a creature whose shot ended it takes its target up
-/// and shoots again (`0x542B20`, `0x4E0300`, `0x4DBFC0`; seen, #3312): two with a `ranged` weapon
-/// in hand, which takes the AI's state 8 at once, three without, which goes through the melee
-/// state 4 first.
+/// How many ticks after the hero's look wakes a creature whose shot ended it shoots again, its
+/// idle handler taking its target up in the look's own tick (`0x542B20`, `0x4E0300`, `0x4DBFC0`;
+/// seen, #3312, #3572; docs/re/fight.md, "At range: the AI's state 8"): one with a `ranged`
+/// weapon in hand, which takes the AI's state 8 at once, two without, which goes through the
+/// melee state 4 first.
 pub fn shot_wake(ranged: bool) -> u8 {
-    if ranged { 2 } else { 3 }
+    if ranged { 1 } else { 2 }
 }
 
 /// The blend over which a creature's shot's end starts its standing clip anew at the rate 1.0
@@ -4696,12 +4697,12 @@ pub fn shot_wake(ranged: bool) -> u8 {
 pub const SHOT_END_BLEND: f32 = 0.2;
 
 /// Whether a creature whose shot ended searches a way to its target `woken` world's ticks after
-/// the hero's look woke it: its idle handler's search as it takes its target up, at the first
-/// tick after the wake, for one with no `ranged` weapon in hand (`0x4F7710` at `0x544217`;
-/// docs/re/motions.md, "The rate of the clip in play", #3562), which sets the clip in play to its
-/// pace's rate (`0x4F75F0`).
+/// the hero's look woke it: its idle handler's search as it takes its target up, in the look's
+/// own tick, for one with no `ranged` weapon in hand (`0x4F7710` at `0x544217`; seen, #3572;
+/// docs/re/motions.md, "Where the model lacks the slot", #3562), which sets the clip in play to
+/// its pace's rate (`0x4F75F0`).
 pub fn searches_after_shot(woken: u8, ranged: bool) -> bool {
-    !ranged && woken == 1
+    !ranged && woken == 0
 }
 
 /// Whether a search of a way `elapsed` seconds after a shot's end started the standing clip anew
@@ -7838,16 +7839,16 @@ mod tests {
     }
 
     #[test]
-    fn a_shooter_shoots_again_two_ticks_after_its_wake_with_a_bow_three_without() {
-        assert_eq!(shot_wake(true), 2);
-        assert_eq!(shot_wake(false), 3);
+    fn a_shooter_shoots_again_a_tick_after_its_wake_with_a_bow_two_without() {
+        assert_eq!(shot_wake(true), 1);
+        assert_eq!(shot_wake(false), 2);
     }
 
     #[test]
-    fn a_shooter_without_a_bow_searches_a_way_at_the_tick_after_its_wake() {
-        assert!(searches_after_shot(1, false));
-        assert!(!searches_after_shot(0, false) && !searches_after_shot(2, false));
-        assert!(!searches_after_shot(1, true));
+    fn a_shooter_without_a_bow_searches_a_way_in_its_wakes_tick() {
+        assert!(searches_after_shot(0, false));
+        assert!(!searches_after_shot(1, false) && !searches_after_shot(2, false));
+        assert!(!searches_after_shot(0, true));
         // The search finds the stance in play once the shot's end's blend of 0.2 s is over.
         assert!(!search_paces(0.199) && search_paces(0.2) && search_paces(0.3));
     }
