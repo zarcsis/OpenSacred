@@ -242,12 +242,9 @@ pub(crate) fn remake(
         world.get::<OnDeath>(old).cloned(),
     );
     let itself = same.then(|| itself(world, old));
-    // What it holds, kept as its object is in the original, given back to the one made (#3402).
-    let carried = if same {
-        crate::npcs::KeptInHands::of(world, old)
-    } else {
-        crate::npcs::KeptInHands::default()
-    };
+    // What it holds and wears, kept as its object is in the original, given back to the one made
+    // in place of its type's (#3402, #3477).
+    let carried = same.then(|| crate::npcs::KeptItems::of(world, old));
     world.entity_mut(old).despawn();
     let request = crate::npcs::Spawn {
         creature: kind,
@@ -271,7 +268,9 @@ pub(crate) fn remake(
         }
     };
     for &entity in &made {
-        carried.give(world, entity);
+        if let Some(carried) = &carried {
+            carried.give(world, entity);
+        }
         let Ok(mut new) = world.get_entity_mut(entity) else {
             continue;
         };

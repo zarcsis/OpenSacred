@@ -940,6 +940,18 @@ impl Held {
         self.slot
     }
 
+    /// The item that the model of `piece` draws, worn in no slot of the hero's equipment.
+    fn of_piece(piece: &Piece) -> Self {
+        Self {
+            item: piece.item,
+            model: piece.model.clone(),
+            texture: piece.texture.clone(),
+            hand: piece.hand,
+            mount: piece.mount,
+            slot: None,
+        }
+    }
+
     /// What its model on its holder is made of ([`Piece`]).
     fn piece(&self) -> Piece {
         Piece {
@@ -13850,9 +13862,10 @@ pub struct Rearms {
     /// Whether it is disarmed (`0x4E9900`, #2298): its values made anew keep a share alone
     /// (`opensacred_rules::fight::disarmed`).
     disarmed: bool,
-    /// The items it puts on that go in no hand, each its type, its category and its model where
-    /// it has one (an `EquipNPC`'s, #2756), made at its level.
-    wears: Vec<(u32, u8, Option<Held>)>,
+    /// The items it puts on that go in no hand, each its type, its category, its model where it
+    /// has one (an `EquipNPC`'s, #2756) and its values where they are given, else made at its
+    /// level.
+    wears: Vec<(u32, u8, Option<Held>, Option<fight::ItemValues>)>,
 }
 
 impl Rearms {
@@ -13951,7 +13964,7 @@ impl Rearms {
             away: Vec::new(),
             takes: Vec::new(),
             disarmed: false,
-            wears: vec![(item, category, None)],
+            wears: vec![(item, category, None, None)],
         }
     }
 
@@ -13977,7 +13990,7 @@ impl Rearms {
                         .iter()
                         .find(|held| held.item == item && held.mount == Mount::Worn)
                         .cloned();
-                    (item, category, model)
+                    (item, category, model, None)
                 })
                 .collect(),
         }
@@ -14076,40 +14089,75 @@ pub(crate) fn throw_hand(world: &mut bevy::prelude::World, entity: Entity, slot:
     }
 }
 
-/// What a creature holds in its hands, each item with its values, those it is to take still
-/// among them, which an undead keeps as it rises or changes its type, its object the same in the
-/// original (`0x555C50` puts its items back, #3402), and which the creature made in its place takes
-/// ([`KeptInHands::give`], `undead::remake`).
+/// What a creature holds in its hands and wears, each item with its values, those it is to take
+/// or put on still among them, and each worn one's model, which an undead keeps as it rises or
+/// changes its type, its object the same in the original (`0x555C50` puts its items back, #3402,
+/// #3477), and which the creature made in its place holds and wears in place of its type's
+/// ([`KeptItems::give`], `undead::remake`).
 #[derive(Clone, Debug, Default)]
-pub(crate) struct KeptInHands(Vec<(u32, Hand, Option<fight::ItemValues>)>);
+pub(crate) struct KeptItems {
+    held: Vec<(u32, Hand, Option<fight::ItemValues>)>,
+    worn: Vec<(u32, u8, Option<Held>, Option<fight::ItemValues>)>,
+}
 
-impl KeptInHands {
-    /// What `entity` holds and is to take.
-    pub(crate) fn of(world: &bevy::prelude::World, entity: Entity) -> Self {
-        let mut items: Vec<_> = world.get::<Arms>(entity).map_or_else(Vec::new, |arms| {
-            arms.holding
-                .iter()
-                .map(|(held, values)| (held.item, held.hand, *values))
-                .collect()
-        });
-        if let Some(rearms) = world.get::<Rearms>(entity) {
-            items.retain(|(_, hand, _)| !rearms.away.contains(hand));
-            items.extend(rearms.takes.iter().cloned());
+impl KeptItems {
+    /// What `entity` holds and wears and is to take and put on.
+    pub(crate) fn of(world: &mut bevy::prelude::World, entity: Entity) -> Self {
+        let mut pieces = world.query::<(&WornBy, &Piece)>();
+        let mut models: Vec<Piece> = pieces
+            .iter(world)
+            .filter(|(by, piece)| by.0 == entity && !piece.mount.handed())
+            .map(|(_, piece)| piece.clone())
+            .collect();
+        if let Some(equipment) = world.get::<Equipment>(entity) {
+            models.extend(
+                equipment
+                    .0
+                    .iter()
+                    .filter(|equip| !equip.piece.mount.handed())
+                    .map(|equip| equip.piece.clone()),
+            );
         }
-        Self(items)
+        let (mut held, mut worn) = world.get::<Arms>(entity).map_or_else(
+            || (Vec::new(), Vec::new()),
+            |arms| {
+                let held: Vec<_> = arms
+                    .holding
+                    .iter()
+                    .map(|(held, values)| (held.item, held.hand, *values))
+                    .collect();
+                let worn: Vec<_> = arms
+                    .worn
+                    .iter()
+                    .map(|&(item, category, values)| {
+                        let model = models
+                            .iter()
+                            .find(|piece| piece.item == item)
+                            .map(Held::of_piece);
+                        (item, category, model, values)
+                    })
+                    .collect();
+                (held, worn)
+            },
+        );
+        if let Some(rearms) = world.get::<Rearms>(entity) {
+            held.retain(|(_, hand, _)| !rearms.away.contains(hand));
+            held.extend(rearms.takes.iter().cloned());
+            worn.extend(rearms.wears.iter().cloned());
+        }
+        Self { held, worn }
     }
 
-    /// Has `entity` take these items into its hands ([`Rearms`]), once it has a mind.
+    /// Has `entity` hold and wear these items alone ([`Rearms`]), once it has a mind: what it held
+    /// and wore before goes ([`strip`]).
     pub(crate) fn give(&self, world: &mut bevy::prelude::World, entity: Entity) {
-        if self.0.is_empty() {
-            return;
-        }
+        strip(world, entity);
         if let Ok(mut taker) = world.get_entity_mut(entity) {
             taker.insert(Rearms {
                 away: vec![Hand::Left, Hand::Right],
-                takes: self.0.clone(),
+                takes: self.held.clone(),
                 disarmed: false,
-                wears: Vec::new(),
+                wears: self.worn.clone(),
             });
         }
     }
@@ -14385,17 +14433,19 @@ fn rearm(
                 });
             }
         }
-        // What it puts on that goes in no hand, made at its level, its model on its skeleton.
-        for (item, category, held) in &rearms.wears {
-            let (x, y) = paths::cell_of(transform.translation.x, transform.translation.z);
-            let mut dice = spawning::Rng::of(
-                u32::try_from(x).unwrap_or(0),
-                u32::try_from(y).unwrap_or(0),
-                usize::try_from(*item).unwrap_or(0),
-            );
-            let values = npcs
-                .items
-                .make(*item, grade, (rules.difficulty(), 0), &mut dice);
+        // What it puts on that goes in no hand, with its values given, else made at its level,
+        // its model on its skeleton.
+        for (item, category, held, given) in &rearms.wears {
+            let values = given.or_else(|| {
+                let (x, y) = paths::cell_of(transform.translation.x, transform.translation.z);
+                let mut dice = spawning::Rng::of(
+                    u32::try_from(x).unwrap_or(0),
+                    u32::try_from(y).unwrap_or(0),
+                    usize::try_from(*item).unwrap_or(0),
+                );
+                npcs.items
+                    .make(*item, grade, (rules.difficulty(), 0), &mut dice)
+            });
             arms.worn.push((*item, *category, values));
             if let Some(held) = held {
                 equips.push(Equip {
@@ -17444,9 +17494,9 @@ mod tests {
         // Its right arm lost: the right hand's item goes, the left's stays (the drops' tables
         // are not read here, nothing is thrown).
         throw_hand(&mut world, warrior, 13);
-        let kept = KeptInHands::of(&world, warrior);
+        let kept = KeptItems::of(&mut world, warrior);
         assert_eq!(
-            kept.0.iter().map(|&(item, ..)| item).collect::<Vec<_>>(),
+            kept.held.iter().map(|&(item, ..)| item).collect::<Vec<_>>(),
             [3001]
         );
         // A hand of no slot of a hand throws nothing.
@@ -17457,8 +17507,65 @@ mod tests {
         kept.give(&mut world, made);
         let rearms = world.get::<Rearms>(made).unwrap();
         assert_eq!(rearms.takes, [(3001, Hand::Left, None)]);
-        KeptInHands::default().give(&mut world, warrior);
-        assert!(world.get::<Rearms>(warrior).is_none());
+        assert_eq!(rearms.away, [Hand::Left, Hand::Right]);
+        // Kept nothing, the one made holds and wears nothing of its type's.
+        KeptItems::default().give(&mut world, warrior);
+        let rearms = world.get::<Rearms>(warrior).unwrap();
+        assert!(rearms.takes.is_empty() && rearms.wears.is_empty());
+        assert!(world.get::<Arms>(warrior).unwrap().holding.is_empty());
+    }
+
+    #[test]
+    fn an_undead_made_again_wears_what_it_wore_and_none_of_its_types() {
+        let piece = |item| Piece {
+            item,
+            model: format!("models/{item}.glb"),
+            texture: None,
+            hand: Hand::Right,
+            mount: Mount::Worn,
+        };
+        let values = fight::ItemValues::default();
+        let arms = |worn: Vec<(u32, u8, Option<fight::ItemValues>)>| Arms {
+            base: fight::Base::default(),
+            plain: false,
+            model: String::new(),
+            holding: Vec::new(),
+            worn,
+            mounted: false,
+        };
+        let mut world = bevy::prelude::World::new();
+        let old = world
+            .spawn(arms(vec![(5001, 1, Some(values)), (5002, 0, None)]))
+            .id();
+        let model = world.spawn((WornBy(old), piece(5001))).id();
+        // A worn model of another's and one of a hand's are not its.
+        let other = world.spawn_empty().id();
+        world.spawn((WornBy(other), piece(5002)));
+        world.spawn((
+            WornBy(old),
+            Piece {
+                mount: Mount::held(WEAPON),
+                ..piece(5002)
+            },
+        ));
+        let kept = KeptItems::of(&mut world, old);
+        assert_eq!(
+            kept.worn,
+            [
+                (5001, 1, Some(Held::of_piece(&piece(5001))), Some(values)),
+                (5002, 0, None, None)
+            ]
+        );
+        assert!(kept.held.is_empty());
+        // The one made in its place wore its type's own helmet, whose model goes.
+        let made = world.spawn(arms(vec![(6001, 0, None)])).id();
+        let its_own = world.spawn((WornBy(made), piece(6001))).id();
+        kept.give(&mut world, made);
+        assert!(world.get_entity(its_own).is_err());
+        assert!(world.get_entity(model).is_ok());
+        assert!(world.get::<Arms>(made).unwrap().worn.is_empty());
+        let rearms = world.get::<Rearms>(made).unwrap();
+        assert_eq!(rearms.wears, kept.worn);
     }
 
     #[test]
