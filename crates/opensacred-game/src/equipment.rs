@@ -63,6 +63,10 @@ const WORN: usize = 12;
 #[derive(Component)]
 pub(crate) struct SlotFrame(u8, Rect);
 
+/// The container of the worn items' sockets' icons, over their picture ([`lay_icons`]).
+#[derive(Component)]
+struct WornIcons;
+
 /// The hero as the use's test of an item weighs it (`0x54ABE0`, #2410): its type, its level, its
 /// attributes with its items' bonuses and its skills' levels with theirs.
 #[derive(bevy::ecs::system::SystemParam)]
@@ -240,6 +244,10 @@ fn show(
             ))
             .id();
         commands.entity(equipment).add_child(picture);
+        let icons = commands
+            .spawn((WornIcons, bar::placed(Vec2::ZERO, size), Pickable::IGNORE))
+            .id();
+        commands.entity(equipment).add_child(icons);
         commands.spawn((
             Scene,
             item_pictures::camera(
@@ -337,6 +345,41 @@ fn lay_out(
         ));
         if let Some(texture) = texture {
             entity.insert(Retexture::load(&assets, texture));
+        }
+    }
+}
+
+/// Lays the worn items' sockets' icons in their frames anew as the window shows or the pack
+/// changes: each as a grid's item's along its frame's bottom from its left (§4,
+/// `backpack::spawn_item_icons`; seen at a worn helmet's frame's bottom left, #3096).
+fn lay_icons(
+    mut commands: Commands,
+    pack: Res<Pack>,
+    (tables, images, assets): (Option<Res<Tables>>, Res<UiImages>, Res<AssetServer>),
+    frames: Query<&SlotFrame>,
+    icons: Query<(Entity, Ref<WornIcons>)>,
+) {
+    let Some(tables) = tables else {
+        return;
+    };
+    for (container, made) in &icons {
+        if !(made.is_added() || pack.is_changed()) {
+            continue;
+        }
+        commands.entity(container).despawn_children();
+        for (slot, worn) in (0_u8..).zip(&pack.worn) {
+            let Some((_, dropped)) = worn else {
+                continue;
+            };
+            let Some(frame) = frames.iter().find(|frame| frame.0 == slot) else {
+                continue;
+            };
+            backpack::spawn_item_icons(
+                &mut commands,
+                (&tables, &images, &assets),
+                (dropped, frame.1),
+                container,
+            );
         }
     }
 }
@@ -735,7 +778,7 @@ impl Plugin for EquipmentPlugin {
         app.add_systems(
             Update,
             (
-                (show, hide, click, lay_out, tint)
+                (show, hide, click, lay_out, lay_icons, tint)
                     .chain()
                     .after(crate::inventory::Opened)
                     .before(backpack::layer),

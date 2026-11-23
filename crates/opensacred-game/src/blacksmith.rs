@@ -1054,6 +1054,22 @@ fn show(
         }
         models.push((kind, at));
     }
+    // The grid's item's sockets' icons over the picture, as the backpack's (`0x5DC430`, the
+    // grid's entry 18; seen, #3096).
+    for placed in &smith.grid.items {
+        if let Some((_, dropped)) = smith.items.iter().find(|(key, _)| *key == placed.key) {
+            let at =
+                GRID + Vec2::new(f32::from(placed.at.0), f32::from(placed.at.1)) * backpack::CELL;
+            let cells =
+                Vec2::new(f32::from(placed.size.0), f32::from(placed.size.1)) * backpack::CELL;
+            backpack::spawn_item_icons(
+                &mut commands,
+                (&tables, &images, &assets),
+                (dropped, Rect::from_corners(at, at + cells)),
+                root,
+            );
+        }
+    }
     for (kind, at) in models {
         let Some((model, texture, _)) = tables.look(kind) else {
             continue;
