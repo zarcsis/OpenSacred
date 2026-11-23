@@ -690,7 +690,7 @@ fn make(
     clips: Option<Res<Clips>>,
     mut arts: Option<ResMut<HeroArts>>,
     mut dice: ResMut<Dice>,
-    animations: Res<Assets<AnimationClip>>,
+    (animations, factors): (Res<Assets<AnimationClip>>, Res<crate::motions::Factors>),
     mut heroes: Query<
         (
             Entity,
@@ -846,7 +846,8 @@ fn make(
                     .map_or(1.0, AnimationClip::duration)
                     .max(0.01);
                 let cast = combat.map_or(opensacred_rules::fight::CAST_SPEED, |combat| combat.cast);
-                let played = speed.0 * cast / 100.0;
+                // Times its motion's own factor (`0x413610`, #3567).
+                let played = speed.0 * cast / 100.0 * factors.of(clip);
                 transitions.play(&mut player, node, BLEND).set_speed(played);
                 info!(
                     "making: the hero casts {} at level {level} on {}",
@@ -1223,13 +1224,16 @@ fn make(
             }
             // From the saddle at the attack speed (`0x593320`'s rate; seen 1.54 at the speed 154,
             // #2908).
-            let played = if saddle.is_some() {
-                speed.0 * clip_speed
-            } else if action.fixed {
-                speed.0 * rate
-            } else {
-                speed.0 * clip_speed * rate
-            };
+            // Times its motion's own factor, the Vampiress's clip of the slot 221 among them
+            // (`0x413610`, #3567).
+            let played = factors.of(&clip)
+                * if saddle.is_some() {
+                    speed.0 * clip_speed
+                } else if action.fixed {
+                    speed.0 * rate
+                } else {
+                    speed.0 * clip_speed * rate
+                };
             transitions.play(&mut player, node, BLEND).set_speed(played);
             let factor = if style == Style::Backbreaker {
                 arts::backbreaker_factor(level)

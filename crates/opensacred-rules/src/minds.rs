@@ -4635,6 +4635,19 @@ pub fn stand_ins(slot: u16) -> &'static [u16] {
     }
 }
 
+/// The factor that a motion's own `factor` (`MotionDesc +0x9C`, `floats_62[0]` of
+/// `tables/motions.ron`) gives its clip's speed: the factor itself where it is not 1, at least
+/// 0.8 and below 5.0, else 1 (`0x413610`, docs/re/movement.md, "The motions' own factors"), so
+/// that the Mage's bow shoots at 1.4 times its rate and the riding crossbows at 0.8, and the
+/// record 0's 0.6, which a slot that the model lacks reads, applies nothing.
+pub fn motion_factor(factor: f32) -> f32 {
+    if (0.8..5.0).contains(&factor) {
+        factor
+    } else {
+        1.0
+    }
+}
+
 /// How many ticks after the hero's look wakes a creature whose shot ended it takes its target up
 /// and shoots again (`0x542B20`, `0x4E0300`, `0x4DBFC0`; seen, #3312): two with a `ranged` weapon
 /// in hand, which takes the AI's state 8 at once, three without, which goes through the melee
@@ -7783,6 +7796,19 @@ mod tests {
         assert!(!searches_after_shot(1, true));
         // The search finds the stance in play once the shot's end's blend of 0.2 s is over.
         assert!(!search_paces(0.199) && search_paces(0.2) && search_paces(0.3));
+    }
+
+    #[test]
+    fn a_motions_own_factor_speeds_its_clip_from_0_8_and_below_5() {
+        // The Mage's bow, the Dwarf's crossbow, the riding crossbows' 0.8 itself, the Vampiress's
+        // art clip, and the bounds.
+        for factor in [1.4, 1.25, 0.8, 0.948_623, 4.99] {
+            assert_eq!(motion_factor(factor), factor);
+        }
+        // None, 1, the record 0's 0.6, the riding crossbows' 0.7, the Dwarf's strikes' 0.4, 5.
+        for factor in [0.0, 1.0, 0.6, 0.7, 0.79, 0.4, 5.0, 6.0] {
+            assert_eq!(motion_factor(factor), 1.0);
+        }
     }
 
     #[test]
