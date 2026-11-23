@@ -3437,6 +3437,29 @@ fn to_f32(value: u32) -> f32 {
 /// The hero's making of its arts.
 pub struct MakingPlugin;
 
+/// The Seraphim's whirling blow, whose bit `0x800000` spins her heading while it runs.
+const WHIRLING_BLOW: u16 = 1020;
+/// How fast it spins her heading, in degrees a second (`0x890B54`).
+const WHIRL_SPIN: f32 = 1_000.0;
+
+/// Spins the heading of a hero who makes the whirling blow 1020 by [`WHIRL_SPIN`] a second of the
+/// frame's time while it runs, as its bit `0x800000` turns her at each frame of her animation's
+/// step (`0x594C8F`; docs/re/arts.md, "The Seraphim's", #3435).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's query carries its filters"
+)]
+fn spin(
+    time: Res<Time>,
+    mut heroes: Query<(&mut Transform, &Making), (With<Playing>, With<Body>)>,
+) {
+    for (mut transform, making) in &mut heroes {
+        if making.art == WHIRLING_BLOW {
+            transform.rotate_y(WHIRL_SPIN.to_radians() * time.delta_secs());
+        }
+    }
+}
+
 impl Plugin for MakingPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Selected>()
@@ -3452,6 +3475,7 @@ impl Plugin for MakingPlugin {
                         .before(hero::take_orders),
                     blades.after(make),
                     leap.after(make),
+                    spin.after(make),
                 )
                     .in_set(Unpaused)
                     .in_set(Step::HeroMove),
