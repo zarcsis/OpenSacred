@@ -1,7 +1,8 @@
 //! The bar's compass (#1462; docs/re/interface.md, "The compass" and "The markers"): the needle,
 //! the sword of image 101 turned about (512, 710), points at the newest main quest's compass, and
-//! the inner pin, image 136 on an ellipse of 30 × 15 about it, at the newest side quest's, fading
-//! within its radius (`opensacred_rules::quests`); a marker set anew starts a sonar ring at
+//! the inner pin, image 136 on an ellipse of 30 × 15 about it, at the newest side quest's, whole at
+//! any distance, as the original's draw drops the resolver's colours (`opensacred_rules::quests`,
+//! #3535); a marker set anew starts a sonar ring at
 //! (512, 711) with the compass's sound. A target is a cell, or a creature by its name in the
 //! scripts (`npcs::ScriptName`); the direction is the target's place less the hero's turned
 //! by 45° alone, not squashed as the isometric view squashes it (`0x4A5980`, #3244), φ the
@@ -12,7 +13,7 @@
 
 use bevy::ecs::system::SystemParam;
 use bevy::prelude::*;
-use opensacred_rules::quests::{Compass, Marker, Target, side_alpha};
+use opensacred_rules::quests::{Compass, Marker, Target};
 use serde::Serialize;
 
 use crate::bar::{self, BAR, BarRoot, UiImages};
@@ -249,25 +250,16 @@ fn point(
     heroes: Query<&GlobalTransform, With<Body>>,
     seek: Seek,
     images: Res<UiImages>,
-    mut pointers: Query<(
-        &Pointer,
-        &mut Node,
-        &mut UiTransform,
-        &mut ImageNode,
-        &mut Visibility,
-    )>,
+    mut pointers: Query<(&Pointer, &mut Node, &mut UiTransform, &mut Visibility)>,
 ) {
     let hero = heroes.iter().next().map(GlobalTransform::translation);
-    for (pointer, mut node, mut transform, mut image, mut visibility) in &mut pointers {
+    for (pointer, mut node, mut transform, mut visibility) in &mut pointers {
         let shown = scripts.as_ref().zip(hero).and_then(|(live, hero)| {
             let compass = live.marker(pointer.0)?;
             let target = seek.target_of(compass)?;
-            let place = Vec3::new(target.x, hero.y, target.y);
-            let screen = direction(hero.xz(), target);
-            let distance = crate::making::whole_distance(place, hero);
-            Some((angle(screen), distance, compass.radius))
+            Some(angle(direction(hero.xz(), target)))
         });
-        let Some((phi, distance, radius)) = shown else {
+        let Some(phi) = shown else {
             visibility.set_if_neq(Visibility::Hidden);
             continue;
         };
@@ -278,9 +270,6 @@ fn point(
             let at = on_ellipse(phi, INNER) - size / 2.0 - BAR.min;
             node.left = Val::Px(at.x);
             node.top = Val::Px(at.y);
-            // The side quest's pin fades within its radius (`0x4A5980`).
-            let alpha = side_alpha(distance, radius);
-            image.color = Color::WHITE.with_alpha(f32::from(alpha) / 255.0);
         }
     }
 }

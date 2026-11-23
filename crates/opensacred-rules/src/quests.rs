@@ -80,8 +80,9 @@ pub enum Target {
     Named(String),
 }
 
-/// A quest's compass: its target and its radius (`+0x20`), within which the side quest's pin
-/// fades out ([`side_alpha`]).
+/// A quest's compass: its target and its radius (`+0x20`), of which the resolver makes the side
+/// quest's pin's alpha, a colour that the compass's draw never reads (`0x4A5980`; docs/re/
+/// interface.md, "The compass", #3535).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Compass {
     pub target: Target,
@@ -94,16 +95,6 @@ pub struct Compass {
 pub enum Marker {
     Main,
     Side,
-}
-
-/// The side quest pin's alpha at `distance` world units from its target of `radius`
-/// (`0x4A5980`): whole beyond the radius, fading to nothing over its last 255 units, none
-/// nearer.
-pub fn side_alpha(distance: u32, radius: u32) -> u8 {
-    if distance >= radius {
-        return u8::MAX;
-    }
-    u8::try_from((distance + 255).saturating_sub(radius)).unwrap_or(u8::MAX)
 }
 
 /// The lines of a quest log entry (`+0x28`, ten).
@@ -2190,15 +2181,6 @@ mod tests {
         quests.trigger(1, &mut runtime(&mut ran, true));
         enter(&mut quests, 2, &mut ran);
         assert_eq!(quests.marker(Marker::Main), None);
-    }
-
-    #[test]
-    fn the_side_pin_fades_within_its_radius() {
-        assert_eq!(side_alpha(5000, 1200), 255);
-        assert_eq!(side_alpha(1200, 1200), 255);
-        assert_eq!(side_alpha(1199, 1200), 254);
-        assert_eq!(side_alpha(945, 1200), 0);
-        assert_eq!(side_alpha(100, 1200), 0);
     }
 
     #[test]
