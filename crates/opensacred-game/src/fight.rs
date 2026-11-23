@@ -1566,7 +1566,12 @@ fn fell(
     dies.rises = rises.is_some();
     commands.entity(target).insert(dies);
     let Some(rises) = rises else {
-        return earn(experience, rules, target, health, worth);
+        let earned = earn(experience, rules, target, health, worth);
+        // Its mount takes the same, whole, where it rides (`0x5319B1`–`0x531A37`, #3393).
+        if earned > 0 {
+            commands.queue(move |world: &mut World| crate::npcs::mount_earns(world, earned));
+        }
+        return earned;
     };
     info!("fight: {target} falls and will rise");
     if rises.changes_into().is_some() {
