@@ -718,6 +718,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         mines::MinesPlugin,
         model_effects::ModelEffectsPlugin,
         models::ModelsPlugin,
+        motions::MotionsPlugin,
         movies::MoviesPlugin,
         music::MusicPlugin,
         npcs::NpcsPlugin,

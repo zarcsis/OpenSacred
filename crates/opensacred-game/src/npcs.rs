@@ -8978,7 +8978,11 @@ fn script_clips(
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     (gltfs, clips): (Res<Assets<Gltf>>, Res<Assets<AnimationClip>>),
     mut graphs: ResMut<Assets<AnimationGraph>>,
-    (speed, mut art_hits): (Res<hero::GameSpeed>, MessageWriter<ArtHit>),
+    (speed, factors, mut art_hits): (
+        Res<hero::GameSpeed>,
+        Res<crate::motions::Factors>,
+        MessageWriter<ArtHit>,
+    ),
 ) {
     for (entity, mut npc, mut clip, combat) in &mut npcs {
         let Some(player_entity) = npc.player else {
@@ -9063,9 +9067,11 @@ fn script_clips(
             commands.entity(entity).remove::<ScriptClip>();
             continue;
         };
+        // Times its motion's own factor (`0x413610`, #3567).
         let rate = clip
             .rate
-            .unwrap_or_else(|| combat.map_or(1.0, |combat| combat.0.speed / 100.0));
+            .unwrap_or_else(|| combat.map_or(1.0, |combat| combat.0.speed / 100.0))
+            * factors.of(&handle);
         let active = transitions.play(&mut player, node, CLIP_IN);
         active.replay();
         active
@@ -13218,7 +13224,7 @@ fn strike(
         ResMut<Assets<AnimationGraph>>,
         Res<Npcs>,
     ),
-    speed: Res<hero::GameSpeed>,
+    (speed, factors): (Res<hero::GameSpeed>, Res<crate::motions::Factors>),
     mut hits: MessageWriter<fight::Hit>,
     (mut shots, mut bolts): (
         MessageWriter<arrows::Loose>,
@@ -13323,9 +13329,15 @@ fn strike(
             let rate = strikes
                 .bolt
                 .map_or(attack * chain * share, |bolt| bolt.rate(attack));
+            // Times its motion's own factor, the bows' and the crossbows' of some types
+            // (`0x413610`, #3567).
+            let factor = factors.of(&clip);
+            if factor != 1.0 {
+                bevy::log::debug!("npcs: {entity}'s strike takes its motion's own factor {factor}");
+            }
             transitions
                 .play(&mut player, node, BLEND)
-                .set_speed(speed.0 * rate);
+                .set_speed(speed.0 * rate * factor);
             strikes.playing = Some((node, length.max(0.01), fractions));
             // A shot's clip that starts fires a gun held (`0x4DD1FE`, `0x4DF442`; #1963); one of
             // bolts fires none.
