@@ -13182,8 +13182,10 @@ fn hits_within(size: u32, other: u32) -> f32 {
 /// second at the first tick after it at which the stance has played 0.6 of its loop
 /// (`opensacred_rules::arts::second_bolt_due`, #3562). A shot ends at the second tick after its
 /// arrow or its last bolt, whatever is left of its clip (`0x4DCB80`'s sub-state 2; seen, #3312),
-/// its creature then dormant ([`ShotEnded`]); one that played no clip starts its standing clip
-/// anew at the rate 1.0, blended in over 0.2 s from its other node ([`Clips::again`]).
+/// one that plays no clip at the first after a railgun's second bolt
+/// (`opensacred_rules::arts::Bolt::ends_after`, #3572), its creature then dormant
+/// ([`ShotEnded`]); one that played no clip starts its standing clip anew at the rate 1.0,
+/// blended in over 0.2 s from its other node ([`Clips::again`]).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -13246,8 +13248,8 @@ fn strike(
         let Some((node, length, fractions)) = strikes.playing else {
             // No clip: its first bolt at the first tick after its start, a railgun's second at the
             // first tick after it at which the clip in play has played 0.6 of its loop, and the
-            // shot's end at the second tick after its last, which starts its standing clip anew
-            // at the rate 1.0 (`0x4DCB80`, #3562).
+            // shot's end at the first tick after a railgun's second bolt, the second after a BFG's,
+            // which starts its standing clip anew at the rate 1.0 (`0x4DCB80`, #3562, #3572).
             if let (Some(BoltClip::Kept), Some(bolt)) = (&bolt_clip, strikes.bolt) {
                 if !std::mem::replace(&mut strikes.begun, true) || tick.seconds.is_none() {
                     continue;
@@ -13276,7 +13278,7 @@ fn strike(
                     }
                 } else if struck >= count {
                     strikes.after += 1;
-                    if strikes.after >= 2 {
+                    if strikes.after >= strikes.fires.unwrap_or(bolt).ends_after() {
                         commands
                             .entity(entity)
                             .remove::<Strikes>()
