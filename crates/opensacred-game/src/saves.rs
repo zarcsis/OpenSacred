@@ -101,8 +101,9 @@ use crate::{arts, drops, making};
 /// a `ReplaceSpawn`'s flags word (#3073); the version 38 the mark of a bonus against the undead
 /// on a creature (#3385); the version 39 the dying clips by their slots (#3400); the version 40
 /// the scripts' traps as they stand (#3450); the version 41 the scripts' gold arrows (#3456); the
-/// version 42 a follower's entry in the portraits' column (#3102).
-pub const VERSION: u32 = 42;
+/// version 42 a follower's entry in the portraits' column (#3102); the version 43 the hero's
+/// shots' chain (#3568).
+pub const VERSION: u32 = 43;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -159,6 +160,9 @@ pub struct Hero {
     pub clock: Clock,
     /// The steps of its queue under the scripts' anim mode, a `Teleport`'s among them (#2890).
     pub queue: crate::npcs::SavedQueue,
+    /// Its shots' chain (`attack::ShotChain`), which the original's creature's stream keeps
+    /// (`0x54B761`, #3568).
+    pub chain: f32,
 }
 
 /// The scripts as a save keeps them (#1958; the original's quests, `sdk_SAVELOAD_SERIAL`): the
@@ -404,10 +408,15 @@ pub(crate) fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(He
         &Body,
         &crate::fight::Base,
         &Health,
-        (Option<&Effects>, Option<&crate::npcs::ScriptQueue>),
+        (
+            Option<&Effects>,
+            Option<&crate::npcs::ScriptQueue>,
+            Option<&crate::attack::ShotChain>,
+        ),
     ), With<Body>>();
-    let (transform, body, base, health, (effects, queue)) =
+    let (transform, body, base, health, (effects, queue, chain)) =
         heroes.iter(world).next().context("no hero to save")?;
+    let chain = chain.map_or(1.0, |chain| chain.0);
     // A dead hero, which rises at its home, is not saved: its save would load it dead.
     ensure!(health.current > 0, "the hero is dead");
     let floor = world
@@ -481,6 +490,7 @@ pub(crate) fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(He
             .map_or(0.0, drops::Played::seconds),
         clock: clock.clone(),
         queue,
+        chain,
     };
     let header = Header {
         version: VERSION,
@@ -661,7 +671,7 @@ fn restore(world: &mut bevy::prelude::World) {
     };
     let hero = *hero;
     if let Ok(mut entity) = world.get_entity_mut(entity) {
-        entity.insert(hero.effects.clone());
+        entity.insert((hero.effects.clone(), crate::attack::ShotChain(hero.chain)));
     }
     put_character(world, entity, &hero);
     world.insert_resource(HeroHome(hero.home));
@@ -1172,6 +1182,7 @@ pub(crate) mod tests {
             played: 125.0,
             clock: Clock::at(21, 30),
             queue: crate::npcs::SavedQueue::default(),
+            chain: 1.5,
         }
     }
 
@@ -1283,6 +1294,7 @@ pub(crate) mod tests {
         assert_eq!((read_hero.floor, read_hero.health), (1, 99));
         assert_eq!(read_hero.selected, Some(1078));
         assert_eq!(read_hero.runes_given, 3);
+        assert_eq!(read_hero.chain, 1.5);
         assert_eq!(read_hero.quests.quests, 12);
         assert_eq!(read_hero.quests.since_piece, 5);
         assert_eq!(read_hero.home.map(|home| home.cell), Some((3236, 2511)));
@@ -1358,7 +1370,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (42, 0xCCD7_F9F6_1695_1C42),
+            (43, 0x445A_29D0_FFB9_6DC1),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
