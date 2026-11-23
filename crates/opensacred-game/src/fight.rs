@@ -762,6 +762,23 @@ pub(crate) fn resolve(
                     effects.poison(poison, source);
                 });
         }
+        // The mark that the breath's fires spare, of a wearer of sets 27 or 31, where its fire
+        // passes the target's resistance (`0x56E0A4`, #3438); none of the poison's own strikes.
+        if !hit.poison
+            && holding.is_some_and(|holding| holding.0.sets.marks_for_fire())
+            && let Some(seconds) = opensacred_rules::fight::spared_by_fire(&landed)
+        {
+            let source = hit.attacker;
+            debug!(
+                "fight: {source} marks {} for the fires {seconds:.2} s",
+                hit.target
+            );
+            commands
+                .entity(hit.target)
+                .entry::<crate::effects::Effects>()
+                .or_default()
+                .and_modify(move |mut effects| effects.spare(seconds, source));
+        }
         let damage = landed.damage;
         // The Daemon's call of death: his strike's damage times its value while above 1
         // (`0x56D1EC`).
