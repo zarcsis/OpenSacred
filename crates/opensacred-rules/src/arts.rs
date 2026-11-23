@@ -537,6 +537,18 @@ impl Bolt {
         }
     }
 
+    /// At which world's tick after its last bolt a shot that plays no clip of its own ends
+    /// (`0x4DCB80`'s sub-state 2): the railgun's at the first, its second bolt taking the
+    /// sub-state 2 in its own call (`0x4DE20A`), the BFG's at the second, as a plain shot's after
+    /// its arrow (`0x4DF08F`–`0x4DF099`; seen 359 times of 359 on the ice druid, #3572;
+    /// docs/re/fight.md, "The archers").
+    pub fn ends_after(self) -> u8 {
+        match self {
+            Self::Railgun => 1,
+            Self::Bfg => 2,
+        }
+    }
+
     /// Its speed in world units a second and its most time in seconds, its particle system's
     /// (`0x5A0C50`).
     pub fn flight(self) -> (f32, f32) {
