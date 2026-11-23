@@ -242,6 +242,12 @@ pub(crate) fn remake(
         world.get::<OnDeath>(old).cloned(),
     );
     let itself = same.then(|| itself(world, old));
+    // What it holds, kept as its object is in the original, given back to the one made (#3402).
+    let carried = if same {
+        crate::npcs::KeptInHands::of(world, old)
+    } else {
+        crate::npcs::KeptInHands::default()
+    };
     world.entity_mut(old).despawn();
     let request = crate::npcs::Spawn {
         creature: kind,
@@ -265,6 +271,7 @@ pub(crate) fn remake(
         }
     };
     for &entity in &made {
+        carried.give(world, entity);
         let Ok(mut new) = world.get_entity_mut(entity) else {
             continue;
         };
@@ -388,6 +395,11 @@ pub fn change(world: &mut World, fallen: Entity, rises: Rises, (choice, by_creat
         if let Err(e) = world.run_system_cached_with(crate::drops::fling_head, (level, at, on)) {
             warn!("undead: no head thrown off: {e}");
         }
+    }
+    // An arm lost lets its hand's item go, as a disarming throws it (`0x550580`, #3402).
+    let coin = world.resource_mut::<Dice>().0.below(2);
+    if let Some(slot) = undead::arm_lost(kind, into, coin) {
+        crate::npcs::throw_hand(world, fallen, slot);
     }
     for entity in remake(world, fallen, (into, level, rises.hostile), (on, true)) {
         let Ok(mut changed) = world.get_entity_mut(entity) else {

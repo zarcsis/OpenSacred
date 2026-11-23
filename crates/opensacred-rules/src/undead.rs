@@ -328,6 +328,22 @@ pub fn head_damage(
     mosts.map(|most| [whole(most / 2), whole(most)])
 }
 
+/// The equipment's slot of the hand whose item a skeleton warrior lets go as it changes from the
+/// type `from` into `to`, losing an arm (`0x550580` calling `0x4E9900` before its items are put
+/// back, `0x53305B`–`0x533440`; docs/re/fight.md, "The other deaths of class 5", #3402): the
+/// right's, 13, from 32 to 113 and from 112 to 114, the left's, 12, from 32 to 116 and from 112
+/// to 117, and from 114 or 117 to 115 the right's where `coin` (`R(0, 1)`) is 0, else the left's;
+/// none where it loses its head.
+pub fn arm_lost(from: u32, to: u32, coin: u32) -> Option<u8> {
+    use crate::equipment::{LEFT_HAND, RIGHT_HAND};
+    match (from, to) {
+        (WARRIOR, 113) | (HEADLESS, 114) => Some(RIGHT_HAND),
+        (WARRIOR, 116) | (HEADLESS, 117) => Some(LEFT_HAND),
+        (114 | 117, 115) => Some(if coin == 0 { RIGHT_HAND } else { LEFT_HAND }),
+        _ => None,
+    }
+}
+
 /// Whether a skeleton warrior that changes from the type `from` into `to` loses its head, which
 /// it throws off (`0x550580`'s part 0): the whole one into the headless, and those of one arm
 /// into 114 and 117; an arm lost is a bone (`0x427650`'s part 4 of the gib set 3, the types 926
@@ -836,6 +852,21 @@ mod tests {
         // The changes that take the head throw it off; the arms' do not.
         assert!(loses_head(32, 112) && loses_head(113, 114) && loses_head(116, 117));
         assert!(!loses_head(32, 113) && !loses_head(112, 114) && !loses_head(114, 115));
+        // An arm lost lets its hand's item go: the right's 13, the left's 12 (#3402).
+        assert_eq!(
+            (arm_lost(32, 113, 1), arm_lost(112, 114, 1)),
+            (Some(13), Some(13))
+        );
+        assert_eq!(
+            (arm_lost(32, 116, 0), arm_lost(112, 117, 0)),
+            (Some(12), Some(12))
+        );
+        assert_eq!(
+            (arm_lost(114, 115, 0), arm_lost(117, 115, 1)),
+            (Some(13), Some(12))
+        );
+        assert_eq!((arm_lost(32, 112, 0), arm_lost(113, 114, 0)), (None, None));
+        assert_eq!(arm_lost(116, 117, 1), None);
     }
 
     #[test]

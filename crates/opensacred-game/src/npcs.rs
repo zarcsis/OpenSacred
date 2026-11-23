@@ -14049,6 +14049,73 @@ pub(crate) fn disarm(world: &mut bevy::prelude::World, entity: Entity) {
         disarm_worn(world, entity);
         return;
     };
+    throw_held(world, entity, (held, values));
+}
+
+/// Throws down what `entity`'s hand of the equipment's slot `slot` holds, as its disarming does
+/// ([`disarm`]): a skeleton warrior's item of the arm it loses as it changes its type (`0x550580`
+/// calling `0x4E9900` with the slot, `undead::change`, #3402); nothing where that hand holds
+/// none.
+pub(crate) fn throw_hand(world: &mut bevy::prelude::World, entity: Entity, slot: u8) {
+    let Some(hand) = Hand::of_slot(slot) else {
+        return;
+    };
+    let held = world.get::<Arms>(entity).and_then(|arms| {
+        arms.holding
+            .iter()
+            .find(|(held, _)| held.hand == hand)
+            .map(|&(held, values)| (held, values))
+    });
+    if let Some(held) = held {
+        throw_held(world, entity, held);
+    }
+}
+
+/// What a creature holds in its hands, each item with its values, those it is to take still
+/// among them, which an undead keeps as it rises or changes its type, its object the same in the
+/// original (`0x555C50` puts its items back, #3402), and which the creature made in its place takes
+/// ([`KeptInHands::give`], `undead::remake`).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct KeptInHands(Vec<(u32, Hand, Option<fight::ItemValues>)>);
+
+impl KeptInHands {
+    /// What `entity` holds and is to take.
+    pub(crate) fn of(world: &bevy::prelude::World, entity: Entity) -> Self {
+        let mut items: Vec<_> = world.get::<Arms>(entity).map_or_else(Vec::new, |arms| {
+            arms.holding
+                .iter()
+                .map(|(held, values)| (held.item, held.hand, *values))
+                .collect()
+        });
+        if let Some(rearms) = world.get::<Rearms>(entity) {
+            items.retain(|(_, hand, _)| !rearms.away.contains(hand));
+            items.extend(rearms.takes.iter().cloned());
+        }
+        Self(items)
+    }
+
+    /// Has `entity` take these items into its hands ([`Rearms`]), once it has a mind.
+    pub(crate) fn give(&self, world: &mut bevy::prelude::World, entity: Entity) {
+        if self.0.is_empty() {
+            return;
+        }
+        if let Ok(mut taker) = world.get_entity_mut(entity) {
+            taker.insert(Rearms {
+                away: vec![Hand::Left, Hand::Right],
+                takes: self.0.clone(),
+                disarmed: false,
+                wears: Vec::new(),
+            });
+        }
+    }
+}
+
+/// Throws down the item `held` with its values from `entity`'s hand ([`disarm`]).
+fn throw_held(
+    world: &mut bevy::prelude::World,
+    entity: Entity,
+    (held, values): (InHand, Option<fight::ItemValues>),
+) {
     let level = world.get::<ai::Mind>(entity).map_or(1, |mind| mind.level);
     let floor = world
         .get::<crowd::InTheWay>(entity)
@@ -17339,6 +17406,54 @@ mod tests {
             .collect();
         assert_eq!(kept, [3001]);
         assert!(world.get::<Rearms>(dying).is_none() && world.get::<Rearms>(follower).is_none());
+    }
+
+    #[test]
+    fn a_skeleton_warrior_lets_its_lost_arms_item_go_and_keeps_the_others() {
+        let held = |item, hand| {
+            (
+                InHand {
+                    item,
+                    category: WEAPON,
+                    kind: Some(1),
+                    hand,
+                },
+                None,
+            )
+        };
+        let mut world = bevy::prelude::World::new();
+        let warrior = world
+            .spawn((
+                Arms {
+                    base: fight::Base::default(),
+                    plain: false,
+                    model: String::new(),
+                    holding: vec![held(3001, Hand::Left), held(3002, Hand::Right)],
+                    worn: Vec::new(),
+                    mounted: false,
+                },
+                GlobalTransform::default(),
+                Dies::new(0),
+            ))
+            .id();
+        // Its right arm lost: the right hand's item goes, the left's stays (the drops' tables
+        // are not read here, nothing is thrown).
+        throw_hand(&mut world, warrior, 13);
+        let kept = KeptInHands::of(&world, warrior);
+        assert_eq!(
+            kept.0.iter().map(|&(item, ..)| item).collect::<Vec<_>>(),
+            [3001]
+        );
+        // A hand of no slot of a hand throws nothing.
+        throw_hand(&mut world, warrior, 1);
+        assert_eq!(world.get::<Arms>(warrior).unwrap().holding.len(), 1);
+        // The creature made in its place takes what it kept into its hands.
+        let made = world.spawn_empty().id();
+        kept.give(&mut world, made);
+        let rearms = world.get::<Rearms>(made).unwrap();
+        assert_eq!(rearms.takes, [(3001, Hand::Left, None)]);
+        KeptInHands::default().give(&mut world, warrior);
+        assert!(world.get::<Rearms>(warrior).is_none());
     }
 
     #[test]
