@@ -593,7 +593,7 @@ In `opensacred-game` since #1540 (`master`, `talk::Speech`): the talk of a creat
 Since #1743 the button lights and the total shows yellow only where a press makes the combo, the gold above the cost (docs/decisions/arts.md, "Combat master's button lit where a press makes the combo").
 **Seen** in the game at the Seraphim's level 8 at the master of type 317: a combo of three steps priced 200, 200 and 100 and 1,500 in all, `x3`, the total red without gold and yellow at 1,500, the button lit at 1,500 and making nothing, and at 1,801 the combo made, 1,500 taken, the page cleared and the combos page showing it.
 The other traders' windows are the merchants' since #1618 (docs/re/trade.md) and the smiths' since #1662 (docs/re/blacksmith.md); since #1722 the window and its pages play the combo master's sounds as they show.
-The controls play no sound of their own, as the original's; the spells page's click comes as the page changes (`inventory::page_sounds`), so that a combo dropped while the spells page shows already plays none, where the original's plays it again (#3467).
+The controls play no sound of their own, as the original's; the spells page's click comes as the page changes (`inventory::page_sounds`), and since #3467 a combo dropped while the spells page shows already plays it too (`master::press`), so that every drop clicks once, as the original's.
 Since #3113 the spells page's view under the master and the combos page's tooltip under it (its control's own text 9937, "The combos page" above).
 
 ### The combat master's exchange

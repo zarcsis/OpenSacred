@@ -33,9 +33,11 @@
 //! the original's loses the item (docs/decisions/arts.md, "Exchange slot keeps an item that is no
 //! rune"); its controls make no sound of their own, as the original's statics do not.
 //!
-//! Not followed: the spells page's click as a combo is dropped on the symbol (#3467), the spells
-//! page's view under the master (the Vampiress's arts not greyed), and a combo on the page's
-//! tooltip.
+//! A combo dropped on the symbol selects the spells page, which plays its `UI_CLICK01` every time,
+//! where that page shows already too (#3467).
+//!
+//! Not followed: the spells page's view under the master (the Vampiress's arts not greyed), and a
+//! combo on the page's tooltip.
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
@@ -427,6 +429,10 @@ fn follow(
 }
 
 /// The presses on the COMBO page.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a Bevy system takes its resources as arguments"
+)]
 fn press(
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
@@ -435,6 +441,7 @@ fn press(
     mut page: ResMut<Page>,
     (arts, mut combos): (Option<Res<HeroArts>>, ResMut<HeroCombos>),
     mut pack: ResMut<Pack>,
+    mut sounds: MessageWriter<crate::sfx::Play>,
 ) {
     let (left, right) = (
         buttons.just_pressed(MouseButton::Left),
@@ -452,13 +459,17 @@ fn press(
     if left && SYMBOL_FRAME.contains(at) {
         match (held.0, master.combo) {
             // A combo dropped on the frame takes its place with its steps, the spells page
-            // selected.
+            // selected, which clicks every time (seen, #3118): where it shows already, here, as
+            // no page changes (`inventory::page_sounds` clicks for a page that changes).
             (Some(id), _) if crate::combos::is_combo(id) => {
                 let steps = combos.get(id).map_or([None; STEPS], |combo| combo.steps);
                 master.combo = Some(id);
                 master.old = steps;
                 master.steps = steps;
                 held.0 = None;
+                if page.0 == crate::spells_page::PAGE {
+                    crate::inventory::play(&mut sounds, crate::inventory::CLICK);
+                }
                 page.0 = crate::spells_page::PAGE;
             }
             // A press on the symbol gives it back.
