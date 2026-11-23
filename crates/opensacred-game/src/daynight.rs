@@ -605,12 +605,24 @@ fn hero_radius(phase: Phase, level: f32, dungeon: bool, (doubled, torch): (bool,
     }
 }
 
-/// The light's radius `radius` of a creature holding `holding`, grown by its items' effect of the
-/// light (865, `0x54A9C3`, `opensacred_rules::fight::lit_radius`); as it was without items.
-fn lit(radius: f32, holding: Option<&crate::fight::Holding>) -> f32 {
+/// The light's radius `radius` of a creature holding `holding`, of `combat`'s attributes, grown
+/// by its items' effect of the light (865, `0x54A9C3`, `opensacred_rules::fight::lit_radius`); as
+/// it was without items.
+fn lit(
+    radius: f32,
+    (holding, combat): (
+        Option<&crate::fight::Holding>,
+        Option<&crate::fight::Combat>,
+    ),
+) -> f32 {
     use opensacred_rules::fight as rules;
     let value = holding.map_or(0.0, |holding| {
-        rules::item_effect(&holding.0.items, rules::LIGHT, None)
+        rules::item_effect(
+            &holding.0.items,
+            rules::LIGHT,
+            crate::drops::attributes_of(combat),
+            None,
+        )
     });
     rules::lit_radius(radius, value)
 }
@@ -642,7 +654,17 @@ pub fn light(
     dungeons: Res<Dungeons>,
     (hero_light, sets): (Res<HeroLight>, Option<Res<crate::sets::WeaponSets>>),
     mut cameras: Query<(&Camera, &GlobalTransform, &Projection, &mut Night)>,
-    hero: Query<(Entity, &Transform, Option<&crate::fight::Holding>), With<crate::hero::Body>>,
+    hero: Query<
+        (
+            Entity,
+            &Transform,
+            (
+                Option<&crate::fight::Holding>,
+                Option<&crate::fight::Combat>,
+            ),
+        ),
+        With<crate::hero::Body>,
+    >,
     lights: Query<(&GlobalTransform, &Light), Without<crate::hero::Body>>,
     (followers, held): (
         Query<(Entity, &Transform, &crate::followers::Follower)>,

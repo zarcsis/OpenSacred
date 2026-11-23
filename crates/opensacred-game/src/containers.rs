@@ -372,7 +372,10 @@ type Hero = (
     &'static Transform,
     &'static crate::fight::Base,
     &'static Body,
-    Option<&'static crate::fight::Holding>,
+    (
+        Option<&'static crate::fight::Holding>,
+        Option<&'static crate::fight::Combat>,
+    ),
 );
 
 /// Fills the container `opened` by its `FillChest`s `fills` (`0x4A02A0`) and throws what it holds
@@ -388,12 +391,18 @@ fn fill(
     heroes: Query<Hero>,
     lying: Query<&crate::drops::Lying>,
 ) {
-    let (Some(tables), Some(npcs), Ok((at, container)), Some((hero, hero_at, base, body, holding))) = (
+    let (
+        Some(tables),
+        Some(npcs),
+        Ok((at, container)),
+        Some((hero, hero_at, base, body, (holding, combat))),
+    ) = (
         tables.as_deref(),
         npcs.as_deref(),
         containers.get(opened),
         heroes.iter().next(),
-    ) else {
+    )
+    else {
         return;
     };
     if fills.is_empty() {
@@ -432,7 +441,7 @@ fn fill(
         played
             .as_deref()
             .unwrap_or(&crate::drops::Played::default()),
-        holding,
+        (holding, combat),
     );
     let mut opening = Opening {
         hero: &opener,

@@ -1953,17 +1953,19 @@ pub const LUCK: u32 = 840;
 /// killer earns more ([`items_experience`]).
 pub const EXPERIENCE: u32 = 843;
 
-/// The luck of the wearer of the items `items` before its sets raise it (`0x564A60`): 100 (the
-/// float at `0x890998`) plus their effect 840 of no opponent, truncated toward zero.
-pub fn items_luck(items: &[ItemValues]) -> f32 {
-    (100.0 + item_effect(items, LUCK, None)).trunc()
+/// The luck of the wearer of the items `items` of the stored attributes `attributes` before its
+/// sets raise it (`0x564A60`): 100 (the float at `0x890998`) plus their effect 840 of no
+/// opponent, truncated toward zero.
+pub fn items_luck(items: &[ItemValues], attributes: [f32; 6]) -> f32 {
+    (100.0 + item_effect(items, LUCK, attributes, None)).trunc()
 }
 
-/// The share of a kill's base experience that the wearer of the items `items` earns more: their
-/// effect 843 of no opponent times 0.01 (`0x57DBCE`–`0x57DBF3`, the float at `0x890CB0`), which
-/// [`experience_with`] takes among its `bonus`.
-pub fn items_experience(items: &[ItemValues]) -> f32 {
-    item_effect(items, EXPERIENCE, None) * 0.01
+/// The share of a kill's base experience that the wearer of the items `items` of the stored
+/// attributes `attributes` earns more: their effect 843 of no opponent times 0.01
+/// (`0x57DBCE`–`0x57DBF3`, the float at `0x890CB0`), which [`experience_with`] takes among its
+/// `bonus`.
+pub fn items_experience(items: &[ItemValues], attributes: [f32; 6]) -> f32 {
+    item_effect(items, EXPERIENCE, attributes, None) * 0.01
 }
 
 /// The rare effects of the strike: the critical hit and the wounds' damage (#1779).
@@ -1973,21 +1975,30 @@ pub const WOUNDS: u32 = 867;
 /// The parameters of a rare effect that the balance's table lacks (`0x5F23A0`).
 const RARE: [f32; 3] = [100.0, 100.0, 90.0];
 
-/// The value of the effect `effect` of the items `items` (`0x570ED0`): its bonus slots' values
-/// summed, a slot whose condition names a class of opponents counted only against an opponent
-/// of that side (`against`, its `+0x1F0`), every slot without an opponent. The getter answers
-/// only while the holder is marked ([`marks`]), which an item of one of the rare effects always
-/// makes it.
-pub fn item_effect(items: &[ItemValues], effect: u32, against: Option<u8>) -> f32 {
+/// The value of the effect `effect` of the items `items` of a holder of the stored attributes
+/// `attributes` (`0x570ED0`; docs/re/items.md, "The bonus effects that the code reads", #3484):
+/// its bonus slots' values summed, each by the attribute that its effect's byte 2 names
+/// (`0x568C40`), a slot whose condition names a class of opponents counted only against an
+/// opponent of that class (`against`: its side, `0x80` for one ranged or of the mark 8, `0x81`
+/// for one mounted, the attack record's test with no test of the holder's type), every slot
+/// without an opponent. The getter answers only while the holder is marked ([`marks`]), which an
+/// item of one of the rare effects always makes it.
+pub fn item_effect(
+    items: &[ItemValues],
+    effect: u32,
+    attributes: [f32; 6],
+    against: Option<HurledAt>,
+) -> f32 {
+    let a = attributes.map(whole);
     items
         .iter()
         .flat_map(|item| item.bonuses)
         .filter(|bonus| bonus.effect & 0xFFFF == effect)
         .filter(|bonus| {
-            let class = bonus.condition & 0xFF;
-            class == 0 || class == 13 || against.is_none_or(|side| class == u16::from(side))
+            let [class, _] = bonus.condition.to_le_bytes();
+            class == 0 || class == 13 || against.is_none_or(|at| at.is_of(class))
         })
-        .map(|bonus| f32::from(bonus.value))
+        .map(|bonus| bonus.value(a))
         .sum()
 }
 
@@ -2318,10 +2329,15 @@ impl HurledAt {
     /// thrower.
     fn counts(self, bonus: Bonus) -> bool {
         let [class, _] = bonus.condition.to_le_bytes();
-        bonus.admits(self.thrower)
-            && (class == self.side
-                || (class == AGAINST_RANGED && self.ranged)
-                || (class == AGAINST_MOUNTED && self.mounted))
+        bonus.admits(self.thrower) && self.is_of(class)
+    }
+
+    /// Whether a slot's class of opponents `class` names it: its side, `0x80` for one ranged,
+    /// `0x81` for one mounted.
+    fn is_of(self, class: u8) -> bool {
+        class == self.side
+            || (class == AGAINST_RANGED && self.ranged)
+            || (class == AGAINST_MOUNTED && self.mounted)
     }
 }
 
@@ -9200,9 +9216,60 @@ mod tests {
             bonuses,
             ..ItemValues::default()
         }];
-        assert!((item_effect(&items, CRITICAL, Some(3)) - 12.0).abs() < f32::EPSILON);
-        assert!((item_effect(&items, CRITICAL, Some(7)) - 42.0).abs() < f32::EPSILON);
-        assert!((item_effect(&items, CRITICAL, None) - 42.0).abs() < f32::EPSILON);
+        let side = |side| {
+            Some(HurledAt {
+                side,
+                ..HurledAt::default()
+            })
+        };
+        let none = [0.0; 6];
+        assert!((item_effect(&items, CRITICAL, none, side(3)) - 12.0).abs() < f32::EPSILON);
+        assert!((item_effect(&items, CRITICAL, none, side(7)) - 42.0).abs() < f32::EPSILON);
+        assert!((item_effect(&items, CRITICAL, none, None) - 42.0).abs() < f32::EPSILON);
+        // Against a class of `0x80`, one ranged; of `0x81`, one mounted; no holder's type tested.
+        bonuses[1].condition = 0x0380;
+        bonuses[2] = Bonus {
+            condition: 0x0281,
+            effect: CRITICAL,
+            value: 5,
+        };
+        let items = [ItemValues {
+            bonuses,
+            ..ItemValues::default()
+        }];
+        let at = |ranged, mounted| {
+            Some(HurledAt {
+                thrower: 1,
+                side: 2,
+                ranged,
+                mounted,
+            })
+        };
+        let effect = |at| item_effect(&items, CRITICAL, none, at);
+        assert!((effect(at(false, false)) - 12.0).abs() < f32::EPSILON);
+        assert!((effect(at(true, false)) - 42.0).abs() < f32::EPSILON);
+        assert!((effect(at(false, true)) - 17.0).abs() < f32::EPSILON);
+        assert!((effect(at(true, true)) - 47.0).abs() < f32::EPSILON);
+        // Each value by the attribute its effect's byte 2 names: 840 by `a0`, 853 by `a3`.
+        let mut bonuses = [Bonus::default(); BONUSES];
+        bonuses[0] = Bonus {
+            condition: 0,
+            effect: LUCK | 1 << 16,
+            value: 20,
+        };
+        bonuses[1] = Bonus {
+            condition: 0,
+            effect: 853 | 4 << 16,
+            value: 10,
+        };
+        let items = [ItemValues {
+            bonuses,
+            ..ItemValues::default()
+        }];
+        let attributes = [50.0, 0.0, 0.0, 120.0, 0.0, 0.0];
+        assert!((item_effect(&items, LUCK, attributes, None) - 10.0).abs() < f32::EPSILON);
+        assert!((item_effect(&items, 853, attributes, None) - 12.0).abs() < f32::EPSILON);
+        assert!((items_luck(&items, attributes) - 110.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -9223,15 +9290,15 @@ mod tests {
             }
         };
         // 100 plus every slot's 840, an opponent's too.
-        assert_eq!(items_luck(&[]), 100.0);
-        assert_eq!(items_luck(&[item(LUCK, [12, 5])]), 117.0);
+        assert_eq!(items_luck(&[], [0.0; 6]), 100.0);
+        assert_eq!(items_luck(&[item(LUCK, [12, 5])], [0.0; 6]), 117.0);
         assert_eq!(
-            items_luck(&[item(LUCK, [-3, 0]), item(EXPERIENCE, [9, 0])]),
+            items_luck(&[item(LUCK, [-3, 0]), item(EXPERIENCE, [9, 0])], [0.0; 6]),
             97.0
         );
         // A hundredth of the 843s.
-        assert_eq!(items_experience(&[]), 0.0);
-        let share = items_experience(&[item(EXPERIENCE, [12, 5]), item(LUCK, [40, 0])]);
+        assert_eq!(items_experience(&[], [0.0; 6]), 0.0);
+        let share = items_experience(&[item(EXPERIENCE, [12, 5]), item(LUCK, [40, 0])], [0.0; 6]);
         assert!((share - 0.17).abs() < 1e-6, "{share}");
     }
 
