@@ -16,7 +16,7 @@
 //! (256, 256) of its picture's corner, its texels along the sector's x from the top corner to
 //! the right one and along its y to the left one.
 //!
-//! Not followed: the corners faded where a sector lacks a neighbour.
+//! Not followed: the corners faded where a sector lacks a neighbour (#3479).
 
 use std::collections::HashMap;
 use std::path::Path;
