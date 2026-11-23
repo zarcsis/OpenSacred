@@ -24,8 +24,9 @@
 //! The hovered art shows its tooltip with its next level at its icon's (x + 70, y + 32)
 //! (`0x6C25A0`, `tooltip::art`, #1696).
 //!
-//! Not followed: the master's window's view of the page (`master`), the Vampiress's later arts not
-//! greyed by day and her night arts not refused.
+//! While the combat master's window shows (`master`), the Vampiress's later eight are vivid by day
+//! and her night arts are taken by day, so that she may put them into a combo's steps (`0x75A9D0`;
+//! seen, #3113).
 
 use std::collections::HashMap;
 
@@ -283,7 +284,8 @@ fn look(held: bool, kind: u32, night: bool, i: usize) -> Look {
     }
 }
 
-/// Whether a press refuses the art `art` at the hour `night` (`0x4D1D60`): a night art by day.
+/// Whether a press refuses the art `art` at the hour `night`, or with the master's window shown
+/// as by night (`0x4D1D60`): a night art by day.
 fn refused(art: u16, night: bool) -> bool {
     !night && (NIGHT_ARTS.contains(&art) || (NIGHT_ARTS_FROM..=NIGHT_ARTS_TO).contains(&art))
 }
@@ -326,14 +328,19 @@ pub(crate) fn hovered(
 /// A press on the page (`0x6C1F30`): the left with an art on the cursor lets it go; with the
 /// cursor empty, the held art under it onto the cursor (`0x6C1930`); the right on a held art puts
 /// it into the bar's selected slot (`0x6C1AE0`, the taskbar's messages 3 and 4).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources as arguments, grouped"
+)]
 fn pick(
     buttons: Res<ButtonInput<MouseButton>>,
     (shown, page): (Res<Shown>, Res<Page>),
     (pointer, ui_scale, windows): (Res<crate::hud::Pointer>, Res<UiScale>, Query<&Window>),
-    (arts, forms, pack): (
+    (arts, forms, pack, master): (
         Option<Res<HeroArts>>,
         Option<Res<crate::forms::Forms>>,
         Res<crate::pickup::Pack>,
+        Option<Res<crate::master::Master>>,
     ),
     (mut held, mut slots): (ResMut<HeldArt>, ResMut<ArtSlots>),
 ) {
@@ -359,7 +366,9 @@ fn pick(
         return;
     }
     let night = forms.is_some_and(|forms| forms.by_night());
-    let Some(art) = held_under(&arts, night, at).filter(|&art| !refused(art, night)) else {
+    // The master's window lets the night arts be taken by day (#3113).
+    let free = night || master.is_some();
+    let Some(art) = held_under(&arts, night, at).filter(|&art| !refused(art, free)) else {
         return;
     };
     if left && pack.held.is_none() {
@@ -637,14 +646,15 @@ fn show(
     mut commands: Commands,
     (shown, page): (Res<Shown>, Res<Page>),
     (images, assets, controls): (Res<UiImages>, Res<AssetServer>, crate::controls::Keys),
-    (mut arts, pictures, forms): (
+    (mut arts, pictures, forms, master): (
         Option<ResMut<HeroArts>>,
         Option<Res<Pictures>>,
         Option<Res<crate::forms::Forms>>,
+        Option<Res<crate::master::Master>>,
     ),
     roots: Query<Entity, With<PageRoot>>,
     (mut flashes, mut list): (ResMut<Assets<Flash>>, ResMut<ArtKeys>),
-    mut was: Local<Option<(u32, bool, Vec<(u16, u8)>, Vec<(u16, u8)>)>>,
+    mut was: Local<Option<(u32, (bool, bool), Vec<(u16, u8)>, Vec<(u16, u8)>)>>,
 ) {
     let on = shown.0 && page.0 == PAGE;
     let night = forms.is_some_and(|forms| forms.by_night());
@@ -680,7 +690,7 @@ fn show(
                 )
             })
             .collect();
-        (arts.kind, night, held, keys.clone())
+        (arts.kind, (night, master.is_some()), held, keys.clone())
     });
     if *was == now {
         return;
@@ -698,7 +708,7 @@ fn show(
     for root in &roots {
         commands.entity(root).despawn();
     }
-    let (Some((kind, night, _, keys)), Some(arts)) = (now, arts.as_deref()) else {
+    let (Some((kind, (night, mastered), _, keys)), Some(arts)) = (now, arts.as_deref()) else {
         commands.remove_resource::<Flashing>();
         return;
     };
@@ -748,7 +758,8 @@ fn show(
         let at = CORNER + at;
         let entry = arts.arts.get(art);
         let record = sprites(arts, art);
-        let icon = match (look(entry.is_some(), kind, night, i), record) {
+        // The master's window draws the later eight vivid by day (#3113).
+        let icon = match (look(entry.is_some(), kind, night || mastered, i), record) {
             (Look::Vivid, Some(sprites)) => {
                 Some(bar::piece(&images, &assets, sprites[2], at, Vec2::ZERO))
             }
@@ -778,9 +789,11 @@ fn show(
             .id();
         commands.entity(root).add_child(frame);
         let new = entry.is_some_and(|entry| entry.flags & opensacred_rules::arts::TAUGHT != 0);
-        if let (true, Look::Vivid, Some(flash)) =
-            (new, look(entry.is_some(), kind, night, i), &flash)
-        {
+        if let (true, Look::Vivid, Some(flash)) = (
+            new,
+            look(entry.is_some(), kind, night || mastered, i),
+            &flash,
+        ) {
             let child = commands
                 .spawn((
                     MaterialNode(flash.clone()),
