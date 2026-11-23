@@ -1127,7 +1127,7 @@ pub struct Count {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Counted {
     /// Its count goes on: so many counted of so many asked (the engine's event `0xB` with the
-    /// line of the type's name and the counts, not followed, #3448).
+    /// line of the type's name and the counts, `scripts::count_line` in the game, #3448).
     Goes { counted: u32, asked: u32 },
     /// It is done: its function runs, the entry taken out.
     Done(String),

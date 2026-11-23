@@ -309,20 +309,63 @@ fn order(
     });
 }
 
-/// The order of the step's art `art` of the run `run`: a boon on the hero, an art of the launch
-/// type 3 at the order's point, else its creature where it lives, else the nearest hostile
-/// creature alive (`0x4FE870`'s choice anew; **hypothesis**: its list at `0xAD3CE0` is the
-/// creatures about the hero, nearest first); none where none is.
+/// A creature of the hero's list of hostiles for a combo's step (`0xAD3CE0`, nearest first, 55 at
+/// most): its place, whether the hero may strike it (alive and hostile, `0x549000`), its
+/// `Creature.pak` class and its level.
+#[derive(Clone, Copy, Debug)]
+struct Listed {
+    entity: Entity,
+    at: Vec3,
+    strikes: bool,
+    class: u8,
+    level: u32,
+}
+
+/// The most creatures of the hero's list (`0x547401`–`0x547492`).
+const LISTED: usize = 55;
+
+/// The order of the step's art `art` of the kind of target `launch` of the run `run`
+/// (`0x4FE870`, its creature taken anew by the art's kind of target; docs/re/arts.md, "A combo's run", #3433), the hero at `here` of the
+/// level `level`, of his list `listed` and the dead creatures `dead` about him, nearest first,
+/// `reaches` a straight way from him:
+///
+/// - a jump (1003, 1017, 1032), another always: the first of the list other than the step's
+///   creature that he may strike and reaches;
+/// - a boon, and the kinds 2 and 5, the hero himself, but the Daemon's 1094 and 1097 to 1100,
+///   which keep their creature; the kind 3 the order's point;
+/// - the kind 1 keeps its creature where he may strike it, or where it is gone; else, of the list
+///   but it, the one he may strike of the highest score
+///   ([`opensacred_rules::combos::step_score`]), the nearer of two that tie;
+/// - the kind 4 (1034) keeps its creature where it is dead or gone, else the first dead one but
+///   it;
+/// - the kind 0 keeps its creature where he may strike it, else the order's point.
+///
+/// None where a jump, the kind 1 or the kind 4 finds none: the combo ends.
 fn target_of(
-    arts: &HeroArts,
-    art: u16,
-    (hero, here): (Entity, Vec3),
+    (art, launch): (u16, Option<u8>),
+    (hero, here, level): (Entity, Vec3, u32),
     run: &Run,
-    creatures: &[(Entity, Vec3, bool)],
+    (listed, dead): (&[Listed], &[(Entity, Vec3)]),
+    reaches: impl Fn(Vec3) -> bool,
 ) -> Option<(Entity, Option<Vec3>)> {
     use opensacred_rules::arts::Style;
-    let launch = crate::making::launch(arts, art);
     let style = opensacred_rules::arts::style(art);
+    let own = run.target.filter(|&target| target != hero);
+    let strikes = |entity: Entity| listed.iter().any(|l| l.entity == entity && l.strikes);
+    let known = |entity: Entity| {
+        listed
+            .iter()
+            .map(|l| (l.entity, l.at))
+            .chain(dead.iter().copied())
+            .find(|&(e, _)| e == entity)
+            .map(|(_, at)| at)
+    };
+    if combos::JUMPS.contains(&art) {
+        return listed
+            .iter()
+            .find(|l| Some(l.entity) != own && l.strikes && reaches(l.at))
+            .map(|l| (l.entity, None));
+    }
     if matches!(
         style,
         Some(
@@ -335,29 +378,48 @@ fn target_of(
         )
     ) || matches!(launch, Some(2 | 5))
     {
+        if launch == Some(2)
+            && combos::KEEP_THEIR_CREATURE.contains(&art)
+            && let Some(own) = own
+        {
+            return Some((own, None));
+        }
         return Some((hero, (style == Some(Style::Dash)).then_some(run.ground)));
     }
-    if launch == Some(3) {
-        return Some((hero, Some(run.ground)));
-    }
-    let alive = |entity: Entity| {
-        creatures
-            .iter()
-            .any(|&(e, _, hostile)| e == entity && hostile)
-    };
-    if let Some(target) = run.target.filter(|&target| alive(target)) {
-        return Some((target, None));
-    }
-    let nearest = creatures
-        .iter()
-        .filter(|&&(_, _, hostile)| hostile)
-        .min_by(|a, b| (a.1 - here).length().total_cmp(&(b.1 - here).length()))
-        .map(|&(entity, ..)| entity);
-    match nearest {
-        Some(target) => Some((target, None)),
-        // A spell of the launch type 0 admits the ground (`0x51D840`).
-        None if art < 1000 && launch == Some(0) => Some((hero, Some(run.ground))),
-        None => None,
+    match launch {
+        Some(3) => Some((hero, Some(run.ground))),
+        Some(4) => match own {
+            Some(own)
+                if !strikes(own) && known(own).is_none_or(|_| dead.iter().any(|d| d.0 == own)) =>
+            {
+                Some((own, None))
+            }
+            _ => dead
+                .iter()
+                .find(|&&(entity, _)| Some(entity) != own)
+                .map(|&(entity, _)| (entity, None)),
+        },
+        Some(1) => match own {
+            Some(own) if strikes(own) || known(own).is_none() => Some((own, None)),
+            _ => {
+                let from = |at: Vec3| (at - here).xz().length();
+                let own_d = own.and_then(known).map_or(f32::INFINITY, from);
+                listed
+                    .iter()
+                    .filter(|l| Some(l.entity) != own && l.strikes)
+                    .map(|l| {
+                        let d = from(l.at);
+                        let score = combos::step_score(l.class, d < own_d, (l.level, level));
+                        (l.entity, score, d)
+                    })
+                    .max_by(|a, b| a.1.cmp(&b.1).then(b.2.total_cmp(&a.2)))
+                    .map(|(entity, ..)| (entity, None))
+            }
+        },
+        _ => match own.filter(|&own| strikes(own)) {
+            Some(own) => Some((own, None)),
+            None => Some((hero, Some(run.ground))),
+        },
     }
 }
 
@@ -387,15 +449,25 @@ fn steps(
             Has<Making>,
             Option<&Playing>,
             Option<&crate::effects::Effects>,
+            &Body,
         ),
-        (With<Body>, Without<Dies>),
+        Without<Dies>,
     >,
     creatures: Query<(Entity, &GlobalTransform, &Mind, &Health), (Without<Dies>, Without<Body>)>,
+    (nearest, bodies, heights, experience): (
+        Res<crate::crowd::Nearest>,
+        Query<
+            (Entity, &GlobalTransform),
+            (Or<(With<Dies>, With<crate::npcs::Corpse>)>, Without<Body>),
+        >,
+        Option<Res<crate::terrain::Heights>>,
+        Option<Res<Experience>>,
+    ),
 ) {
     let Some(mut current) = run.running else {
         return;
     };
-    let (Some(combos), Some(arts), Ok((hero, at, making, playing, effects))) =
+    let (Some(combos), Some(arts), Ok((hero, at, making, playing, effects, body))) =
         (combos, arts, heroes.single())
     else {
         run.running = None;
@@ -431,11 +503,38 @@ fn steps(
         run.running = None;
         return;
     };
-    let living: Vec<(Entity, Vec3, bool)> = creatures
+    // The hero's list of hostiles, nearest first, as his look keeps it (`crowd::Nearest`), and
+    // the dead about him, nearest first.
+    let here = at.translation();
+    let listed: Vec<Listed> = nearest
+        .hostiles
         .iter()
-        .filter(|(.., health)| health.current > 0)
-        .map(|(entity, place, mind, _)| (entity, place.translation(), mind.hostile()))
+        .filter_map(|&entity| {
+            let (_, place, mind, health) = creatures.get(entity).ok()?;
+            Some(Listed {
+                entity,
+                at: place.translation(),
+                strikes: health.current > 0 && mind.hostile(),
+                class: mind.class,
+                level: mind.level,
+            })
+        })
+        .take(LISTED)
         .collect();
+    let mut dead: Vec<(Entity, Vec3)> = bodies
+        .iter()
+        .map(|(entity, place)| (entity, place.translation()))
+        .collect();
+    dead.sort_by(|a, b| (a.1 - here).length().total_cmp(&(b.1 - here).length()));
+    let floor = body.level();
+    let reaches = |to: Vec3| {
+        heights.as_deref().is_some_and(|heights| {
+            crate::paths::straight(here.xz(), to.xz(), |cell| heights.walkable_on(cell, floor))
+        })
+    };
+    let hero_level = experience
+        .as_deref()
+        .map_or(1, |experience| experience.level);
     while current.step < STEPS {
         let step = current.step;
         current.step += 1;
@@ -445,13 +544,21 @@ fn steps(
         let art = opensacred_rules::arts::right_button(art, arts.kind, |key| {
             effects.is_some_and(|effects| effects.holds_any(&[key]))
         });
-        let Some((target, point)) =
-            target_of(&arts, art, (hero, at.translation()), &current, &living)
-        else {
+        let Some((target, point)) = target_of(
+            (art, crate::making::launch(&arts, art)),
+            (hero, here, hero_level),
+            &current,
+            (&listed, &dead),
+            reaches,
+        ) else {
             info!("combos: the combo ends, nothing to make {art} on");
             run.running = None;
             return;
         };
+        // The next step takes this one's creature for its own.
+        if target != hero {
+            current.target = Some(target);
+        }
         info!(
             "combos: the step {} makes {art} at level {level} on {target}",
             step + 1
@@ -565,10 +672,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_step_goes_to_its_creature_else_the_nearest_hostile_one() {
-        let arts = HeroArts::default();
+    fn a_steps_creature_is_taken_anew_by_its_arts_kind() {
         let entity = |bits: u32| Entity::from_raw_u32(bits).unwrap();
-        let (hero, foe, far, friend) = (entity(1), entity(2), entity(3), entity(4));
+        let (hero, foe, boar, far, body) = (entity(1), entity(2), entity(3), entity(4), entity(5));
         let mut run = Run {
             index: 0,
             step: 0,
@@ -577,28 +683,109 @@ mod tests {
             given: false,
             seen: false,
         };
-        let living = [
-            (foe, Vec3::new(30.0, 0.0, 0.0), true),
-            (far, Vec3::new(90.0, 0.0, 0.0), true),
-            (friend, Vec3::new(10.0, 0.0, 0.0), false),
+        let listed = |entity, x, strikes, class, level| Listed {
+            entity,
+            at: Vec3::new(x, 0.0, 0.0),
+            strikes,
+            class,
+            level,
+        };
+        // The hero of level 1: the goblin of the step, a boar nearer, a goblin farther.
+        let list = [
+            listed(boar, 20.0, true, 6, 2),
+            listed(foe, 30.0, true, 2, 1),
+            listed(far, 90.0, true, 2, 1),
         ];
-        let here = (hero, Vec3::ZERO);
-        // The Seraphim's 1071 on the combo's creature; a boon (the Dwarf's frenzy) on the hero.
+        let dead = [(body, Vec3::new(10.0, 0.0, 0.0))];
+        let here = (hero, Vec3::ZERO, 1);
+        let all = |_: Vec3| true;
+        // The Seraphim's 1071 (the kind 1) keeps a creature it may strike; a boon the hero.
         assert_eq!(
-            target_of(&arts, 1071, here, &run, &living),
+            target_of((1071, Some(1)), here, &run, (&list, &dead), all),
             Some((foe, None))
         );
         assert_eq!(
-            target_of(&arts, 1082, here, &run, &living),
+            target_of((1082, Some(5)), here, &run, (&list, &dead), all),
             Some((hero, None))
         );
-        // Its creature dead: the nearest hostile one, never a friend.
-        run.target = Some(entity(9));
+        // The jumps take another always, the first reached of the list.
         assert_eq!(
-            target_of(&arts, 1071, here, &run, &living),
+            target_of((1003, Some(1)), here, &run, (&list, &dead), all),
+            Some((boar, None))
+        );
+        assert_eq!(
+            target_of((1003, Some(1)), here, &run, (&list, &dead), |at| at.x
+                > 50.0),
+            Some((far, None))
+        );
+        assert_eq!(
+            target_of((1003, Some(1)), here, &run, (&list[1..2], &dead), all),
+            None
+        );
+        // Its creature dead, 10 away: none nearer than it; the goblins 5 + 5 (no animal, the
+        // level), the boar 5 (the level): of the goblins' tie, the nearer.
+        run.target = Some(body);
+        assert_eq!(
+            target_of((1071, Some(1)), here, &run, (&list, &dead), all),
             Some((foe, None))
         );
-        assert_eq!(target_of(&arts, 1071, here, &run, &living[2..]), None);
+        // The nearer goblin of level 20: the farther one's level wins it.
+        let far_level = [list[0], listed(foe, 30.0, true, 2, 20), list[2]];
+        assert_eq!(
+            target_of((1071, Some(1)), here, &run, (&far_level, &dead), all),
+            Some((far, None))
+        );
+        // Its creature dead 95 away: the goblins nearer than it, 5 + 5 + 5, the nearer of them.
+        let dead_far = [(body, Vec3::new(95.0, 0.0, 0.0))];
+        assert_eq!(
+            target_of((1071, Some(1)), here, &run, (&far_level, &dead_far), all),
+            Some((far, None))
+        );
+        // None to strike: the combo ends.
+        assert_eq!(
+            target_of((1071, Some(1)), here, &run, (&[], &dead), all),
+            None
+        );
+        // Its creature gone: kept.
+        run.target = Some(entity(9));
+        assert_eq!(
+            target_of((1071, Some(1)), here, &run, (&list, &dead), all),
+            Some((entity(9), None))
+        );
+        // The kind 4 keeps a dead creature, else takes the first dead but its own.
+        run.target = Some(body);
+        assert_eq!(
+            target_of((1034, Some(4)), here, &run, (&list, &dead), all),
+            Some((body, None))
+        );
+        run.target = Some(foe);
+        assert_eq!(
+            target_of((1034, Some(4)), here, &run, (&list, &dead), all),
+            Some((body, None))
+        );
+        assert_eq!(
+            target_of((1034, Some(4)), here, &run, (&list, &[]), all),
+            None
+        );
+        // The kind 2 the hero, but the Daemon's 1094 keeps its creature.
+        assert_eq!(
+            target_of((1071, Some(2)), here, &run, (&list, &dead), all),
+            Some((hero, None))
+        );
+        assert_eq!(
+            target_of((1094, Some(2)), here, &run, (&list, &dead), all),
+            Some((foe, None))
+        );
+        // The kind 0 keeps a creature it may strike, else the order's point.
+        assert_eq!(
+            target_of((1071, Some(0)), here, &run, (&list, &dead), all),
+            Some((foe, None))
+        );
+        run.target = Some(body);
+        assert_eq!(
+            target_of((1071, Some(0)), here, &run, (&list, &dead), all),
+            Some((hero, Some(run.ground)))
+        );
     }
 
     #[test]

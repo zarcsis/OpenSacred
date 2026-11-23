@@ -46,6 +46,51 @@ struct Lies {
     demon: bool,
 }
 
+/// A body that a script's `SetNPCState` of `0x80` lets go (`0x46224D`–`0x4622B6`; docs/re/
+/// netscript.md, "`SetNPCState`", #3445): its flags word's hold cleared and its death's stamp put
+/// back by 19, 4 or 1 s at the detail 2, 1 or 0, so that it vanishes a second later and is
+/// destroyed six seconds later, whatever the detail ([`release`]).
+#[derive(Component, Clone, Copy, Debug)]
+pub(crate) struct Released;
+
+/// How long after its release a body vanishes, and is destroyed: its stamp put back by its
+/// detail's vanishing less one second.
+const RELEASED_VANISHES: f32 = 1.0;
+const RELEASED_DESTROYED: f32 = 6.0;
+
+/// Lets go each body that a script released ([`Released`]): its flags word's `0x2000` cleared,
+/// its time to vanish a second from now and to be destroyed six; one not lying yet keeps the mark
+/// until it lies.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn release(
+    mut commands: Commands,
+    mut released: Query<
+        (
+            Entity,
+            &mut Corpse,
+            Option<&mut Lies>,
+            Option<&mut Destroyed>,
+        ),
+        With<Released>,
+    >,
+) {
+    for (entity, mut corpse, lies, destroyed) in &mut released {
+        corpse.flags &= !LIES_ON;
+        let Some(mut lies) = lies else {
+            continue;
+        };
+        lies.time = lies.lain + RELEASED_VANISHES;
+        if let Some(mut destroyed) = destroyed {
+            destroyed.0 = destroyed.0.min(RELEASED_DESTROYED);
+        }
+        debug!("bodies: {entity}'s body is let go, to vanish in a second");
+        commands.entity(entity).remove::<Released>();
+    }
+}
+
 /// The seconds that a death beside the Dark Elf's soulcatcher put its stamp back
 /// (`opensacred_rules::undead::soulcatcher_back`, `npcs::die`, #3387), by which its body vanishes,
 /// is destroyed and rises that much sooner (`undead`).
@@ -379,7 +424,7 @@ impl Plugin for BodiesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Dice>().add_systems(
             Update,
-            (lie, vanish, puddle, burst)
+            (lie, release, vanish, puddle, burst)
                 .chain()
                 .after(Step::Npcs)
                 .in_set(Playing),
@@ -474,6 +519,49 @@ mod tests {
         assert!(app.world().get::<Destroyed>(body).is_some());
         assert_eq!(app.world().resource::<Seen>().0, [body]);
         assert!(app.world().get::<Corpse>(named).is_some());
+    }
+
+    #[test]
+    fn a_held_body_that_a_script_lets_go_vanishes_a_second_later() {
+        use bevy::time::TimeUpdateStrategy;
+        use std::time::Duration;
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+                250,
+            )))
+            .add_message::<crate::souls::Vanished>()
+            .init_resource::<Seen>()
+            .add_systems(Update, (lie, release, vanish, seen).chain());
+        let held = app
+            .world_mut()
+            .spawn((corpse(LIES_ON), Dies::new(0), GlobalTransform::default()))
+            .id();
+        // Held past its 20 s, some 30 s on.
+        for _ in 0..120 {
+            app.update();
+        }
+        assert!(app.world().get::<Corpse>(held).is_some());
+        app.world_mut().entity_mut(held).insert(Released);
+        app.update();
+        assert_eq!(
+            app.world().get::<Corpse>(held).map(|corpse| corpse.flags),
+            Some(0)
+        );
+        assert!(app.world().get::<Released>(held).is_none());
+        // A second after its release, the release's own frame counted, it vanishes, and is
+        // destroyed six seconds after its release.
+        for _ in 0..2 {
+            app.update();
+        }
+        assert!(app.world().get::<Corpse>(held).is_some());
+        app.update();
+        assert!(app.world().get::<Corpse>(held).is_none());
+        assert!(
+            app.world()
+                .get::<Destroyed>(held)
+                .is_some_and(|destroyed| destroyed.0 <= 6.0)
+        );
     }
 
     #[test]

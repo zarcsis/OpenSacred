@@ -167,30 +167,37 @@ fn part(commands: &mut Commands, parent: Entity, mesh: Handle<Mesh>, material: H
     ));
 }
 
+/// What the breath and its fires meet: the creatures with their places, their stands in the
+/// way, their minds, healths, sizes and effects.
+type Meets<'a> = (
+    Entity,
+    &'a Transform,
+    &'a InTheWay,
+    &'a Mind,
+    &'a Health,
+    (
+        Option<&'a arrows::Size>,
+        Option<&'a crate::effects::Effects>,
+    ),
+);
+
 /// The creatures on `level` alive and hostile to the hero, not in `touched`, nearer `at` than 50
-/// and their sizes.
+/// and their sizes, but those that hold the effect 38, which the fires spare (`0x5539D0`, #3438).
 fn met<'a>(
-    creatures: impl Iterator<
-        Item = (
-            Entity,
-            &'a Transform,
-            &'a InTheWay,
-            &'a Mind,
-            &'a Health,
-            Option<&'a arrows::Size>,
-        ),
-    >,
+    creatures: impl Iterator<Item = Meets<'a>>,
     at: Vec2,
     level: Level,
     touched: &[Entity],
 ) -> Vec<Entity> {
     creatures
-        .filter(|(entity, place, way, mind, health, size)| {
+        .filter(|(entity, place, way, mind, health, (size, effects))| {
             way.creature
                 && way.level == level
                 && mind.hostile()
                 && health.current > 0
                 && !touched.contains(entity)
+                && !effects
+                    .is_some_and(|effects| effects.holds(opensacred_rules::fight::SPARED_BY_FIRE))
                 && (place.translation.xz() - at).length()
                     < arrows::size(0) + size.map_or(arrows::size(0), |size| size.0)
         })
@@ -400,7 +407,7 @@ fn breathe(
             &InTheWay,
             &Mind,
             &Health,
-            Option<&arrows::Size>,
+            (Option<&arrows::Size>, Option<&crate::effects::Effects>),
         ),
         (Without<Body>, Without<Dies>, Without<Breath>),
     >,
@@ -506,7 +513,7 @@ fn flare(
             &InTheWay,
             &Mind,
             &Health,
-            Option<&arrows::Size>,
+            (Option<&arrows::Size>, Option<&crate::effects::Effects>),
         ),
         (Without<Body>, Without<Dies>),
     >,

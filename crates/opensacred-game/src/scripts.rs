@@ -474,6 +474,8 @@ pub struct Effects {
     pub particles: Vec<Partikel>,
     /// The butterflies' effects that its `SetNPCState`s of `0x8C` give the hero (#3023).
     pub knock_outs: Vec<crate::knockouts::KnockOut>,
+    /// The bleedings that its `SetNPCState`s of `0x84` give the hero or end (#3444).
+    pub bleedings: Vec<crate::effects::ScriptBleeding>,
     /// The groups that its `GroupIsDead`s asked of and whether each was dead (`0x48C860`), by
     /// which the compass's blinking pin goes (`compass::GroupAsked`, #3104).
     pub groups: Vec<crate::compass::GroupAsked>,
@@ -508,6 +510,7 @@ impl Effects {
         self.random_items += other.random_items;
         self.particles.extend(other.particles);
         self.knock_outs.extend(other.knock_outs);
+        self.bleedings.extend(other.bleedings);
         self.groups.extend(other.groups);
         self.won.extend(other.won);
         self.autosaves.extend(other.autosaves);
@@ -925,11 +928,18 @@ impl Live {
         match self.state.kills.count(creature) {
             Some(Counted::Done(function)) => {
                 bevy::log::info!("scripts: the kills of {creature} are done and run {function}");
-                self.run_named(&function)
+                let mut effects = Effects::default();
+                effects.infos.push((COUNT_MODE, KILLS_DONE.to_owned()));
+                effects.extend(self.run_named(&function));
+                effects
             }
             Some(Counted::Goes { counted, asked }) => {
                 bevy::log::info!("scripts: {counted} of {asked} kills of {creature}");
-                Effects::default()
+                let mut effects = Effects::default();
+                effects
+                    .infos
+                    .push((COUNT_MODE, count_key(creature, counted, asked)));
+                effects
             }
             None => Effects::default(),
         }
@@ -953,11 +963,18 @@ impl Live {
         match self.state.collecting.count(item)? {
             Counted::Done(function) => {
                 bevy::log::info!("scripts: the items {item} are collected and run {function}");
-                Some(self.run_named(&function))
+                let mut effects = Effects::default();
+                effects.infos.push((COUNT_MODE, ITEMS_DONE.to_owned()));
+                effects.extend(self.run_named(&function));
+                Some(effects)
             }
             Counted::Goes { counted, asked } => {
                 bevy::log::info!("scripts: {counted} of {asked} items {item} collected");
-                Some(Effects::default())
+                let mut effects = Effects::default();
+                effects
+                    .infos
+                    .push((COUNT_MODE, count_key(item, counted, asked)));
+                Some(effects)
             }
         }
     }
@@ -1036,6 +1053,7 @@ impl Live {
             random_items: recorder.random_items,
             particles: recorder.particles,
             knock_outs: recorder.knock_outs,
+            bleedings: recorder.bleedings,
             groups: recorder.groups,
             won: recorder.won,
             autosaves: recorder.autosaves,
@@ -1225,6 +1243,8 @@ struct Recorder<'a> {
     /// The generic systems that its `Partikel`s start ([`Effects::particles`]).
     particles: Vec<Partikel>,
     knock_outs: Vec<crate::knockouts::KnockOut>,
+    /// The bleedings its `SetNPCState`s of `0x84` give or end ([`Effects::bleedings`]).
+    bleedings: Vec<crate::effects::ScriptBleeding>,
     /// The groups its `GroupIsDead`s asked of ([`Effects::groups`]).
     groups: Vec<crate::compass::GroupAsked>,
     /// The side quests that its `ExitQuest`s won ([`Effects::won`]).
@@ -1289,6 +1309,7 @@ impl<'a> Recorder<'a> {
             random_items: 0,
             particles: Vec::new(),
             knock_outs: Vec::new(),
+            bleedings: Vec::new(),
             groups: Vec::new(),
             won: Vec::new(),
             autosaves: Vec::new(),
@@ -1987,6 +2008,20 @@ impl Host for Recorder<'_> {
                         creature: None,
                         art,
                     });
+                }
+                // `0x84 (v, s)`: the effect 23 of the value `v` for `s` seconds with no source,
+                // both above 0; `(0, 0)` ends every effect 23 (`0x461D1F`–`0x461DBD`, #3444). Every
+                // record of the trees names the hero.
+                if hero && let [value, seconds, ..] = tags.numbers("_84").as_slice() {
+                    let bleeding = match (*value, *seconds) {
+                        (0, 0) => Some(crate::effects::ScriptBleeding(None)),
+                        (1.., 1..) => Some(crate::effects::ScriptBleeding(Some((
+                            f32::from(u16::try_from(*value).unwrap_or(u16::MAX)),
+                            f32::from(u16::try_from(*seconds).unwrap_or(u16::MAX)),
+                        )))),
+                        _ => None,
+                    };
+                    self.bleedings.extend(bleeding);
                 }
                 if hero && let [x, y, rest @ ..] = tags.numbers("_4D").as_slice() {
                     self.home = Some(Teleport {
@@ -2757,6 +2792,7 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
         window,
         particles,
         knock_outs,
+        bleedings,
         groups,
         autosaves,
         active,
@@ -2772,6 +2808,7 @@ fn hand_world(world: &mut World, effects: Effects) -> Option<String> {
     }
     world.write_message_batch(particles);
     world.write_message_batch(knock_outs);
+    world.write_message_batch(bleedings);
     world.write_message_batch(window.sounds.into_iter().map(ScriptLine));
     world.write_message_batch(sounds);
     world.write_message_batch(remarks);
@@ -2863,6 +2900,7 @@ struct Queues<'w> {
     random_items: MessageWriter<'w, crate::stashes::RandomItem>,
     particles: MessageWriter<'w, Partikel>,
     knock_outs: MessageWriter<'w, crate::knockouts::KnockOut>,
+    bleedings: MessageWriter<'w, crate::effects::ScriptBleeding>,
     groups: MessageWriter<'w, crate::compass::GroupAsked>,
     won: MessageWriter<'w, crate::rewards::QuestWon>,
     autosaves: Option<ResMut<'w, crate::saves::AutoSaves>>,
@@ -2891,6 +2929,7 @@ impl Queues<'_> {
             .write_batch((0..effects.random_items).map(|_| crate::stashes::RandomItem));
         self.particles.write_batch(effects.particles);
         self.knock_outs.write_batch(effects.knock_outs);
+        self.bleedings.write_batch(effects.bleedings);
         self.groups.write_batch(effects.groups);
         self.won
             .write_batch(effects.won.into_iter().map(crate::rewards::QuestWon));
@@ -2901,6 +2940,33 @@ impl Queues<'_> {
             halt.asked = Some(active);
         }
     }
+}
+
+/// The info lines of the counts of `SetOnKill` and `SetOnCollect` (`0x4AA630`, `0x4AAAE0`;
+/// docs/re/netscript.md, "`SetGroupState`, `DelNPC`, `SetOnKill` and `SetOnCollect`", #3448): an
+/// `InfoPlayer`'s of the mode 3 (the engine's event `0xB` of `+0xC` `0x80000003`, its string
+/// itself; `(0xB, 0x10, 3)` at the end), the end's of the text 17631 for the kills and 17643 for
+/// the items, and the key by which a count that goes on asks its line ([`count_line`]).
+const COUNT_MODE: i32 = 3;
+const KILLS_DONE: &str = "res:17631";
+const ITEMS_DONE: &str = "res:17643";
+const COUNT_KEY: &str = "count:";
+
+/// The key of the line of a count that goes on, of the type `kind`, `counted` of `asked`.
+fn count_key(kind: u32, counted: u32, asked: u32) -> String {
+    format!("{COUNT_KEY}{kind}:{counted}:{asked}")
+}
+
+/// The line that a count's key asks ([`count_key`]): `%s:%d %s %d` (`0x94F6D8`), the type's name,
+/// a colon and the count done, the text `COUNT_MIDDLE` and the count asked, of the texts
+/// `texts`; none for another key or a type of no name.
+pub(crate) fn count_line(key: &str, texts: &crate::lines::Texts) -> Option<String> {
+    let rest = key.strip_prefix(COUNT_KEY)?;
+    let mut parts = rest.split(':');
+    let (kind, counted, asked) = (parts.next()?, parts.next()?, parts.next()?);
+    let name = texts.named(kind)?;
+    let middle = texts.named("COUNT_MIDDLE").unwrap_or("of");
+    Some(format!("{name}:{counted} {middle} {asked}"))
 }
 
 /// The scripts' groups that hold a living creature, wherever it stands (`GroupIsDead`,
@@ -3254,6 +3320,7 @@ impl Plugin for ScriptsPlugin {
             .add_message::<ScriptLine>()
             .add_message::<Partikel>()
             .add_message::<crate::knockouts::KnockOut>()
+            .add_message::<crate::effects::ScriptBleeding>()
             .add_message::<crate::compass::GroupAsked>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
@@ -3969,16 +4036,40 @@ mod tests {
         let mut live = live(runtime);
         live.creatures = HashSet::from([38, 691]);
         live.run_named("bounty");
-        // The first kill counts, the second runs the function by its name case aside.
-        assert!(live.kill(691).healths.is_empty());
-        assert!(live.kill(190).healths.is_empty());
-        assert_eq!(live.kill(691).healths.len(), 1);
+        // The first kill counts, the second runs the function by its name case aside; each
+        // count tells its line, the last the text 17631 before the function's own.
+        let first = live.kill(691);
+        assert!(first.healths.is_empty());
+        assert_eq!(first.infos, [(3, "count:691:1:2".to_owned())]);
+        assert!(live.kill(190).infos.is_empty());
+        let last = live.kill(691);
+        assert_eq!(last.healths.len(), 1);
+        assert_eq!(last.infos.first(), Some(&(3, "res:17631".to_owned())));
         assert!(live.kill(691).healths.is_empty());
         // The drop of the creature 38 counts as its item is picked up; another item does not.
         assert!(live.collect(1).is_none());
         let collected = live.collect(6005).expect("6005 is counted");
         assert_eq!(collected.healths.len(), 1);
+        assert_eq!(collected.infos.first(), Some(&(3, "res:17643".to_owned())));
         assert!(live.collect(6005).is_none());
+    }
+
+    #[test]
+    fn a_counts_line_is_the_types_name_the_count_done_the_middle_and_the_count_asked() {
+        use opensacred_data::text::message;
+        let texts = crate::lines::Texts::of(&format!(
+            "{} = Bandit
+{} = of
+",
+            message("691"),
+            message("COUNT_MIDDLE")
+        ));
+        assert_eq!(
+            count_line(&count_key(691, 1, 5), &texts).as_deref(),
+            Some("Bandit:1 of 5")
+        );
+        assert_eq!(count_line(&count_key(692, 1, 5), &texts), None);
+        assert_eq!(count_line("res:17631", &texts), None);
     }
 
     #[test]
@@ -4013,6 +4104,7 @@ mod tests {
             .add_message::<ScriptLine>()
             .add_message::<Partikel>()
             .add_message::<crate::knockouts::KnockOut>()
+            .add_message::<crate::effects::ScriptBleeding>()
             .add_message::<crate::compass::GroupAsked>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
@@ -4076,6 +4168,7 @@ mod tests {
             .add_message::<ScriptLine>()
             .add_message::<Partikel>()
             .add_message::<crate::knockouts::KnockOut>()
+            .add_message::<crate::effects::ScriptBleeding>()
             .add_message::<crate::compass::GroupAsked>()
             .add_message::<Remark>()
             .add_message::<crate::pickup::Given>()
@@ -4952,6 +5045,7 @@ mod tests {
             .add_message::<crate::stashes::RandomItem>()
             .add_message::<Partikel>()
             .add_message::<crate::knockouts::KnockOut>()
+            .add_message::<crate::effects::ScriptBleeding>()
             .add_message::<crate::compass::GroupAsked>()
             .add_message::<crate::rewards::QuestWon>()
             .add_systems(Update, step_on);

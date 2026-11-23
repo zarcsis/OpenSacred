@@ -205,7 +205,7 @@ pub const TABLE: &[Entry] = &[
     at(26, 5, Multiplier(Damage, &[POISON], 0.4)),
     at(27, 3, Give::Arts(&[1049], 6.0)),
     at(27, 4, Multiplier(Damage, &[FIRE], 0.5)),
-    at(27, 6, CreatureFlag(0x4)),
+    at(27, 6, CreatureFlag(MARKS_FOR_FIRE)),
     at(28, 3, Skill(9, 7.0)),
     at(28, 5, Multiplier(Damage, &[POISON], 0.4)),
     at(29, 2, Skill(7, 8.0)),
@@ -216,7 +216,7 @@ pub const TABLE: &[Entry] = &[
     at(31, 2, Skill(17, 6.0)),
     at(31, 3, Skill(15, 6.0)),
     at(31, 4, Multiplier(Damage, &[FIRE], 0.3)),
-    at(31, 5, CreatureFlag(0x4)),
+    at(31, 5, CreatureFlag(MARKS_FOR_FIRE)),
     at(32, 3, Skill(16, 6.0)),
     at(32, 4, Skill(18, 6.0)),
     at(32, 5, Multiplier(Damage, &[MAGIC], 0.4)),
@@ -571,6 +571,10 @@ pub const BINDS: u32 = 0x100_0000;
 /// wearer's arrows pass through what they hit (`0x5BBD87`; [`Stats::pierces`],
 /// `crate::arrows::passes`).
 pub const PIERCES: u32 = 0x1000_0000;
+/// The creature's flag `+0x1FC` bit 4 (sets 27 at 6 and 31 at 5), by which the creatures its
+/// wearer's strikes reach take the effect 38, which the Daemon's breath's fires spare
+/// (`0x56E0A4`; `crate::fight::spared_by_fire`, #3438).
+pub const MARKS_FOR_FIRE: u32 = 0x4;
 /// The stats' flag `+0x4F0` bit `0x1000` (set 55 at 8), by which its wearer refuses a knock-back
 /// in two cases of three (`0x55D260`'s query `0x50`; docs/re/sets.md §5, #3437).
 pub const STEADY: u32 = 0x1000;
@@ -886,6 +890,12 @@ impl Stats {
     /// and the roll's rest of 3 not 0.
     pub fn refuses_knock(&self, roll: u32) -> bool {
         self.flags & STEADY != 0 && !roll.is_multiple_of(3)
+    }
+
+    /// Whether the wearer's strikes mark their creatures for the breath's fires to spare: its
+    /// creature's flag [`MARKS_FOR_FIRE`].
+    pub fn marks_for_fire(&self) -> bool {
+        self.creature_flags & MARKS_FOR_FIRE != 0
     }
 
     /// Whether the wearer answers the query `0x4F`, by which the creatures' holds ordered at it
