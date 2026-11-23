@@ -1306,11 +1306,12 @@ fn make(
                 hero,
                 sure: crate::art_sounds::cries_surely(making.art),
             });
+            let seconds = length / played.max(f32::EPSILON);
             commands.entity(hero).insert(Playing {
                 style,
                 node,
                 length,
-                seconds: length / played.max(f32::EPSILON),
+                seconds,
                 point,
                 points,
                 struck: 0,
@@ -1321,6 +1322,13 @@ fn make(
                 level,
                 factor,
             });
+            // The weapons' streaks of the arts that its executor streaks, for its clip (#3454).
+            crate::weapon_streaks::lay(
+                &mut commands,
+                hero,
+                (making.art, arts.kind, true),
+                crate::weapon_streaks::Lasts::Seconds(seconds),
+            );
             continue;
         };
         let Some(active) = player.animation(playing.node) else {

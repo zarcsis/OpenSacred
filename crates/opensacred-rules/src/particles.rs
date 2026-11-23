@@ -13296,6 +13296,160 @@ impl DwarfFireSight {
     }
 }
 
+/// The weapons' streaks in the arts (797, `cParticleSystem_magicfade`, its constructor
+/// `0x77C970`; docs/re/effects.md, "The arts' streaks"): their ribbon's texture, the most pairs a
+/// streak keeps (its 500 particles), and their life's rate (−1000 a second, 0.255 s).
+pub const STREAK_TEXTURE: &str = "FADESTREAK";
+const STREAK_PAIRS: usize = 250;
+const STREAK_LIFE: f32 = -1000.0;
+/// The weapon's bones that a streak runs between, its points 0 and 1 (15 and 16, `0x5A4FB3`).
+pub const STREAK_BONES: [&str; 2] = ["weapon_fx01", "weapon_fx02"];
+
+/// The hands whose weapons an art streaks: the slot 13's item, else the slot 12's, one streak
+/// (the Gladiator's executor), or each of them that holds one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StreakHands {
+    One,
+    Both,
+}
+
+/// The hands whose weapons the art `art` streaks as it starts, made through the executor of the
+/// hero's type `executor` (`crate::casts::executor`; 1 the Seraphim to 9 the Daemon, 6 and 7 the
+/// Vampiress by day and by night), none for an art that streaks nothing: the Gladiator's 1003,
+/// 1013, 1054 and 1057 to 1059, one hand; the Seraphim's 1003, 1013, 1017, 1020, 1054 and 1069 to
+/// 1071, the Wood Elf's 1061 to 1063, the generic 1000 to 1002 of the Magician's type, the
+/// Vampiress's 1073 to 1075, the Dwarf's 1078 to 1080 and the Daemon's 1091 and 1092, both; the
+/// Dark Elf's none (the executors' switches after their first runs, docs/re/effects.md, "The
+/// arts' streaks", #3454).
+pub fn streak_hands(executor: u32, art: u16) -> Option<StreakHands> {
+    let streaks = match executor {
+        1 => matches!(art, 1003 | 1013 | 1017 | 1020 | 1054 | 1069..=1071),
+        2 => matches!(art, 1003 | 1013 | 1054 | 1057..=1059),
+        3 => matches!(art, 1000..=1002),
+        5 => matches!(art, 1061..=1063),
+        6 | 7 => matches!(art, 1073..=1075),
+        8 => matches!(art, 1078..=1080),
+        9 => matches!(art, 1091 | 1092),
+        _ => false,
+    };
+    match (streaks, executor) {
+        (false, _) => None,
+        (true, 2) => Some(StreakHands::One),
+        (true, _) => Some(StreakHands::Both),
+    }
+}
+
+/// Whether an item of the category `category` lays a streak: a `cWeapon3D` alone, the weapons
+/// (5) and the cannons (33); a shield's, an armour's and a plain item's virtual `+0x34` does
+/// nothing (`0x451300`, `0x5BA9A0`).
+pub fn streaks_on(category: u8) -> bool {
+    matches!(category, 5 | 33)
+}
+
+/// A streak's colour, of 1, made through the executor `executor`: the Wood Elf's a pale green,
+/// the Vampiress's a pale red, the others' a pale blue; a Gladiator's of no player's by its
+/// weapon's most damages `most` (physical, fire, magic, poison): a poison's a pale green, else a
+/// magic's a blue, else a fire's a pale red, else a grey (`0x5BEB30(−1)`).
+pub fn streak_colour(executor: u32, player: bool, most: [f32; 4]) -> [f32; 3] {
+    let colour: u32 = match executor {
+        5 => 0x80_FF80,
+        6 | 7 => 0xFF_8080,
+        2 if !player => {
+            let [_, fire, magic, poison] = most;
+            if poison > 0.0 {
+                0x80_FF80
+            } else if magic > 0.0 {
+                0x40_40FF
+            } else if fire > 0.0 {
+                0xFF_8080
+            } else {
+                0x80_8080
+            }
+        }
+        _ => 0x80_80FF,
+    };
+    let [_, r, g, b] = colour.to_be_bytes();
+    [r, g, b].map(|c| f32::from(c) / 255.0)
+}
+
+/// A quad of a streak's ribbon ([`WeaponStreak::quads`]): its corners, their texture's points and
+/// their alphas, of 1.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct StreakQuad {
+    pub corners: [[f32; 3]; 4],
+    pub uvs: [[f32; 2]; 4],
+    pub alphas: [f32; 4],
+}
+
+/// A weapon's streak in an art (797, its start `0x77CCB0`, run `0x77CA10` and draw `0x77CA90`;
+/// #3454): for its seconds, at each frame, a pair of particles born at the weapon's two bones'
+/// points of that frame, which stay where they are born, each of the life 255 falling by 1,000 a
+/// second; it ends with its last pair. Its ribbon is a quad between each pair and the one born
+/// before it, each corner in its colour at the alpha of its own particle's life.
+#[derive(Clone, Debug, PartialEq)]
+pub struct WeaponStreak {
+    /// Its pairs, the newest first: their points 0 and 1 and their life.
+    pairs: std::collections::VecDeque<([[f32; 3]; 2], f32)>,
+    seconds: f32,
+    pub colour: [f32; 3],
+}
+
+impl WeaponStreak {
+    /// A streak of `seconds`, its art's clip's length at its speed, in `colour`.
+    pub fn new(seconds: f32, colour: [f32; 3]) -> Self {
+        Self {
+            pairs: std::collections::VecDeque::new(),
+            seconds,
+            colour,
+        }
+    }
+
+    /// A frame of `dt` seconds, the weapon's bones at `points` where found: its pairs age, and
+    /// while its seconds last a pair is born there.
+    pub fn update(&mut self, dt: f32, points: Option<[[f32; 3]; 2]>) {
+        for (_, life) in &mut self.pairs {
+            *life += STREAK_LIFE * dt;
+        }
+        while self.pairs.back().is_some_and(|&(_, life)| life <= 0.0) {
+            self.pairs.pop_back();
+        }
+        if self.seconds > 0.0 {
+            if let Some(points) = points {
+                self.pairs.push_front((points, 255.0));
+                self.pairs.truncate(STREAK_PAIRS);
+            }
+            self.seconds -= dt;
+        }
+    }
+
+    /// It makes no more pairs.
+    pub fn stop(&mut self) {
+        self.seconds = 0.0;
+    }
+
+    /// Whether it ended, its seconds over and no pair alive.
+    pub fn done(&self) -> bool {
+        self.seconds <= 0.0 && self.pairs.is_empty()
+    }
+
+    /// Its ribbon's quads (`0x762650` of the flags 3): for each pair and the one born before it,
+    /// the corners the newer pair's points 0 and 1 and the older's 1 and 0, the texture's `u` 1 at
+    /// the points 0 and 0 at the points 1 and its `v` 0, and each corner's alpha its particle's
+    /// life truncated, of 1.
+    pub fn quads(&self) -> Vec<StreakQuad> {
+        let alpha = |life: f32| life.trunc().max(0.0) / 255.0;
+        self.pairs
+            .iter()
+            .zip(self.pairs.iter().skip(1))
+            .map(|(&([a0, a1], newer), &([b0, b1], older))| StreakQuad {
+                corners: [a0, a1, b1, b0],
+                uvs: [[1.0, 0.0], [0.0, 0.0], [0.0, 0.0], [1.0, 0.0]],
+                alphas: [alpha(newer), alpha(newer), alpha(older), alpha(older)],
+            })
+            .collect()
+    }
+}
+
 /// The teleport's sights' texture (774 `FX_TELEPORT_OUT` and 775 `FX_TELEPORT_IN`, one class,
 /// `cParticleSystem_teleport`, its constructor `0x771370`), their particles, their world light and
 /// their corners' colours (from the bottom left, the top left, the bottom right and the top right),
@@ -17812,6 +17966,134 @@ mod tests {
         }
         assert!(shot.system.particles.is_empty());
         assert_eq!(DwarfFireSight::new(DwarfFire::Grenade, 2.0).until, 0.15);
+    }
+
+    #[test]
+    fn the_arts_streak_their_weapons_by_their_executors() {
+        // The Gladiator's one hand, the others' both, the Dark Elf's none.
+        assert_eq!(streak_hands(2, 1003), Some(StreakHands::One));
+        assert_eq!(streak_hands(2, 1059), Some(StreakHands::One));
+        assert_eq!(streak_hands(1, 1003), Some(StreakHands::Both));
+        assert_eq!(streak_hands(1, 1071), Some(StreakHands::Both));
+        for (executor, art) in [
+            (1, 1013),
+            (1, 1017),
+            (1, 1020),
+            (1, 1054),
+            (1, 1069),
+            (2, 1013),
+            (2, 1054),
+            (2, 1057),
+            (3, 1000),
+            (3, 1002),
+            (5, 1061),
+            (5, 1063),
+            (6, 1073),
+            (7, 1075),
+            (8, 1078),
+            (8, 1080),
+            (9, 1091),
+            (9, 1092),
+        ] {
+            assert!(streak_hands(executor, art).is_some(), "{executor} {art}");
+        }
+        // The kicks, the Seraphim's casts, the Gladiator's others, the Dark Elf's, another type.
+        for (executor, art) in [
+            (1, 1072),
+            (2, 1060),
+            (1, 1018),
+            (1, 1019),
+            (1, 1021),
+            (2, 1010),
+            (2, 1016),
+            (1, 1057),
+            (5, 1060),
+            (5, 1064),
+            (6, 1076),
+            (8, 1081),
+            (9, 1090),
+            (9, 1093),
+            (3, 1003),
+            (4, 1066),
+            (4, 1003),
+            (0, 1003),
+        ] {
+            assert_eq!(streak_hands(executor, art), None, "{executor} {art}");
+        }
+        assert!(streaks_on(5) && streaks_on(33));
+        assert!(!streaks_on(13) && !streaks_on(6) && !streaks_on(0));
+    }
+
+    #[test]
+    fn a_streaks_colour_is_its_class_and_a_creature_gladiators_its_weapons() {
+        let blue = [128.0 / 255.0, 128.0 / 255.0, 1.0];
+        let green = [128.0 / 255.0, 1.0, 128.0 / 255.0];
+        let red = [1.0, 128.0 / 255.0, 128.0 / 255.0];
+        let grey = [128.0 / 255.0; 3];
+        assert_eq!(streak_colour(1, true, [0.0; 4]), blue);
+        assert_eq!(streak_colour(2, true, [9.0, 0.0, 0.0, 5.0]), blue);
+        assert_eq!(streak_colour(5, false, [0.0; 4]), green);
+        assert_eq!(streak_colour(6, true, [0.0; 4]), red);
+        assert_eq!(streak_colour(7, false, [0.0; 4]), red);
+        assert_eq!(streak_colour(8, false, [0.0, 0.0, 0.0, 9.0]), blue);
+        // A creature Gladiator's: poison, else magic, else fire, else grey.
+        assert_eq!(streak_colour(2, false, [9.0, 1.0, 1.0, 1.0]), green);
+        assert_eq!(
+            streak_colour(2, false, [9.0, 1.0, 1.0, 0.0]),
+            [64.0 / 255.0, 64.0 / 255.0, 1.0]
+        );
+        assert_eq!(streak_colour(2, false, [9.0, 1.0, 0.0, 0.0]), red);
+        assert_eq!(streak_colour(2, false, [9.0, 0.0, 0.0, 0.0]), grey);
+    }
+
+    #[test]
+    fn a_streak_lays_a_pair_a_frame_for_its_seconds_and_each_fades_in_a_quarter_second() {
+        let mut streak = WeaponStreak::new(0.09, [1.0; 3]);
+        let at = |x: f32| [[x, 0.0, 0.0], [x, 0.0, 50.0]];
+        for k in 0..6_u8 {
+            streak.update(0.02, Some(at(f32::from(k))));
+        }
+        // Five frames within its 0.09 s, then none.
+        let quads = streak.quads();
+        assert_eq!(quads.len(), 4);
+        let StreakQuad {
+            corners,
+            uvs,
+            alphas,
+        } = quads[0];
+        assert_eq!(
+            corners,
+            [
+                [4.0, 0.0, 0.0],
+                [4.0, 0.0, 50.0],
+                [3.0, 0.0, 50.0],
+                [3.0, 0.0, 0.0]
+            ]
+        );
+        assert_eq!(uvs, [[1.0, 0.0], [0.0, 0.0], [0.0, 0.0], [1.0, 0.0]]);
+        // The newest born 0.02 s ago at 255, aged 20; the one before 40.
+        assert_eq!(
+            alphas,
+            [235.0 / 255.0, 235.0 / 255.0, 215.0 / 255.0, 215.0 / 255.0]
+        );
+        // Without the bones it lays none, and it ends 0.255 s after its last pair.
+        let mut lost = WeaponStreak::new(1.0, [1.0; 3]);
+        lost.update(0.02, None);
+        assert!(lost.quads().is_empty() && !lost.done());
+        let mut frames = 0;
+        while !streak.done() && frames < 100 {
+            streak.update(0.01, Some(at(9.0)));
+            frames += 1;
+        }
+        assert_eq!(frames, 24);
+        // Stopped, it makes no more.
+        let mut stopped = WeaponStreak::new(5.0, [1.0; 3]);
+        stopped.update(0.01, Some(at(0.0)));
+        stopped.stop();
+        stopped.update(0.01, Some(at(1.0)));
+        assert!(stopped.quads().is_empty());
+        stopped.update(0.3, Some(at(1.0)));
+        assert!(stopped.done());
     }
 
     #[test]
