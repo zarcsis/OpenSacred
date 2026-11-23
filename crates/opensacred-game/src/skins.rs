@@ -121,6 +121,10 @@ struct Skin {
     /// leave while it rises, and whether they are left.
     own: Vec<(Entity, Option<RenderLayers>)>,
     unseen: bool,
+    /// Whether it is held each frame rather than timed: the water form's look of the Dark Elf
+    /// whom set 26 hides ([`hidden_by_set`], #3396), which counts no seconds and blinks not, and
+    /// goes at once with the hiding.
+    held: bool,
 }
 
 impl Skin {
@@ -137,6 +141,7 @@ impl Skin {
             wearing: true,
             own: Vec::new(),
             unseen: false,
+            held: false,
         }
     }
 
@@ -203,6 +208,54 @@ type ModelMesh = (
     Has<DynamicSkinnedMeshBounds>,
     Has<NoFrustumCulling>,
 );
+
+/// Draws the Dark Elf whom seven pieces of set 26 hide in the water form's look while they hide
+/// him (`ai::unseen_hero` of his set alone), as his effect 63 forces his overlay state to 1 for
+/// his draw at every tick (`0x5396DB`, `0x599952`–`0x59997B`; docs/re/sets.md §4, "The effect
+/// 63", #3396), in place of any other skin; plain at once as he strikes, shoots or casts.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn hidden_by_set(
+    mut commands: Commands,
+    kind: Option<Res<crate::hero::Hero>>,
+    mut heroes: Query<
+        (
+            Entity,
+            Option<&crate::fight::Holding>,
+            (Has<crate::attack::Striking>, Option<&crate::attack::Attack>),
+            Option<&mut Skin>,
+        ),
+        With<crate::hero::Body>,
+    >,
+) {
+    for (hero, holding, (striking, attack), skin) in &mut heroes {
+        let attacking = striking || attack.and_then(crate::attack::Attack::target).is_some();
+        let hides = crate::ai::unseen_hero(
+            kind.as_deref().map(|hero| hero.creature),
+            (None, holding),
+            attacking,
+        );
+        match (hides, skin) {
+            (true, Some(skin)) if skin.held => {}
+            (true, skin) => {
+                if let Some(mut skin) = skin {
+                    skin.undress(&mut commands);
+                }
+                commands.entity(hero).insert(Skin {
+                    held: true,
+                    ..Skin::new(Overlay::Water, f32::INFINITY)
+                });
+            }
+            (false, Some(mut skin)) if skin.held => {
+                skin.undress(&mut commands);
+                commands.entity(hero).remove::<Skin>();
+            }
+            (false, _) => {}
+        }
+    }
+}
 
 /// Gives each asking bearer its skin, or its skin its new seconds, as the event `0x109` sets the
 /// state and its timer anew: a skin of another overlay in place of the one it wore.
@@ -471,7 +524,9 @@ fn run(
     let dt = time.delta_secs();
     let now = real.elapsed_secs_f64();
     for (bearer, mut skin) in &mut skins {
-        skin.left -= dt;
+        if !skin.held {
+            skin.left -= dt;
+        }
         if skin.left < 0.0 && skin.overlay.blinks() && !skin.blinking {
             skin.blinking = true;
             skin.left += SKIN_BLINK;
@@ -535,7 +590,10 @@ impl Plugin for SkinsPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (ask, dress, run).chain().in_set(Playing).in_set(Unpaused),
+            (hidden_by_set, ask, dress, run)
+                .chain()
+                .in_set(Playing)
+                .in_set(Unpaused),
         );
     }
 }
