@@ -251,9 +251,8 @@ pub(crate) fn spawn_grid<T: Component, S: Component + Clone>(
 }
 
 /// The icons of the sockets of the items of a grid (`items` by their keys, `grid` their places)
-/// with their top lefts from the grid's (`cInventoryEntry_render`): the first four sockets of a
-/// kind of each (`kinds` of the item), empty or filled, from its rectangle's left along its
-/// bottom, [`ICONS_UP`] over it, each as wide as its image and as high (`size` of the image).
+/// with their top lefts from the grid's (`cInventoryEntry_render`): each item's
+/// ([`item_icons`]) along its cells' rectangle.
 fn socket_icons(
     (items, grid): (&[(u32, Dropped)], &Grid),
     kinds: impl Fn(&Dropped) -> [u8; opensacred_rules::fight::SOCKETS],
@@ -264,30 +263,71 @@ fn socket_icons(
         let Some((_, dropped)) = items.iter().find(|(key, _)| *key == placed.key) else {
             continue;
         };
-        let kinds = kinds(dropped);
-        let sockets = kinds.iter().filter(|&&kind| kind != 0).count();
-        let left = f32::from(placed.at.0) * CELL;
-        let bottom = f32::from(placed.at.1 + placed.size.1) * CELL - ICONS_UP;
-        for (i, &kind) in (0_u8..).zip(&kinds).take(sockets.min(ICONS)) {
-            let step = match kind {
-                1 => 0,
-                2 => 1,
-                3 | 4 => 2,
-                _ => continue,
-            };
-            let first = if usize::from(i) < dropped.socketed.len() {
-                FILLED_SOCKET
-            } else {
-                EMPTY_SOCKET
-            };
-            let side = size(first + step).x;
-            icons.push((
-                first + step,
-                Vec2::new(left + f32::from(i) * side, bottom - side),
-            ));
-        }
+        let at = Vec2::new(f32::from(placed.at.0), f32::from(placed.at.1)) * CELL;
+        let cells = Vec2::new(f32::from(placed.size.0), f32::from(placed.size.1)) * CELL;
+        icons.extend(item_icons(
+            dropped,
+            kinds(dropped),
+            Rect::from_corners(at, at + cells),
+            &size,
+        ));
     }
     icons
+}
+
+/// The icons of the sockets of `dropped`, of the kinds `kinds`, in its rectangle `rect`
+/// (`cInventoryEntry_render`): the first four sockets of a kind, empty or filled, from the
+/// rectangle's left along its bottom, [`ICONS_UP`] over it, each as wide as its image and as high
+/// (`size` of the image).
+fn item_icons(
+    dropped: &Dropped,
+    kinds: [u8; opensacred_rules::fight::SOCKETS],
+    rect: Rect,
+    size: impl Fn(u32) -> Vec2,
+) -> Vec<(u32, Vec2)> {
+    let sockets = kinds.iter().filter(|&&kind| kind != 0).count();
+    let bottom = rect.max.y - ICONS_UP;
+    let mut icons = Vec::new();
+    for (i, &kind) in (0_u8..).zip(&kinds).take(sockets.min(ICONS)) {
+        let step = match kind {
+            1 => 0,
+            2 => 1,
+            3 | 4 => 2,
+            _ => continue,
+        };
+        let first = if usize::from(i) < dropped.socketed.len() {
+            FILLED_SOCKET
+        } else {
+            EMPTY_SOCKET
+        };
+        let side = size(first + step).x;
+        icons.push((
+            first + step,
+            Vec2::new(rect.min.x + f32::from(i) * side, bottom - side),
+        ));
+    }
+    icons
+}
+
+/// Lays the sockets' icons of `dropped` in its rectangle `rect` of `parent` into it, as a grid's
+/// item's (`cInventoryEntry_render`, [`item_icons`]): a worn item's in its slot's frame (§4) and
+/// the smith's grid's item (#3096).
+pub(crate) fn spawn_item_icons(
+    commands: &mut Commands,
+    (tables, images, assets): (&Tables, &UiImages, &AssetServer),
+    (dropped, rect): (&Dropped, Rect),
+    parent: Entity,
+) {
+    let kinds = tables.own_values(dropped).sockets;
+    for (index, at) in item_icons(dropped, kinds, rect, |index| images.size(index)) {
+        let icon = commands
+            .spawn((
+                bar::piece(images, assets, index, at, Vec2::ZERO),
+                Pickable::IGNORE,
+            ))
+            .id();
+        commands.entity(parent).add_child(icon);
+    }
 }
 
 /// Lays the sockets' icons of the items of a grid into its container of the render layer
@@ -791,6 +831,15 @@ mod tests {
         );
         assert_eq!(icons.len(), 3 + 4);
         assert_eq!(icons[6], (395, Vec2::new(128.0 + 24.0, 86.0)));
+        // A worn helmet's in its frame, at its bottom left as the grid's (#3096).
+        let frame = Rect::new(96.0, 6.0, 160.0, 70.0);
+        let worn = item_icons(&dropped(4007, 1), [1, 2, 0, 0, 0, 0, 0, 0], frame, |_| {
+            Vec2::splat(8.0)
+        });
+        assert_eq!(
+            worn,
+            [(396, Vec2::new(96.0, 60.0)), (394, Vec2::new(104.0, 60.0))]
+        );
     }
 
     fn dropped_ring() -> Dropped {
