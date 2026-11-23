@@ -402,6 +402,7 @@ fn engage(
                             shooter: hero,
                             toward: target.unwrap_or(attack.point),
                             bolt,
+                            only: None,
                         });
                     }
                 } else if ranged {

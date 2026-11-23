@@ -1720,6 +1720,11 @@ struct Clips {
     run: Option<AnimationNodeIndex>,
     fly: Option<AnimationNodeIndex>,
     stance: Option<AnimationNodeIndex>,
+    /// A second node of the idle clip and of the stance's, into which a shot's end blends the
+    /// standing clip in play to start it anew, a clip blending into no node of its own
+    /// ([`Self::again`], #3562).
+    idle_again: AnimationNodeIndex,
+    stance_again: Option<AnimationNodeIndex>,
     talk: Option<AnimationNodeIndex>,
     fun: [Option<AnimationNodeIndex>; 4],
     /// The attack's clips, each with its clip and the fractions at which it hits.
@@ -1732,6 +1737,26 @@ struct Clips {
 }
 
 impl Clips {
+    /// The other node of the standing clip `node`, its idle or its stance, none for another clip.
+    fn again(&self, node: AnimationNodeIndex) -> Option<AnimationNodeIndex> {
+        if node == self.idle {
+            Some(self.idle_again)
+        } else if node == self.idle_again {
+            Some(self.idle)
+        } else if Some(node) == self.stance {
+            self.stance_again
+        } else if Some(node) == self.stance_again {
+            self.stance
+        } else {
+            None
+        }
+    }
+
+    /// Whether `node` plays the clip of `wanted`, its own node or the other of a standing clip.
+    fn same(&self, node: AnimationNodeIndex, wanted: AnimationNodeIndex) -> bool {
+        node == wanted || self.again(node) == Some(wanted)
+    }
+
     /// The clip of a walk: its flight's where it flies and has one (`0x546ABF`), its run clip
     /// where it runs and has one, else its walk clip.
     fn moving(&self, walk: &Walk) -> Option<AnimationNodeIndex> {
@@ -8440,6 +8465,7 @@ pub fn animate(
             };
             let mut graph = AnimationGraph::new();
             let root = graph.root;
+            let idle_clip = idle.clone();
             let idle = graph.add_clip(idle, 1.0, root);
             let mut add = |name| clip(name).map(|clip| graph.add_clip(clip.clone(), 1.0, root));
             let (walk, run, fly, stance, talk) = (
@@ -8474,6 +8500,10 @@ pub fn animate(
                     Some((graph.add_clip(clip.clone(), 1.0, root), clip, hits))
                 })
                 .collect();
+            // The standing clips' second nodes, last, the others' nodes as they were.
+            let idle_again = graph.add_clip(idle_clip, 1.0, root);
+            let stance_again =
+                clip(&npc.names.stance).map(|stance| graph.add_clip(stance.clone(), 1.0, root));
             npc.graph = Some(Clips {
                 graph: graphs.add(graph),
                 idle,
@@ -8481,6 +8511,8 @@ pub fn animate(
                 run,
                 fly,
                 stance,
+                idle_again,
+                stance_again,
                 talk,
                 fun,
                 attacks,
@@ -8915,7 +8947,10 @@ pub fn stance(
             (None, None, true, Some(stance)) => stance,
             _ => clips.idle,
         };
-        if transitions.get_main_animation() != Some(wanted) {
+        if !transitions
+            .get_main_animation()
+            .is_some_and(|main| clips.same(main, wanted))
+        {
             let rate = if moving.is_some() { npc.pace } else { 1.0 };
             transitions
                 .play(&mut player, wanted, BLEND)
@@ -13050,6 +13085,67 @@ fn bolt_clip(
     BoltClip::Kept
 }
 
+/// The share of its loop that an NPC's clip in play has played, its time in its clip over the
+/// clip's length, which a shot that plays no clip reads (`0x4DCB80`, #3562).
+fn loop_share(
+    transitions: &AnimationTransitions,
+    player: &AnimationPlayer,
+    graph: &Clips,
+    (graphs, clips): (&Assets<AnimationGraph>, &Assets<AnimationClip>),
+) -> Option<f32> {
+    let main = transitions.get_main_animation()?;
+    let bevy::animation::graph::AnimationNodeType::Clip(clip) =
+        &graphs.get(&graph.graph)?.get(main)?.node_type
+    else {
+        return None;
+    };
+    let length = clips.get(clip)?.duration();
+    let active = player.animation(main)?;
+    (length > 0.0).then(|| active.seek_time() / length)
+}
+
+/// A creature whose idle handler searches a way to its target as it takes it up after its shot
+/// (`0x4F7710` at `0x544217`, `opensacred_rules::minds::searches_after_shot`), which sets its
+/// standing clip in play to its pace's rate ([`paced`], #3562).
+#[derive(Component)]
+pub struct SearchesWay;
+
+/// Sets each searching creature's standing clip in play to its pace's rate, the game's speed
+/// times its pace, keeping its place in its loop, where the blend that started it is over
+/// (`0x4F75F0` through `0x413610`; `opensacred_rules::minds::search_paces`; docs/re/motions.md,
+/// "The rate of the clip in play", #3562): until its next clip starts, as the ice druid's stance
+/// loops in 0.5046 s after some of its shots. Before the blend's end the clip blending out takes
+/// the rate, which shows nothing, and the standing clip plays on at 1.0; a clip that is no
+/// standing one, which a decision started, keeps its own.
+fn paced(
+    mut commands: Commands,
+    searching: Query<(Entity, &Npc), With<SearchesWay>>,
+    mut players: Query<(&mut AnimationPlayer, &AnimationTransitions)>,
+    speed: Res<hero::GameSpeed>,
+) {
+    for (entity, npc) in &searching {
+        commands.entity(entity).remove::<SearchesWay>();
+        let (Some(graph), Some(player)) = (&npc.graph, npc.player) else {
+            continue;
+        };
+        let Ok((mut player, transitions)) = players.get_mut(player) else {
+            continue;
+        };
+        let Some(main) = transitions
+            .get_main_animation()
+            .filter(|&main| graph.again(main).is_some())
+        else {
+            continue;
+        };
+        if let Some(active) = player.animation_mut(main)
+            && minds::search_paces(active.elapsed())
+        {
+            bevy::log::debug!("npcs: {entity}'s search sets its standing clip to its pace's rate");
+            active.set_speed(speed.0 * npc.pace);
+        }
+    }
+}
+
 /// An NPC whose strike, not a shot, has just played its clip whole: its mind decides whether the
 /// next one chains (`ai::pursue`, `opensacred_rules::minds::Mind::ends_strike`, `0x4E4CF0`).
 #[derive(Component)]
@@ -13082,9 +13178,12 @@ fn hits_within(size: u32, other: u32) -> f32 {
 /// a shot of bolts plays its bolt's clip at its own rate, its stand-in where the model lacks it,
 /// and sends its bolts in place of the arrow (`bolts::Fire`, `0x4DCB80`, #2899); one whose model
 /// has neither plays nothing, the clip in play going on: the creature's stance, whose fraction is
-/// 0, so that its bolts leave at the first tick after its start (#3303). A shot ends at the
-/// second tick after its arrow or its bolts, whatever is left of its clip (`0x4DCB80`'s
-/// sub-state 2; seen, #3312), its creature then dormant ([`ShotEnded`]).
+/// 0, so that its first bolt leaves at the first tick after its start (#3303) and a railgun's
+/// second at the first tick after it at which the stance has played 0.6 of its loop
+/// (`opensacred_rules::arts::second_bolt_due`, #3562). A shot ends at the second tick after its
+/// arrow or its last bolt, whatever is left of its clip (`0x4DCB80`'s sub-state 2; seen, #3312),
+/// its creature then dormant ([`ShotEnded`]); one that played no clip starts its standing clip
+/// anew at the rate 1.0, blended in over 0.2 s from its other node ([`Clips::again`]).
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -13145,15 +13244,25 @@ fn strike(
             continue;
         }
         let Some((node, length, fractions)) = strikes.playing else {
-            // No clip: its bolts at the first tick after its start, and the shot's end at the
-            // second after them.
-            if let (Some(BoltClip::Kept), Some(_)) = (&bolt_clip, strikes.bolt) {
+            // No clip: its first bolt at the first tick after its start, a railgun's second at the
+            // first tick after it at which the clip in play has played 0.6 of its loop, and the
+            // shot's end at the second tick after its last, which starts its standing clip anew
+            // at the rate 1.0 (`0x4DCB80`, #3562).
+            if let (Some(BoltClip::Kept), Some(bolt)) = (&bolt_clip, strikes.bolt) {
                 if !std::mem::replace(&mut strikes.begun, true) || tick.seconds.is_none() {
                     continue;
                 }
-                if strikes.struck == 0 {
-                    bevy::log::debug!("npcs: {entity} shoots its bolts in the clip it plays");
-                    strikes.struck = 1;
+                let count = strikes.fires.unwrap_or(bolt).count();
+                let struck = u32::from(strikes.struck);
+                let looses = struck == 0
+                    || (struck < count
+                        && loop_share(&transitions, &player, graph, (&graphs, &clips))
+                            .is_some_and(opensacred_rules::arts::second_bolt_due));
+                if looses {
+                    bevy::log::debug!(
+                        "npcs: {entity} shoots its bolt {struck} in the clip it plays"
+                    );
+                    strikes.struck += 1;
                     let toward = places
                         .get(strikes.target)
                         .map_or(at.translation(), |(target, ..)| target.translation());
@@ -13162,15 +13271,29 @@ fn strike(
                             shooter: entity,
                             toward,
                             bolt,
+                            only: Some(struck),
                         });
                     }
-                } else {
+                } else if struck >= count {
                     strikes.after += 1;
                     if strikes.after >= 2 {
                         commands
                             .entity(entity)
                             .remove::<Strikes>()
                             .insert(ShotEnded::default());
+                        if let Some(again) = transitions
+                            .get_main_animation()
+                            .and_then(|main| graph.again(main))
+                        {
+                            transitions
+                                .play(
+                                    &mut player,
+                                    again,
+                                    Duration::from_secs_f32(minds::SHOT_END_BLEND),
+                                )
+                                .repeat()
+                                .set_speed(speed.0);
+                        }
                     }
                 }
                 continue;
@@ -13237,6 +13360,7 @@ fn strike(
                         shooter: entity,
                         toward,
                         bolt,
+                        only: None,
                     });
                 }
             } else {
@@ -14689,7 +14813,7 @@ impl Plugin for NpcsPlugin {
                     strike,
                     die,
                     (script_clips, turn_emerged, big_demons_stand).chain(),
-                    stance,
+                    (stance, paced).chain(),
                     equip,
                     bind_worn,
                 )
@@ -17685,13 +17809,23 @@ mod tests {
             walk: Some(node(1)),
             run: Some(node(2)),
             fly: Some(node(3)),
-            stance: None,
+            stance: Some(node(4)),
+            idle_again: node(5),
+            stance_again: Some(node(6)),
             talk: None,
             fun: [None; 4],
             attacks: Vec::new(),
             dying: Vec::new(),
             scripted: HashMap::new(),
         };
+        // A shot's end starts a standing clip anew in its other node, the same clip.
+        assert_eq!(clips.again(node(0)), Some(node(5)));
+        assert_eq!(clips.again(node(5)), Some(node(0)));
+        assert_eq!(clips.again(node(4)), Some(node(6)));
+        assert_eq!(clips.again(node(6)), Some(node(4)));
+        assert_eq!(clips.again(node(1)), None);
+        assert!(clips.same(node(6), node(4)) && clips.same(node(4), node(4)));
+        assert!(!clips.same(node(1), node(4)) && !clips.same(node(5), node(4)));
         let mut walk = Walk::to(Vec3::ZERO, None, 70.0);
         // Not yet stepped, as a walk whose first step is blocked: it stands in its idle.
         assert_eq!(clips.moving(&walk), None);
@@ -17858,6 +17992,103 @@ mod tests {
         let sword = InHand::of([(1753, WEAPON, Some(1))]);
         assert_eq!(class_of(&sword), 1);
         assert!(!ranged_of(&sword));
+    }
+
+    #[test]
+    fn a_search_sets_the_standing_clip_in_play_to_its_pace_once_its_blend_is_over() {
+        use bevy::time::TimeUpdateStrategy;
+        let mut app = App::new();
+        app.add_plugins((
+            bevy::prelude::MinimalPlugins,
+            bevy::asset::AssetPlugin::default(),
+            bevy::animation::AnimationPlugin,
+        ))
+        .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
+            50,
+        )))
+        .insert_resource(hero::GameSpeed(1.25))
+        .add_systems(Update, paced);
+        let mut stance_clip = AnimationClip::default();
+        stance_clip.set_duration(0.82);
+        let clip = app
+            .world_mut()
+            .resource_mut::<Assets<AnimationClip>>()
+            .add(stance_clip);
+        let mut graph = AnimationGraph::new();
+        let root = graph.root;
+        let [idle, stance, idle_again, stance_again] =
+            [(); 4].map(|()| graph.add_clip(clip.clone(), 1.0, root));
+        let graph = app
+            .world_mut()
+            .resource_mut::<Assets<AnimationGraph>>()
+            .add(graph);
+        // The shot's end starts the stance anew at the rate 1.0.
+        let mut player = AnimationPlayer::default();
+        let mut transitions = AnimationTransitions::new();
+        transitions
+            .play(&mut player, stance, Duration::ZERO)
+            .repeat()
+            .set_speed(1.25);
+        let player = app
+            .world_mut()
+            .spawn((player, transitions, AnimationGraphHandle(graph.clone())))
+            .id();
+        let clips = Clips {
+            graph,
+            idle,
+            walk: None,
+            run: None,
+            fly: None,
+            stance: Some(stance),
+            idle_again,
+            stance_again: Some(stance_again),
+            talk: None,
+            fun: [None; 4],
+            attacks: Vec::new(),
+            dying: Vec::new(),
+            scripted: HashMap::new(),
+        };
+        let npc = app
+            .world_mut()
+            .spawn(Npc {
+                gltf: Handle::default(),
+                model: String::new(),
+                names: ClipNames::default(),
+                graph: Some(clips),
+                player: Some(player),
+                hands_empty: true,
+                instrument: None,
+                hits: Hits {
+                    class: 0,
+                    share: 1.0,
+                },
+                pace: 1.3,
+            })
+            .id();
+        let speed = |app: &App| {
+            app.world()
+                .get::<AnimationPlayer>(player)
+                .and_then(|player| player.animation(stance))
+                .map(|active| (active.speed(), active.seek_time()))
+        };
+        // A search 0.1 s after its start, in its blend: the stance plays on at 1.0.
+        for _ in 0..3 {
+            app.update();
+        }
+        app.world_mut().entity_mut(npc).insert(SearchesWay);
+        app.update();
+        assert_eq!(speed(&app).map(|(speed, _)| speed), Some(1.25));
+        assert!(app.world().get::<SearchesWay>(npc).is_none());
+        // One 0.3 s after it: the pace's rate from its place on.
+        for _ in 0..2 {
+            app.update();
+        }
+        let before = speed(&app).map_or(0.0, |(_, place)| place);
+        app.world_mut().entity_mut(npc).insert(SearchesWay);
+        app.update();
+        let (paced, place) = speed(&app).unwrap_or_default();
+        assert!((paced - 1.625).abs() < 1e-5, "{paced}");
+        assert!(place > before && place - before < 0.1, "{before} {place}");
     }
 
     #[test]

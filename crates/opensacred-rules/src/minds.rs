@@ -4641,6 +4641,27 @@ pub fn shot_wake(ranged: bool) -> u8 {
     if ranged { 2 } else { 3 }
 }
 
+/// The blend over which a creature's shot's end starts its standing clip anew at the rate 1.0
+/// (`0x4DCB80`'s sub-state 2 through `0x593320`; seen 0.2 s, #3303), in seconds.
+pub const SHOT_END_BLEND: f32 = 0.2;
+
+/// Whether a creature whose shot ended searches a way to its target `woken` world's ticks after
+/// the hero's look woke it: its idle handler's search as it takes its target up, at the first
+/// tick after the wake, for one with no `ranged` weapon in hand (`0x4F7710` at `0x544217`;
+/// docs/re/motions.md, "The rate of the clip in play", #3562), which sets the clip in play to its
+/// pace's rate (`0x4F75F0`).
+pub fn searches_after_shot(woken: u8, ranged: bool) -> bool {
+    !ranged && woken == 1
+}
+
+/// Whether a search of a way `elapsed` seconds after a shot's end started the standing clip anew
+/// finds that clip in play, its blend over, and sets it to the pace's rate; before, the clip
+/// blending out takes the rate, and the standing clip plays on at 1.0 (`0x4F75F0` leaves a clip
+/// coming in, `+0x235`; seen 2026-11-23, #3473: 284 of the ice druid's 651 stances).
+pub fn search_paces(elapsed: f32) -> bool {
+    elapsed >= SHOT_END_BLEND
+}
+
 /// Whether a shot's arrow leaves, `done` of its clip played, `a` the clip's first fraction
 /// (`MotionDesc +0xA0`, `0x4DD90E`): once what is left of the clip is at most `1 − a` of it, at
 /// once for an `a` of 0, at the half for one of 1 or more.
@@ -7751,6 +7772,15 @@ mod tests {
     fn a_shooter_shoots_again_two_ticks_after_its_wake_with_a_bow_three_without() {
         assert_eq!(shot_wake(true), 2);
         assert_eq!(shot_wake(false), 3);
+    }
+
+    #[test]
+    fn a_shooter_without_a_bow_searches_a_way_at_the_tick_after_its_wake() {
+        assert!(searches_after_shot(1, false));
+        assert!(!searches_after_shot(0, false) && !searches_after_shot(2, false));
+        assert!(!searches_after_shot(1, true));
+        // The search finds the stance in play once the shot's end's blend of 0.2 s is over.
+        assert!(!search_paces(0.199) && search_paces(0.2) && search_paces(0.3));
     }
 
     #[test]

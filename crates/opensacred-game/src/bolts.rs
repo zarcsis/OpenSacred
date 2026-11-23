@@ -86,12 +86,15 @@ fn leaving(
 }
 
 /// A shot's bolts leaving their shooter toward `toward` (the FX events of `0x4DCB80`), which the
-/// shot's clip sends at its first hit (`attack`).
+/// shot's clip sends at its first hit (`attack`): all of them, the second railgun bolt
+/// [`RAILGUN_SECOND`] after the first, or the one of them `only`, at once, where the shooter times
+/// each itself (a creature's shot that plays no clip, `npcs`, #3562).
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
 pub struct Fire {
     pub shooter: Entity,
     pub toward: Vec3,
     pub bolt: Bolt,
+    pub only: Option<u32>,
 }
 
 /// What a bolt strikes as it meets creatures.
@@ -347,7 +350,8 @@ fn warded(look: usize) -> bool {
 /// (#2899): its bolts along the line on the ground to `toward` (with none, its shooter's facing),
 /// of the damages of the bolt's record by the whole value of its shooter's effect and its
 /// multipliers, a creature's through its spells' factor at that level (`0x5ABD80`'s `0x56A800`),
-/// the second railgun bolt [`RAILGUN_SECOND`] after the first.
+/// the second railgun bolt [`RAILGUN_SECOND`] after the first, or the one bolt a shot names alone
+/// at once ([`Fire::only`]).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their filters"
@@ -416,12 +420,19 @@ fn fire(
             shot.bolt
         );
         for i in 0..shot.bolt.count() {
+            if shot.only.is_some_and(|only| only != i) {
+                continue;
+            }
             launches.write(Launch {
                 shooter: shot.shooter,
                 direction,
                 course: Course::of(shot.bolt),
                 damages,
-                wait: if i == 0 { 0.0 } else { RAILGUN_SECOND },
+                wait: if i == 0 || shot.only.is_some() {
+                    0.0
+                } else {
+                    RAILGUN_SECOND
+                },
             });
         }
     }

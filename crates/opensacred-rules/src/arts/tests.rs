@@ -2139,6 +2139,12 @@ fn the_daemons_breath_slows_bounces_and_lays_a_wall() {
 }
 
 #[test]
+fn a_shot_of_no_clip_looses_its_second_railgun_bolt_past_six_tenths_of_the_loop() {
+    assert!(!second_bolt_due(0.0) && !second_bolt_due(0.5982));
+    assert!(second_bolt_due(0.6) && second_bolt_due(0.6056) && second_bolt_due(0.99));
+}
+
+#[test]
 fn her_shots_are_bolts_while_their_effects_hold() {
     // The railgun's at any distance, the BFG's beyond 200 or in the air; strikes otherwise.
     assert_eq!(Bolt::of(false, true, Some(50.0)), Some(Bolt::Railgun));
