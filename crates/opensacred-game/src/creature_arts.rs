@@ -639,6 +639,14 @@ fn volleys(
     }
 }
 
+/// Whether a thrown dagger's hit takes the arts' roll: while its thrower, alive and not knocked,
+/// still makes its volley, the Gladiator's action 8 of the types that make 1013 (`0x56BF8E`..
+/// `0x56BFCB`; the tick of the action 0 after each throw, `0x4FE870`, which no hit some 0.2 s
+/// later meets, left out); none once it is out of the art.
+fn dagger_in_art(volley: bool, alive: bool, knocked: bool) -> bool {
+    volley && alive && !knocked
+}
+
 /// Flies each thrown dagger on its arc a frame on: it strikes its target, the hero, once it
 /// touches it by the sum of their sizes (`0x600340`; the item's `+0xB0` bit 8, players alone),
 /// and is gone there or at its arc's end; its thrower then takes a fresh dagger while its volley
@@ -656,6 +664,7 @@ fn daggers(
     mut hits: MessageWriter<fight::Hit>,
     mut flying: Query<(Entity, &mut Transform, &mut Thrown)>,
     mut volleys: Query<&mut Volley>,
+    throwers: Query<(Option<&Health>, Has<crate::making::Knocked>), Without<crate::hero::Body>>,
     targets: Query<
         (
             &GlobalTransform,
@@ -705,21 +714,33 @@ fn daggers(
                     values.hurled_damage(flight.attributes, Some(at))
                 });
             let fixed = arts::thrown_damage(&damage, flight.times, &mut dice.0);
+            let in_art = throwers.get(flight.thrower).is_ok_and(|(health, knocked)| {
+                dagger_in_art(
+                    volleys.contains(flight.thrower),
+                    health.is_none_or(|health| health.current > 0),
+                    knocked,
+                )
+            });
             debug!(
-                "creature_arts: {}'s dagger strikes {}, {:?}",
+                "creature_arts: {}'s dagger strikes {}, {:?}, {}",
                 flight.thrower,
                 flight.target,
-                fixed.map(|d| d.round())
+                fixed.map(|d| d.round()),
+                if in_art { "the arts' roll" } else { "no roll" }
             );
             hits.write(fight::Hit {
+                // The thrower, where the original's event names the first of the local hero's
+                // hostiles (`0x55D260`'s query `0x47` at `0x44E487`), a repair
+                // (docs/decisions/fight.md, "A creature's thrown dagger struck by its thrower").
                 attacker: flight.thrower,
                 target: flight.target,
                 share: flight.art.1,
                 ranged: false,
                 art: Some(flight.art.0),
                 fixed: Some(fixed),
-                // Sure: the arts' roll of the original's resolution is not followed (#3416).
-                sure: true,
+                // The arts' roll by the thrower's `A` while it makes its volley, none after
+                // (`0x56BF8E`..`0x56BFCB`, #3416).
+                sure: !in_art,
                 poison: false,
                 ward: false,
                 hurled: true,
@@ -914,6 +935,8 @@ mod tests {
         assert_eq!(struck.len(), 1, "{struck:?}");
         assert_eq!((struck[0].attacker, struck[0].target), (thrower, hero));
         assert_eq!((struck[0].art, struck[0].share), (Some(3), 1.5));
+        // Its thrower makes its volley still: the arts' roll.
+        assert!(!struck[0].sure);
         let fixed = struck[0].fixed.unwrap();
         assert!((2.0..=4.0).contains(&fixed[0]), "{fixed:?}");
         assert!(app.world().get_entity(dagger).is_err());
@@ -940,6 +963,38 @@ mod tests {
         assert!(app.world().get::<Volley>(thrower).is_none());
         assert!(app.world().get::<npcs::Rearms>(thrower).is_none());
         assert_eq!(app.world().resource::<Struck>().0.len(), 1);
+    }
+
+    #[test]
+    fn a_dagger_takes_the_arts_roll_while_its_thrower_makes_its_volley_and_none_after() {
+        assert!(dagger_in_art(true, true, false));
+        assert!(!dagger_in_art(false, true, false));
+        assert!(!dagger_in_art(true, false, false));
+        assert!(!dagger_in_art(true, true, true));
+        // A thrower whose volley is over: the dagger lands without a roll.
+        let mut app = app();
+        let hero = app
+            .world_mut()
+            .spawn((
+                crate::hero::Body::standing(),
+                GlobalTransform::from_translation(Vec3::new(300.0, 0.0, 0.0)),
+                Health {
+                    current: 100,
+                    most: 100,
+                    level: 1,
+                },
+            ))
+            .id();
+        let thrower = app.world_mut().spawn_empty().id();
+        app.world_mut()
+            .spawn((Transform::default(), thrown(thrower, hero)));
+        for _ in 0..4 {
+            app.update();
+        }
+        let struck = &app.world().resource::<Struck>().0;
+        assert_eq!(struck.len(), 1, "{struck:?}");
+        assert_eq!(struck[0].attacker, thrower);
+        assert!(struck[0].sure);
     }
 
     #[test]
