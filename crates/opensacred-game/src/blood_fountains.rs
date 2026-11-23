@@ -97,7 +97,11 @@ fn spurt(
             Entity,
             Option<&crate::ai::Mind>,
             &GlobalTransform,
-            (Has<crate::hero::Body>, Option<&Bled>),
+            (
+                Has<crate::hero::Body>,
+                Option<&Bled>,
+                Has<crate::fight::Downed>,
+            ),
         ),
         (
             Added<Dies>,
@@ -115,7 +119,12 @@ fn spurt(
     if !settings.is_some_and(|settings| settings.gameplay.violence) {
         return;
     }
-    for (entity, mind, at, (is_hero, bled)) in &dying {
+    for (entity, mind, at, (is_hero, bled, downed)) in &dying {
+        // Dead in its knock-down's fall, it is asked no clip and its fountain is not rolled
+        // (`0x53EF2A`, #3465).
+        if downed {
+            continue;
+        }
         let (creature, class) = match (mind, is_hero) {
             (_, true) => (
                 hero.as_deref().map_or(0, |hero| hero.creature),

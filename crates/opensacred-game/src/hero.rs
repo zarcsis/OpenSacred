@@ -1512,12 +1512,13 @@ fn step_out(
 /// How long the hero lies dead before it rises again, in seconds.
 const LIES: f32 = 5.0;
 
-/// How long the fallen hero has lain, and whether it lays its blood puddle as its dying clip ends
-/// (#3082).
+/// How long the fallen hero has lain, whether it lays its blood puddle as its dying clip ends
+/// (#3082), and whether it plays no dying clip, dead in its knock-down's fall (#3465).
 #[derive(Component)]
 pub struct Fallen {
     lain: f32,
     puddle: bool,
+    no_clip: bool,
 }
 
 /// The hero at health 0 (`fight`, the AI's state 9): it stops, its attack ends, it plays one of
@@ -1554,14 +1555,14 @@ pub fn fall(
         &mut Body,
         &mut Dies,
         Option<&mut Fallen>,
-        Option<&mut crate::fight::Health>,
+        (Option<&mut crate::fight::Health>, Has<crate::fight::Downed>),
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
 ) {
     let Some(clips) = clips else {
         return;
     };
-    for (entity, mut transform, mut body, mut dies, fallen, health) in &mut bodies {
+    for (entity, mut transform, mut body, mut dies, fallen, (health, downed)) in &mut bodies {
         let player = clips.player.and_then(|player| players.get_mut(player).ok());
         let Some(mut fallen) = fallen else {
             body.stop();
@@ -1583,7 +1584,14 @@ pub fn fall(
                             hero.creature,
                             gibs.as_deref().map_or(0, |gibs| gibs.of(hero.creature)),
                         ),
+                    no_clip: downed,
                 });
+            // Dead as its knock-down's fall plays, it is asked no clip: it lies as it fell
+            // (`0x53EF2A`, #3465).
+            if downed {
+                info!("hero: the hero falls in its knock-down");
+                continue;
+            }
             // Its dying clip rolled as a creature's (`0x53EF90`–`0x53F31D`, #3400).
             if let Some(dice) = dice.as_deref_mut() {
                 let slots: Vec<u16> = clips.dying.iter().map(|&(slot, _)| slot).collect();
@@ -1606,12 +1614,13 @@ pub fn fall(
         // plays none (`0x53FC5C`).
         if fallen.puddle && fallen.lain >= opensacred_rules::undead::FIRST_LYING_TICK {
             let index = usize::try_from(dies.choice).unwrap_or(0) % clips.dying.len().max(1);
-            let ended = match (player.as_ref(), clips.dying.get(index)) {
-                (Some((player, _)), Some(&(_, node))) => player
-                    .animation(node)
-                    .is_none_or(bevy::animation::ActiveAnimation::is_finished),
-                _ => true,
-            };
+            let ended = fallen.no_clip
+                || match (player.as_ref(), clips.dying.get(index)) {
+                    (Some((player, _)), Some(&(_, node))) => player
+                        .animation(node)
+                        .is_none_or(bevy::animation::ActiveAnimation::is_finished),
+                    _ => true,
+                };
             if ended {
                 fallen.puddle = false;
                 commands
