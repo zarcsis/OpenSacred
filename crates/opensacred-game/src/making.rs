@@ -1893,6 +1893,7 @@ fn make(
                                         left,
                                         held,
                                         throw: None,
+                                        unheld: false,
                                     });
                             }
                         }
@@ -1945,6 +1946,7 @@ fn make(
                             left: 0.0,
                             held: hold,
                             throw: Some(arts::Flight::new(along.into(), arts::THROW_RISE)),
+                            unheld: false,
                         });
                     hits.write(fight::Hit {
                         share: arts::hurl_factor(record, playing.level),
@@ -2268,6 +2270,8 @@ fn make(
                                         left: arts::CANNON_KNOCK,
                                         held: 0.0,
                                         throw: None,
+                                        // Its hold cleared at once (`0x51798E`, #3430).
+                                        unheld: true,
                                     });
                             }
                         }
@@ -2876,6 +2880,7 @@ fn make(
                                     left: to_f32(left),
                                     held: 0.0,
                                     throw: None,
+                                    unheld: false,
                                 });
                         }
                     }
@@ -2997,6 +3002,7 @@ fn make(
                                 left: to_f32(arts::whirl_knockback(record, playing.level)),
                                 held: 0.0,
                                 throw: None,
+                                unheld: false,
                             });
                     }
                 }
@@ -3225,6 +3231,9 @@ pub struct Knocked {
     /// `opensacred_rules::minds::Mind::knocked`), 0 for the others; a thrown one's whole hold.
     pub held: f32,
     pub throw: Option<arts::Flight>,
+    /// Whether it is held not at all, the cannon's (`opensacred_rules::minds::Mind::knocked_unheld`,
+    /// #3430).
+    pub unheld: bool,
 }
 
 /// A creature's flags word's bit of a boss (`+0x1F4` bit `0x80000`).
@@ -3308,6 +3317,7 @@ fn knock(
                         left: 0.0,
                         held: arts::BOWL_HOLD,
                         throw: Some(arts::bowled(flight.velocity, to_it)),
+                        unheld: false,
                     });
                 flight.velocity = flight.velocity.map(|v| v * arts::BOWL_KEEPS);
             }
@@ -3346,6 +3356,8 @@ fn held(knocked: On<Insert<Knocked>>, mut minds: Query<(&mut Mind, &Knocked)>) {
     if let Ok((mut mind, knock)) = minds.get_mut(knocked.entity) {
         if knock.throw.is_some() {
             mind.stunned(knock.held);
+        } else if knock.unheld {
+            mind.knocked_unheld();
         } else {
             mind.knocked(knock.held);
         }

@@ -625,6 +625,7 @@ fn fly(
                     left: f32::from(u16::try_from(left).unwrap_or(u16::MAX)),
                     held: 0.0,
                     throw: None,
+                    unheld: false,
                 });
         }
         hits.write(fight::Hit {
