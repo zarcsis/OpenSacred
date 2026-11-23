@@ -103,9 +103,11 @@ fn ftol(x: f64) -> i64 {
 }
 
 /// The list's text of the entries `list`, the rare effects' chances of `chances`: a line each,
-/// coloured by the tags of the game's texts.
+/// coloured by the tags of the game's texts, none of an entry against a class of opponents that
+/// counts nowhere (`opensacred_rules::fight::counts_against_class`, #3485).
 pub(crate) fn text(list: &[Listed], words: &Words, chances: &[EffectChance]) -> String {
     list.iter()
+        .filter(|listed| fight::counts_against_class(listed.condition, listed.effect))
         .filter_map(|listed| line(listed, words, chances))
         .collect::<Vec<_>>()
         .join("<n>")

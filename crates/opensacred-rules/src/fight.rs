@@ -2357,6 +2357,21 @@ pub struct AgainstClass {
     pub defence_factor: f32,
 }
 
+/// Whether a bonus slot of the condition `condition` and the effect word `effect` counts anywhere
+/// (docs/re/items.md, "The slots against a class of opponents (`0x568D70`)", #3485): one of no
+/// class of opponents, its condition's low byte 0 or 13, wherever its effect is read; one against
+/// a class only in a strike's attack record, 801 to 810 but 805 to 808 of the spells' bit 13 alone
+/// ([`against_class`]), and in the rare effects' getter, 840 to 869 ([`item_effect`]).
+pub fn counts_against_class(condition: u16, effect: u32) -> bool {
+    let [class, _] = condition.to_le_bytes();
+    match effect & 0xFFFF {
+        _ if class == 0 || class == 13 => true,
+        801..=804 | 809 | 810 | 840..=869 => true,
+        805..=808 => condition & 0x8000 != 0 || condition & 0x6000 != 0x2000,
+        _ => false,
+    }
+}
+
 /// What the slots against a class of the items `items` add against the opponent `at`
 /// ([`AgainstClass`]): each slot whose condition's low byte is not 0 or 13 and that counts
 /// against `at` ([`HurledAt`], its `thrower` the holder's type), its value by the holder's
@@ -9270,6 +9285,29 @@ mod tests {
         assert!((item_effect(&items, LUCK, attributes, None) - 10.0).abs() < f32::EPSILON);
         assert!((item_effect(&items, 853, attributes, None) - 12.0).abs() < f32::EPSILON);
         assert!((items_luck(&items, attributes) - 110.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn a_slot_against_a_class_counts_where_the_record_or_the_getter_reads_it() {
+        // Of no class, every effect.
+        for condition in [0, 13, 0x0300, 0x030D] {
+            assert!(counts_against_class(condition, 811));
+            assert!(counts_against_class(condition, 4));
+        }
+        // Against a class: the record's and the getter's, not the spells' 805 to 808 alone.
+        for effect in [801, 804, 809, 810, 840, 869, 805 | 1 << 16] {
+            assert!(counts_against_class(5, effect), "{effect}");
+        }
+        for effect in [800, 811, 812, 816, 839, 870, 4, 1002] {
+            assert!(!counts_against_class(5, effect), "{effect}");
+        }
+        assert!(counts_against_class(0x0005, 806));
+        assert!(counts_against_class(0x4005, 806));
+        assert!(counts_against_class(0x8005, 806));
+        assert!(counts_against_class(0xA005, 806));
+        assert!(!counts_against_class(0x2005, 806));
+        assert!(counts_against_class(0x6005, 806));
+        assert!(!counts_against_class(0x2080, 808));
     }
 
     #[test]
