@@ -2419,7 +2419,8 @@ fn strike(
         let hero = heroes.iter().next().map(|at| at.translation().xz());
         if aura.strikes == Strikes::OneAtRandom {
             // The hellfire: one creature at random among those near the hero and it, weighed
-            // by a ranged weapon, else among those within its reach (`0x5AFF86`).
+            // by a ranged weapon and a caster's mark (#3432), else among those within its reach
+            // (`0x5AFF86`).
             let alive = |(_, at, way, mind, health, ..): &(
                 Entity,
                 &GlobalTransform,
@@ -2445,7 +2446,12 @@ fn strike(
                     }) && d.x.abs() <= spells::HELLFIRE_BOX
                         && d.y.abs() <= spells::HELLFIRE_BOX
                 })
-                .map(|(target, _, _, mind, ..)| (target, if mind.ranged { 4 } else { 1 }))
+                .map(|(target, _, _, mind, ..)| {
+                    (
+                        target,
+                        spells::hellfire_weight(mind.ranged, mind.mark(), mind.spell),
+                    )
+                })
                 .collect();
             if weighed.is_empty() {
                 weighed = creatures
