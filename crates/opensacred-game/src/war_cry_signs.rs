@@ -47,6 +47,67 @@ pub(crate) fn show(commands: &mut Commands, bearer: Entity, seconds: f32) {
     commands.spawn((Unmade { bearer, seconds }, DespawnOnExit(AppState::InGame)));
 }
 
+/// How far from the Dwarf a follower takes his war cry's sign too (`0x5165E4`).
+const SIGN_WITHIN: f32 = 500.0;
+
+/// The war cry's `effects` at half their values, for as long and keyed alike (`0x5163BC` to
+/// `0x5165E4`; docs/re/arts.md, "The Dwarf's", #3431).
+pub(crate) fn halved(
+    effects: &[(opensacred_rules::fight::Effect, f32)],
+) -> Vec<(opensacred_rules::fight::Effect, f32)> {
+    effects
+        .iter()
+        .map(|&(effect, seconds)| {
+            (
+                opensacred_rules::fight::Effect {
+                    value: effect.value * 0.5,
+                    ..effect
+                },
+                seconds,
+            )
+        })
+        .collect()
+}
+
+/// Shares the war cry of the Dwarf `hero` standing at `at` with each of his followers, whatever
+/// its distance: its `effects` at half their values, renewed where one holds, and the sign on one
+/// within [`SIGN_WITHIN`] of him; `0x426610` admits every creature (#3431).
+pub(crate) fn share(
+    world: &mut World,
+    (hero, at): (Entity, Vec3),
+    effects: &[(opensacred_rules::fight::Effect, f32)],
+) {
+    let halved = halved(effects);
+    let seconds = halved.first().map_or(0.0, |&(_, seconds)| seconds);
+    let mut followers = world.query::<(Entity, &crate::followers::Follower, &GlobalTransform)>();
+    let shared: Vec<(Entity, bool)> = followers
+        .iter(world)
+        .filter(|(_, follower, _)| follower.master == hero)
+        .map(|(entity, _, place)| {
+            let near = (place.translation() - at).xz().length() < SIGN_WITHIN;
+            (entity, near)
+        })
+        .collect();
+    for (follower, near) in shared {
+        if let Ok(mut entity) = world.get_entity_mut(follower) {
+            let mut held = entity.entry::<crate::effects::Effects>().or_default();
+            for &(effect, seconds) in &halved {
+                held.get_mut().add(effect, seconds);
+            }
+        }
+        if near {
+            world.spawn((
+                Unmade {
+                    bearer: follower,
+                    seconds,
+                },
+                DespawnOnExit(AppState::InGame),
+            ));
+        }
+        debug!("war cry signs: {follower} shares the war cry, the sign {near}");
+    }
+}
+
 /// Gives each new sign its meshes and its materials (`0x7B8740`, `0x7B8E10`).
 fn make(
     mut commands: Commands,
