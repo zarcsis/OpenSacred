@@ -472,6 +472,8 @@ mod tests {
             spells: [1.0; 4],
             cast: opensacred_rules::fight::CAST_SPEED,
             attributes: [0.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
         })
     }
 

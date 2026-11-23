@@ -2325,6 +2325,72 @@ impl HurledAt {
     }
 }
 
+/// What the bonus slots of a creature's items against a class of opponents add in a strike's
+/// attack record (`0x568D70` with an opponent; docs/re/items.md, "The slots against a class of
+/// opponents (`0x568D70`)", #3417): to each kind's ends (801 to 804) and resistance (with the
+/// condition's bit 15), to its damage multipliers (805 to 808 of no bit or of the bit 14) and its
+/// resistance's factor (of the bit 15), and to `A`'s (809) and `D`'s (810) multipliers; those of
+/// the bit 13, the spells', count in no strike.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AgainstClass {
+    pub ends: [f32; KINDS],
+    pub resistance: [f32; KINDS],
+    pub multipliers: [f32; KINDS],
+    pub resistance_factors: [f32; KINDS],
+    pub attack_factor: f32,
+    pub defence_factor: f32,
+}
+
+/// What the slots against a class of the items `items` add against the opponent `at`
+/// ([`AgainstClass`]): each slot whose condition's low byte is not 0 or 13 and that counts
+/// against `at` ([`HurledAt`], its `thrower` the holder's type), its value by the holder's
+/// stored attributes `attributes` (`0x568C40`), in the order of the items and their slots.
+pub fn against_class(items: &[ItemValues], attributes: [f32; 6], at: HurledAt) -> AgainstClass {
+    let a = attributes.map(whole);
+    let mut add = AgainstClass::default();
+    for bonus in items.iter().flat_map(|item| item.bonuses) {
+        let [class, _] = bonus.condition.to_le_bytes();
+        if class == 0 || class == 13 || !at.counts(bonus) {
+            continue;
+        }
+        let value = bonus.value(a);
+        let effect = bonus.effect & 0xFFFF;
+        let kind = |first: u32| {
+            effect
+                .checked_sub(first)
+                .and_then(|kind| usize::try_from(kind).ok())
+        };
+        match effect {
+            801..=804 => {
+                if let Some(kind) = kind(801) {
+                    if bonus.condition & 0x8000 != 0 {
+                        add.resistance[kind] += value;
+                    } else {
+                        add.ends[kind] += value;
+                    }
+                }
+            }
+            805..=808 => {
+                if let Some(kind) = kind(805) {
+                    // The first of the bits 15, 14 and 13 that it holds: the resistance's factor,
+                    // the multipliers (as of no bit), or the spells' alone, which count in no strike.
+                    let share = value * 0.01;
+                    let condition = bonus.condition;
+                    if condition & 0x8000 != 0 {
+                        add.resistance_factors[kind] += share;
+                    } else if condition & 0x6000 != 0x2000 {
+                        add.multipliers[kind] += share;
+                    }
+                }
+            }
+            809 => add.attack_factor += value * 0.01,
+            810 => add.defence_factor += value * 0.01,
+            _ => {}
+        }
+    }
+    add
+}
+
 impl ItemValues {
     /// Each kind's least and most damage of the item as a hurl deals it (`0x56ACD0`, #3372): its
     /// record's own, then its bonus slots in their order that count, their condition's low byte 0
@@ -3561,9 +3627,64 @@ pub struct Combat {
     /// Its attributes `a0` to `a5` with its items' bonuses (the stats' words `+0x10`…), by which
     /// some arts' values grow ([`Rules::glance_factor`]).
     pub attributes: [f32; 6],
+    /// `A`'s multiplier and `D`'s (the stats' floats `+0xE6`, `+0xEA`), by which [`Self::attack`]
+    /// and [`Self::defence`] were multiplied, which a strike's slots against a class raise
+    /// ([`AgainstClass`], #3417).
+    pub attack_factor: f32,
+    pub defence_factor: f32,
 }
 
 impl Combat {
+    /// These values as the attacker's record against its struck one takes the slots `add` of its
+    /// items against that one's class ([`against_class`], `0x56B965`, #3417): each kind's ends
+    /// raised before its damage multipliers and by its raised multipliers, `A` by its raised
+    /// multiplier, truncated as the record truncates it; none raised below 0.
+    pub fn striking_with(mut self, add: &AgainstClass) -> Self {
+        if *add == AgainstClass::default() {
+            return self;
+        }
+        for kind in 0..KINDS {
+            let times = self.multipliers[kind];
+            let raised = (times + add.multipliers[kind]).max(0.0);
+            for end in &mut self.damage[kind] {
+                let own = if times > 0.0 { *end / times } else { 0.0 };
+                *end = ((own + add.ends[kind]).max(0.0)) * raised;
+            }
+        }
+        if self.attack_factor > 0.0 {
+            let own = f64::from(self.attack) / f64::from(self.attack_factor);
+            let times = f64::from((self.attack_factor + add.attack_factor).max(0.0));
+            self.attack = to_f32(whole_f64(own * times));
+        }
+        self
+    }
+
+    /// These values as the struck one's record against its attacker takes the slots `add` of its
+    /// items against that one's class ([`against_class`], `0x56B6CC`, #3417): each kind's
+    /// resistance raised before its factor and by its raised factor, `D` by its raised
+    /// multiplier, truncated; none raised below 0.
+    pub fn struck_with(mut self, add: &AgainstClass) -> Self {
+        if *add == AgainstClass::default() {
+            return self;
+        }
+        for kind in 0..KINDS {
+            let factor = self.resistance_factors[kind];
+            let own = if factor > 0.0 {
+                self.resistance[kind] / factor
+            } else {
+                0.0
+            };
+            self.resistance[kind] = (own + add.resistance[kind]).max(0.0)
+                * (factor + add.resistance_factors[kind]).max(0.0);
+        }
+        if self.defence_factor > 0.0 {
+            let own = f64::from(self.defence) / f64::from(self.defence_factor);
+            let times = f64::from((self.defence_factor + add.defence_factor).max(0.0));
+            self.defence = to_f32(whole_f64(own * times));
+        }
+        self
+    }
+
     /// The speed of its attack's clip (`0x4E4CF0`): its attack speed over 100, which the caller
     /// takes times the chain of an archer's shots (`+0x210`, 1 for any other strike).
     pub fn clip_speed(&self) -> f32 {
@@ -4204,6 +4325,8 @@ pub fn combat_with(
         spells,
         cast: cast - slows,
         attributes: a,
+        attack_factor: attack_times,
+        defence_factor: defence_times,
     }
 }
 
@@ -5716,6 +5839,8 @@ mod tests {
             spells: [1.0; 4],
             cast: CAST_SPEED,
             attributes: [41.0, 20.0, 30.0, 33.0, 10.0, 10.0],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
         };
         let kept = disarmed(combat);
         assert!((kept.attack - 20.0).abs() < 1e-4 && (kept.defence - 30.0).abs() < 1e-4);
@@ -6437,6 +6562,8 @@ mod tests {
             spells: [1.0; KINDS],
             cast: CAST_SPEED,
             attributes: [0.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
         };
         let defender = Combat {
             resistance: [10.0, 0.0, 0.0, 0.0],
@@ -6507,6 +6634,8 @@ mod tests {
             spells: [1.0; KINDS],
             cast: CAST_SPEED,
             attributes: [0.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
         };
         let defender = Combat {
             defence: 20.0,
@@ -6675,6 +6804,8 @@ mod tests {
             spells: [1.0; KINDS],
             cast: CAST_SPEED,
             attributes: [0.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
         };
         let armoured = Combat {
             defence: 1000.0,
@@ -7510,6 +7641,8 @@ mod tests {
             spells: [1.0; KINDS],
             cast: CAST_SPEED,
             attributes: [0.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
         };
         let defender = Combat {
             resistance: [10.0, 0.0, 0.0, 0.0],
@@ -8625,6 +8758,129 @@ mod tests {
     }
 
     #[test]
+    fn the_slots_against_a_class_raise_the_strikes_records() {
+        let slot = |condition, effect, value| Bonus {
+            condition,
+            effect,
+            value,
+        };
+        let mut bonuses = [Bonus::default(); BONUSES];
+        // Against the side 9: 801 to the ends, 802 of the bit 15 to the fire's resistance, 806 of
+        // no bit and 807 of the bit 14 to the multipliers, 808 of the bit 15 to the poison's
+        // factor, 805 of the bit 13 to none, 809 and 810 to A's and D's.
+        bonuses[0] = slot(0x0009, 801, 5);
+        bonuses[1] = slot(0x8009, 802, 6);
+        bonuses[2] = slot(0x0009, 806, 50);
+        bonuses[3] = slot(0x4009, 807, 20);
+        bonuses[4] = slot(0x8009, 808, 10);
+        bonuses[5] = slot(0x2009, 805, 90);
+        bonuses[6] = slot(0x0009, 809, 25);
+        bonuses[7] = slot(0x0009, 810, 40);
+        let item = ItemValues {
+            bonuses,
+            ..ItemValues::default()
+        };
+        let demon = HurledAt {
+            thrower: 2,
+            side: 9,
+            ranged: false,
+            mounted: false,
+        };
+        let add = against_class(std::slice::from_ref(&item), [0.0; 6], demon);
+        assert_eq!(add.ends, [5.0, 0.0, 0.0, 0.0]);
+        assert_eq!(add.resistance, [0.0, 6.0, 0.0, 0.0]);
+        assert!(near(add.multipliers[1], 0.5) && near(add.multipliers[2], 0.2));
+        assert!(near(add.resistance_factors[3], 0.1) && near(add.multipliers[0], 0.0));
+        assert!(near(add.attack_factor, 0.25) && near(add.defence_factor, 0.4));
+        // Another side, or a slot of no class, adds nothing.
+        let other = HurledAt { side: 5, ..demon };
+        assert_eq!(
+            against_class(std::slice::from_ref(&item), [0.0; 6], other),
+            AgainstClass::default()
+        );
+        let mut plain = [Bonus::default(); BONUSES];
+        plain[0] = slot(0x0000, 801, 5);
+        plain[1] = slot(0x000D, 809, 5);
+        let plain = ItemValues {
+            bonuses: plain,
+            ..ItemValues::default()
+        };
+        assert_eq!(
+            against_class(&[plain], [0.0; 6], demon),
+            AgainstClass::default()
+        );
+        // A slot of the class 0 or 13 is the recomputation's, whatever the opponent's side.
+        for class in [0x0000, 0x000D] {
+            let mut own = [Bonus::default(); BONUSES];
+            own[0] = slot(class, 801, 5);
+            let own = ItemValues {
+                bonuses: own,
+                ..ItemValues::default()
+            };
+            let side = HurledAt {
+                side: u8::try_from(class).unwrap_or(0),
+                ..demon
+            };
+            assert_eq!(
+                against_class(&[own], [0.0; 6], side),
+                AgainstClass::default()
+            );
+        }
+        // The records: the physical's ends 10 and 20 at a multiplier of 2 (its own 5 and 10), the
+        // fire's 4 and 6 at 1, the magic's of a multiplier of 0, A of 100 at 1.25, D of 50 at 1.25.
+        let combat = Combat {
+            attack: 100.0,
+            defence: 50.0,
+            damage: [[10.0, 20.0], [4.0, 6.0], [0.0; 2], [0.0; 2]],
+            resistance: [0.0, 30.0, 0.0, 10.0],
+            damping: [0; KINDS],
+            speed: 100.0,
+            pace: 100.0,
+            multipliers: [2.0, 1.0, 0.0, 1.0],
+            resistance_factors: [1.0, 1.5, 0.0, 1.0],
+            spells: [1.0; KINDS],
+            cast: CAST_SPEED,
+            attributes: [0.0; 6],
+            attack_factor: 1.25,
+            defence_factor: 1.25,
+        };
+        let add = AgainstClass {
+            ends: [5.0, 0.0, 3.0, 0.0],
+            resistance: [0.0, 6.0, 2.0, 0.0],
+            multipliers: [0.0, 0.5, 0.5, 0.0],
+            resistance_factors: [0.0, 0.0, 0.5, 0.5],
+            attack_factor: 0.25,
+            defence_factor: 0.5,
+        };
+        let striking = combat.striking_with(&add);
+        // (5 + 5)·2 and (10 + 5)·2; the fire's 4·1.5 and 6·1.5; the magic's, of no multiplier, 0
+        // of its own and 3 more by 0.5; A 80·1.5.
+        assert!(near(striking.damage[0][0], 20.0) && near(striking.damage[0][1], 30.0));
+        assert!(near(striking.damage[1][0], 6.0) && near(striking.damage[1][1], 9.0));
+        assert_eq!(striking.damage[2], [1.5, 1.5]);
+        assert!(near(striking.attack, 120.0));
+        assert_eq!(striking.resistance, combat.resistance);
+        let struck = combat.struck_with(&add);
+        // The fire's resistance (30/1.5 + 6)·1.5, the magic's of no factor 0 of its own and 2 more
+        // by 0.5, the poison's 10·1.5; D 40·1.75.
+        assert!(near(struck.resistance[1], 39.0) && near(struck.resistance[3], 15.0));
+        assert_eq!(struck.resistance[2], 1.0);
+        assert!(near(struck.defence, 70.0));
+        assert_eq!(struck.damage, combat.damage);
+        // A and D of no multiplier stay as they are.
+        let unmultiplied = Combat {
+            attack_factor: 0.0,
+            defence_factor: 0.0,
+            ..combat
+        };
+        assert_eq!(unmultiplied.striking_with(&add).attack, 100.0);
+        assert_eq!(unmultiplied.struck_with(&add).defence, 50.0);
+        // Nothing to add leaves them as they are.
+        assert_eq!(combat.striking_with(&AgainstClass::default()), combat);
+        assert_eq!(combat.struck_with(&AgainstClass::default()), combat);
+    }
+
+    #[test]
     fn a_hurled_items_slots_against_a_class_count_against_a_struck_creature_of_it() {
         let slot = |condition, value| Bonus {
             condition,
@@ -9050,6 +9306,8 @@ mod tests {
             spells: [1.0; 4],
             cast: CAST_SPEED,
             attributes: [20.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
         };
         let rules = Rules::default();
         let mut rng = Rng::of(1, 2, 2518);
