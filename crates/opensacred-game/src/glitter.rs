@@ -137,9 +137,10 @@ fn glitters(
         }
     }
     let events = event_sparks(time.elapsed_secs() * RATE, sparks);
+    // An event on a floor sparks not (`0x62CF4C`, the floor 0's lookup).
     for (_, at) in stashes
         .iter()
-        .filter(|(stash, _)| stash.look == Look::Sparks)
+        .filter(|(stash, _)| stash.look == Look::Sparks && stash.floor == 0)
     {
         let point = crate::stashes::drawn_at(at);
         let (mut own_coloured, mut own_grey) = (Quads::default(), Quads::default());

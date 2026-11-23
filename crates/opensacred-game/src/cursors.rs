@@ -447,7 +447,7 @@ fn choose(
         Query<(&Lying, Option<&TextName>)>,
         Query<(), With<Door>>,
         Query<&crate::containers::Container>,
-        Query<(&GlobalTransform, &crate::stashes::Stash)>,
+        Query<&crate::stashes::Stash>,
         Query<(), With<crate::npcs::Corpse>>,
     ),
     (heights, buildings, data, dungeons, ways): (
@@ -548,18 +548,17 @@ fn choose(
                     })
                 })
                 // An event of a box picked: the hand and its text (`0x612909`, #1586); with nothing
-                // picked, a hidden stash without one near the cursor's line of sight (#1518).
+                // picked, the event without one of the cell under the cursor at the height 0 on
+                // the hero's floor (#1518, #3089).
                 .or_else(|| {
                     let stash = match picked {
-                        Some(entity) => stashes.get(entity).ok().map(|(_, stash)| stash),
-                        None => stashes
-                            .iter()
-                            .filter(|(_, stash)| stash.boxed.is_none())
-                            .filter_map(|(at, stash)| {
-                                Some((crate::stashes::picked(ray, at.translation())?, stash))
-                            })
-                            .min_by(|a, b| a.0.total_cmp(&b.0))
-                            .map(|(_, stash)| stash),
+                        Some(entity) => stashes.get(entity).ok(),
+                        None => {
+                            let cell = crate::stashes::cell_at_zero(ray)?;
+                            let (_, _, body, ..) = hero?;
+                            let floor = crate::stashes::floor_of(heights.as_deref()?, body.level());
+                            stashes.iter().find(|stash| stash.found(cell, floor))
+                        }
                     }?;
                     item = Some((None, Some(stash.text.clone())));
                     Some(Look::Hand)
