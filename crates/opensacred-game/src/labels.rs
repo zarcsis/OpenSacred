@@ -27,7 +27,8 @@
 //!
 //! A ridden horse's label is its rider's, about the horse's halved box, and the rider's own is
 //! not drawn (`0x627303`, `0x6276D9`; **seen**, #2927); a horse standing alone, of the bit 26,
-//! takes none. Not followed: the stargate 1180's empty label, not yet seen (#3443); the
+//! takes none. The add-on's stargate 1180 takes none either, where the original draws an empty
+//! dark panel (docs/decisions/interface.md, "Underworld stargate without a label"); the
 //! townsfolk's doings' icons under Alt are `icons`' (#2234).
 
 use std::collections::{HashMap, HashSet};
