@@ -1331,6 +1331,46 @@ fn the_dash_puts_the_vampiress_at_its_point_within_its_reach() {
     };
     assert_eq!(dash_reach(&day, 1), 425);
     assert_eq!(dash_reach(&night, 2), 600);
+    // Along the longer axis to the first thirtieth step beyond the reach where she may stand:
+    // seen, the screen's horizontal of the level 1 ends 450 off along each axis.
+    let anywhere = |_: [f32; 2]| true;
+    assert_eq!(
+        dash_end([0.0, 0.0], [600.0, -600.0], 425, anywhere),
+        [450.0, -450.0]
+    );
+    assert_eq!(
+        dash_end([10.0, 20.0], [610.0, 320.0], 425, anywhere),
+        [460.0, 245.0]
+    );
+    // At the reach itself, not beyond it, the line goes on.
+    assert_eq!(
+        dash_end([0.0, 0.0], [0.0, 900.0], 450, anywhere),
+        [0.0, 480.0]
+    );
+    // Within the reach, at the action's point; and there where no step beyond it may be stood on.
+    assert_eq!(
+        dash_end([0.0, 0.0], [300.0, 100.0], 425, anywhere),
+        [300.0, 100.0]
+    );
+    let short_of = |x: f32| move |at: [f32; 2]| at[0] < x;
+    assert_eq!(
+        dash_end([0.0, 0.0], [900.0, 0.0], 425, short_of(450.0)),
+        [900.0, 0.0]
+    );
+    assert_eq!(
+        dash_end([0.0, 0.0], [900.0, 0.0], 425, |at| at[0] >= 500.0),
+        [510.0, 0.0]
+    );
+    // The last step short of the point is the last tried, the point itself its end.
+    assert_eq!(
+        dash_end([0.0, 0.0], [480.0, 0.0], 425, |at| at[0] != 450.0),
+        [480.0, 0.0]
+    );
+    assert_eq!(
+        dash_end([0.0, 0.0], [480.5, 0.0], 425, |at| at[0] != 450.0),
+        [480.5, 0.0]
+    );
+    assert_eq!(dash_end([5.0, 5.0], [5.0, 5.0], 0, anywhere), [5.0, 5.0]);
     assert!(in_form(1028, VAMPIRESS_BY_DAY) && !in_form(1028, VAMPIRESS_BY_NIGHT));
 }
 
