@@ -295,12 +295,35 @@ pub fn list(dir: &Path) -> Vec<(String, Header)> {
 }
 
 /// A slot's save as the saves' window lists it (#1990): its file's name, its header and its
-/// picture.
+/// picture, and whether it is of another version of the saves, which the window lists and does
+/// not load (#3171).
 #[derive(Clone, Debug)]
 pub struct Slot {
     pub stem: String,
     pub header: Header,
     pub picture: Option<Picture>,
+    pub stale: bool,
+}
+
+/// The header of a save of another version than [`VERSION`] (#3171): its own where it reads as
+/// this version's layout, else one of the version it begins with, named by its file's `stem` and
+/// dated by the file's time `saved`; none for a file of this version or of no version at all.
+fn stale_header(bytes: &[u8], stem: &str, saved: u64) -> Option<Header> {
+    if let Ok((header, _)) = postcard::take_from_bytes::<Header>(bytes) {
+        return (header.version != VERSION).then_some(header);
+    }
+    let (version, _) = postcard::take_from_bytes::<u32>(bytes).ok()?;
+    (version != VERSION).then(|| Header {
+        version,
+        name: stem.to_owned(),
+        class: Class::default(),
+        hero: String::new(),
+        difficulty: Difficulty::default(),
+        level: 0,
+        clock: 0.0,
+        saved,
+        tree: None,
+    })
 }
 
 /// Whether `stem` names a slot's file: `GAME` and digits as its fifth and sixth characters
@@ -316,7 +339,8 @@ fn slot_of(stem: &str) -> Option<u32> {
 }
 
 /// The slots' saves in `dir` (`0x71EAA0`): the quick save of the slot 0 apart, the others by
-/// their files' names as text, as the original sorts them; a file that does not read is left out.
+/// their files' names as text, as the original sorts them; a save of another version among them
+/// ([`stale_header`], #3171), a file that does not read at all left out.
 pub fn slots(dir: &Path) -> (Option<Slot>, Vec<Slot>) {
     let Ok(entries) = fs::read_dir(dir) else {
         return (None, Vec::new());
@@ -329,15 +353,22 @@ pub fn slots(dir: &Path) -> (Option<Slot>, Vec<Slot>) {
             let stem = path.file_stem()?.to_string_lossy().into_owned();
             let slot = slot_of(&stem)?;
             let bytes = fs::read(&path).ok()?;
-            let (header, picture, _) = header(&bytes).ok()?;
-            Some((
-                slot,
-                Slot {
-                    stem,
-                    header,
-                    picture,
-                },
-            ))
+            let slot_of = |header, picture, stale| Slot {
+                stem: stem.clone(),
+                header,
+                picture,
+                stale,
+            };
+            if let Ok((header, picture, _)) = header(&bytes) {
+                return Some((slot, slot_of(header, picture, false)));
+            }
+            let saved = fs::metadata(&path)
+                .and_then(|meta| meta.modified())
+                .ok()
+                .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                .map_or(0, |since| since.as_secs());
+            let stale = stale_header(&bytes, &stem, saved)?;
+            Some((slot, slot_of(stale, None, true)))
         })
         .collect();
     slots.sort_by(|a, b| a.1.stem.cmp(&b.1.stem));
@@ -1330,6 +1361,45 @@ pub(crate) mod tests {
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
+    }
+
+    #[test]
+    fn a_save_of_another_version_stands_in_the_slots_and_is_not_loaded() {
+        let dir = scratch("stale");
+        let parts = (&hero(), &saved_scripts(), &World::default());
+        write(
+            &file(&dir, "GAME01").unwrap(),
+            (&header("now", 2), None),
+            parts,
+        )
+        .unwrap();
+        // An older save whose header reads as this layout, and one of whose bytes only the
+        // version reads.
+        let old = Header {
+            version: VERSION - 1,
+            ..header("old", 1)
+        };
+        write(&file(&dir, "GAME02").unwrap(), (&old, None), parts).unwrap();
+        let mut bytes = postcard::to_allocvec(&(VERSION - 5)).unwrap();
+        bytes.extend([0xFF; 3]);
+        fs::write(file(&dir, "GAME03").unwrap(), bytes).unwrap();
+        fs::write(file(&dir, "GAME04").unwrap(), []).unwrap();
+        let (_, listed) = slots(&dir);
+        let shown: Vec<(&str, &str, bool)> = listed
+            .iter()
+            .map(|slot| (slot.stem.as_str(), slot.header.name.as_str(), slot.stale))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                ("GAME01", "now", false),
+                ("GAME02", "old", true),
+                ("GAME03", "GAME03", true)
+            ]
+        );
+        assert!(listed[1].picture.is_none() && listed[2].header.saved > 0);
+        assert!(read(&file(&dir, "GAME02").unwrap()).is_err());
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

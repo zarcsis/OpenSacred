@@ -30,7 +30,8 @@ pub(crate) const OK_BESIDE: Rect =
     Rect::from_corners(Vec2::new(389.0, 422.0), Vec2::new(455.0, 459.0));
 pub(crate) const CANCEL: Rect =
     Rect::from_corners(Vec2::new(570.0, 422.0), Vec2::new(636.0, 459.0));
-const OK_ALONE: Rect = Rect::from_corners(Vec2::new(479.0, 422.0), Vec2::new(545.0, 459.0));
+pub(crate) const OK_ALONE: Rect =
+    Rect::from_corners(Vec2::new(479.0, 422.0), Vec2::new(545.0, 459.0));
 /// The darkening of the screen behind the dialog (**estimate**, seen: the world dimmed by about
 /// half).
 const DARKENED: Color = Color::linear_rgba(0.0, 0.0, 0.0, 0.5);
