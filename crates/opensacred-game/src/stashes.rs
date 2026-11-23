@@ -21,15 +21,17 @@
 //! An event of a box (`0x0C`, `0x0D`; #1586) is reached by it alone: its box about its cell's
 //! point on the screen, in the original's pixels at the zoom 1 and smaller as the view shows more,
 //! goes into the list that the cursor picks from among the items (`0x62CF20`, [`box_rect`],
-//! `under_cursor`); one without is picked by the cursor's line of sight where the cursor picks
-//! nothing else (**estimate**: the original finds it by the cell under the cursor, `0x634C50`).
+//! `under_cursor`); one without is found where the cursor picks nothing else by its cell, the cell
+//! under the cursor's point on the plane of the height 0 whatever the ground there, on the hero's
+//! own floor alone (`0x612909`, `0x617A5B`, `0x634C50`; docs/re/containers.md, "The mark of an
+//! event's cell", #3089), so that one on a building's floor is found far below its drawn floor,
+//! from that floor; an event on a floor neither blinks, nor sparks, nor lays its box.
 //!
 //! As the hero arrives it searches the event only where it reaches the event's point by a straight
 //! way, or cramped from near it (`0x53BB60`, [`reaches`], #3086).
 //!
-//! Not followed yet: the static object's mark (the stash stands at its cell's centre on the
-//! ground, whatever its floor; #3089), and the hero's walk of the order 7 (the click's own walk
-//! takes it there; its reach not read).
+//! Not followed yet: the hero's walk of the order 7 (the click's own walk takes it there; its
+//! reach not read).
 
 use std::collections::HashSet;
 
@@ -130,6 +132,8 @@ const BLINK_TOWARD: f32 = 49.0;
 #[derive(Component, Clone, Debug, PartialEq, Eq)]
 pub struct Stash {
     pub cell: (i32, i32),
+    /// Its floor, 0 the ground's, from which alone it is found (`opensacred_rules::quests::Stash`).
+    pub floor: i32,
     pub text: String,
     pub look: Look,
     /// Its box, by which alone it is reached (`opensacred_rules::quests::Stash::boxed`).
@@ -158,15 +162,30 @@ pub struct RandomItem;
 #[derive(Component)]
 struct Searches(Entity, bool, u8);
 
-/// How near the cursor's line of sight a hidden stash without a box is picked, in world units
-/// (**estimate**: the original finds it by the cell under the cursor, `0x634C50`).
-const PICKED_WITHIN: f32 = 45.0;
+/// The cell under the cursor's point on the plane of the height 0, whatever the ground's height
+/// there (the view's `0x629F30`, made a cell by `0x6224E0`; docs/re/containers.md, "The mark of an
+/// event's cell"): none for a line of sight that never meets it.
+pub(crate) fn cell_at_zero(ray: bevy::shape::Ray3d) -> Option<(i32, i32)> {
+    let down = ray.direction.y;
+    if down.abs() < f32::EPSILON {
+        return None;
+    }
+    let point = ray.origin - ray.direction.as_vec3() * (ray.origin.y / down);
+    Some(crate::paths::cell_of(point.x, point.z))
+}
 
-/// How far the cursor's line of sight passes a stash's point, if it picks it: none farther than
-/// [`PICKED_WITHIN`].
-pub(crate) fn picked(ray: bevy::shape::Ray3d, at: Vec3) -> Option<f32> {
-    let distance = (at - ray.origin).cross(ray.direction.as_vec3()).length();
-    (distance <= PICKED_WITHIN).then_some(distance)
+impl Stash {
+    /// Whether the cursor and the click find it without a box on the cell `cell` from the floor
+    /// `floor`, the hero's (`0x612909`, `0x617A5B`): its own cell, its own floor.
+    pub(crate) fn found(&self, cell: (i32, i32), floor: i32) -> bool {
+        self.boxed.is_none() && self.cell == cell && self.floor == floor
+    }
+}
+
+/// The floor that the hero at `level` stands on, 0 the ground's, as the events count it (its byte
+/// `+0x24`).
+pub(crate) fn floor_of(heights: &Heights, level: crate::terrain::Level) -> i32 {
+    i32::try_from(heights.floor_number(level)).unwrap_or(0)
 }
 
 /// The stashes and the events in the world kept in step with the scripts' (`MachVersteck`,
@@ -182,27 +201,31 @@ fn place(
         return;
     };
     let listed = live.stashes();
-    let cells: HashSet<(i32, i32)> = listed.iter().map(|listed| listed.cell).collect();
+    let places: HashSet<((i32, i32), i32)> = listed
+        .iter()
+        .map(|listed| (listed.cell, listed.floor))
+        .collect();
     let mut standing = HashSet::new();
     for (entity, stash) in &stashes {
-        if cells.contains(&stash.cell) {
-            standing.insert(stash.cell);
+        if places.contains(&(stash.cell, stash.floor)) {
+            standing.insert((stash.cell, stash.floor));
         } else {
             commands.entity(entity).despawn();
         }
     }
     for listed in listed {
-        if standing.contains(&listed.cell) {
+        if standing.contains(&(listed.cell, listed.floor)) {
             continue;
         }
         let point = crate::paths::centre(listed.cell);
         let Some(ground) = heights.at(point.x, point.y) else {
             continue;
         };
-        standing.insert(listed.cell);
+        standing.insert((listed.cell, listed.floor));
         commands.spawn((
             Stash {
                 cell: listed.cell,
+                floor: listed.floor,
                 text: listed.text.clone(),
                 look: listed.look,
                 boxed: listed.boxed,
@@ -215,22 +238,22 @@ fn place(
 }
 
 /// On a press of the left button that went to no attack, the event of a box that the cursor
-/// picks (`under_cursor`), else, where it picks nothing, the stash without one nearest the
-/// cursor's line of sight, if one is near it, becomes the hero's to search (`0x617A5B`); any press
-/// ends the last such order.
+/// picks (`under_cursor`), else, where it picks nothing, the event without one of the cell under
+/// the cursor at the height 0 on the hero's floor ([`cell_at_zero`], [`Stash::found`]) becomes the
+/// hero's to search (`0x617A5B`); any press ends the last such order.
 fn pick(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
     (pointer, under): (Res<Pointer>, Res<crate::under_cursor::UnderCursor>),
     aim: Res<Aim>,
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
-    stashes: Query<(Entity, &GlobalTransform, &Stash)>,
-    heroes: Query<Entity, With<Body>>,
+    stashes: Query<(Entity, &Stash)>,
+    (heroes, heights): (Query<(Entity, &Body)>, Res<Heights>),
 ) {
     if !buttons.just_pressed(MouseButton::Left) {
         return;
     }
-    for hero in &heroes {
+    for (hero, _) in &heroes {
         commands.entity(hero).remove::<Searches>();
     }
     let Some(cursor) = pointer.0 else {
@@ -243,20 +266,21 @@ fn pick(
     let boxed = under.0.filter(|&entity| {
         stashes
             .get(entity)
-            .is_ok_and(|(.., stash)| stash.boxed.is_some())
+            .is_ok_and(|(_, stash)| stash.boxed.is_some())
     });
     let unboxed = || {
+        let cell = cell_at_zero(ray)?;
+        let (_, body) = heroes.iter().next()?;
+        let floor = floor_of(&heights, body.level());
         stashes
             .iter()
-            .filter(|(_, _, stash)| stash.boxed.is_none())
-            .filter_map(|(entity, at, _)| Some((entity, picked(ray, at.translation())?)))
-            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .find(|(_, stash)| stash.found(cell, floor))
             .map(|(entity, _)| entity)
     };
     let Some(stash) = boxed.or_else(|| under.0.is_none().then(unboxed).flatten()) else {
         return;
     };
-    for hero in &heroes {
+    for (hero, _) in &heroes {
         debug!("stashes: the hero goes to search {stash}");
         commands.entity(hero).insert(Searches(stash, false, 0));
     }
@@ -524,9 +548,10 @@ fn blink(
     let mut quads = Quads::default();
     if let Some((half, angle)) = blink_at(time.elapsed().as_millis()) {
         let whole = (Vec2::ZERO, 1.0);
+        // An event on a floor blinks not (`0x62CF4C`, the floor 0's lookup).
         for (_, at) in stashes
             .iter()
-            .filter(|(stash, _)| stash.look == Look::Blink)
+            .filter(|(stash, _)| stash.look == Look::Blink && stash.floor == 0)
         {
             let centre = drawn_at(at);
             let mut own = Quads::default();
@@ -574,6 +599,45 @@ impl Plugin for StashesPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_event_without_a_box_is_found_by_its_cell_at_the_height_0_on_its_floor() {
+        // Straight down onto (100, 200): that point's cell, whatever the height it comes from.
+        let down = Ray3d::new(Vec3::new(100.0, 500.0, 200.0), Dir3::NEG_Y);
+        let cell = crate::paths::cell_of(100.0, 200.0);
+        assert_eq!(cell_at_zero(down), Some(cell));
+        // Slanting down from 100 up: where it meets the plane, 100 on.
+        let slant = Ray3d::new(
+            Vec3::new(0.0, 100.0, 50.0),
+            Dir3::new(Vec3::new(1.0, -1.0, 0.0)).expect("a direction"),
+        );
+        assert_eq!(
+            cell_at_zero(slant),
+            Some(crate::paths::cell_of(100.0, 50.0))
+        );
+        // Along the plane it never meets it.
+        assert_eq!(
+            cell_at_zero(Ray3d::new(Vec3::new(0.0, 10.0, 0.0), Dir3::X)),
+            None
+        );
+        // Its own cell from its own floor, without a box.
+        let stash = Stash {
+            cell,
+            floor: 2,
+            text: String::new(),
+            look: Look::Blink,
+            boxed: None,
+        };
+        assert!(stash.found(cell, 2));
+        assert!(!stash.found(cell, 0));
+        assert!(!stash.found((cell.0 + 1, cell.1), 2));
+        assert!(!stash.found((cell.0, cell.1 + 1), 2));
+        let boxed = Stash {
+            boxed: Some([-10, -10, 10, 10]),
+            ..stash
+        };
+        assert!(!boxed.found(cell, 2));
+    }
 
     #[test]
     fn an_event_of_a_box_is_under_the_cursor_within_it() {

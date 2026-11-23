@@ -287,7 +287,8 @@ fn choose(
         let rect = model(entity, at).or_else(|| view.creature(at, corpse.creature, false));
         drawn.extend(rect.map(|rect| (entity, Class::Other, rect)));
     }
-    for (entity, at, stash) in &events {
+    // An event on a floor lays no box (`0x62CF4C`, the floor 0's lookup).
+    for (entity, at, stash) in events.iter().filter(|(.., stash)| stash.floor == 0) {
         let rect = stash
             .boxed
             .and_then(|boxed| view.event(at.translation(), boxed));
