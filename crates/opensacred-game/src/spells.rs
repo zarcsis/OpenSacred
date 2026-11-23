@@ -403,6 +403,7 @@ fn balls(
                         poison: false,
                         ward: true,
                         hurled: false,
+                        object: true,
                     });
                 }
                 // The bomb trap's blast (`explosions`).
@@ -595,6 +596,7 @@ fn pentagrams(
                 poison: false,
                 ward: false,
                 hurled: false,
+                object: true,
             });
         }
         commands.entity(entity).despawn();
@@ -2290,6 +2292,7 @@ fn act(
                     poison: false,
                     ward: true,
                     hurled: false,
+                    object: true,
                 });
                 crate::lightning_strikes::strike(&mut commands, place.translation(), true);
             }
@@ -2512,6 +2515,7 @@ fn strike(
                     poison: false,
                     ward: opensacred_rules::spells::warded(aura.key),
                     hurled: false,
+                    object: true,
                 });
             }
             aura.cooldown = BEAT;
@@ -2543,6 +2547,7 @@ fn strike(
                         poison: false,
                         ward: opensacred_rules::spells::warded(aura.key),
                         hurled: false,
+                        object: true,
                     });
                 }
                 aura.cooldown = BEAT;
@@ -2602,6 +2607,7 @@ fn strike(
                     poison: false,
                     ward: opensacred_rules::spells::warded(aura.key),
                     hurled: false,
+                    object: true,
                 });
             }
             if !aura.gives.is_empty() && !given.contains(&(target, aura.key)) {
@@ -2747,6 +2753,7 @@ fn mine(
                 poison: false,
                 ward: true,
                 hurled: false,
+                object: true,
             });
         }
         crate::explosions::blast(&mut commands, at.translation, false);
@@ -3004,6 +3011,7 @@ fn disk(
                         poison: false,
                         ward: true,
                         hurled: false,
+                        object: true,
                     });
                     disk.cooldown = BEAT;
                 }
@@ -3139,6 +3147,7 @@ fn disk(
                 poison: false,
                 ward: true,
                 hurled: false,
+                object: true,
             });
         }
         disk.cooldown = BEAT;
@@ -3262,6 +3271,7 @@ fn meteor(
                 poison: false,
                 ward: true,
                 hurled: false,
+                object: true,
             });
         }
         commands.entity(entity).despawn();
@@ -3401,6 +3411,7 @@ fn chain(
             poison: false,
             ward: true,
             hurled: false,
+            object: true,
         });
         chain.last = target;
         chain.left -= 1;
@@ -3469,6 +3480,7 @@ fn spiral(
                     poison: false,
                     ward: true,
                     hurled: false,
+                    object: true,
                 });
                 struck = true;
             }
@@ -3732,6 +3744,7 @@ pub(crate) fn share_turned(world: &mut World, bearer: Entity, damages: [f32; 4],
             poison: false,
             ward: false,
             hurled: false,
+            object: false,
         });
     }
 }

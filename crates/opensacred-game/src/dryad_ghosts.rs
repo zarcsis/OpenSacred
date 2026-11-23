@@ -292,6 +292,7 @@ fn fly(
                 poison: false,
                 ward: false,
                 hurled: false,
+                object: true,
             });
         }
         ghost.cooldown = DRYAD_GHOST_BEAT;

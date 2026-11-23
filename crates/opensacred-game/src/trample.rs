@@ -307,6 +307,7 @@ fn pass(
                 poison: false,
                 ward: false,
                 hurled: false,
+                object: false,
             });
             let most = fight_f32(amount.min(health.current));
             left -= most;

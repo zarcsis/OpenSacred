@@ -1650,6 +1650,7 @@ fn scorch(
                 poison: false,
                 ward: false,
                 hurled: false,
+                object: true,
             });
             struck = true;
         }

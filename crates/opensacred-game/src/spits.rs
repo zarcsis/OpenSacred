@@ -395,6 +395,7 @@ fn fly(
                         poison: false,
                         ward: false,
                         hurled: false,
+                        object: false,
                     });
                 }
             }

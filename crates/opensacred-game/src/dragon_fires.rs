@@ -397,6 +397,7 @@ fn strike(
                 poison: false,
                 ward: false,
                 hurled: false,
+                object: false,
             });
         }
     }

@@ -684,6 +684,7 @@ fn fly(
                         poison: false,
                         ward: true,
                         hurled: false,
+                        object: true,
                     });
                 }
             }
@@ -813,6 +814,7 @@ fn fly(
                 poison: false,
                 ward: warded(course.look),
                 hurled: false,
+                object: true,
             });
         }
         match course.strikes {
