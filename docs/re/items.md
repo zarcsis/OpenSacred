@@ -262,7 +262,7 @@ A key the namer composes is resolved by its name (`sdk_QB_RESOLVE`), 0 where `gl
 **Seen** 2026-10-29 in the original (#448's driver, `trace` of `0x44A1B0` and the record at `0x5C3130`): three gloves 1221 made by `item 1221` took `EWT_Handschuhe`, then `Gen_st_gi_Handschuhe`, `Gen_st_gi_Handschuhe1` and `Gen_st_gi_Handschuhe`; a boss's 40 drops took the names of their records' families and qualities, as `Gen_kl_fe_Guertel1` of a belt of the quality 5, `Gen_gr_ph_Ring1` of a ring of 14 and `Gen_st_ph_Dolch3` of a dagger with bonuses.
 The quality pass (`0x5D2E40`) writes the quality bits last, the sum of its map's value by the maker's key, its sockets' and its bonuses' worth, at most 14.
 
-**The mage's staff's number** (read 2026-11-23 for #3092, **confirmed** by code and by the data; not seen in the original yet).
+**The mage's staff's number** (read 2026-11-23 for #3092, **confirmed** by code and by the data, and **seen** the same day in the running original for the band 0, below).
 
 - The type of step 5's test is the root of step 1 again (`0x5C91D0`), and its quality is its `Weapon.pak` record's own (`+0x84` bits 16–19, `0x5C3867`–`0x5C38FD`), not the made item's.
   Of the five roots of the made mage's staffs, 1876 alone, of the quality 3, keeps its own name; 1715 and 1850 (the quality 15), 1877 (4) and 1878 (10) take the number, whatever the made staff's own quality.
@@ -277,6 +277,12 @@ The quality pass (`0x5D2E40`) writes the quality bits last, the sum of its map's
 - The number in decimal is a key's name, resolved by its hash (`sdk_QB_RESOLVE`), so the key of the name of the `Weapon.pak` record of that number (docs/02 §6.2); where its text is missing or empty, `EWT_MAGIERSTAB`'s (`0x5C3972`–`0x5C39B0`).
   The setter `0x44A1B0` takes it and the namer ends there (`0x5C39CE`): the steps 6 and 7 are not taken for a staff.
 - The types 2650 to 2729 are 80 staffs of `Weapon.pak`, four bands of 20 by `⌊q/4⌋` (0 to 3), each of five fours by their parents in the order 1715, 1877, 1878, 1876 and 1850, and every one of the 80 has its name's text (a scratch scan of the converter's `tables/weapons.ron`, `type_names.ron` and `text/en-US/global.ftl`, 2026-11-23); so a staff takes the name of a staff of its band and of the family of its leading element, whatever its own root, the four of a family by the leading count.
+- **Seen** 2026-11-23 in the running original (#3525, the driver of #448, its `item` at the hero's levels 1 and 25, probes of `0x5C38CC` for the root, `0x5C2E6D` for the values' quality word `+0x04` and their first slots from `+0x4A`, `0x5C3976` for the buffer after `0x5C2E50`, `0x5C39B2` for the key set and `0x5C39ED` for the type's own key), some 30 staffs of the roots 1715, 1850, 1876 and 1878 through the staff's branch and 17 that missed it:
+  - every one that reached the staff's branch had the quality 0 in its values' bits 16 to 19, so the band 0 alone was seen;
+  - the root 1876 (the types 1876 and 2662, seven staffs) kept its type's own key at `0x5C39ED`, never the number;
+  - the roots 1715, 1850 and 1878 wrote the number of their first slot's group: the spell 28 or 1 (the group of the offset 8) gave 2658 three times, the spell 16 or 25 (the offset 4) 2654 three times, the spell 11 (the offset 12) 2662 once, the spell 30 or 32 (the offset 16) 2666 three times, each with one slot of the ten effects, so `c` 1 and no step; a first slot of the effects 806, 807, 808 or 813, of none of the groups, gave `EWT_MAGIERSTAB`, as all those made at the hero's level 1 did;
+  - the key set was the hash of the number's text (`0x845774E5` for 2658, `0x845774E1` for 2654, `0x84577550` for 2662, `0x84577554` for 2666), and on Alt the staff of 2658 showed the text of the type 2658's name, the generic staffs beside it the generic name;
+  - the types 1715 (six staffs) and 2014 (eleven), both of the quality 15 in their records, never reached the staff's branch, and the labels and the hand's name of 2014's showed its type's own name: the maker leaves them as they are (**hypothesis**: by the quality 15 of their records, not read in the maker).
 
 ## A creature's items
 
@@ -564,11 +570,13 @@ Read 2026-10-25 (#911) by the static reading of `Sacred.exe`; **confirmed** by c
   8. **The category 14** goes into the entry's list of 256 types at `+0xD5C` (`0x5DB030`) and is destroyed, with the sound event `(9, 0x82)`; no type of the table is of the category 14.
   9. **Into the inventory's grid**: the item's size in cells (`0x428D60`) is looked for in the grid (`0x5DABA0`), column by column from the left, each from the top, at the first place where it fits; the item clears `+0x14` bit `0x100000`, the scripts hear of it (`0x471790` with the code 2), and it leaves the world for that place (`0x5D9F00`), with the sound event `(9, 0x80)`.
   10. **Without room**: the sound event `(8, 3)` with the item's type, the hero's `CANTCARRYMORE` line (docs/re/sound.md, "About items"; read 2026-10-28, #1324), then `0x5592B0`.
-- So in a game of one player the hero walks to the item and plays the clip even with the inventory full: the room is looked for only at the take.
+- So in a game of one player the hero walks to the item and plays the clip even with the inventory full: the room is looked for only at the take (**seen** 2026-11-23, #3525, "Without room" below).
 
 ### Without room (`0x5592B0`)
 
 - The item stays in the world and jumps where it lies: it is put on the ground, then raised 40 to 70 above it (`rand()/32767·30 + 40`, cut to an integer), and flies by `0x44DED0` with a velocity of 0 along the ground and 100 upward, spinning at `R(−6, 6)` about each axis, with bit `0x8000000` at `+0xB0`; in a network game the network event `0x147` goes to the server too.
+- **Seen** 2026-11-23 in the running original (#3525, the driver of #448, the Seraphim's start, her backpack filled by 44 staffs 2014 that the bar's Collect took, `0x558080` and `0x5592B0` traced, a burst of frames 33 to 50 ms apart): a staff thrown by the driver's `item` and clicked, the hero walked to it, played the pick-up's clip, and the staff rose from the ground upright, turned as it rose and fell back for about 1.3 s, landing within a cell of where it lay, its name and the hand over it again.
+  The take ran four times in one clip (`0x558080` from `0x53CEB5`, about 0.1 s apart, the log's `pickupItem` each time), each refused for room and each starting the jump anew (`0x5592B0` reached four times), at three clicks alike: the standing action calls the take again and again from the clip's half while the item is still in the world (**hypothesis** from the four calls, 4 or 5 frames apart, `0x53CE84`–`0x53CEB5` not read further), so the item jumps anew until the clip ends.
 
 ### The automatic pick-up (the AI's state 12)
 
