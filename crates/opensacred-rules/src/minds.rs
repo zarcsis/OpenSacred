@@ -4600,6 +4600,41 @@ pub fn hits_twice(second: f32, class: u8) -> bool {
     second > 0.0 || class == crate::fight::TWO_WEAPONS_CLASS
 }
 
+/// The most to which the hero's shot that goes on raises its chain `+0x210`, the factor of its
+/// shots' rate (`0x4DFC8D`, docs/re/fight.md, "The archers").
+pub const HELD_SHOT_CHAIN: f32 = 1.5;
+
+/// How much of its clip, in seconds, is left at most as the hero's shot goes on (`0x4DFC8D`,
+/// docs/re/fight.md, "The archers").
+pub const HELD_SHOT_LEFT: f32 = 0.1;
+
+/// Whether the hero's shot, its button held or asked again, goes on at a tick with `left` seconds
+/// of its clip left: less than [`HELD_SHOT_LEFT`] (`0x4DFC8D`; seen with the button held, #3563),
+/// so every `7/8·L − 0.1` s of a clip `L` long or at the first tick after.
+pub fn held_shot_goes_on(left: f32) -> bool {
+    left < HELD_SHOT_LEFT
+}
+
+/// The chain after the hero's shot that goes on raises `chain`: 0.1 more while it is below
+/// [`HELD_SHOT_CHAIN`], in single precision, so five raises from 1.0, the last to 1.5000001, which
+/// is not below it (`0x4DFC8D`; seen 77 goings on in two holds, #3563); the going on's own rate
+/// takes the chain before the raise (`0x4DF17D`–`0x4DF199`).
+pub fn held_shot_chain(chain: f32) -> f32 {
+    if chain < HELD_SHOT_CHAIN {
+        chain + 0.1
+    } else {
+        chain
+    }
+}
+
+/// Where in its clip of `length` seconds the hero's shot that goes on plays again: an eighth in,
+/// its end seven eighths of its length on, so that its arrow leaves `(a − 1/8)·L` after; from its
+/// start for a shot of the effect 17 or of a gun, `whole` (`0x4DFC8D`, docs/re/fight.md, "The
+/// archers").
+pub fn held_shot_restart(length: f32, whole: bool) -> f32 {
+    if whole { 0.0 } else { length / 8.0 }
+}
+
 /// The turn from a strike to the next that the held button asks for, in seconds at an attack
 /// speed's factor of 1: the hit's tick queues the next strike's clip with 0.2 (`0x5491F0`, called
 /// by the attack action 3's sub-state 1, `0x4E4CF0`), which it keeps over the attack speed's factor
@@ -7359,6 +7394,25 @@ mod tests {
         assert!(attack_ends(true, false, true, true));
         assert!(attack_ends(false, true, true, true));
         assert!(attack_ends(false, false, false, true));
+    }
+
+    #[test]
+    fn the_heros_held_shot_goes_on_raising_its_chain_to_1_5() {
+        // Five raises from 1.0, the last to 1.5000001, which stays.
+        let mut chain = 1.0;
+        let mut raised = Vec::new();
+        for _ in 0..7 {
+            chain = held_shot_chain(chain);
+            raised.push(chain);
+        }
+        assert_eq!(raised[4], 1.500_000_1);
+        assert_eq!(raised[5..], [1.500_000_1, 1.500_000_1]);
+        assert!((raised[0] - 1.1).abs() < 1e-6 && raised[3] < HELD_SHOT_CHAIN);
+        // It goes on with less than 0.1 s of its clip left.
+        assert!(held_shot_goes_on(0.099) && held_shot_goes_on(0.0) && !held_shot_goes_on(0.1));
+        // An eighth into its clip, or from its start with the effect 17 or a gun.
+        assert_eq!(held_shot_restart(1.6, false), 0.2);
+        assert_eq!(held_shot_restart(1.6, true), 0.0);
     }
 
     #[test]

@@ -110,6 +110,13 @@ pub struct Striking {
     bolt: Option<Bolt>,
 }
 
+/// The hero's chain `+0x210`, the factor of its shots' rate, which its shot that goes on raises by
+/// 0.1 up to 1.5 and keeps for its later shots, a new click's, a walk's, a cast's and a save's
+/// alike, and which a strike's decision sets back to 1.0 (`opensacred_rules::minds::
+/// held_shot_chain`, `0x4DFC8D`, `0x4E1443`; seen, #3568); 1.0 where the hero has none.
+#[derive(Component, Clone, Copy, Debug)]
+pub struct ShotChain(pub f32);
+
 /// The dice of the hero's strikes.
 #[derive(Resource)]
 struct Dice(Rng);
@@ -261,6 +268,7 @@ fn engage(
             Option<&crate::effects::Effects>,
             Has<crate::making::Playing>,
             Option<&crate::riding::Seat>,
+            Option<&mut ShotChain>,
         ),
         (
             Without<Dies>,
@@ -321,6 +329,7 @@ fn engage(
         effects,
         playing,
         seat,
+        mut chain,
     ) in &mut heroes
     {
         // Ordered while an art plays, it waits for the art's clip to end (`aim`, #1215).
@@ -373,13 +382,18 @@ fn engage(
         else {
             continue;
         };
-        // At its attack speed (`0x4E4CF0`): the hero's `+0x210` stays 1, held or clicked (#704).
+        // At its attack speed (`0x4E4CF0`): its strikes' `+0x210` stays 1, held or clicked (#704).
         // Quickened by the Dwarf's frenzy (`0x584FE0`).
         let attack_speed = combat.map_or(100.0, |combat| {
             opensacred_rules::arts::quickened(combat.speed, frenzy.map_or(0.0, |frenzy| frenzy.0))
         }) / 100.0;
+        // A shot at its attack speed times its chain, which a gun's takes none of (`0x4DCB80`,
+        // `0x4DCD0F`; [`ShotChain`], #3568).
+        let gun = holding.is_some_and(|holding| holding.0.gun);
+        let kept = chain.as_ref().map_or(1.0, |chain| chain.0);
+        let chained = attack_speed * if ranged && !gun { kept } else { 1.0 };
         // A shot of bolts at its own rate by the attack speed (`0x4DCB80`).
-        let rate = |bolt: Option<Bolt>| bolt.map_or(attack_speed, |bolt| bolt.rate(attack_speed));
+        let rate = |bolt: Option<Bolt>| bolt.map_or(chained, |bolt| bolt.rate(chained));
         let ticked = tick.seconds.is_some();
         let mut blend = BLEND;
         // Whether a strike starts at this frame whatever the AI's step: the next of a held button
@@ -442,12 +456,56 @@ fn engage(
                     });
                 }
             }
+            // Its shot, the button held, its target alive, no art's arrow and its bolts' effect
+            // still on it, goes on: at the first tick with less than 0.1 s of its clip left, the
+            // clip plays again an eighth in at its attack speed times its chain as it was, the
+            // chain raised by 0.1 up to 1.5, and looses anew; a shot of the effect 17 or of a gun
+            // from its start at the speed it had (`0x4DFC8D`, `0x4DF306`; seen, #3563, #3568). A
+            // click while it plays goes on with nothing: its own shot follows the shot's end.
+            if ranged
+                && ticked
+                && striking.struck > 0
+                && attack.special.is_none()
+                && attack.held
+                && !attack.ends
+                && target.is_some()
+                && (striking.bolt.is_none() || bolt.is_some())
+                && minds::held_shot_goes_on(
+                    (striking.length - active.seek_time()).max(0.0) / active.speed().max(0.001),
+                )
+            {
+                let whole = striking.bolt == Some(Bolt::Railgun) || gun;
+                let played = if whole {
+                    active.speed()
+                } else {
+                    speed.0 * attack_speed * kept * striking.factor
+                };
+                if let Some(active) = player.animation_mut(striking.node) {
+                    active.replay();
+                    active.seek_to(minds::held_shot_restart(striking.length, whole));
+                    active.set_speed(played);
+                }
+                let raised = minds::held_shot_chain(kept);
+                match chain.as_mut() {
+                    Some(chain) => chain.0 = raised,
+                    None => {
+                        commands.entity(hero).insert(ShotChain(raised));
+                    }
+                }
+                debug!("attack: the hero's shot goes on at {played:.3}, its chain {raised:.1}");
+                striking.struck = 0;
+                if striking.bolt.is_none() {
+                    fires.write(crate::sfx::Gunfire { shooter: hero });
+                }
+                continue;
+            }
             // With the button held, the next strike starts before this one's clip ends, the one
-            // fading into the other over what is left (`0x5491F0`, #707).
+            // fading into the other over what is left (`0x5491F0`, #707); a shot goes on instead.
             let rate = rate(striking.bolt);
             let left = (striking.length - active.seek_time()).max(0.0)
                 / (speed.0 * rate * striking.factor);
             if attack.held
+                && !ranged
                 && !attack.at_once
                 && !attack.ends
                 && target.is_some()
@@ -577,6 +635,11 @@ fn engage(
             commands.entity(hero).remove::<Attack>();
             continue;
         };
+        // A strike's decision sets the chain back to 1.0 before the strike starts (`0x4E1443`;
+        // seen, #3568).
+        if !ranged && let Some(chain) = chain.as_mut() {
+            chain.0 = 1.0;
+        }
         let length = animations
             .get(clip)
             .map_or(1.0, AnimationClip::duration)
