@@ -411,18 +411,17 @@ pub(crate) fn resolve(
                 held,
                 (hit.target, hit.attacker),
             ) {
-                // The spellproof's shares the spell among the creatures hostile to its bearer,
-                // the shield wall's only flashes its object.
+                // The ward flashes its object (`0x562254`, #3172); the spellproof's shares the
+                // spell among the creatures hostile to its bearer too.
                 if let Turned::Effect { art, value } = turned {
                     let (bearer, damages) = (hit.target, hit.fixed);
                     commands.queue(move |world: &mut World| {
-                        if art == opensacred_rules::spells::SPELLPROOF {
-                            if let Some(damages) = damages {
-                                crate::spells::share_turned(world, bearer, damages, value);
-                            }
-                        } else {
-                            world.write_message(crate::shields::Flash(bearer, art));
+                        if art == opensacred_rules::spells::SPELLPROOF
+                            && let Some(damages) = damages
+                        {
+                            crate::spells::share_turned(world, bearer, damages, value);
                         }
+                        world.write_message(crate::shields::Flash(bearer, art));
                     });
                 }
                 continue;
@@ -2263,10 +2262,11 @@ fn gifts(
             held,
             (gift.target, gift.caster),
         ) {
-            Some(Turned::Effect { art, .. }) if art != opensacred_rules::spells::SPELLPROOF => {
+            // The ward that turned it flashes (`0x562254`, #3172).
+            Some(Turned::Effect { art, .. }) => {
                 commands.write_message(crate::shields::Flash(gift.target, art));
             }
-            Some(_) => {}
+            Some(Turned::Defence) => {}
             None => crate::spells::give(&mut commands, gift.target, gift.gives.clone()),
         }
     }
