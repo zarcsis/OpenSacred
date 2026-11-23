@@ -104,7 +104,13 @@ fn find_looks(looks: &mut Looks, data: &Data, server: &AssetServer, effects: &mu
     });
     let [smoke, large, small] = GATE_HEAD_TEXTURES.map(&mut image);
     looks.head = [
-        smoke.map(|image| effects.add(particle_material(image, AlphaMode::Blend))),
+        // The head's smoke, tinted, which the world's camera draws, among the objects (#3459).
+        smoke.map(|image| {
+            effects.add(crate::fx::among_objects(particle_material(
+                image,
+                AlphaMode::Blend,
+            )))
+        }),
         large.map(|image| effects.add(particle_material(image, AlphaMode::Add))),
         small.map(|image| effects.add(whole_material(image))),
     ];

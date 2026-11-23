@@ -197,7 +197,12 @@ fn make(
                         particles::BLOOD_TEXTURE
                     );
                 }
-                image.map(|image| materials.add(particle_material(image, AlphaMode::Blend)))
+                image.map(|image| {
+                    materials.add(crate::fx::among_objects(particle_material(
+                        image,
+                        AlphaMode::Blend,
+                    )))
+                })
             })
             .clone();
         let Some(made) = made else {

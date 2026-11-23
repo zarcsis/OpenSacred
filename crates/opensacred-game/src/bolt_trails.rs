@@ -77,7 +77,14 @@ fn show(
                 if image.is_none() {
                     warn!("bolt trails: no texture {texture}; its trails are not drawn");
                 }
-                image.map(|image| effects.add(particle_material(image, alpha_mode)))
+                // The dust, which the world's camera draws, among the objects (#3459).
+                image.map(|image| {
+                    let material = particle_material(image, alpha_mode);
+                    effects.add(match trail.0 {
+                        TrailKind::Windstrike => crate::fx::among_objects(material),
+                        TrailKind::Shaddar => material,
+                    })
+                })
             })
             .clone();
         let at = place.translation;
