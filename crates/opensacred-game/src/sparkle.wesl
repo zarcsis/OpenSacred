@@ -7,9 +7,13 @@ import bevy_ui_render::ui_vertex_output::UiVertexOutput;
 @group(1) @binding(0) var<uniform> colour: vec4<f32>;
 @group(1) @binding(1) var picture: texture_2d<f32>;
 @group(1) @binding(2) var picture_sampler: sampler;
+// The rows of the texture drawn: from `rows.x` down `rows.y` of its height, the whole for a
+// spark's, a row of the 16 for a tab's flash (`0x728060`).
+@group(1) @binding(3) var<uniform> rows: vec4<f32>;
 
 @fragment
 fn fragment(in: UiVertexOutput) -> @location(0) vec4<f32> {
-    let texel = textureSampleLevel(picture, picture_sampler, in.uv, 0.0);
+    let uv = vec2(in.uv.x, rows.x + in.uv.y * rows.y);
+    let texel = textureSampleLevel(picture, picture_sampler, uv, 0.0);
     return vec4(texel.rgb * colour.rgb, 0.0);
 }
