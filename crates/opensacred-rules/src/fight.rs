@@ -2289,7 +2289,9 @@ impl Bonus {
     }
 
     /// Whether its condition's bits 8 to 11 admit a holder of the type `holder` (`0x568B30`): 0
-    /// or 7, else the holder's type, 6 the Vampiress's both, 6 and 7.
+    /// or 7, else the holder's type, 6 the Vampiress's both, 6 and 7; the Dwarf's 8 and the
+    /// Daemon's 9 their own type alone, where the original admits every holder for 8 to 15
+    /// (docs/decisions/items.md, "A class's bonus for its own type alone").
     fn admits(self, holder: u32) -> bool {
         let [_, kind] = self.condition.to_le_bytes();
         let kind = u32::from(kind & 0xF);
@@ -2369,6 +2371,39 @@ pub struct AgainstClass {
     pub resistance_factors: [f32; KINDS],
     pub attack_factor: f32,
     pub defence_factor: f32,
+    /// What an undead's damage multipliers and resistances' factors are multiplied by against a
+    /// bearer of the purple potion ([`Self::with_potions`]), none otherwise.
+    pub lowered: Option<f32>,
+}
+
+impl AgainstClass {
+    /// These slots with the purple potions' part in the record (`0x569A29`–`0x569D72`;
+    /// docs/re/items.md, "The slots against a class of opponents (`0x568D70`)", #3483): a holder
+    /// that bears the potions of the values `own` against an undead, `opponent_undead`, takes
+    /// their sum more on each damage multiplier and resistance's factor; an undead holder,
+    /// `holder_undead`, against a bearer of the potions of the values `opponent` takes its
+    /// multipliers and factors times their product, where the original divides them by each, a
+    /// repair (docs/decisions/fight.md, "The purple potion lowers the undead").
+    #[must_use]
+    pub fn with_potions(
+        mut self,
+        own: &[f32],
+        opponent_undead: bool,
+        opponent: &[f32],
+        holder_undead: bool,
+    ) -> Self {
+        if opponent_undead {
+            let more: f32 = own.iter().sum();
+            for kind in 0..KINDS {
+                self.multipliers[kind] += more;
+                self.resistance_factors[kind] += more;
+            }
+        }
+        if holder_undead && !opponent.is_empty() {
+            self.lowered = Some(opponent.iter().product());
+        }
+        self
+    }
 }
 
 /// Whether a bonus slot of the condition `condition` and the effect word `effect` counts anywhere
@@ -3681,16 +3716,18 @@ pub struct Combat {
 
 impl Combat {
     /// These values as the attacker's record against its struck one takes the slots `add` of its
-    /// items against that one's class ([`against_class`], `0x56B965`, #3417): each kind's ends
-    /// raised before its damage multipliers and by its raised multipliers, `A` by its raised
-    /// multiplier, truncated as the record truncates it; none raised below 0.
+    /// items against that one's class ([`against_class`], `0x56B965`, #3417) and the purple
+    /// potions' part ([`AgainstClass::with_potions`], #3483): each kind's ends raised before its
+    /// damage multipliers and by its raised multipliers, `A` by its raised multiplier, truncated
+    /// as the record truncates it; none raised below 0.
     pub fn striking_with(mut self, add: &AgainstClass) -> Self {
         if *add == AgainstClass::default() {
             return self;
         }
+        let lowered = add.lowered.unwrap_or(1.0);
         for kind in 0..KINDS {
             let times = self.multipliers[kind];
-            let raised = (times + add.multipliers[kind]).max(0.0);
+            let raised = (times + add.multipliers[kind]).max(0.0) * lowered;
             for end in &mut self.damage[kind] {
                 let own = if times > 0.0 { *end / times } else { 0.0 };
                 *end = ((own + add.ends[kind]).max(0.0)) * raised;
@@ -3705,13 +3742,15 @@ impl Combat {
     }
 
     /// These values as the struck one's record against its attacker takes the slots `add` of its
-    /// items against that one's class ([`against_class`], `0x56B6CC`, #3417): each kind's
-    /// resistance raised before its factor and by its raised factor, `D` by its raised
-    /// multiplier, truncated; none raised below 0.
+    /// items against that one's class ([`against_class`], `0x56B6CC`, #3417) and the purple
+    /// potions' part ([`AgainstClass::with_potions`], #3483): each kind's resistance raised
+    /// before its factor and by its raised factor, `D` by its raised multiplier, truncated; none
+    /// raised below 0.
     pub fn struck_with(mut self, add: &AgainstClass) -> Self {
         if *add == AgainstClass::default() {
             return self;
         }
+        let lowered = add.lowered.unwrap_or(1.0);
         for kind in 0..KINDS {
             let factor = self.resistance_factors[kind];
             let own = if factor > 0.0 {
@@ -3720,7 +3759,8 @@ impl Combat {
                 0.0
             };
             self.resistance[kind] = (own + add.resistance[kind]).max(0.0)
-                * (factor + add.resistance_factors[kind]).max(0.0);
+                * (factor + add.resistance_factors[kind]).max(0.0)
+                * lowered;
         }
         if self.defence_factor > 0.0 {
             let own = f64::from(self.defence) / f64::from(self.defence_factor);
@@ -8937,6 +8977,7 @@ mod tests {
             resistance_factors: [0.0, 0.0, 0.5, 0.5],
             attack_factor: 0.25,
             defence_factor: 0.5,
+            lowered: None,
         };
         let striking = combat.striking_with(&add);
         // (5 + 5)·2 and (10 + 5)·2; the fire's 4·1.5 and 6·1.5; the magic's, of no multiplier, 0
@@ -8964,6 +9005,33 @@ mod tests {
         // Nothing to add leaves them as they are.
         assert_eq!(combat.striking_with(&AgainstClass::default()), combat);
         assert_eq!(combat.struck_with(&AgainstClass::default()), combat);
+        // The purple potion of 0.8 against an undead: each multiplier and factor 0.8 more, so
+        // the physical's 5·2.8 and 10·2.8, the fire's 4·1.8 and 6·1.8, the fire's resistance
+        // 30/1.5·2.3.
+        let bearer = AgainstClass::default().with_potions(&[0.8], true, &[], false);
+        assert_eq!(bearer.multipliers, [0.8; KINDS]);
+        assert_eq!(bearer.resistance_factors, [0.8; KINDS]);
+        assert_eq!(bearer.lowered, None);
+        let striking = combat.striking_with(&bearer);
+        assert!(near(striking.damage[0][0], 14.0) && near(striking.damage[0][1], 28.0));
+        assert!(near(striking.damage[1][0], 7.2) && near(striking.damage[1][1], 10.8));
+        assert!(near(combat.struck_with(&bearer).resistance[1], 46.0));
+        // None against no undead, or bearing none.
+        let none = AgainstClass::default();
+        assert_eq!(none.with_potions(&[0.8], false, &[], false), none);
+        assert_eq!(none.with_potions(&[], true, &[], false), none);
+        // An undead against a bearer of two potions: its multipliers and factors times 0.8·0.5,
+        // the physical's 10·0.4 and 20·0.4, the fire's resistance 30·0.4, the poison's 10·0.4.
+        let undead = none.with_potions(&[], false, &[0.8, 0.5], true);
+        assert_eq!(undead.lowered, Some(0.4));
+        let striking = combat.striking_with(&undead);
+        assert!(near(striking.damage[0][0], 4.0) && near(striking.damage[0][1], 8.0));
+        let struck = combat.struck_with(&undead);
+        assert!(near(struck.resistance[1], 12.0) && near(struck.resistance[3], 4.0));
+        assert_eq!((striking.attack, struck.defence), (100.0, 50.0));
+        // None for a holder that is no undead, or against one that bears none.
+        assert_eq!(none.with_potions(&[], false, &[0.8], false), none);
+        assert_eq!(none.with_potions(&[], false, &[], true), none);
     }
 
     #[test]
