@@ -43,7 +43,6 @@ textures/texture/08481-dwarf_warhammer.png
 textures/texture/14926-particle_vortex01.png
 
 # a single-colour font page, superseded by the fonts
-textures/texture/00019-font_system.png
 textures/texture/00020-font_ttf01.png
 textures/texture/00021-font_ttf02.png
 textures/texture/00022-font_ttf03.png
