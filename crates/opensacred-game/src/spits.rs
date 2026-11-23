@@ -150,7 +150,12 @@ fn spit(
                     if image.is_none() {
                         warn!("spits: no texture {name}; its blobs are not drawn");
                     }
-                    image.map(|image| materials.add(particle_material(image, AlphaMode::Blend)))
+                    image.map(|image| {
+                        materials.add(crate::fx::among_objects(particle_material(
+                            image,
+                            AlphaMode::Blend,
+                        )))
+                    })
                 });
             }
         }

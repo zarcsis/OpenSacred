@@ -90,6 +90,10 @@ type Layers = [Vec<Material>; 2];
 /// A layer's material, none without its texture.
 type Material = Option<Handle<Effect>>;
 
+/// What a fire's material is made of: its texture, its blend, whether it is of list 4 and whether
+/// the night tints it.
+type MaterialKey = (&'static str, Blend, bool, bool);
+
 /// The smoke class's variants that the game makes: the chimneys', the fire smokes', the geyser,
 /// the lavas' smokes, the fires and the magic fire (docs/re/effects.md).
 const VARIANTS: [u8; 13] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
@@ -471,6 +475,15 @@ pub(crate) fn layered(material: Effect, layer: crate::blended::Layer) -> Effect 
             ..material.extension
         },
     }
+}
+
+/// `material` among the objects of list 3 ([`crate::blended::Layer::Objects`]): an effect that the
+/// world's camera draws, which the original draws in list 3 after its cell's other objects, over
+/// the underlays of lists 0 and 2 and the statics' shadows of list 1 whatever their rows, and among
+/// list 3's sprites and models by its depth (docs/re/drawing.md, "What the game does with it",
+/// #3459).
+pub(crate) fn among_objects(material: Effect) -> Effect {
+    layered(material, crate::blended::Layer::Objects)
 }
 
 /// `material` of an FX object of list 4 (#3286): in the last of the blended layers, over every
@@ -1180,7 +1193,7 @@ fn begin(
     assets: Res<AssetServer>,
     mut materials: ResMut<Assets<Effect>>,
 ) {
-    let mut made: Vec<((&'static str, Blend, bool), Material)> = Vec::new();
+    let mut made: Vec<(MaterialKey, Material)> = Vec::new();
     let mut variants = Vec::new();
     for variant in VARIANTS {
         let Some(fire) = fire(variant) else {
@@ -1190,7 +1203,7 @@ fn begin(
             fire.blends
                 .iter()
                 .map(|&blend| {
-                    let key = (fire.texture, blend, over);
+                    let key = (fire.texture, blend, over, fire.tinted);
                     if let Some((_, material)) = made.iter().find(|(k, _)| *k == key) {
                         return material.clone();
                     }
@@ -1206,7 +1219,13 @@ fn begin(
                             Blend::Whole => whole_material(image),
                             Blend::Over => particle_material(image, AlphaMode::Blend),
                         };
-                        materials.add(if over { over_all(material) } else { material })
+                        // A tinted one among the objects, as the world's camera draws it
+                        // (#3459).
+                        materials.add(match (over, fire.tinted) {
+                            (true, _) => over_all(material),
+                            (false, true) => among_objects(material),
+                            (false, false) => material,
+                        })
                     });
                     made.push((key, material.clone()));
                     material
@@ -1222,7 +1241,12 @@ fn begin(
         .iter()
         .map(|&blend| {
             made.iter()
-                .find(|(key, _)| *key == (step.texture, blend, false))
+                .find(|(key, _)| *key == (step.texture, blend, false, step.tinted))
+                .or_else(|| {
+                    made.iter().find(|((texture, of, over, _), _)| {
+                        (*texture, *of, *over) == (step.texture, blend, false)
+                    })
+                })
                 .and_then(|(_, material)| material.clone())
         })
         .collect();

@@ -40,7 +40,7 @@ struct Impact {
 
 /// The impacts' materials by their texture and whether laid over; none where a texture is missing.
 #[derive(Resource, Default)]
-struct Looks(HashMap<(&'static str, bool), Option<Handle<Effect>>>);
+struct Looks(HashMap<(&'static str, bool, bool), Option<Handle<Effect>>>);
 
 /// The impacts' dice.
 #[derive(Resource)]
@@ -82,10 +82,10 @@ fn make(
 ) {
     for entity in &unmade {
         let look = GrenadeImpact::new(&mut dice.0);
-        let mut material = |name: &'static str, over: bool| {
+        let mut material = |name: &'static str, over: bool, tinted: bool| {
             looks
                 .0
-                .entry((name, over))
+                .entry((name, over, tinted))
                 .or_insert_with(|| {
                     let image = data
                         .as_ref()
@@ -98,7 +98,15 @@ fn make(
                     } else {
                         AlphaMode::Add
                     };
-                    image.map(|image| effects.add(particle_material(image, mode)))
+                    // A tinted part, which the world's camera draws, among the objects (#3459).
+                    image.map(|image| {
+                        let material = particle_material(image, mode);
+                        effects.add(if tinted {
+                            crate::fx::among_objects(material)
+                        } else {
+                            material
+                        })
+                    })
                 })
                 .clone()
         };
@@ -106,12 +114,12 @@ fn make(
         let crater = GRENADE_CRATERS[look.crater.min(GRENADE_CRATERS.len() - 1)];
         // The crater and the tongues lie with the world, tinted by the night.
         let parts = [
-            (material(crater, true), true),
-            (material(flash, false), false),
-            (material(cloud, true), false),
-            (material(tongues, true), true),
-            (material(sparks, false), false),
-            (material(sparks, true), false),
+            (material(crater, true, true), true),
+            (material(flash, false, false), false),
+            (material(cloud, true, false), false),
+            (material(tongues, true, true), true),
+            (material(sparks, false, false), false),
+            (material(sparks, true, false), false),
         ];
         let meshes_of: [Handle<Mesh>; PARTS] = std::array::from_fn(|_| meshes.add(empty()));
         let mut made = commands.entity(entity);

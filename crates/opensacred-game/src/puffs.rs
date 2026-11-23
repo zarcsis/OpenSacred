@@ -97,7 +97,7 @@ const SEED: usize = 0x329;
 /// The bursts' materials by their texture and blend, made as they are first asked; none where the
 /// texture is missing.
 #[derive(Resource, Default)]
-struct Materials(HashMap<(&'static str, Blend), Option<Handle<crate::fx::Effect>>>);
+struct Materials(HashMap<(&'static str, Blend, bool), Option<Handle<crate::fx::Effect>>>);
 
 /// Gives each new burst its particles, its mesh and its material, in the camera that draws after
 /// the night's pass, as the untinted effects (#1191), unless the light at it tints it.
@@ -116,7 +116,7 @@ fn make(
         let burst = unmade.burst.clone();
         let material = made
             .0
-            .entry((burst.texture, burst.blend))
+            .entry((burst.texture, burst.blend, burst.tinted))
             .or_insert_with(|| {
                 let image = data
                     .as_ref()
@@ -128,10 +128,16 @@ fn make(
                     );
                 }
                 image.map(|image| {
-                    materials.add(match burst.blend {
+                    let material = match burst.blend {
                         Blend::Add => particle_material(image, AlphaMode::Add),
                         Blend::Whole => crate::fx::whole_material(image),
                         Blend::Over => particle_material(image, AlphaMode::Blend),
+                    };
+                    // A tinted burst, which the world's camera draws, among the objects (#3459).
+                    materials.add(if burst.tinted {
+                        crate::fx::among_objects(material)
+                    } else {
+                        material
                     })
                 })
             })

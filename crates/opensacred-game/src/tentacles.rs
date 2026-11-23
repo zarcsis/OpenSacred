@@ -55,7 +55,12 @@ impl Looks {
             if image.is_none() {
                 warn!("tentacles: no texture {name}; it is not drawn");
             }
-            image.map(|image| effects.add(particle_material(image, AlphaMode::Blend)))
+            image.map(|image| {
+                effects.add(crate::fx::among_objects(particle_material(
+                    image,
+                    AlphaMode::Blend,
+                )))
+            })
         };
         self.dots = material(particles::TENTACLE_TEXTURE);
         self.runes = (1..=particles::TENTACLE_RUNES)

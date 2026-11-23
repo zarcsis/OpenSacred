@@ -123,8 +123,12 @@ fn throw(
             if image.is_none() {
                 warn!("body parts: no texture {PARTICLE_CLOUD}; their trails are not drawn");
             }
-            looks.trail =
-                image.map(|image| materials.add(particle_material(image, AlphaMode::Blend)));
+            looks.trail = image.map(|image| {
+                materials.add(crate::fx::among_objects(particle_material(
+                    image,
+                    AlphaMode::Blend,
+                )))
+            });
         }
         let dice = &mut dice.0;
         let ground = heights.standing(at.x, at.z, level).unwrap_or(at.y);

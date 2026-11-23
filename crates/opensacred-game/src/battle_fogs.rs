@@ -121,7 +121,12 @@ fn make(
                 if image.is_none() {
                     warn!("battle fogs: no texture {texture}; the fog is not drawn");
                 }
-                image.map(|image| materials.add(particle_material(image, AlphaMode::Blend)))
+                image.map(|image| {
+                    materials.add(crate::fx::among_objects(particle_material(
+                        image,
+                        AlphaMode::Blend,
+                    )))
+                })
             })
             .clone();
         commands.entity(entity).despawn();

@@ -73,7 +73,12 @@ fn show(
                 if image.is_none() {
                     warn!("twisters: no texture {TEXTURE}; the gust is not drawn");
                 }
-                image.map(|image| materials.add(particle_material(image, AlphaMode::Blend)))
+                image.map(|image| {
+                    materials.add(crate::fx::among_objects(particle_material(
+                        image,
+                        AlphaMode::Blend,
+                    )))
+                })
             })
             .clone();
         let mesh = meshes.add(empty());
