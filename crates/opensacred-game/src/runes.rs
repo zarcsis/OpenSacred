@@ -14,9 +14,11 @@
 //! function instead, before anything else takes the click (`0x6C0150` at `0x6C0A49`), and leaves
 //! the grid (`0x5DA630`), with no sound.
 //!
-//! Not followed: the spells' page told of the art (`UI_TABPAGE_SPELLS`), the taskbar's book button
-//! told of a new book (`UI_TB_BOOK`), and the `Use:` function of an item dropped into the world
-//! and taken again, or of a quest's item, which the hero's book only lists (`quest_book`, #1565).
+//! A rune that taught or raised an art flashes the spells page's tab (`UI_TABPAGE_SPELLS`), and a
+//! book new to the list sparkles the bar's book button (`UI_TB_BOOK`; `sparkles::Told`, #3095).
+//!
+//! Not followed: the `Use:` function of an item dropped into the world and taken again, or of a
+//! quest's item, which the hero's book only lists (`quest_book`, #1565).
 
 use bevy::prelude::*;
 use opensacred_rules::equipment::{class_bit, may_use};
@@ -91,7 +93,10 @@ fn read(
     hero: Option<Res<Hero>>,
     arts: Option<ResMut<HeroArts>>,
     combats: Query<&crate::fight::Combat, With<crate::hero::Body>>,
-    mut sounds: MessageWriter<sfx::Play>,
+    (mut sounds, mut told): (
+        MessageWriter<sfx::Play>,
+        MessageWriter<crate::sparkles::Told>,
+    ),
 ) {
     if !shown.0 || pack.held.is_some() || !buttons.just_pressed(MouseButton::Right) {
         return;
@@ -124,6 +129,9 @@ fn read(
         let new = pack.read(dropped.item);
         pack.use_up(placed.key);
         used_up(&mut sounds);
+        if new {
+            told.write(crate::sparkles::Told::BookButton);
+        }
         let before = if new { "" } else { ", read before" };
         info!("runes: the hero reads the book {}{before}", dropped.item);
         return;
@@ -169,6 +177,7 @@ fn read(
     }
     match arts.learn(art, 1) {
         Ok(()) => {
+            told.write(crate::sparkles::Told::SpellsTab);
             pack.use_up(placed.key);
             used_up(&mut sounds);
             info!("runes: the hero reads {}: the art {art}", dropped.item);

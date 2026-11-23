@@ -146,7 +146,14 @@ pub struct Opening(pub Option<u8>);
 
 /// A tab of the tab sheet, by its page.
 #[derive(Component)]
-struct Tab(u8);
+pub(crate) struct Tab(u8);
+
+impl Tab {
+    /// The page whose tab it is.
+    pub(crate) fn page(&self) -> u8 {
+        self.0
+    }
+}
 
 /// The container of the windows, the original's screen centred along the window's width.
 #[derive(Component)]
