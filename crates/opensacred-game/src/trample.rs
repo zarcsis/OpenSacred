@@ -341,6 +341,7 @@ fn pass(
                             left: horses::TRAMPLE_KNOCK,
                             held: 0.0,
                             throw: None,
+                            unheld: false,
                         },
                         crate::npcs::ScriptClip::fall(horses::TRAMPLE_FALL),
                     ));

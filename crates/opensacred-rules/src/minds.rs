@@ -1535,6 +1535,15 @@ impl Mind {
         self.held_for(HELD.max(held));
     }
 
+    /// Knocked back by the Dwarf's cannon 1087, which clears the event's hold at once (`+0x200`
+    /// bit `0x40000`, `+0x204` 0, `0x51798E`; docs/re/arts.md, "The Dwarf's", #3430): it leaves
+    /// its fight and stands as a knocked creature does, but is not held, and thinks again as its
+    /// slide ends.
+    pub fn knocked_unheld(&mut self) {
+        self.leaves_fight();
+        self.to_door = false;
+    }
+
     /// Stunned where it stands by the Gladiator's jump (`0x4FF0B0` at `0x500973`): it leaves its
     /// fight and stands (`0x54E6D0`), and is held as a knocked creature is ([`Self::knocked`])
     /// for `seconds`, at least [`STUNNED`].
@@ -7417,6 +7426,13 @@ mod tests {
         assert!(stunned.held());
         stunned.think(&senses(0.11, false), |_| true, || false, &mut rng);
         assert!(!stunned.held());
+        // The cannon's knock leaves the fight and holds nothing (#3430).
+        let mut shot = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
+        shot.think(&senses(0.1, false), |_| true, || false, &mut rng);
+        assert!(shot.fighting);
+        shot.to_door = true;
+        shot.knocked_unheld();
+        assert!(!shot.held() && !shot.fighting && !shot.to_door);
     }
 
     #[test]

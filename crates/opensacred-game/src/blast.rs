@@ -154,6 +154,7 @@ fn spread(
                         left: blasting.blast.strength,
                         held: 0.0,
                         throw: None,
+                        unheld: false,
                     });
             }
         }
