@@ -1763,12 +1763,77 @@ fn float_of(value: usize) -> f32 {
     f32::from(u16::try_from(value).unwrap_or(u16::MAX))
 }
 
-/// Writes the game history under `root`: its title, its graph's image, its maxima's labels, the
-/// highest level kept and its legend.
+/// The system font's texture (`FONT_SYSTEM.TGA`, `texture.pak`'s texture 19), its cells and
+/// how many to a row (`0x182EE2C`; docs/re/questbook.md, "The statistics' book (type 3,
+/// `cUI_StatsTab`)", #3423).
+const SYSTEM_FONT: &str = "FONT_SYSTEM";
+const SYSTEM_CELL: Vec2 = Vec2::new(8.0, 10.0);
+const SYSTEM_ROW: u8 = 32;
+
+/// The system font's texture, sampled unsmoothed as the original's square-cut glyphs; none where
+/// the assets lack it.
+fn system_font(assets: &std::path::Path, server: &AssetServer) -> Option<Handle<Image>> {
+    use bevy::image::{ImageLoaderSettings, ImageSampler};
+    let path = crate::fx::texture_path(assets, SYSTEM_FONT)?;
+    Some(
+        server
+            .load_builder()
+            .with_settings(|settings: &mut ImageLoaderSettings| {
+                settings.sampler = ImageSampler::nearest();
+            })
+            .load::<Image>(path),
+    )
+}
+
+/// The cell of the system font's texture that the byte `byte` of the code page 437 takes: 32 to a
+/// row of 8 × 10.
+fn system_cell(byte: u8) -> Rect {
+    let at = Vec2::new(
+        f32::from(byte % SYSTEM_ROW) * SYSTEM_CELL.x,
+        f32::from(byte / SYSTEM_ROW) * SYSTEM_CELL.y,
+    );
+    Rect::from_corners(at, at + SYSTEM_CELL)
+}
+
+/// Writes `text` under `root` in the system font `font` at `at` in `colour` (`0x648CD0`): each
+/// character its byte's cell, its quad 8 × 10 at the pen, the pen 8 further; a character outside
+/// the code page's ASCII part takes `?`.
+fn write_system(
+    commands: &mut Commands,
+    (root, font): (Entity, &Handle<Image>),
+    text: &str,
+    at: Vec2,
+    colour: u32,
+) {
+    for (pen, c) in (0_u8..).zip(text.chars()) {
+        let byte = u8::try_from(u32::from(c))
+            .ok()
+            .filter(u8::is_ascii)
+            .unwrap_or(b'?');
+        let child = commands
+            .spawn((
+                ImageNode {
+                    color: argb(colour),
+                    rect: Some(system_cell(byte)),
+                    ..ImageNode::new(font.clone())
+                },
+                bar::placed(
+                    at + Vec2::new(f32::from(pen) * SYSTEM_CELL.x, 0.0),
+                    SYSTEM_CELL,
+                ),
+                Pickable::IGNORE,
+            ))
+            .id();
+        commands.entity(root).add_child(child);
+    }
+}
+
+/// Writes the game history under `root`: its title, its graph's image, its maxima's labels and
+/// the highest level kept in the system font `font` (else the small lettering), and its legend.
 fn history_panel(
     commands: &mut Commands,
     (root, assets, texts): (Entity, &AssetServer, Option<&Texts>),
-    graph: &Graph,
+    (graph, font): (&Graph, Option<&Handle<Image>>),
     image: Handle<Image>,
 ) {
     let named = |key: &str| {
@@ -1803,13 +1868,17 @@ fn history_panel(
             HISTORY_LABELS_Y[3],
         ),
     ] {
-        write_in(
-            commands,
-            (root, assets),
-            &value.to_string(),
-            (Vec2::new(HISTORY_LABELS_X, y), STATS_WIDTH),
-            (Style::Small, colour, Justify::Left),
-        );
+        let at = Vec2::new(HISTORY_LABELS_X, y);
+        match font {
+            Some(font) => write_system(commands, (root, font), &value.to_string(), at, colour),
+            None => write_in(
+                commands,
+                (root, assets),
+                &value.to_string(),
+                (at, STATS_WIDTH),
+                (Style::Small, colour, Justify::Left),
+            ),
+        }
     }
     for (i, key) in HISTORY_LEGEND.iter().enumerate() {
         let text = named(key);
@@ -2159,7 +2228,15 @@ fn show(
         if let Some(graph) = &look.graph {
             let scale = ui_scale.0 * windows.single().map_or(1.0, Window::scale_factor);
             let image = images_made.add(graph_image(&graph.segments(), scale));
-            history_panel(&mut commands, (root, &assets, texts), graph, image);
+            let font = data
+                .as_deref()
+                .and_then(|data| system_font(&data.0.assets, &assets));
+            history_panel(
+                &mut commands,
+                (root, &assets, texts),
+                (graph, font.as_ref()),
+                image,
+            );
         }
         if let Some((latest, frequent)) = &look.foes {
             let pieces = (root, &*assets, texts, portraits.as_deref());
@@ -2541,6 +2618,15 @@ impl Plugin for QuestBookPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_character_of_the_system_font_takes_its_bytes_cell() {
+        assert_eq!(system_cell(0), Rect::new(0.0, 0.0, 8.0, 10.0));
+        // `0` is the byte 48: the row 1, the column 16.
+        assert_eq!(system_cell(b'0'), Rect::new(128.0, 10.0, 136.0, 20.0));
+        assert_eq!(system_cell(b'9'), Rect::new(200.0, 10.0, 208.0, 20.0));
+        assert_eq!(system_cell(255), Rect::new(248.0, 70.0, 256.0, 80.0));
+    }
 
     fn entry(quest: u32, chapter: i32) -> Entry {
         Entry {

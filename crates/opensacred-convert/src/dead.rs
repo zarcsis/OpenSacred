@@ -107,7 +107,7 @@ mod tests {
         // The motions' files go by their own rule (#2647), the menus' tiles by theirs (#2646).
         assert!(all.iter().all(|path| !crate::models::is_motion(path)));
         assert!(all.iter().all(|path| !crate::ui::is_menu_tile(path)));
-        assert_eq!(all.len(), 5_044);
+        assert_eq!(all.len(), 5_043);
         assert!(is_dead("world/sprites/00467.png"));
         assert!(!is_dead("world/sprites/00001.png"));
     }
