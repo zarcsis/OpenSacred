@@ -86,6 +86,30 @@ impl Effects {
             .any(|timed| timed.effect.id == opensacred_rules::arts::BLEEDS)
     }
 
+    /// Adds a script's bleeding (`SetNPCState`'s `0x84`, `0x461D1F`, #3444): the effect 23 of the
+    /// whole value 1 and the value `value` for `seconds`, keyed by no art and with no source, by
+    /// which its bearer strikes itself ([`bleed`]).
+    pub fn bleed_by_script(&mut self, value: f32, seconds: f32) {
+        self.0.push(Timed {
+            effect: Effect {
+                whole: 1,
+                ..Effect::new(opensacred_rules::arts::BLEEDS, value)
+            },
+            left: seconds,
+            source: None,
+        });
+    }
+
+    /// Ends every bleeding (`SetNPCState`'s `0x84 (0, 0)`, `0x461D29`–`0x461DBD`): their seconds
+    /// set to 0.001.
+    pub fn stop_bleeding(&mut self) {
+        for timed in &mut self.0 {
+            if timed.effect.id == opensacred_rules::arts::BLEEDS {
+                timed.left = CURED_LEFT;
+            }
+        }
+    }
+
     /// Adds a strike's open wound from `source` (`opensacred_rules::fight::open_wound`, #1727):
     /// the effect 23 of the value `value` for `seconds`, unless it bleeds already. Whether it went.
     pub fn wound(&mut self, value: f32, seconds: f32, source: Entity) -> bool {
@@ -239,18 +263,24 @@ impl Effects {
     }
 
     /// A step of `seconds` of each bleeding (the effect 23, `opensacred_rules::arts::bleed`): the
-    /// physical damage its strikes take in all.
-    fn bleed(&mut self, seconds: f32) -> u32 {
-        let mut struck = 0;
+    /// physical damage its strikes take in all, of the strikes' and the kiss's, and of the
+    /// scripts', keyed by no art and of no source, which its bearer strikes itself with
+    /// (`0x5604FB`).
+    fn bleed(&mut self, seconds: f32) -> (u32, u32) {
+        let (mut struck, mut own) = (0, 0);
         for timed in &mut self.0 {
             if timed.effect.id == opensacred_rules::arts::BLEEDS {
                 let (whole, strike) =
                     opensacred_rules::arts::bleed(timed.effect.whole, timed.effect.value, seconds);
                 timed.effect.whole = whole;
-                struck += strike.unwrap_or(0);
+                if timed.source.is_none() && timed.effect.art == 0 {
+                    own += strike.unwrap_or(0);
+                } else {
+                    struck += strike.unwrap_or(0);
+                }
             }
         }
-        struck
+        (struck, own)
     }
 
     /// A step of `seconds` of each poison (the effect 30, `opensacred_rules::fight::poison_tick`):
@@ -346,46 +376,81 @@ fn wear(
 /// The most of a tick's time that the bleeding and the poison take (`0x5375C0`).
 const STEP_AT_MOST: f32 = 0.3;
 
-/// Each NPC's bleeding at each tick of the world (the creature's update `0x5375C0` at
-/// `0x537F07`, `0x560340`): each strike sends it the strike of its physical damage from the hero,
-/// the death's kiss's giver, which rolls no hit (the event 5 with fixed damage).
-#[expect(
-    clippy::type_complexity,
-    reason = "a Bevy system's queries carry their filters"
-)]
+/// A script's bleeding of the hero (`SetNPCState`'s `0x84`): its value and seconds, or none to
+/// end every bleeding (#3444).
+#[derive(Message, Clone, Copy, Debug, PartialEq)]
+pub struct ScriptBleeding(pub Option<(f32, f32)>);
+
+/// Gives the hero the scripts' bleedings, or ends them ([`ScriptBleeding`]).
+fn script_bleedings(
+    mut commands: Commands,
+    mut bleedings: MessageReader<ScriptBleeding>,
+    heroes: Query<Entity, With<Body>>,
+) {
+    let Some(hero) = heroes.iter().next() else {
+        bleedings.clear();
+        return;
+    };
+    for &ScriptBleeding(bleeding) in bleedings.read() {
+        debug!("effects: the scripts bleed the hero: {bleeding:?}");
+        commands
+            .entity(hero)
+            .entry::<Effects>()
+            .or_default()
+            .and_modify(move |mut effects| match bleeding {
+                Some((value, seconds)) => effects.bleed_by_script(value, seconds),
+                None => effects.stop_bleeding(),
+            });
+    }
+}
+
+/// The strike of a bleeding's `damage`, fixed and physical, which rolls no hit (the event 5), from
+/// `attacker`, of the poison's own kind 17 where `own` (`0x56052C`).
+fn bled(attacker: Entity, target: Entity, damage: u32, own: bool) -> fight::Hit {
+    fight::Hit {
+        attacker,
+        target,
+        share: 1.0,
+        ranged: false,
+        art: None,
+        fixed: Some([
+            f32::from(u16::try_from(damage).unwrap_or(u16::MAX)),
+            0.0,
+            0.0,
+            0.0,
+        ]),
+        sure: true,
+        poison: own,
+        ward: false,
+        hurled: false,
+        object: false,
+    }
+}
+
+/// Each creature's bleeding at each tick of the world (the creature's update `0x5375C0` at
+/// `0x537F07`, `0x560340`): an NPC's strikes' and kiss's bleeding sends it the strike of its
+/// physical damage from the hero, the death's kiss's giver; a script's, the hero's too, from the
+/// bearer itself, of the kind 17 (`0x5604FB`, `0x56052C`; #3444). Each rolls no hit.
 fn bleed(
     tick: Res<WorldTick>,
     mut hits: MessageWriter<fight::Hit>,
     heroes: Query<Entity, With<Body>>,
-    mut creatures: Query<(Entity, &mut Effects), (Without<Body>, Without<npcs::Dies>)>,
+    mut creatures: Query<(Entity, &mut Effects, Has<Body>), Without<npcs::Dies>>,
 ) {
     let (Some(seconds), Some(hero)) = (tick.seconds, heroes.iter().next()) else {
         return;
     };
-    for (entity, mut effects) in &mut creatures {
-        let struck = effects
+    for (entity, mut effects, is_hero) in &mut creatures {
+        let (struck, own) = effects
             .bypass_change_detection()
             .bleed(seconds.min(STEP_AT_MOST));
-        if struck > 0 {
+        if struck > 0 && !is_hero {
             debug!("effects: {entity} bleeds {struck}");
-            hits.write(fight::Hit {
-                attacker: hero,
-                target: entity,
-                share: 1.0,
-                ranged: false,
-                art: None,
-                fixed: Some([
-                    f32::from(u16::try_from(struck).unwrap_or(u16::MAX)),
-                    0.0,
-                    0.0,
-                    0.0,
-                ]),
-                sure: true,
-                poison: false,
-                ward: false,
-                hurled: false,
-                object: false,
-            });
+            hits.write(bled(hero, entity, struck, false));
+        }
+        if own > 0 {
+            debug!("effects: {entity} bleeds {own} by itself");
+            hits.write(bled(entity, entity, own, true));
         }
     }
 }
@@ -541,10 +606,11 @@ pub struct EffectsPlugin;
 
 impl Plugin for EffectsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.add_message::<ScriptBleeding>().add_systems(
             Update,
             (
                 wear.run_if(crate::frame::ticked).in_set(Wears),
+                script_bleedings,
                 bleed.run_if(crate::frame::ticked),
                 poison.run_if(crate::frame::ticked),
                 refit_hero,
@@ -560,6 +626,31 @@ impl Plugin for EffectsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_scripts_bleeding_strikes_its_bearer_itself_until_it_is_ended() {
+        let mut effects = Effects::default();
+        effects.bleed_by_script(10.0, 600.0);
+        // From the whole 1, 300 gathered each 0.3 s: the fourth step passes 990 and strikes 12,
+        // all of its own, none of another's.
+        let steps: Vec<(u32, u32)> = (0..4).map(|_| effects.bleed(0.3)).collect();
+        assert_eq!(steps, [(0, 0), (0, 0), (0, 0), (0, 12)]);
+        // A strike's wound beside it strikes from its giver.
+        let giver = Entity::from_raw_u32(7).expect("an entity");
+        let mut wounded = Effects::default();
+        assert!(wounded.wound(10.0, 5.0, giver));
+        let mut strikes = (0, 0);
+        for _ in 0..4 {
+            let (struck, own) = wounded.bleed(0.3);
+            strikes = (strikes.0 + struck, strikes.1 + own);
+        }
+        assert_eq!(strikes, (12, 0));
+        // `(0, 0)` ends every bleeding, the wound's too.
+        effects.stop_bleeding();
+        wounded.stop_bleeding();
+        assert!(effects.left(opensacred_rules::arts::BLEEDS) == Some(CURED_LEFT));
+        assert!(wounded.left(opensacred_rules::arts::BLEEDS) == Some(CURED_LEFT));
+    }
 
     #[test]
     fn the_butterflies_effect_renews_its_seconds_and_grows_its_art() {
