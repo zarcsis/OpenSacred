@@ -147,6 +147,9 @@ const EMERGES: u8 = 0x8D;
 const VISION: u8 = 0xA1;
 /// The tag of `SetNPCState` that lets its creature's body go (`0x46224D`–`0x4622B6`, #3445).
 const RELEASES: u8 = 0x80;
+/// The tag of `SetNPCState` that shows white butterflies over its creature's head for its seconds
+/// (`0x462180`, #3446).
+const BUTTERFLIES: u8 = 0x7F;
 /// The operand of `CreateNPC` whose value of 0 or more arms its creature by the `MakeGroup` rules
 /// that the last `Enter` left, as a fill's (`sdk_CREATENPC` at `0x48488E`, `0x47F8E0`; #3072).
 const BY_RULES: u8 = 0x54;
@@ -2655,6 +2658,9 @@ struct State {
     /// cleared, its talk taken away, and a dead one's stamp put back so that its body vanishes a
     /// second later (`bodies::Released`).
     releases: bool,
+    /// The seconds of the white butterflies that its `0x7F` shows over the creature's head
+    /// ([`BUTTERFLIES`]), the last of them above 0; none for none.
+    butterflies: Option<u32>,
 }
 
 impl State {
@@ -2677,6 +2683,7 @@ impl State {
             },
             vision: ops.iter().any(|op| op.tag == VISION),
             releases: ops.iter().any(|op| op.tag == RELEASES),
+            butterflies: butterflies(ops),
             ..Self::default()
         };
         for op in ops {
@@ -2731,6 +2738,7 @@ impl State {
             || self.rises.is_some()
             || self.vision
             || self.releases
+            || self.butterflies.is_some()
     }
 
     /// The dialogue it leaves a creature that had `talk`: its own, or none for a horse it stocks.
@@ -2864,6 +2872,20 @@ fn rises(ops: &[opensacred_data::netscript::Operand]) -> bool {
                 Value::I32(0) | Value::U16(0) | Value::U8(0) | Value::Marker
             )
     })
+}
+
+/// The seconds of the butterflies that the operands `ops` show ([`BUTTERFLIES`]): the last
+/// `0x7F` of a number above 0.
+fn butterflies(ops: &[opensacred_data::netscript::Operand]) -> Option<u32> {
+    ops.iter()
+        .rev()
+        .find_map(|op| match (op.tag, &op.value) {
+            (BUTTERFLIES, Value::I32(n)) => u32::try_from(*n).ok(),
+            (BUTTERFLIES, Value::U16(n)) => Some(u32::from(*n)),
+            (BUTTERFLIES, Value::U8(n)) => Some(u32::from(*n)),
+            _ => None,
+        })
+        .filter(|&seconds| seconds > 0)
 }
 
 /// Whether the operands `ops` carry a [`BY_RULES`] of 0 or more, the last of them counting.
@@ -11831,6 +11853,24 @@ pub(crate) fn script_records(
                 bevy::log::info!("npcs: the scripts let {name}'s body go");
             }
         }
+        // White butterflies over its head for its seconds, living or dying (`0x7F`, `0x462180`,
+        // #3446): quest 2101's deaths' functions show them over their bodies.
+        if let Some(seconds) = state.butterflies {
+            let named: Vec<Entity> = dying
+                .iter()
+                .filter(|(_, named, ..)| named.0 == name)
+                .map(|(entity, ..)| entity)
+                .chain(
+                    creatures
+                        .iter()
+                        .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == name))
+                        .map(|(entity, ..)| entity),
+                )
+                .collect();
+            for entity in named {
+                crate::knockouts::white(&mut commands, entity, seconds);
+            }
+        }
         // A dead creature takes a vision's mark too (#3064): the Underworld's `Game_over` marks
         // Vilya as the same run's `SetHP` lifts her.
         if state.vision {
@@ -14671,6 +14711,20 @@ mod tests {
     use opensacred_data::netscript::{Function, Operand};
 
     use super::*;
+
+    #[test]
+    fn a_states_butterflies_are_its_last_0x7f_above_0() {
+        use opensacred_data::netscript::Operand;
+        let op = |tag, value| Operand { tag, value };
+        assert_eq!(butterflies(&[op(0x7F, Value::I32(20))]), Some(20));
+        assert_eq!(
+            butterflies(&[op(0x7F, Value::U16(5)), op(0x7F, Value::U8(3))]),
+            Some(3)
+        );
+        assert_eq!(butterflies(&[op(0x7F, Value::I32(0))]), None);
+        assert_eq!(butterflies(&[op(0x7F, Value::I32(-4))]), None);
+        assert_eq!(butterflies(&[op(0x80, Value::I32(20))]), None);
+    }
 
     #[test]
     fn a_death_beside_a_soulcatcher_on_its_level_puts_its_stamp_back() {
