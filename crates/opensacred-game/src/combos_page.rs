@@ -11,8 +11,9 @@
 //! empty combo too; a press with one on the cursor lets it go; a right press puts the combo into
 //! the bar's selected slot (`0x6BF420`, the taskbar's message 6; `art_slots`).
 //!
-//! Not followed: the master's window's view of the page (#1540), and `FX_COMBOALPHA180`, `120`
-//! and `90`, which the page loads and never draws.
+//! While the combat master's window shows, a control's tooltip is its own text, 9937 (#3113).
+//!
+//! Not followed: `FX_COMBOALPHA180`, `120` and `90`, which the page loads and never draws.
 
 use bevy::prelude::*;
 
@@ -54,6 +55,9 @@ const LINE: f32 = 20.0;
 const WHITE: u32 = 0xFFFF_FFFF;
 /// The tooltip: its text and its centre's place from the control.
 const TOOLTIP: &str = "UI_TOOLTIP_COMBOSYMBOL";
+/// The controls' own text, their tooltip while the combat master's window shows (the text 9937,
+/// which bids the player put the symbol in at the master; seen, #3113).
+const MASTER_TOOLTIP: u32 = 9937;
 const TOOLTIP_FROM: Vec2 = Vec2::new(48.0, 80.0);
 
 /// The files of the backgrounds and the symbols, found once.
@@ -253,11 +257,12 @@ fn show(
 }
 
 /// The symbol's tooltip, shown once the pointer rests on a control a third of a second and taken
-/// away as it leaves or the page hides (`tooltip::Rest`).
+/// away as it leaves or the page hides (`tooltip::Rest`): `UI_TOOLTIP_COMBOSYMBOL`, or while the
+/// combat master's window shows the control's own text (#3113).
 fn tooltip(
     mut commands: Commands,
     time: Res<Time<Real>>,
-    (shown, page): (Res<Shown>, Res<Page>),
+    (shown, page, master): (Res<Shown>, Res<Page>, Option<Res<crate::master::Master>>),
     (pointer, ui_scale, windows): (Res<Pointer>, Res<UiScale>, Query<&Window>),
     (assets, texts): (Res<AssetServer>, Option<Res<Texts>>),
     tips: Query<Entity, With<TipRoot>>,
@@ -277,7 +282,14 @@ fn tooltip(
     let Some(control) = due.and_then(|control| usize::try_from(control).ok()) else {
         return;
     };
-    if let Some(text) = texts.as_deref().and_then(|texts| texts.named(TOOLTIP)) {
+    let text = texts.as_deref().and_then(|texts| {
+        if master.is_some() {
+            texts.id(MASTER_TOOLTIP)
+        } else {
+            texts.named(TOOLTIP)
+        }
+    });
+    if let Some(text) = text {
         spawn_tip(
             &mut commands,
             &assets,

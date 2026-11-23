@@ -232,7 +232,7 @@ In `opensacred-game` since #1528 (`spells_page`, `inventory::Page`): the tabs sh
 **Seen** in the game beside the original at the Seraphim's start: the backgrounds and the seventeen icons at the original's places, 1071 vivid and the rest grey; 1070 taught by the console flashing over its vivid icon, and no more once the page hid.
 Since #1529 the page's presses take a held art onto the cursor, let it go, and put one into the selected slot, the night arts refused by day (`spells_page`, `art_slots`).
 Since #1696 an art under the mouse shows its tooltip with its next level (`tooltip::art`, "The art's tooltip" below).
-Not followed: the page's view under the master's window (the Vampiress's later eight not greyed, her night arts taken by day; #3113).
+Since #3113 the page's view under the master's window as the original's: the Vampiress's later eight vivid by day and her night arts taken by day (`spells_page`).
 Since #1536 the keys F1 to F6 are followed as above (`spells_page`, `opensacred_rules::arts::Arts::bind`): the page's list of keys (`ArtKeys`), made as the page shows and anew for another layout while it shows, the keys bound and cleared over the held arts, the selected slot given the art of a key, and `F%d` in AntiquaSSK at (44, 42) of the icon; since #1743 a key cleared over its art is taken off the hero's entry too (`Arts::unbind`; docs/decisions/arts.md, "Spells page's key cleared with its binding").
 **Seen** in the game beside the original's frame (2026-10-30), the Seraphim's start with 1070 taught: F1 over its icon bound it in both, its word the slot 1 and its mark of new gone (the drivers' `arts`); the label at the same place and of the same height, the original's GDI setting its two letters about two pixels further apart.
 In the game alone: F2 over its art took the label off and the page's next show put it back, F1 with the page hidden put 1070 into the selected slot, F5 then did nothing and F5 with the page open put 1017 there.
@@ -553,7 +553,7 @@ Read 2026-10-30 for #1090 (#1530, **confirmed** by code and **seen** in the runn
 
 In `opensacred-game` since #1530 (`combos_page`): the page as above, the steps' lines in the game's font, the tooltip a panel of the items' tooltip's look without its border; a left press on a symbol takes its combo, a press with something on the cursor lets it go, a right press puts the combo into the selected slot.
 **Seen** in the game beside the original's frames at the Seraphim's level 8: the four symbols in their frames and the two combos' lines at the original's places, the first combo onto the cursor and dropped on the second slot, the second by the right button into the selected slot, and the tooltip at the screen's left edge.
-Not followed: the master's window's view of the page (a control's own text for its tooltip), which #1540 left out (#3113).
+Since #3113 the master's window's view of the page: a control's own text, 9937, for its tooltip (`combos_page`).
 
 ## The combat master
 
@@ -593,7 +593,7 @@ Since #1743 the button lights and the total shows yellow only where a press make
 **Seen** in the game at the Seraphim's level 8 at the master of type 317: a combo of three steps priced 200, 200 and 100 and 1,500 in all, `x3`, the total red without gold and yellow at 1,500, the button lit at 1,500 and making nothing, and at 1,801 the combo made, 1,500 taken, the page cleared and the combos page showing it.
 The other traders' windows are the merchants' since #1618 (docs/re/trade.md) and the smiths' since #1662 (docs/re/blacksmith.md); since #1722 the window and its pages play the combo master's sounds as they show.
 The controls play no sound of their own, as the original's; the spells page's click comes as the page changes (`inventory::page_sounds`), so that a combo dropped while the spells page shows already plays none, where the original's plays it again (#3467).
-Not followed: the spells page's view under the master and the combos page's tooltip under it (its control's own text 9937, "The combos page" above; #3113).
+Since #3113 the spells page's view under the master and the combos page's tooltip under it (its control's own text 9937, "The combos page" above).
 
 ### The combat master's exchange
 
