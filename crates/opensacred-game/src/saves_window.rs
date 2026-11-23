@@ -941,6 +941,40 @@ fn pressed(
     if !listing.enabled(button) || !questions.is_empty() {
         return;
     }
+    // A save of another version is not loaded: the busy dialog tells it over a Cancel alone
+    // (docs/re/menus.md, "The busy dialog (`DEFAULT_BUSYDLG`)", #3171).
+    if button == Button::Load
+        && listing
+            .save_of(listing.selected)
+            .is_some_and(|save| save.stale)
+    {
+        let buttons = busy_dialog::spawn(
+            &mut commands,
+            (&choices, &assets, texts.as_deref()),
+            (
+                (Question, DespawnOnExit(Screen::Load)),
+                (
+                    "UI_BUSY_SAVEGAME_VER",
+                    "The saved game is of another version.",
+                ),
+            ),
+            &[(
+                Answer::Load(false),
+                busy_dialog::OK_ALONE,
+                ("UI_NET_CANCEL", "Cancel"),
+            )],
+        );
+        for (entity, answer) in buttons {
+            commands.entity(entity).observe(
+                move |click: On<PointerClick>, mut commands: Commands| {
+                    if click.button == PointerButton::Primary {
+                        commands.run_system_cached_with(answered, answer);
+                    }
+                },
+            );
+        }
+        return;
+    }
     let (line, yes, no) = match button {
         Button::Load => (
             ("UI_BUSY_LOAD_SURE", "Load the game?"),
@@ -1224,6 +1258,7 @@ mod tests {
                 tree: None,
             },
             picture: None,
+            stale: false,
         }
     }
 
