@@ -3139,7 +3139,8 @@ The class is the 856's, `cParticleSystem_generic` (its constructor `0x796150`, s
 | The last deaths' burnings (`0x541BB2`, `0x5416FD`, `0x542035`) | 0, 7, 8 | `0xFFFF4040` for 0 | the corpse |
 | `Partikel` (`0x4A91F6`, `0x4A9385`) | the record's | the record's | docs/re/netscript.md |
 | `0x4A0120`, in `0x49FC50` | 1 | `0x000080FF` | not read |
-| `0x4E1A1F`, in the melee state `0x4E0300`; `0x50F857`, in the Vampiress's executor `0x50E6C0` | 0 | `0xFF842222` | not read |
+| The Vampiress's dash, 1028 and 1029 (`0x50F857`, in her executor `0x50E6C0`) | 0 | `0xFF842222` | herself at every thirtieth unit of her line, her figure in red sparks standing where made and fading within some 2 s (**seen**; docs/re/arts.md, "The Vampiress's") |
+| `0x4E1A1F`, in the melee state `0x4E0300` | 0 | `0xFF842222` | not read |
 | `0x545157`, in the standing action `0x544890` | 0 | `0xFF804020` | not read |
 | `0x483757` in `CreateNPC`, `0x487941` in `CreateObj`, `0x59DF56` and `0x59E054` in the queue's step `0x59A840` | not read | not read | not read |
 

@@ -29,9 +29,13 @@
 //! the cursor or the right puts it into the backpack. As the inventory hides, the runes go back
 //! into the backpack.
 //!
-//! Not followed: the buttons' sounds, the spells page's view under the master (the Vampiress's
-//! arts not greyed), a combo on the page's tooltip, and a press on a slot with another item on
-//! the cursor (not read).
+//! A press on an exchange's slot with an item that is no rune on the cursor does nothing, where
+//! the original's loses the item (docs/decisions/arts.md, "Exchange slot keeps an item that is no
+//! rune"); its controls make no sound of their own, as the original's statics do not.
+//!
+//! Not followed: the spells page's click as a combo is dropped on the symbol (#3467), the spells
+//! page's view under the master (the Vampiress's arts not greyed), and a combo on the page's
+//! tooltip.
 
 use bevy::camera::visibility::RenderLayers;
 use bevy::prelude::*;
