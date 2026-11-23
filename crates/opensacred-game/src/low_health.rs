@@ -1,7 +1,9 @@
 //! The hero's low health on the portraits' column (#1463; docs/re/interface.md, "The portraits'
 //! column", `cUI_Mercenary`): the health's red ring glows while the health is below a quarter of
 //! its most (`0x6D73D0`, `0x732220`), and a red alarm's ring spreads from the portrait once as the
-//! health falls below the settings' warning level (`0x6D70F0`, `0x75FC70`).
+//! health falls below the settings' warning level (`0x6D70F0`, `0x75FC70`). Each follower's entry
+//! glows its red ring the same by its own health (the same draw for each entry, #3102); the alarm
+//! is the hero's alone.
 
 use bevy::asset::embedded_asset;
 use bevy::prelude::*;
@@ -175,6 +177,10 @@ pub(crate) fn sonar_next(radius: f32, seconds: f32) -> Option<f32> {
 #[derive(Component)]
 struct GlowNode;
 
+/// The glow under a follower's entry's red ring's part, its child ([`entry_glows`]).
+#[derive(Component)]
+struct EntryGlow;
+
 /// The alarm's node in the column: its radius while it spreads, and whether the hero's health
 /// was below the warning level at the frame before (`+0x938`; below at first, so that a game
 /// started with little health raises none).
@@ -262,16 +268,84 @@ fn glow(
     };
     let low = heroes.iter().next().is_some_and(|health| below(health, 25));
     let alpha = glow_alpha(time.elapsed_secs());
+    lay_glow(
+        red,
+        low.then_some(alpha),
+        (&mut node, &mut visibility),
+        glows.get_mut(&material.0).as_deref_mut(),
+    );
+}
+
+/// A ring's glow of the part of `red` drawn, at `alpha` where its health is low, else hidden.
+fn lay_glow(
+    red: &ImageNode,
+    alpha: Option<f32>,
+    (node, visibility): (&mut Node, &mut Mut<'_, Visibility>),
+    glow: Option<&mut Glow>,
+) {
     let part = red.rect.filter(|rect| rect.height() > 0.0);
-    let (Some(part), true) = (part, low && alpha > 0.0) else {
+    let (Some(part), Some(alpha)) = (part, alpha.filter(|&alpha| alpha > 0.0)) else {
         visibility.set_if_neq(Visibility::Hidden);
         return;
     };
     visibility.set_if_neq(Visibility::Inherited);
     node.width = Val::Px(part.width() + 2.0 * GLOW_REACH);
     node.height = Val::Px(part.height() + 2.0 * GLOW_REACH);
-    if let Some(mut glow) = glows.get_mut(&material.0) {
+    if let Some(glow) = glow {
         glow.of(&red.image, part, alpha);
+    }
+}
+
+/// Gives each follower's entry's red ring's part its glow as it comes, a child under it as the
+/// hero's (`spawn`).
+fn entry_glows(
+    mut commands: Commands,
+    mut glows: ResMut<Assets<Glow>>,
+    reds: Query<(Entity, &bar::Entry)>,
+    made: Query<&ChildOf, With<EntryGlow>>,
+) {
+    for (red, entry) in &reds {
+        if !entry.red() || made.iter().any(|child| child.parent() == red) {
+            continue;
+        }
+        commands.entity(red).with_child((
+            EntryGlow,
+            MaterialNode(glows.add(Glow::empty())),
+            Node {
+                position_type: PositionType::Absolute,
+                left: Val::Px(-GLOW_REACH),
+                top: Val::Px(-GLOW_REACH),
+                ..default()
+            },
+            Visibility::Hidden,
+            Pickable::IGNORE,
+        ));
+    }
+}
+
+/// Each follower's entry's red ring glows while its health is below a quarter of its most, as
+/// the hero's ([`glow`], `0x6D73D0` for each entry; seen, #3102).
+fn entry_glow(
+    time: Res<Time<Real>>,
+    healths: Query<&Health>,
+    reds: Query<(&bar::Entry, &ImageNode)>,
+    mut nodes: Query<(&ChildOf, &MaterialNode<Glow>, &mut Node, &mut Visibility), With<EntryGlow>>,
+    mut glows: ResMut<Assets<Glow>>,
+) {
+    let alpha = glow_alpha(time.elapsed_secs());
+    for (child, material, mut node, mut visibility) in &mut nodes {
+        let Ok((entry, red)) = reds.get(child.parent()) else {
+            continue;
+        };
+        let low = healths
+            .get(entry.follower())
+            .is_ok_and(|health| below(health, 25));
+        lay_glow(
+            red,
+            low.then_some(alpha),
+            (&mut node, &mut visibility),
+            glows.get_mut(&material.0).as_deref_mut(),
+        );
     }
 }
 
@@ -327,7 +401,8 @@ impl Plugin for LowHealthPlugin {
         .add_systems(OnEnter(AppState::InGame), spawn.after(bar::spawn))
         .add_systems(
             Update,
-            (glow, alarm)
+            (glow, alarm, entry_glows, entry_glow)
+                .chain()
                 .after(bar::fill)
                 .run_if(in_state(AppState::InGame)),
         );

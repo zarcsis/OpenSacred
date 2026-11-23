@@ -44,7 +44,7 @@ use crate::frame::HoldsControl;
 use crate::game::AppState;
 use crate::hero::Body;
 use crate::hud::{self, Pointer};
-use crate::npcs::{RisesAgain, Stashed};
+use crate::npcs::Stashed;
 use crate::talk::Portraits;
 
 /// The original's screen, the bar's and the column's places on it.
@@ -401,9 +401,21 @@ struct MountFill;
 /// A piece of a follower's entry in the column: the follower it shows, and for its ring's parts
 /// whether the part is the red one and the ring's top in the column; none for the portrait.
 #[derive(Component)]
-struct Entry {
+pub(crate) struct Entry {
     follower: Entity,
     ring: Option<(bool, f32)>,
+}
+
+impl Entry {
+    /// The follower it shows.
+    pub(crate) fn follower(&self) -> Entity {
+        self.follower
+    }
+
+    /// Whether it is its ring's red part, which glows at low health (`low_health`).
+    pub(crate) fn red(&self) -> bool {
+        matches!(self.ring, Some((true, _)))
+    }
 }
 
 /// The followers whose entries the column shows, in their order.
@@ -1100,14 +1112,14 @@ fn cut_ring(
     }
 }
 
-/// The followers' entries under the hero's (`0x6D6430`, `0x6D8250`): the hero's followers, four
-/// at most, those shown keeping their places and the newcomers after them, each its health's ring
-/// and its portrait by its type (`0x435D30`), none for a type without one; made again as they
-/// come, die and go, a dead one that rises again kept (`npcs::RisesAgain`, #2459).
+/// The followers' entries under the hero's (`0x6D6430`, `0x6D8250`, `0x6D70F0`): the hero's
+/// list's followers that have an entry, in its order, four at most (`followers::List`,
+/// `Follower::listed`; #3102), each its health's ring and its portrait by its type (`0x435D30`),
+/// none for a type without one; made again as they come, die and go, a dead one that rises again
+/// kept (`npcs::RisesAgain`, #2459).
 #[expect(
     clippy::too_many_arguments,
-    clippy::type_complexity,
-    reason = "a Bevy system takes its resources and queries as arguments, its queries with their components"
+    reason = "a Bevy system takes its resources and queries as arguments"
 )]
 fn entries(
     mut commands: Commands,
@@ -1116,27 +1128,20 @@ fn entries(
     assets: Res<AssetServer>,
     portraits: Res<Portraits>,
     columns: Query<Entity, With<ColumnRoot>>,
-    heroes: Query<Entity, With<Body>>,
-    followers: Query<(
-        Entity,
-        &Follower,
-        Option<&Mind>,
-        Option<&Stashed>,
-        Has<RisesAgain>,
-    )>,
+    list: Res<crate::followers::List>,
+    followers: Query<(&Follower, Option<&Mind>, Option<&Stashed>)>,
     pieces: Query<Entity, With<Entry>>,
 ) {
-    let (Ok(column), Ok(hero)) = (columns.single(), heroes.single()) else {
+    let Ok(column) = columns.single() else {
         return;
     };
-    let theirs = followers
+    let order: Vec<Entity> = list
+        .0
         .iter()
-        .filter(|(_, follower, mind, stashed, rises)| {
-            follower.master == hero && (mind.is_some() || (stashed.is_some() && *rises))
-        })
-        .map(|(entity, ..)| entity)
+        .copied()
+        .filter(|&entity| followers.get(entity).is_ok_and(|(f, ..)| f.listed()))
+        .take(MOST_FOLLOWERS)
         .collect();
-    let order = entry_order(&shown.0, theirs);
     if order == shown.0 {
         return;
     }
@@ -1151,13 +1156,10 @@ fn entries(
             (image(HEALTH_GREY, RING_AT), Some((false, top))),
             (image(HEALTH_RED, RING_AT), Some((true, top))),
         ];
-        let kind = followers
-            .get(follower)
-            .ok()
-            .and_then(|(_, _, mind, stashed, _)| {
-                mind.or(stashed.map(|stashed| &stashed.mind))
-                    .map(|mind| mind.creature)
-            });
+        let kind = followers.get(follower).ok().and_then(|(_, mind, stashed)| {
+            mind.or(stashed.map(|stashed| &stashed.mind))
+                .map(|mind| mind.creature)
+        });
         if let Some(portrait) = kind.and_then(|kind| portraits.column(kind)) {
             parts.push((stretched(image(portrait, PORTRAIT_AT)), None));
         }
@@ -1167,22 +1169,6 @@ fn entries(
         }
     }
     shown.0 = order;
-}
-
-/// The followers that the entries show of the hero's followers `theirs`, those shown in `shown`:
-/// those still followers in their places, then the newcomers by their entities' indices, four at
-/// most.
-fn entry_order(shown: &[Entity], mut theirs: Vec<Entity>) -> Vec<Entity> {
-    theirs.sort_unstable_by_key(|entity| entity.index_u32());
-    let mut order: Vec<Entity> = shown
-        .iter()
-        .copied()
-        .filter(|entity| theirs.contains(entity))
-        .collect();
-    theirs.retain(|entity| !order.contains(entity));
-    order.extend(theirs);
-    order.truncate(MOST_FOLLOWERS);
-    order
 }
 
 /// The followers' rings split by their health as the hero's.
@@ -1498,7 +1484,7 @@ impl Plugin for BarPlugin {
                     fill,
                     mount_pieces,
                     art_icon,
-                    entries,
+                    entries.after(crate::followers::keep_list),
                     entry_rings,
                     damage_icons,
                     press,
@@ -1766,19 +1752,6 @@ mod tests {
         assert!(compose(&images, &texels, &[(5, Vec2::ZERO), (8, Vec2::ZERO)]).is_none());
         let off = table(&[(5, "rail", [3, 0, 2, 1])]);
         assert!(compose(&off, &texels, &[(5, Vec2::ZERO)]).is_none());
-    }
-
-    #[test]
-    fn the_followers_shown_keep_their_places_and_four_at_most_are() {
-        let e = |n: u32| Entity::from_raw_u32(n).unwrap();
-        assert_eq!(entry_order(&[], vec![e(9), e(3)]), [e(3), e(9)]);
-        // One gone: the others keep their order, the newcomer after them.
-        assert_eq!(
-            entry_order(&[e(9), e(3), e(5)], vec![e(5), e(1), e(9)]),
-            [e(9), e(5), e(1)]
-        );
-        let six = (1..=6).map(e).collect();
-        assert_eq!(entry_order(&[], six), [e(1), e(2), e(3), e(4)]);
     }
 
     #[test]

@@ -48,6 +48,10 @@ pub struct Follower {
     pub master: Entity,
     stepping_off: bool,
     escorted: bool,
+    /// The byte `+8` of its entry in its master's list (`sdk_HIRE`'s third argument): set for a
+    /// hire of the scripts and a saved party's, by which it has an entry in the portraits'
+    /// column; clear for the summoned, the Vampiress's arts' and the raised (#3102).
+    listed: bool,
 }
 
 impl Follower {
@@ -56,14 +60,80 @@ impl Follower {
         self.escorted
     }
 
-    /// A follower of `master` that fights, for a test.
+    /// Whether it has an entry in the portraits' column (`0x6D70F0`, the byte `+8`).
+    pub fn listed(&self) -> bool {
+        self.listed
+    }
+
+    /// A follower of `master` that fights, listed, for a test.
     #[cfg(test)]
     pub(crate) fn of(master: Entity) -> Self {
         Self {
             master,
             stepping_off: false,
             escorted: false,
+            listed: true,
         }
+    }
+}
+
+/// The hero's list of followers (`+0x39C`) in its order (docs/re/interface.md, "The followers'
+/// entries", #3102): a hire appends its creature (`sdk_HIRE`, `0x54CF70`), and one that leaves,
+/// dying or let go, gives its place to the list's last (`0x54D380`); a dead one kept to rise
+/// again stays. The portraits' column shows its listed ones in that order (`bar`).
+#[derive(Resource, Default, Debug)]
+pub(crate) struct List(pub(crate) Vec<Entity>);
+
+/// Keeps the list `list` in step with the followers `theirs`: each that left gives its place to
+/// the list's last, in the list's order, and the newcomers come after by their entities' indices.
+pub(crate) fn kept_list(list: &mut Vec<Entity>, mut theirs: Vec<Entity>) {
+    let mut at = 0;
+    while at < list.len() {
+        if theirs.contains(&list[at]) {
+            at += 1;
+        } else {
+            list.swap_remove(at);
+        }
+    }
+    theirs.sort_unstable_by_key(|entity| entity.index_u32());
+    for entity in theirs {
+        if !list.contains(&entity) {
+            list.push(entity);
+        }
+    }
+}
+
+/// The hero's list kept in step with its followers ([`List`]): those that live, and the dead kept
+/// to rise again (`npcs::RisesAgain`, #2459).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+pub(crate) fn keep_list(
+    mut list: ResMut<List>,
+    heroes: Query<Entity, With<Body>>,
+    followers: Query<(
+        Entity,
+        &Follower,
+        Option<&Mind>,
+        Option<&Stashed>,
+        Has<RisesAgain>,
+    )>,
+) {
+    let Some(hero) = heroes.iter().next() else {
+        return;
+    };
+    let theirs = followers
+        .iter()
+        .filter(|(_, follower, mind, stashed, rises)| {
+            follower.master == hero && (mind.is_some() || (stashed.is_some() && *rises))
+        })
+        .map(|(entity, ..)| entity)
+        .collect();
+    let mut kept = list.0.clone();
+    kept_list(&mut kept, theirs);
+    if kept != list.0 {
+        list.0 = kept;
     }
 }
 
@@ -227,7 +297,8 @@ fn hire_summoned(world: &mut World, summoning: Summoning, at: Vec3) {
         }
     };
     for entity in made {
-        hire(world, entity, summoning.master);
+        // A summoned follower has no entry in the column (`0x5B4680`'s hire of the byte 0).
+        hire(world, entity, summoning.master, false);
         summoned(world, entity);
     }
 }
@@ -250,8 +321,9 @@ fn summoned(world: &mut World, entity: Entity) {
 
 /// Hires `entity` as `master`'s follower (`sdk_HIRE`, `0x54CF70`): its flags word kept to the
 /// follower's behaviour (the bits `0xEFF62000`, none of which the game reads, and `0x100`), its
-/// side 3 where it was the animals' or hostile to its master, out of the hero's hostiles.
-fn hire(world: &mut World, entity: Entity, master: Entity) {
+/// side 3 where it was the animals' or hostile to its master, out of the hero's hostiles; with an
+/// entry in the portraits' column where `listed` (the hire's third argument, #3102).
+fn hire(world: &mut World, entity: Entity, master: Entity, listed: bool) {
     let Ok(mut creature) = world.get_entity_mut(entity) else {
         return;
     };
@@ -268,14 +340,20 @@ fn hire(world: &mut World, entity: Entity, master: Entity) {
         master,
         stepping_off: false,
         escorted: false,
+        listed,
     });
     info!("followers: {master} hires {entity}");
 }
 
 /// Hires a loaded save's follower `entity` by `master` again (#1959, `npcs::follow_again`), as
-/// [`hire`] does, of the flag 4 where it was `escorted`.
-pub(crate) fn rehire(world: &mut World, entity: Entity, master: Entity, escorted: bool) {
-    hire(world, entity, master);
+/// [`hire`] does, of the flag 4 where it was `escorted`, listed where it was.
+pub(crate) fn rehire(
+    world: &mut World,
+    entity: Entity,
+    master: Entity,
+    (escorted, listed): (bool, bool),
+) {
+    hire(world, entity, master, listed);
     if let Some(mut follower) = world.get_mut::<Follower>(entity) {
         follower.escorted = escorted;
     }
@@ -319,7 +397,7 @@ fn take_hires(world: &mut World) {
                 if let Some(mut streamer) = world.get_resource_mut::<crate::sectors::Streamer>() {
                     streamer.disown(entity);
                 }
-                hire(world, entity, hero);
+                hire(world, entity, hero, true);
                 if hire_of == Hire::Escorts
                     && let Some(mut follower) = world.get_mut::<Follower>(entity)
                 {
@@ -431,7 +509,8 @@ fn call_bat(
         crate::vamp_casts::bats_in(world, place);
     }
     for entity in made {
-        hire(world, entity, master);
+        // The Vampiress's arts' hires have no entry in the column (`0x50E6C0`, the byte 0).
+        hire(world, entity, master, false);
         let Ok(mut called) = world.get_entity_mut(entity) else {
             continue;
         };
@@ -546,7 +625,8 @@ fn raise_dead(world: &mut World, master: Entity, corpse: Entity, level: u32, sec
     };
     for entity in made {
         info!("followers: {corpse} rises as {entity} of level {level} for {seconds:?} s");
-        hire(world, entity, master);
+        // The raised have no entry in the column (`0x52F545`, the byte 0).
+        hire(world, entity, master, false);
         let Ok(mut raised) = world.get_entity_mut(entity) else {
             continue;
         };
@@ -1093,6 +1173,11 @@ pub struct FollowersPlugin;
 impl Plugin for FollowersPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Dice>()
+            .init_resource::<List>()
+            .add_systems(OnEnter(AppState::InGame), |mut list: ResMut<List>| {
+                list.0.clear();
+            })
+            .add_systems(Update, keep_list.in_set(crate::frame::Playing))
             .add_systems(
                 Update,
                 (make, chain, faint, rise_again)
@@ -1123,6 +1208,28 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_list_appends_a_hire_and_gives_a_leavers_place_to_its_last() {
+        let e = |n: u32| Entity::from_raw_u32(n).expect("an entity");
+        let mut list = Vec::new();
+        // Hired in one frame: by their indices.
+        kept_list(&mut list, vec![e(9), e(3)]);
+        assert_eq!(list, [e(3), e(9)]);
+        // Hired later, whatever its index: after them.
+        kept_list(&mut list, vec![e(3), e(9), e(1)]);
+        assert_eq!(list, [e(3), e(9), e(1)]);
+        // The first leaves: the last takes its place.
+        kept_list(&mut list, vec![e(9), e(1)]);
+        assert_eq!(list, [e(1), e(9)]);
+        // Two leave at once, the last among them: each place taken in turn.
+        let mut list = vec![e(1), e(2), e(3), e(4)];
+        kept_list(&mut list, vec![e(2), e(3)]);
+        assert_eq!(list, [e(3), e(2)]);
+        // Nothing changes: nothing moves.
+        kept_list(&mut list, vec![e(2), e(3)]);
+        assert_eq!(list, [e(3), e(2)]);
+    }
+
+    #[test]
     fn a_follower_kept_to_rise_falls_unconscious_under_butterflies_and_speaks() {
         let mut world = World::new();
         world.init_resource::<Messages<crate::voices::Speak>>();
@@ -1132,6 +1239,7 @@ mod tests {
             master,
             stepping_off: false,
             escorted: false,
+            listed: true,
         };
         // Quest 59's companion, kept to rise; one of no `0x6B`; one of a creature's; a body put
         // back lying.
@@ -1184,6 +1292,7 @@ mod tests {
             master,
             stepping_off: false,
             escorted: false,
+            listed: true,
         };
         let dead = |world: &mut World, master, rises: bool| {
             let mut entity = world.spawn((
