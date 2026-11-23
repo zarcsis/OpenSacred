@@ -116,7 +116,7 @@ Observed on 2026-10-21 (the window's pixels, 1024 × 768; the host's `new-game`,
 - A new game opens on a window with OK and Skip Tutorial, centred, of a height that depends on the class's text (its buttons 573 pixels down for the Dwarf, 624 for the Seraphim, 497 for the Daemon); Enter is its OK; after OK the tutorial's first tip has OK and No more Tips, its buttons 462 pixels down.
   These are a tooltip's links (above): the host's `ui` lists them by their functions, and `ui press` presses one.
 - Escape in a game opens the menu over it: Options, Save Game, Export, Quit, Continue.
-  Save Game opens the saves' list, which also loads (the main menu's Load Game opens the same list with Save greyed): the saves in the order of their files' numbers, then one empty row, three rows shown and arrows to scroll a row at a time (the list keeps where it was scrolled); a row has a picture, the name's field (`<empty>` until a name is typed, and a typed name goes after what the field holds), the file's name and the date.
+  Save Game opens the saves' list, which also loads (the main menu's Load Game opens the same list with Save greyed): the quick save (`GAME00.PAK`) in a box of its own above the list, then the other saves in the order of their files' names, then one empty row, three rows shown and arrows to scroll a row at a time (the list keeps where it was scrolled); a row has a picture, the name's field (`<empty>` until a name is typed, and a typed name goes after what the field holds), the file's name and the date.
   Load and Save ask "OK" or "Cancel" when a save would be loaded or overwritten.
 
 ## The frame and the screenshot

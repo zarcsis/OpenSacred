@@ -15,8 +15,8 @@
 //! pixel, wrapped every 512 pixels, times the glyph's coverage; nothing behind the letters.
 //!
 //! The glyphs are hinted and their advances whole at the font's size, as GDI's cells are; the
-//! arc's angle takes no kerning in the original either. Not followed: the font 3's glyph cell's
-//! width and height, taken as the advances and the font's ascent and descent (**hypothesis**).
+//! arc's angle takes no kerning in the original either. A glyph's cell is its advance across, the
+//! font 3's line of 25 up ([`LINE`], #3422; **hypothesis**: no margin beside the advance).
 //!
 //! [`line()`] writes a text upright the same way, white and on no arc, for `info_lines` (#2499).
 
@@ -31,6 +31,10 @@ use swash::zeno::Format;
 
 /// The font 3, AntiquaSSK 16, at the size the overview writes it (`overview`).
 pub const SIZE: f32 = 24.0;
+/// The font 3's line and its glyphs' cells' height, in the original's pixels: its `tmHeight`
+/// (`0x651780`, GDI's font of `−MulDiv(16, 96, 72)`), the info lines measured 25 apart
+/// (docs/re/interface.md, "The info lines (`cUI_TextLines`)", #3422).
+pub const LINE: f32 = 25.0;
 /// The arc's angle a pixel of the text's width (`0x64E9C0`).
 const STEP: f32 = 0.01;
 /// The arc's inner radius times the curvature (`0x64E9C0`: the rectangle's width 256 times 20).
@@ -84,8 +88,8 @@ fn index(value: f32) -> Option<usize> {
 
 /// Writes `text` upright in the font `font` at `size` pixels an em: each glyph's outline at its
 /// pen, the pens by the glyphs' advances, each whole at [`SIZE`] as GDI's are (`scale` of the
-/// strip's pixels a text's pixel), the baseline the font's ascent down, the strip as high as the
-/// ascent and the descent.
+/// strip's pixels a text's pixel), the strip as high as the font's line ([`LINE`]), the baseline
+/// down it by the ascent's share of the ascent and the descent.
 fn strip(font: &[u8], text: &str, size: f32, scale: f32) -> Option<Strip> {
     let font = FontRef::from_index(font, 0)?;
     let metrics = font.metrics(&[]).scale(size);
@@ -94,7 +98,8 @@ fn strip(font: &[u8], text: &str, size: f32, scale: f32) -> Option<Strip> {
     let charmap = font.charmap();
     let glyphs: Vec<_> = text.chars().map(|c| charmap.map(c)).collect();
     let width: f32 = glyphs.iter().map(|&glyph| advance(glyph)).sum();
-    let height = metrics.ascent + metrics.descent;
+    let height = LINE * scale;
+    let baseline = (height * metrics.ascent / (metrics.ascent + metrics.descent)).round();
     let (Some(columns), Some(rows)) = (index(width.ceil()), index(height.ceil())) else {
         return None;
     };
@@ -113,7 +118,7 @@ fn strip(font: &[u8], text: &str, size: f32, scale: f32) -> Option<Strip> {
             let placement = image.placement;
             let offset = |value: i32| f32::from(i16::try_from(value).unwrap_or(0));
             let left = offset(placement.left) + pen;
-            let top = metrics.ascent - offset(placement.top);
+            let top = baseline - offset(placement.top);
             for (row, line) in image
                 .data
                 .chunks(usize::try_from(placement.width).unwrap_or(1).max(1))

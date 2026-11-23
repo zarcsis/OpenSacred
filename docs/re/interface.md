@@ -361,7 +361,8 @@ Read 2026-11-10 for #2499 by a subagent (**confirmed** by code unless marked oth
 
 `opensacred-game` lays them out so since #2499 (`info_lines`, from `talk::notices`): each text's lines written in the font 3 at 24 pixels (`place_names::line`), centred 170 pixels down, each under those before; their age and alpha by the real clock, their glow a material of their own that adds the 64 copies' coverage in the crimson of `sin(3p)` (`info_glow.wesl`), their plain text in `ARGBInfoText`'s colour of `balance.ron` from π/6 s, holding 8 s and fading over a second; hidden while the world map shows.
 **Seen** 2026-11-10 beside the original: the act's title in a crimson band, then a white one edged with crimson, then the orange text.
-Not followed: `CHAT_DELAY` of the settings, 8 s always (docs/decisions/interface.md, "Info lines held for 8 seconds"), and the line's height of the font 3, the strip's, its ascent and descent at 24 pixels an em, about 29 where the original's is 25 (#3422).
+The lines step by the font 3's line of 25 since #3422 (`place_names::LINE`), its glyphs at 24 pixels an em, some 23 in the original's frames.
+Not followed: `CHAT_DELAY` of the settings, 8 s always (docs/decisions/interface.md, "Info lines held for 8 seconds").
 The lines are not hidden under the saves' and the options' windows, whose backgrounds of the whole screen cover them (`saves_window`, `options`), nor under the window `+0xD0`, which is not read.
 
 ## In `opensacred-game`
