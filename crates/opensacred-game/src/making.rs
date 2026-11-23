@@ -242,7 +242,11 @@ fn boon_of(arts: &HeroArts, record: &WeaponArt, level: u32, glance: f64) -> Opti
         .or_else(|| arts::glance(record, level, glance))
         .or_else(|| {
             let spell = arts.tables.spells.iter().find(|spell| spell.id == 47)?;
-            (record.id == 1044).then(|| arts::soulcatcher(spell, level))
+            // Its shown time, its time over the weapon arts' speed (`0x5828E0`).
+            let speed = arts.speeds.weapon_arts;
+            let time = arts.arts.time_of(record.id, &arts.tables);
+            let shown = if speed > 0.0 { time / speed } else { time };
+            (record.id == 1044).then(|| arts::soulcatcher(spell, level, shown))
         })
 }
 

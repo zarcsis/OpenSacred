@@ -425,8 +425,11 @@ pub fn soul_speed(age: f32) -> f32 {
 
 /// What the Dark Elf's 1044 gives him (`0x506770` at `0x507E82`, the object 869's start
 /// `0x76AA40`): at once the effect [`SOULCATCHER`] for the first table's record 47's value 0 at
-/// the level `level`, `39 + L` at most 90 taken whole (`spell`), keyed by 1044; and it ends.
-pub fn soulcatcher(spell: &Spell, level: u32) -> Boon {
+/// the level `level`, `39 + L` at most 90 taken whole (`spell`), keyed by 1044; and the effect
+/// `0x22` keyed by 1044 for 0.8 of his shown time of the art, `shown`, its time over his weapon
+/// arts' speed (`0x539E70` given no seconds, `0x5828E0`; docs/re/arts.md, "The first table: the spells",
+/// #3439), by which the art is refused while it holds; and it ends.
+pub fn soulcatcher(spell: &Spell, level: u32, shown: f32) -> Boon {
     let [base, step] = spell.values[0].map(u32::from);
     let mut seconds = base + step * level;
     if spell.caps[0] > 0 {
@@ -439,9 +442,13 @@ pub fn soulcatcher(spell: &Spell, level: u32) -> Boon {
         art: 1044,
         level: 0,
     };
+    let lasts = Effect {
+        id: crate::spells::LASTS,
+        ..effect
+    };
     Boon {
         point: 0.0,
-        effects: vec![(effect, narrow(f64::from(seconds)))],
+        effects: vec![(effect, narrow(f64::from(seconds))), (lasts, 0.8 * shown)],
         clears: Vec::new(),
         starts: Vec::new(),
         replaces: Vec::new(),

@@ -1932,7 +1932,7 @@ fn the_soulcatcher_gives_its_effect_for_its_spells_time_and_its_souls_heal() {
     let mut catcher = spell(47, [0, 0], 0);
     catcher.values = [[39, 1], [10, 30], [0, 0]];
     catcher.caps = [90, 0, 0];
-    let given = soulcatcher(&catcher, 1);
+    let given = soulcatcher(&catcher, 1, 60.0);
     assert_eq!((given.point, given.ends), (0.0, true));
     assert_eq!(
         given
@@ -1940,9 +1940,13 @@ fn the_soulcatcher_gives_its_effect_for_its_spells_time_and_its_souls_heal() {
             .iter()
             .map(|(e, s)| (e.id, e.art, *s))
             .collect::<Vec<_>>(),
-        [(SOULCATCHER, 1044, 40.0)]
+        [
+            (SOULCATCHER, 1044, 40.0),
+            (crate::spells::LASTS, 1044, 48.0)
+        ]
     );
-    assert_eq!(soulcatcher(&catcher, 70).effects[0].1, 90.0);
+    assert_eq!(soulcatcher(&catcher, 70, 60.0).effects[0].1, 90.0);
+    assert_eq!(soulcatcher(&catcher, 1, 10.0).effects[1].1, 8.0);
     assert_eq!(soul_heals(&catcher, 1), 40);
     assert_eq!(soul_heals(&catcher, 3), 100);
     assert_eq!(
