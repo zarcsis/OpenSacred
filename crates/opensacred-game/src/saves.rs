@@ -20,8 +20,9 @@
 //! the world gone as their sectors keep them going, which a load's sectors put back as they come
 //! in ([`crate::npcs::Npcs::remember`]); the hero's followers, put back beside it; its own horse,
 //! put back where it stood, with its bridle (#2301, #2316); the drops; the town stash; the
-//! merchants' stock; the land explored and the map's pin; the weather; and the buildings' states
-//! (#2888).
+//! merchants' stock; the land explored and the map's pin; the weather; the buildings' states
+//! (#2888); and the scripts' traps as they stand, the fields of pills and the fences of lightning
+//! (#3450).
 //!
 //! The quick save (#1988): F9 and Control+Z save the game as `QUICKSAVE` in the slot 0's file
 //! `GAME00` where the interface allows a save ([`allowed`]), F8 and Control+X load it. The
@@ -98,8 +99,9 @@ use crate::{arts, drops, making};
 /// (#3217); the version 34 the art slots' second bank (#2928); the version 35 the lens's places
 /// of `SetMapIcon` (#2932); the version 36 a placement's fire of list 4 (#3286); the version 37
 /// a `ReplaceSpawn`'s flags word (#3073); the version 38 the mark of a bonus against the undead
-/// on a creature (#3385); the version 39 the dying clips by their slots (#3400).
-pub const VERSION: u32 = 39;
+/// on a creature (#3385); the version 39 the dying clips by their slots (#3400); the version 40
+/// the scripts' traps as they stand (#3450).
+pub const VERSION: u32 = 40;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -175,8 +177,8 @@ pub struct Scripts {
 /// docs/re/saves.md): the creatures that the sectors keep, those of the sectors in the world gone
 /// as their sectors keep them going (`npcs::Creatures`), the hero's followers, the drops lying
 /// and flying, the town stash, the merchants' stock, the land explored and the sectors entered,
-/// the world map's pin, the weather, its timers of real time from the save's, and the buildings'
-/// states.
+/// the world map's pin, the weather, its timers of real time from the save's, the buildings'
+/// states, and the scripts' traps as they stand.
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct World {
     pub creatures: crate::npcs::Creatures,
@@ -196,6 +198,10 @@ pub struct World {
     pub stalls: Vec<crate::stables::SavedStall>,
     /// The buildings' states, which the hero's steps and the scripts gave (#2888).
     pub buildings: crate::buildings::SavedBuildings,
+    /// The scripts' fields of pills and ghosts laid, their pills eaten among them, and their
+    /// fences of lightning, the makers' timers and the segments flying (#3450).
+    pub fields: Vec<opensacred_rules::script_traps::Field>,
+    pub fences: crate::laser_fences::Saved,
 }
 
 /// The saves' directory: `saves/` beside the settings' file, else in the configuration
@@ -523,6 +529,8 @@ fn world_of(world: &mut bevy::prelude::World) -> Result<World> {
             .get_resource::<crate::buildings::Buildings>()
             .map(crate::buildings::Buildings::saved)
             .unwrap_or_default(),
+        fields: crate::pill_fields::saved(world),
+        fences: crate::laser_fences::saved(world),
     })
 }
 
@@ -707,8 +715,9 @@ fn import(world: &mut bevy::prelude::World) {
 /// Puts a loaded save's world back after the resets of a game's start, its sectors' creatures put
 /// back as they come in (`npcs::Npcs::remember`): the town stash, the merchants' stock, the land
 /// explored, the map's pin and the weather, its timers on this run's real time; the drops, laid
-/// once the tables are read (`drops::Again`); the hero's followers beside it; and its own horse
-/// where it stood, with its bridle (`npcs::mount_again`, `riding::bridle_again`).
+/// once the tables are read (`drops::Again`); the hero's followers beside it; its own horse
+/// where it stood, with its bridle (`npcs::mount_again`, `riding::bridle_again`); and the scripts'
+/// traps, put back onto those of their points (`pill_fields::Again`, `laser_fences::Again`).
 fn restore_world(world: &mut bevy::prelude::World, kept: World) {
     let World {
         creatures: _,
@@ -724,6 +733,8 @@ fn restore_world(world: &mut bevy::prelude::World, kept: World) {
         weather,
         stalls,
         buildings,
+        fields,
+        fences,
     } = kept;
     world.insert_resource(stash);
     world.insert_resource(Wares(wares));
@@ -751,6 +762,8 @@ fn restore_world(world: &mut bevy::prelude::World, kept: World) {
     if let Some(mut states) = world.get_resource_mut::<crate::buildings::Buildings>() {
         states.again(buildings);
     }
+    world.insert_resource(crate::pill_fields::Again(fields));
+    world.insert_resource(crate::laser_fences::Again(fences));
     info!("saves: the world is back");
 }
 
@@ -1307,7 +1320,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (39, 0x8DD9_C9D4_2DA5_A8B5),
+            (40, 0x3D7D_8356_1E7A_8327),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

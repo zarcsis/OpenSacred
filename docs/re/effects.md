@@ -2069,7 +2069,8 @@ The fences' places in the models' frame go to the ground as the flight's do, and
   A first such load in another game ended the original's process some 7 s after it (the host's heartbeat lost amid the fences' strikes), which the second did not repeat.
 - The fences alike: the maker's two timers are its object's `+0xA8` and `+0xAC` (`0x5AA82C`), and its segments, flying, are objects and systems of their own, all written and read back.
 
-Not followed: the game's save keeps neither field nor fence, and the sector's `Enter` makes them again at a load, the field's balls all back, each 10 experience again (#3450).
+`opensacred-game` keeps them so since #3450 (`saves`, `pill_fields`, `laser_fences`): the save keeps each field laid, its pills eaten, its ghosts and its cooldown, and each maker of fences, its two timers and its segments flying; the load puts each back onto the trap of its point that the load's sectors made, in place of the one made anew, the segments that its run made since the load's start gone.
+As before the save, a sector that leaves and comes back makes its trap anew.
 
 ## The stargates
 
