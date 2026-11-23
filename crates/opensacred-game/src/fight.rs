@@ -397,7 +397,7 @@ pub(crate) fn resolve(
         // all (`0x561860`, the sets' M17, #2277): the target's items' 858, the hero's grown by its
         // sets' terms, against the caster's level raised by its magic lore.
         if hit.ward {
-            let ward = magic_defence(hero_hit, guarded, arms);
+            let ward = magic_defence(hero_hit, (guarded, arms), defender.0.attributes);
             let lore = caster_lore((hero, caster_arms, level), hero_arts.as_deref(), &rules);
             let held = effects.get(hit.target).ok();
             if let Some(turned) = turned_aside(
@@ -494,6 +494,10 @@ pub(crate) fn resolve(
             let add = against_class(&items_of(guarded, arms), defending.attributes, against);
             defending = defending.struck_with(&add);
         }
+        // The two's stored attributes, by which their items' rare effects grow (`0x568C40`), and
+        // the struck one as the attacker's opponent in them (`0x570ED0`, #3484).
+        let (striker_attributes, struck_attributes) = (striking.attributes, defending.attributes);
+        let struck_one = opponent(hero_hit, victim, (guarded, arms, seat));
         let (mut attacker, mut defender, mut blow) =
             weighed(striking, defending, side, (level, health.level), &rules);
         // A poison's own strike makes no record of the struck one against its attacker, which
@@ -606,6 +610,7 @@ pub(crate) fn resolve(
             let value = opensacred_rules::fight::item_effect(
                 &guarded.0.items,
                 opensacred_rules::fight::GOLD_FOR_HEALTH,
+                struck_attributes,
                 None,
             );
             let value = guarded
@@ -631,6 +636,7 @@ pub(crate) fn resolve(
             let value = opensacred_rules::fight::item_effect(
                 &holding.0.items,
                 opensacred_rules::fight::STUN,
+                striker_attributes,
                 None,
             );
             blow.stun = Some((
@@ -689,6 +695,7 @@ pub(crate) fn resolve(
                     opensacred_rules::fight::item_effect(
                         &arms.item_values(),
                         opensacred_rules::fight::OPEN_WOUNDS,
+                        struck_attributes,
                         None,
                     )
                 }),
@@ -837,8 +844,12 @@ pub(crate) fn resolve(
                 .find(|effect| effect.id == opensacred_rules::arts::FRENZY)
                 .map_or(0.0, |effect| f32::from(effect.level))
         });
-        let wounds =
-            opensacred_rules::fight::item_effect(items, opensacred_rules::fight::WOUNDS, None);
+        let wounds = opensacred_rules::fight::item_effect(
+            items,
+            opensacred_rules::fight::WOUNDS,
+            striker_attributes,
+            None,
+        );
         let wounds = holding.map_or(wounds, |holding| holding.0.sets.wounds(wounds)) + berserk;
         let damage = match attacker_health {
             Some(own) => opensacred_rules::fight::wounded(damage, wounds, own, &rules),
@@ -888,7 +899,8 @@ pub(crate) fn resolve(
         let critical = opensacred_rules::fight::item_effect(
             items,
             opensacred_rules::fight::CRITICAL,
-            victim.map(|victim| victim.side),
+            striker_attributes,
+            Some(struck_one),
         );
         let critical = match holding.filter(|_| hero) {
             Some(holding) => holding.0.sets.critical(critical),
@@ -920,8 +932,12 @@ pub(crate) fn resolve(
             };
         // A gold pile that the hit makes the struck one drop: the attacker's items' effect 856 and
         // its sets' part, held at the damage and at the health before the hit (`0x56F679`, #1779).
-        let pile =
-            opensacred_rules::fight::item_effect(items, opensacred_rules::fight::GOLD_PILE, None);
+        let pile = opensacred_rules::fight::item_effect(
+            items,
+            opensacred_rules::fight::GOLD_PILE,
+            striker_attributes,
+            None,
+        );
         let pile = holding.map_or(pile, |holding| holding.0.sets.gold_pile(pile));
         if let Some((item, most)) =
             opensacred_rules::fight::gold_pile(pile, damage, health.current, &mut dice.0)
@@ -954,8 +970,12 @@ pub(crate) fn resolve(
         // number shown take it, and it flashes red at the attacker where it pays (856,
         // `0x570803`, #3081). The hero's sets add their part to its items' value (M21,
         // `0x570721`).
-        let pain =
-            opensacred_rules::fight::item_effect(items, opensacred_rules::fight::PAINKILLER, None);
+        let pain = opensacred_rules::fight::item_effect(
+            items,
+            opensacred_rules::fight::PAINKILLER,
+            striker_attributes,
+            None,
+        );
         let pain = match holding.filter(|_| hero) {
             Some(holding) => holding.0.sets.painkiller(pain),
             None => pain,
@@ -985,6 +1005,7 @@ pub(crate) fn resolve(
                     opensacred_rules::fight::item_effect(
                         items,
                         opensacred_rules::fight::LEECH,
+                        striker_attributes,
                         None,
                     ),
                     difficulty.leech(),
@@ -1129,7 +1150,7 @@ pub(crate) fn resolve(
             // exorcism may lay the undead to rest (`0x532D9F`, M20).
             let sets = holding.filter(|_| hero).map(|holding| &holding.0.sets);
             let exorcism = (
-                exorcist(holding),
+                exorcist(holding, striker_attributes),
                 rules.rare(opensacred_rules::undead::EXORCISM),
             );
             // The killing blow's whole damage and its fire's part as it came through, which
@@ -1216,7 +1237,13 @@ pub(crate) fn resolve(
             } else {
                 (master_holding, 0.0)
             };
-            let bonus = items_experience(holding_of) + potions::mentored(&killer);
+            // By the attributes of the hero, the killer or its follower's master.
+            let attributes_of = if hero {
+                striker_attributes
+            } else {
+                heros_follower.map_or([0.0; 6], |(combat, ..)| combat.0.attributes)
+            };
+            let bonus = items_experience(holding_of, attributes_of) + potions::mentored(&killer);
             let worth = worth
                 .filter(|_| (hero || heros_follower.is_some()) && !raised)
                 .map(|worth| (*worth, rank.copied(), (bonus, sets)));
@@ -1426,10 +1453,10 @@ fn wound(
         });
 }
 
-/// The exorcism of a killer that holds `holding` (`0x532D39`): its items' effect 863 of no
-/// opponent's class, grown by its sets (`set_bonuses::Stats::exorcist`, #1727's M20); 0 for a
-/// creature, which carries no items.
-fn exorcist(holding: Option<&Holding>) -> f32 {
+/// The exorcism of a killer that holds `holding`, of the stored attributes `attributes`
+/// (`0x532D39`): its items' effect 863 against an opponent of no class, grown by its sets
+/// (`set_bonuses::Stats::exorcist`, #1727's M20); 0 for a creature, which carries no items.
+fn exorcist(holding: Option<&Holding>, attributes: [f32; 6]) -> f32 {
     holding.map_or(0.0, |holding| {
         holding
             .0
@@ -1437,7 +1464,8 @@ fn exorcist(holding: Option<&Holding>) -> f32 {
             .exorcist(opensacred_rules::fight::item_effect(
                 &holding.0.items,
                 opensacred_rules::undead::EXORCISM,
-                Some(0),
+                attributes,
+                Some(HurledAt::default()),
             ))
     })
 }
@@ -1609,11 +1637,12 @@ pub fn kill(
     Ok(lines)
 }
 
-/// The share of a kill's base experience that the items of the hero of `holding` earn it more,
-/// their effect 843 (`opensacred_rules::fight::items_experience`, #2805); none without them.
-fn items_experience(holding: Option<&Holding>) -> f32 {
+/// The share of a kill's base experience that the items of the hero of `holding`, of the stored
+/// attributes `attributes`, earn it more, their effect 843
+/// (`opensacred_rules::fight::items_experience`, #2805); none without them.
+fn items_experience(holding: Option<&Holding>, attributes: [f32; 6]) -> f32 {
     holding.map_or(0.0, |holding| {
-        opensacred_rules::fight::items_experience(&holding.0.items)
+        opensacred_rules::fight::items_experience(&holding.0.items, attributes)
     })
 }
 
@@ -1628,6 +1657,11 @@ struct Slayer<'a> {
     combat: Option<&'a Combat>,
 }
 
+/// The stored attributes of a creature's `combat`, none without it.
+fn attributes_of(combat: Option<&Combat>) -> [f32; 6] {
+    combat.map_or([0.0; 6], |combat| combat.0.attributes)
+}
+
 impl<'a> Slayer<'a> {
     fn of(
         effects: &[opensacred_rules::fight::Effect],
@@ -1638,7 +1672,7 @@ impl<'a> Slayer<'a> {
         Self {
             banished: potions::banishes(effects),
             bonus: (
-                items_experience(holding) + potions::mentored(effects),
+                items_experience(holding, attributes_of(combat)) + potions::mentored(effects),
                 sets.map_or(0.0, |sets| sets.experience()),
             ),
             sets,
@@ -1671,7 +1705,7 @@ impl<'a> Slayer<'a> {
             (
                 self.sets,
                 (
-                    exorcist(self.holding),
+                    exorcist(self.holding, attributes_of(self.combat)),
                     rules.rare(opensacred_rules::undead::EXORCISM),
                 ),
             ),
@@ -1759,6 +1793,7 @@ pub fn terrify(
         opensacred_rules::fight::item_effect(
             &holding.0.items,
             opensacred_rules::fight::TERROR,
+            attributes_of(hero_combat),
             None,
         )
     });
@@ -2079,9 +2114,14 @@ enum Turned {
     Effect { art: u32, value: f32 },
 }
 
-/// The magic defence of a target (`0x561860`, the sets' M17, #2277): the hero's items' 858 grown
-/// by its sets' terms (`guarded`, where `hero` the target is the hero), else its arms' items'.
-fn magic_defence(hero: bool, guarded: Option<&Holding>, arms: Option<&crate::npcs::Arms>) -> f32 {
+/// The magic defence of a target of the stored attributes `attributes` (`0x561860`, the sets'
+/// M17, #2277): the hero's items' 858 grown by its sets' terms (`guarded`, where `hero` the target
+/// is the hero), else its arms' items'.
+fn magic_defence(
+    hero: bool,
+    (guarded, arms): (Option<&Holding>, Option<&crate::npcs::Arms>),
+    attributes: [f32; 6],
+) -> f32 {
     match (hero, guarded) {
         (true, Some(guarded)) => {
             guarded
@@ -2090,6 +2130,7 @@ fn magic_defence(hero: bool, guarded: Option<&Holding>, arms: Option<&crate::npc
                 .magic_defence(opensacred_rules::fight::item_effect(
                     &guarded.0.items,
                     opensacred_rules::fight::MAGIC_DEFENCE,
+                    attributes,
                     None,
                 ))
         }
@@ -2097,6 +2138,7 @@ fn magic_defence(hero: bool, guarded: Option<&Holding>, arms: Option<&crate::npc
             opensacred_rules::fight::item_effect(
                 &arms.item_values(),
                 opensacred_rules::fight::MAGIC_DEFENCE,
+                attributes,
                 None,
             )
         }),
@@ -2191,15 +2233,23 @@ fn gifts(
         Option<&crate::ai::Mind>,
         Option<&crate::npcs::Arms>,
     )>,
-    targets: Query<(Has<Body>, Option<&Holding>, Option<&crate::npcs::Arms>), Without<Dies>>,
+    targets: Query<
+        (
+            Has<Body>,
+            Option<&Holding>,
+            Option<&crate::npcs::Arms>,
+            Option<&Combat>,
+        ),
+        Without<Dies>,
+    >,
 ) {
     for gift in gifts.read() {
-        let Ok((hero_hit, guarded, arms)) = targets.get(gift.target) else {
+        let Ok((hero_hit, guarded, arms, combat)) = targets.get(gift.target) else {
             continue;
         };
         let (hero, mind, caster_arms) = casters.get(gift.caster).unwrap_or((false, None, None));
         let level = mind.map_or(experience.level, |mind| mind.level);
-        let ward = magic_defence(hero_hit, guarded, arms);
+        let ward = magic_defence(hero_hit, (guarded, arms), attributes_of(combat));
         let lore = caster_lore((hero, caster_arms, level), hero_arts.as_deref(), &rules);
         let held = effects.get(gift.target).ok();
         match turned_aside(

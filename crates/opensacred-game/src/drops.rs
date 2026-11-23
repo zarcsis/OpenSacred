@@ -998,9 +998,9 @@ pub(crate) fn contained(
 pub(crate) fn opener_bonus(
     tables: &Tables,
     played: &Played,
-    holding: Option<&fight::Holding>,
+    (holding, combat): (Option<&fight::Holding>, Option<&fight::Combat>),
 ) -> Option<u32> {
-    let (luck, _) = luck_of(holding);
+    let (luck, _) = luck_of(holding, combat);
     tables.rules.opener_bonus(played.minutes(), luck)
 }
 
@@ -1088,26 +1088,33 @@ fn treasure(
 /// The luck of a killer without items or sets (`0x564A60`).
 const LUCK: f32 = 100.0;
 
-/// The luck of the hero of `holding`, 100 plus its items' effect 840 raised by its sets in turn
-/// (`0x564A60`, `opensacred_rules::fight::items_luck`, `set_bonuses::Stats::luck`, #1727), and
-/// whether its kills drop set 22's potions.
-fn luck_of(holding: Option<&fight::Holding>) -> (f32, bool) {
+/// The stored attributes of the hero of `combat`, by which its items' rare effects grow
+/// (`0x568C40`, #3484); none without it.
+pub(crate) fn attributes_of(combat: Option<&fight::Combat>) -> [f32; 6] {
+    combat.map_or([0.0; 6], |combat| combat.0.attributes)
+}
+
+/// The luck of the hero of `holding` and `combat`, 100 plus its items' effect 840 raised by its
+/// sets in turn (`0x564A60`, `opensacred_rules::fight::items_luck`, `set_bonuses::Stats::luck`,
+/// #1727), and whether its kills drop set 22's potions.
+fn luck_of(holding: Option<&fight::Holding>, combat: Option<&fight::Combat>) -> (f32, bool) {
     holding.map_or((LUCK, false), |holding| {
-        let luck = opensacred_rules::fight::items_luck(&holding.0.items);
+        let luck = opensacred_rules::fight::items_luck(&holding.0.items, attributes_of(combat));
         (holding.0.sets.luck(luck), holding.0.sets.potions())
     })
 }
 
-/// The alchemy of the hero of `holding`, its items' effect 868, and the balance's parameters of
-/// it in `rules` (#1802); none without the hero's items or the rules.
+/// The alchemy of the hero of `holding` and `combat`, its items' effect 868, and the balance's
+/// parameters of it in `rules` (#1802); none without the hero's items or the rules.
 fn alchemy_of(
-    holding: Option<&fight::Holding>,
+    (holding, combat): (Option<&fight::Holding>, Option<&fight::Combat>),
     rules: Option<&fight::Rules>,
 ) -> Option<(f32, [f32; 3])> {
     let (holding, rules) = (holding?, rules?);
     let value = opensacred_rules::fight::item_effect(
         &holding.0.items,
         opensacred_rules::fight::ALCHEMY,
+        attributes_of(combat),
         None,
     );
     Some((value, rules.rare(opensacred_rules::fight::ALCHEMY)))
@@ -1562,7 +1569,7 @@ fn dies(
             &fight::Base,
             &fight::Health,
             Option<&crate::effects::Effects>,
-            Option<&fight::Holding>,
+            (Option<&fight::Holding>, Option<&fight::Combat>),
         ),
         (With<Body>, Without<Dies>),
     >,
@@ -1591,11 +1598,13 @@ fn dies(
     let luck = heroes
         .iter()
         .next()
-        .map_or((LUCK, false), |(.., holding)| luck_of(holding));
+        .map_or((LUCK, false), |(.., (holding, combat))| {
+            luck_of(holding, combat)
+        });
     let alchemy = heroes
         .iter()
         .next()
-        .and_then(|(.., holding)| alchemy_of(holding, rules.as_deref()));
+        .and_then(|(.., held)| alchemy_of(held, rules.as_deref()));
     let Some((by_player, killer)) = killer(dies, (treasure, luck, alchemy)) else {
         debug!("drops: {} drops nothing: a creature killed it", died.entity);
         return;
@@ -1959,13 +1968,13 @@ fn make_nearest(
             &fight::Base,
             &fight::Health,
             &Transform,
-            Option<&fight::Holding>,
+            (Option<&fight::Holding>, Option<&fight::Combat>),
         ),
         (With<Body>, Without<Dies>),
     >,
 ) -> Result<String, String> {
     let tables = tables.ok_or("the drops' tables are not read")?;
-    let (base, hero_health, at, holding) = heroes.iter().next().ok_or("no hero")?;
+    let (base, hero_health, at, (holding, combat)) = heroes.iter().next().ok_or("no hero")?;
     let hero = hero_of(base, hero_health, experience.level);
     let (entity, mind, health, rank, worth, transform, way) = creatures
         .iter()
@@ -1987,7 +1996,7 @@ fn make_nearest(
         rank.0,
         worth,
         hero,
-        (played.0, (0, luck_of(holding), None), difficulty),
+        (played.0, (0, luck_of(holding, combat), None), difficulty),
     );
     let mut made = Vec::new();
     for _ in 0..times.0 {

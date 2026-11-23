@@ -2234,7 +2234,10 @@ fn behave(
             Entity,
             &Transform,
             &Body,
-            Option<&crate::fight::Holding>,
+            (
+                Option<&crate::fight::Holding>,
+                Option<&crate::fight::Combat>,
+            ),
             Option<&crate::attack::Attack>,
         )>,
         crate::controls::Keys,
@@ -2267,7 +2270,7 @@ fn behave(
         Query<&crate::npcs::Npc>,
     ),
 ) {
-    let Some((the_hero, hero, body, holding, attack)) = hero.iter().next() else {
+    let Some((the_hero, hero, body, (holding, combat), attack)) = hero.iter().next() else {
         return;
     };
     // The hero shoos the children standing with Shift held, the walk's key (`0x4F2AD7`, #1364).
@@ -2281,6 +2284,7 @@ fn behave(
         opensacred_rules::fight::item_effect(
             &holding.0.items,
             opensacred_rules::fight::CAGING,
+            crate::drops::attributes_of(combat),
             None,
         )
     });
