@@ -206,15 +206,19 @@ type Creatures<'w, 's> = Query<
 /// The values that a foe's label tells under its name while the hero's sets know the enemies
 /// (`0x627180`, its format `0x95FBA4`): its health; its attack and defence times the difficulty's
 /// `aw`, as the getters of a creature give them (`0x56AA10`, `0x56AA90`); each kind's mean
-/// damage, `(l·F + m·F)/2` of its multiplier `F` (`0x563FD0` to `0x5641B0`), whole: the half of
-/// two weapons' not followed (#3279), a right hand's item of the class 0 alone kept whole by
-/// choice (docs/decisions/interface.md, "Damage whole where a strike deals it whole"); and each
-/// resistance times its factor; each cut. The
+/// damage, `(l·F + m·F)/2` of its multiplier `F` (`0x563FD0` to `0x5641B0`), a hit's, times its
+/// `share` of a strike, a half with two weapons as its strike deals it (#3279), a right hand's
+/// item of the class 0 alone kept whole by choice (docs/decisions/interface.md, "Damage whole
+/// where a strike deals it whole"), whole; and each resistance times its factor; each cut. The
 /// values of `combat` hold the multipliers and the factors already.
-fn foe_values(health: u32, combat: &opensacred_rules::fight::Combat, aw: f32) -> String {
+fn foe_values(
+    health: u32,
+    (combat, share): (&opensacred_rules::fight::Combat, f32),
+    aw: f32,
+) -> String {
     let damage: [i64; 4] = std::array::from_fn(|k| {
         let [least, most] = combat.damage[k];
-        cut((least + most) * 0.5)
+        cut((least + most) * 0.5 * share)
     });
     let resistance: [i64; 4] = combat.resistance.map(cut);
     let [dp, df, dm, dg] = damage;
@@ -296,7 +300,11 @@ fn label(
     (foe, holding, fighters, rules, horses): (
         Res<crate::cursors::Foe>,
         Query<&crate::fight::Holding, With<crate::hero::Body>>,
-        Query<(&crate::fight::Health, &crate::fight::Combat)>,
+        Query<(
+            &crate::fight::Health,
+            &crate::fight::Combat,
+            Option<&crate::npcs::Npc>,
+        )>,
         Res<crate::fight::Rules>,
         Query<(
             Entity,
@@ -422,10 +430,15 @@ fn label(
                 && !dies
                 && mind.hostile()
                 && knows_enemies
-                && let Ok((health, combat)) = fighters.get(entity)
+                && let Ok((health, combat, npc)) = fighters.get(entity)
             {
                 text.push('\n');
-                text.push_str(&foe_values(health.current, &combat.0, rules.creatures_aw()));
+                let share = npc.map_or(1.0, crate::npcs::Npc::share);
+                text.push_str(&foe_values(
+                    health.current,
+                    (&combat.0, share),
+                    rules.creatures_aw(),
+                ));
             }
             wanted.push(Wanted {
                 entity: named,
@@ -633,9 +646,11 @@ mod tests {
             defence_factor: 1.0,
         };
         assert_eq!(
-            foe_values(57, &combat, 0.65),
+            foe_values(57, (&combat, 1.0), 0.65),
             "HP:57 AW:10 VW:13\nDP:5 DF:0 DM:0 DG:0\nRP:5 RF:1 RM:0 RG:0"
         );
+        // With two weapons a hit's half (#3279).
+        assert!(foe_values(57, (&combat, 0.5), 0.65).contains("DP:2 "));
     }
 
     #[test]

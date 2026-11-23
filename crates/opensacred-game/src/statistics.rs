@@ -235,11 +235,12 @@ impl LevelRecord {
     /// The record of the hero's damages `damage` (each kind's least and most), its resistances
     /// `resistance` and its gold `gold`: each kind's least and most rounded and their mean cut,
     /// `⌊(l + m)/2⌋`, and each resistance cut (`0x57E160` at `0x57F1D5`…`0x57F35D`, `0x424870` for
-    /// the values now). The half of a hit's damage with two weapons is not followed (#3279), and
-    /// a right hand's item of the class 0 alone keeps its whole by choice (docs/decisions/
-    /// interface.md, "Damage whole where a strike deals it whole").
-    pub fn of(damage: [[f32; 2]; 4], resistance: [f32; 4], gold: u32) -> Self {
-        let round = |value: f32| whole(value + 0.5);
+    /// the values now), each damage a hit's, times the hero's `share` of a strike: a half with two
+    /// weapons, as the strike deals it (#3279), a right hand's item of the class 0 alone keeping
+    /// its whole by choice (docs/decisions/interface.md, "Damage whole where a strike deals it
+    /// whole").
+    pub fn of(damage: [[f32; 2]; 4], resistance: [f32; 4], gold: u32, share: f32) -> Self {
+        let round = |value: f32| whole(value * share + 0.5);
         Self {
             gold,
             damages: damage.map(|[least, most]| (round(least) + round(most)) / 2),
@@ -298,20 +299,21 @@ impl History {
 fn record_levels(
     experience: Res<crate::fight::Experience>,
     pack: Option<Res<crate::pickup::Pack>>,
-    heroes: Query<&crate::fight::Combat, With<crate::hero::Body>>,
+    heroes: Query<(&crate::fight::Combat, Option<&crate::fight::Holding>), With<crate::hero::Body>>,
     mut history: ResMut<History>,
 ) {
     let level = experience.level;
     match history.seen {
         Some(seen) if seen < level => {
-            let Some(combat) = heroes.iter().next() else {
+            let Some((combat, holding)) = heroes.iter().next() else {
                 return;
             };
             let gold = pack.as_deref().map_or(0, |pack| pack.gold);
+            let share = holding.map_or(1.0, |holding| holding.0.share());
             history.rise(
                 seen,
                 level,
-                LevelRecord::of(combat.damage, combat.resistance, gold),
+                LevelRecord::of(combat.damage, combat.resistance, gold, share),
             );
             history.seen = Some(level);
         }
@@ -1228,8 +1230,12 @@ fn sheet(
         })
         .collect();
     let sb = survival_share(minutes, holds.sets.survival);
+    // A hit's damage, a half of the strike's with two weapons, as the strike deals it (`0x563FD0`
+    // to `0x5641B0`, `Holds::share`, #3279).
+    let share = holds.share();
+    let per_hit = |d: f32| raised(d * share, sb);
     let (least, most) = combat.damage.iter().fold((0, 0), |(l, m), &[least, most]| {
-        (l + raised(least, sb), m + raised(most, sb))
+        (l + per_hit(least), m + per_hit(most))
     });
     let resistance = combat
         .resistance
@@ -1253,7 +1259,7 @@ fn sheet(
     // so that a kind of none shows `0-0` (**seen**), not the `-` of the code.
     let kinds = combat
         .damage
-        .map(|[least, most]| (raised(least, sb), raised(most, sb)));
+        .map(|[least, most]| (per_hit(least), per_hit(most)));
     Sheet {
         name: name.to_owned(),
         level,
@@ -2570,8 +2576,17 @@ mod tests {
             [[30.2, 33.0], [0.0; 2], [0.0; 2], [0.0; 2]],
             [2.65, 2.14, 1.82, 2.07],
             0,
+            1.0,
         );
         assert_eq!((now.damage(), now.resistance()), (31, 7));
+        // With two weapons a hit's half: 15.1 and 16.5 rounded, 15 and 17, their mean 16 (#3279).
+        let two = LevelRecord::of(
+            [[30.2, 33.0], [0.0; 2], [0.0; 2], [0.0; 2]],
+            [2.65, 2.14, 1.82, 2.07],
+            0,
+            0.5,
+        );
+        assert_eq!((two.damage(), two.resistance()), (16, 7));
     }
 
     #[test]
