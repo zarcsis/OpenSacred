@@ -5053,6 +5053,15 @@ impl Npcs {
         self.hero_holds_valued(worn, &[])
     }
 
+    /// Whether an item of the type `item` in a hand lays an art's streak (`weapon_streaks`): a
+    /// weapon or a cannon whose values count, not a cosmetic item (`0x426550`,
+    /// `opensacred_rules::particles::streaks_on`).
+    pub(crate) fn streaked(&self, item: u32) -> bool {
+        self.gear.get(&item).is_some_and(|gear| {
+            gear.counts && opensacred_rules::particles::streaks_on(gear.category)
+        })
+    }
+
     /// How a creature holds an item of the type `item` (`opensacred_rules::equipment::grip`): a
     /// weapon by its kind and its record's parent, else its own type; a shield in the left hand
     /// alone; none for another item.

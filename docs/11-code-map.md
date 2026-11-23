@@ -421,6 +421,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/war_cry_signs.rs`: The sign of the Dwarf's war cry
 - `crates/opensacred-game/src/waterfalls.rs`: The waterfalls' loop
 - `crates/opensacred-game/src/weapon_effects.rs`: The effects of a weapon in hand
+- `crates/opensacred-game/src/weapon_streaks.rs`: The weapons' streaks in the arts
 - `crates/opensacred-game/src/weather.rs`: The world's weather
 - `crates/opensacred-game/src/world_map.rs`: The world map
 - `crates/opensacred-game/src/zhadums.rs`: The zhadum

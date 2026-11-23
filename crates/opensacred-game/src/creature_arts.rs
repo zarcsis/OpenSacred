@@ -159,6 +159,14 @@ fn start(
                 },
                 clip,
             ));
+        // The weapons' streaks of the arts that its class's executor streaks, while it makes the
+        // art (#3454).
+        crate::weapon_streaks::lay(
+            &mut commands,
+            entity,
+            (order.art, kind, false),
+            crate::weapon_streaks::Lasts::WhileMaking,
+        );
     }
 }
 
