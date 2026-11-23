@@ -58,7 +58,7 @@ The reading of the same day for #3031, by which nothing played for any slot the 
 - **A queued clip**: `0x5491F0` keeps a clip to come at `+0x214` (its slot, its loops at `+0x218`, its rate at `+0x21D`, its blend over the attack speed at `+0x221`), which the animation step starts once what is left of the clip in play is at most that blend, as `0x593320` starts one, at `GameSpeed` times `+0x21D` and `+0x2C9` (`0x594BB1`, `0x413610` at `0x594BE0`: the clip it starts alone, not one already in play); the attack action, the mover and the arts' executors call it.
 - **The fractions**: an action that times itself by the clip in play reads the motions' record of the slot in play (`0x4135D0` with the model, `+0x64` and an index `k`: the record whose number the model's slot table holds, its float `+0x80 + 4k`, so `+0xA0` for 8 and `+0xA4` for 9).
   For a slot the model lacks that is the record 0, `INVALID_MOTION`, whose `+0xA0` is 0.401854, `+0xA4` 0.508987 and `+0x9C` 0.6 (`tables/motions.ron`, docs/02 §4.1).
-  So a stand-in clip is timed by those two fractions and not by its own record's, and its speed takes no factor of its own, 0.6 lying below the 0.8 from which `0x413610` takes one (docs/re/movement.md, "The speed").
+  So a stand-in clip is timed by those two fractions and not by its own record's, and its speed takes no factor of its own, 0.6 lying below the 0.8 from which `0x413610` takes one (docs/re/movement.md, "The motions' own factors"; **seen** 2026-11-23 for #3563: the Mage's shot of the slot 119, which his model lacks, read 0.6 and played at `GameSpeed` times its rate alone).
 
 The ice druid (141, the model `ICEELVE_DRUID`, which fills 79, 84 and 89 and neither 145 nor 164) shows both cases (**seen**; the shot's own steps are docs/re/fight.md, "The archers"):
 
@@ -96,12 +96,12 @@ A melee strike of a class the model lacks takes the class 0's clips (#3314; docs
 ## The rate of the clip in play
 
 Read 2026-11-23 for #3473 (**confirmed** by code, and **seen** where marked).
-A clip's speed on Granny's clock is Granny's parameter 2 of its control, which `0x413610` sets (the model, the slot, the control, a rate): `GameSpeed` times the rate, times the own factor of the slot's motion where that lies in [0.8, 5) and is not 1 (`MotionDesc +0x9C`, docs/re/movement.md, "The speed").
+A clip's speed on Granny's clock is Granny's parameter 2 of its control, which `0x413610` sets (the model, the slot, the control, a rate): `GameSpeed` times the rate, times the own factor of the slot's motion where that lies in [0.8, 5) and is not 1 (`MotionDesc +0x9C`, docs/re/movement.md, "The motions' own factors": the bows' and the crossbows' of seven classes, **seen** on the Mage's bow for #3563).
 Its callers:
 
 - the clip player `0x593320`, for the clip it starts (`+0x235`) and for the clip in play that it blends from (`+0x48`, at `0x5935D6`), both at the play's rate times `+0x2C9`; `0x593770` for its own clip; the queued start (`0x594BE0`) for the clip it starts, at `+0x21D` times `+0x2C9`; the objects' player `0x44A6C0`;
 - the time factor's setter `0x537160` (the effect 15, docs/re/arts.md, "The effects");
-- the shot's action at `0x4DF306`, for a shooter without the effect 17's bit and without a gun (by code alone; **hypothesis**: the hero's shot going on, docs/re/fight.md, "The archers");
+- the shot's action at `0x4DF306`, for a shooter without the effect 17's bit and without a gun: the hero's shot going on, for the slot in play (**seen** 2026-11-23 for #3563, docs/re/fight.md, "The archers");
 - the gait's speed `0x4F75F0`, which sets the clip in play (`+0x48`, its slot `+0x64`), whatever that clip is, to `GameSpeed` times the pace's factor, the pace times `+0x2C9` over 100 (docs/re/movement.md, "The speed"), and leaves a clip that a blend is bringing in (`+0x235`) as it is.
 
 `0x4F75F0` runs at every search of a way (`0x4F7710`, docs/re/movement.md, "Searching again"), in the straight mode's line (`0x4FB7E0`, which the mover calls at `0x4F559C` and `0x4F6922`), as the hero takes the walk (`0x4F50F4`) and at two of the network's events of a gait (`0x531062`, `0x531187`).
