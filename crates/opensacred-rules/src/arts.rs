@@ -643,6 +643,72 @@ pub fn rundum_starts(art: u16) -> Option<Option<u16>> {
 pub const DWARF_HARDHIT: u16 = 1079;
 pub const DWARF_ATTACKE: u16 = 1080;
 
+/// The Dwarf's guns' classes of what he holds (`0x546F80` with the flag 1; docs/re/arts.md, "The
+/// Dwarf's"): his pistols' 13 and his muskets' 14, which the order's call reads as 12 (a
+/// crossbow's) without the flag.
+pub const PISTOL: u8 = 13;
+pub const MUSKET: u8 = 14;
+
+/// Whether the art `art` is one of the Dwarf's own three that his gun fires ([`DWARF_RUNDUM`],
+/// [`DWARF_HARDHIT`], [`DWARF_ATTACKE`]).
+pub fn dwarf_gun_art(art: u16) -> bool {
+    matches!(art, DWARF_RUNDUM | DWARF_HARDHIT | DWARF_ATTACKE)
+}
+
+/// The distance from which the order makes one of the Dwarf's gun arts ([`dwarf_gun_art`]) with a
+/// gun of the class `class` in hand (`0x4FD0F0`, the case 8 of its switch on the type; `0x4FD40D`,
+/// `0x4FD773`): a musket's 0, where he stands; a pistol's 0 where a line of sight or flight leads
+/// from him to the target (`sight`, the straight way of the flyer's flag), else none, the record's
+/// own; and none for what is no gun. The order asks it again as he walks, so that the line, once
+/// it opens, makes the art where he is (its sub-state 1).
+pub fn gun_order_distance(class: u8, sight: impl FnOnce() -> bool) -> Option<i32> {
+    match class {
+        MUSKET => Some(0),
+        PISTOL if sight() => Some(0),
+        _ => None,
+    }
+}
+
+/// How near the Dwarf his `Rundum` with a gun gathers its other creatures, in whole world units
+/// (the float 1,000 at `0x890B54`, against `0x5370B0`'s distance rounded).
+pub const GUN_RUNDUM_WITHIN: u32 = 1_000;
+
+/// How many creatures beside its target his `Rundum` with a gun gathers (the state's `+0x180`,
+/// `+0x184` and `+0x188`).
+pub const GUN_RUNDUM_GATHERS: usize = 3;
+
+/// The creatures that the Dwarf's `Rundum` with a gun gathers before its clip (`0x518760` to
+/// `0x518894`): of the hero's list of hostiles in its order, nearest first (`hostiles`), up to
+/// [`GUN_RUNDUM_GATHERS`] other than its target (`target`), each hostile to him and alive
+/// (`0x548F60`), nearer him than [`GUN_RUNDUM_WITHIN`] and in his line of sight (`sees`, the
+/// straight way of the flyer's flag from him, `0x4FCC80`), in that order.
+pub fn gun_rundum_gathers(
+    target: Option<u32>,
+    hostiles: &[Candidate],
+    mut sees: impl FnMut(&Candidate) -> bool,
+) -> Vec<u32> {
+    hostiles
+        .iter()
+        .filter(|c| Some(c.id) != target && c.hostile && c.distance < GUN_RUNDUM_WITHIN)
+        .filter(|c| sees(c))
+        .take(GUN_RUNDUM_GATHERS)
+        .map(|c| c.id)
+        .collect()
+}
+
+/// Whom the shot `shot` (from 0) of the Dwarf's `Rundum` with a gun strikes (`0x515C95`): the
+/// order's target (`target`) for the first, the creatures gathered (`gathered`,
+/// [`gun_rundum_gathers`]) for the next three in turn, and none for a slot the gathering left
+/// unfilled (**hypothesis**: its word 0, which the right button's order does not write) nor for
+/// the fifth and later, whose word is the count of the shots itself; with none he turns to the
+/// order's point and strikes nothing.
+pub fn gun_rundum_shot<T: Copy>(shot: usize, target: Option<T>, gathered: &[T]) -> Option<T> {
+    match shot {
+        0 => target,
+        _ => gathered.get(shot - 1).copied(),
+    }
+}
+
 /// The Daemon's art of his form, 1094, and its effect, keyed by it (`0x584B16`, docs/re/arts.md,
 /// "The effects", 50).
 pub const FORM: u16 = 1094;
@@ -1311,11 +1377,12 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
             },
             202,
         )),
-        (8, Style::Rundum) if !matches!(class, 13 | 14) => Some(dwarfs(
+        (8, Style::Rundum) => Some(dwarfs(
             match class {
                 0 => 219,
                 2 => 221,
                 3 => 222,
+                PISTOL | MUSKET => 248,
                 _ => 220,
             },
             220,
