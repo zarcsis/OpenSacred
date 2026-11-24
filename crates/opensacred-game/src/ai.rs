@@ -255,13 +255,16 @@ const TURNS_STRIKERS: u16 = 0x80;
 /// to the hero or the hero's follower, no horse ridden and alive (the event 5's handler's tail,
 /// `0x535A72`–`0x535C45`; docs/re/ai.md, "Foes among the creatures", #3470): it takes the AI's
 /// state 4 or 8 against it, unless a script's order waits for it, it casts or makes a weapon art,
-/// or its own strike or shot plays and the attacker's mark has no bit `0x80`.
+/// or its own strike or shot plays and the attacker's mark has no bit `0x80`. A Fetzer that it
+/// turns so from another state while it chooses takes its phase, `0x21B` by a roll of 0 of 3,
+/// else `0x217` (`0x535C4B`–`0x535C7F`, #3499); one that fights already keeps its choosing.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
 )]
 fn turn_on_attackers(
     mut hits: MessageReader<crate::fight::Hit>,
+    mut rolls: ResMut<Minds>,
     heroes: Query<(), With<Body>>,
     mut minds: Query<
         (
@@ -308,32 +311,21 @@ fn turn_on_attackers(
             .as_ref()
             .is_some_and(|(_, mark)| mark & TURNS_STRIKERS != 0);
         let foe = (!by_hero).then_some(hit.attacker);
+        let calm = !mind.thinks.fighting();
         if mind.turns_on(foe, busy, striking && !breaks) {
             debug!(
                 "ai: {} turns on {}, which struck it",
                 hit.target, hit.attacker
             );
-        }
-    }
-}
-
-/// A Fetzer struck while it chooses takes its phase (`0x535C78`, #2568).
-fn fetzers_struck(
-    mut hits: MessageReader<crate::fight::Hit>,
-    mut creatures: Query<&mut Mind>,
-    mut minds: ResMut<Minds>,
-) {
-    for hit in hits.read() {
-        if let Ok(mut mind) = creatures.get_mut(hit.target)
-            && mind.mark() == opensacred_rules::casts::FETZER_CHOOSES
-        {
-            let roll = minds.rng.below(3);
-            mind.fetzer_struck(roll);
-            debug!(
-                "ai: {} is struck and takes its phase {:#x}",
-                hit.target,
-                mind.mark()
-            );
+            if calm && mind.mark() == opensacred_rules::casts::FETZER_CHOOSES {
+                let roll = rolls.rng.below(3);
+                mind.fetzer_struck(roll);
+                debug!(
+                    "ai: {} is struck and takes its phase {:#x}",
+                    hit.target,
+                    mind.mark()
+                );
+            }
         }
     }
 }
@@ -3447,9 +3439,7 @@ impl Plugin for AiPlugin {
             )
             .add_systems(
                 Update,
-                (alarm, fetzers_struck, turn_on_attackers)
-                    .in_set(Step::Crowd)
-                    .before(think),
+                (alarm, turn_on_attackers).in_set(Step::Crowd).before(think),
             )
             .add_systems(Update, face_shooed.in_set(Step::Crowd).after(behave));
     }
@@ -3464,6 +3454,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins(MinimalPlugins)
             .add_message::<crate::fight::Hit>()
+            .init_resource::<Minds>()
             .add_systems(Update, turn_on_attackers);
         let hero = app.world_mut().spawn(Body::standing()).id();
         let goblin = app
