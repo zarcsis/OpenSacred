@@ -714,12 +714,25 @@ pub fn gun_rundum_shot<T: Copy>(shot: usize, target: Option<T>, gathered: &[T]) 
 pub const FORM: u16 = 1094;
 pub const FORMED: u32 = 50;
 
+/// The arts while whose clips their maker holds the mark `+0x200` bit `0x10`, by which a strike's
+/// event 5 and the event `0x100` pass it by (`0x56B130`; docs/re/arts.md, "The Seraphim's", "The
+/// Gladiator's"; #3126): the jumps 1003 and 1017 from their first run to their end, the
+/// Seraphim's 1018 and 1019 through their clips, the Gladiator's backbreaker 1010 until it lets
+/// its target go.
+const SPARES: [u16; 5] = [1003, 1010, 1017, 1018, 1019];
+
+/// Whether its maker takes no strike while `art` plays ([`SPARES`]).
+pub fn spares(art: u16) -> bool {
+    SPARES.contains(&art)
+}
+
 /// Whether `art` is one of the Daemon's forms, 1094 and 1097 to 1100, which the launch's test
 /// passes for a maker of the type 9 (`0x51D840`) and which change his own form alone, never a
 /// friend's (docs/re/arts.md, "The special weapon arts", #3124).
 pub fn forms(art: u16) -> bool {
     art == FORM || (1097..=1100).contains(&art)
 }
+
 /// The effect that strikes the Daemon whose form ends where he may not stand, keyed by
 /// [`DAEMON_FORM`] (`0x5881A0`): 55.
 pub const DROWNS: u32 = 55;
