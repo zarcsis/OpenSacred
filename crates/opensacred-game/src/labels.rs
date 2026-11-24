@@ -167,9 +167,16 @@ fn lay_out(corners: &[Vec2], sizes: &[Vec2]) -> Vec<Option<Rect>> {
             .partial_cmp(&(corners[b].y, corners[b].x))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    let mut laid = vec![None; order.len()];
+    lay_out_in(&order, corners, sizes)
+}
+
+/// Lays out the boxes of the sizes `sizes`, each wanted with its top left at its corner of
+/// `corners`, in the order `order` by the same search as [`lay_out`] (`cLabelLayout`,
+/// `0x6620F0`): the lens's quests' icons in their list's order (`world_map`, #3107).
+pub(crate) fn lay_out_in(order: &[usize], corners: &[Vec2], sizes: &[Vec2]) -> Vec<Option<Rect>> {
+    let mut laid = vec![None; corners.len().min(sizes.len())];
     let mut placed: Vec<Rect> = Vec::with_capacity(order.len());
-    for index in order {
+    for &index in order {
         let found = (0..TRIES).find_map(|k| {
             let times = f32::from(u8::try_from(k / 2).unwrap_or(u8::MAX));
             let corner = corners[index] + STEPS[k % 4] * times;
@@ -623,6 +630,19 @@ impl Plugin for LabelsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn boxes_laid_in_a_given_order_keep_the_first_where_it_wants() {
+        // Two 16 × 16 boxes at one corner, the later listed first: it stays, the other moves.
+        let corners = [Vec2::new(100.0, 100.0), Vec2::new(100.0, 100.0)];
+        let sizes = [Vec2::splat(16.0); 2];
+        let laid = lay_out_in(&[1, 0], &corners, &sizes);
+        assert_eq!(laid[1].map(|rect| rect.min), Some(corners[1]));
+        let moved = laid[0].map(|rect| rect.min);
+        assert!(moved.is_some_and(|at| at != corners[0]), "{moved:?}");
+        // The given order alone is laid.
+        assert_eq!(lay_out_in(&[0], &corners, &sizes)[1], None);
+    }
 
     #[test]
     fn a_foes_values_are_cut_as_the_original_writes_them() {
