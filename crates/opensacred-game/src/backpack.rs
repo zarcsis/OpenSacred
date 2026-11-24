@@ -46,6 +46,10 @@ pub(crate) const ITEM_TINT: Color = tinted(0x3D, 0x59, 0xAB);
 const FITS_TINT: Color = tinted(0x3D, 0x91, 0x40);
 const SWAPS_TINT: Color = tinted(0x91, 0x21, 0x9E);
 pub(crate) const REFUSED_TINT: Color = tinted(0xFF, 0x00, 0x00);
+/// The tint of the cells of an item that the scripts put into the backpack, until it is moved (the
+/// cells' mark `0x40`, `0x5DC430`; `pickup::Pack::give_marked`, #3543): a pale olive yellow over
+/// the item's own, seen over the red of an item the hero cannot use.
+const MARKED_TINT: Color = tinted(0xFF, 0xFF, 0x80);
 /// The render layer of the items' models, and the light their camera gives them (**estimate**).
 const ITEMS: usize = 10;
 pub(crate) const AMBIENT: f32 = 600.0;
@@ -468,11 +472,25 @@ fn tint(
                 refuses(wearer.as_ref(), (&rules, tables.as_deref()), dropped)
             })
     };
+    let marked = |key: u32| pack.marked(key);
     for (tint, mut colour) in &mut tints {
-        colour.set_if_neq(BackgroundColor(cell_tint(
-            &pack.grid, held, tint.0, refused,
-        )));
+        let wanted = marked_tint(&pack.grid, held, tint.0, marked)
+            .unwrap_or_else(|| cell_tint(&pack.grid, held, tint.0, refused));
+        colour.set_if_neq(BackgroundColor(wanted));
     }
+}
+
+/// The tint of the cell `cell` of the backpack's `grid` where an item that `marked` marks lies
+/// there and no held item is over it ([`MARKED_TINT`], #3543); none otherwise.
+fn marked_tint(
+    grid: &Grid,
+    held: Option<HeldOver>,
+    cell: (u8, u8),
+    marked: impl Fn(u32) -> bool,
+) -> Option<Color> {
+    let under_held = held.is_some_and(|(at, size, _)| Grid::held_over(cell, at, size));
+    let placed = grid.at(cell)?;
+    (!under_held && marked(placed.key)).then_some(MARKED_TINT)
 }
 
 /// An item held over a grid: the cell it would go to, its size, and where it would go.
@@ -741,6 +759,39 @@ impl Plugin for BackpackPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_marked_items_cells_take_the_pale_yellow_but_under_a_held_item() {
+        let mut grid = Grid::default();
+        let marked = grid.take(7, (1, 2)).map(|_| 7);
+        let plain = grid.take(8, (1, 1)).map(|_| 8);
+        assert_eq!((marked, plain), (Some(7), Some(8)));
+        let is_marked = |key: u32| key == 7;
+        assert_eq!(
+            marked_tint(&grid, None, (0, 0), is_marked),
+            Some(MARKED_TINT)
+        );
+        assert_eq!(
+            marked_tint(&grid, None, (0, 1), is_marked),
+            Some(MARKED_TINT)
+        );
+        // Another item's cell, and an empty one, take none of it.
+        let at = grid
+            .items
+            .iter()
+            .find(|placed| placed.key == 8)
+            .map(|p| p.at);
+        let at = at.unwrap_or_default();
+        assert_eq!(marked_tint(&grid, None, at, is_marked), None);
+        assert_eq!(marked_tint(&grid, None, (5, 5), is_marked), None);
+        // Under a held item the held one's tint shows.
+        let held = Some(((0, 0), (1, 1), Highlight::Swaps));
+        assert_eq!(marked_tint(&grid, held, (0, 0), is_marked), None);
+        assert_eq!(
+            marked_tint(&grid, held, (0, 1), is_marked),
+            Some(MARKED_TINT)
+        );
+    }
 
     #[test]
     fn an_item_stands_at_its_rectangles_centre_turned_into_the_models_frame() {

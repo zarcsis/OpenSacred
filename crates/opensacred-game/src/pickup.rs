@@ -175,6 +175,9 @@ pub struct Pack {
     /// The items used up since `sparkles` last looked, their places in the grid and their types,
     /// each of which sparkles (`0x5D8000`, #1272).
     pub used: Vec<(Placed, u32)>,
+    /// The keys of the items that the scripts put into the grid, marked until they are moved (the
+    /// cells' mark `0x40`, `0x5D9F00`; [`Pack::give_marked`], #3543).
+    marked: Vec<u32>,
 }
 
 /// What a save keeps of the pack (`saves`, #1957): the gold, the backpack's items and grid and
@@ -192,6 +195,7 @@ pub struct Kept {
     worn: [Option<(u32, Dropped)>; opensacred_rules::equipment::SLOTS as usize],
     books: Vec<u32>,
     uses: Vec<(u32, String)>,
+    marked: Vec<u32>,
 }
 
 impl Kept {
@@ -218,6 +222,7 @@ impl Pack {
             worn: self.worn.clone(),
             books: self.books.clone(),
             uses: self.uses.clone(),
+            marked: self.marked.clone(),
         }
     }
 
@@ -232,6 +237,7 @@ impl Pack {
         self.worn = kept.worn;
         self.books = kept.books;
         self.uses = kept.uses;
+        self.marked = kept.marked;
         self.used.clear();
     }
 }
@@ -434,6 +440,7 @@ impl Pack {
         let index = self.items.iter().position(|(k, _)| *k == key)?;
         let placed = self.grid.remove(key)?;
         self.uses.retain(|(k, _)| *k != key);
+        self.marked.retain(|&k| k != key);
         Some((placed, self.items.remove(index).1))
     }
 
@@ -558,7 +565,47 @@ impl Pack {
     /// Takes the item over the cell `cell` out of the grid onto the cursor where it holds nothing
     /// (`0x5DA3D0`): whether one went.
     pub fn lift(&mut self, cell: (u8, u8)) -> bool {
-        lift_from((&mut self.items, &mut self.grid), &mut self.held, cell)
+        let key = self.grid.at(cell).map(|placed| placed.key);
+        let lifted = lift_from((&mut self.items, &mut self.grid), &mut self.held, cell);
+        // Its mark goes as it is moved (`0x5D9F00` clears the bit as it places an item).
+        if lifted {
+            self.marked.retain(|&k| Some(k) != key);
+        }
+        lifted
+    }
+
+    /// Takes `dropped` of `size` into the grid at its first fit by columns, marked until it is
+    /// moved, with its `Use:` function `uses`, as a `CreateObj` of the tag `0x3F` gives its item
+    /// straight into the backpack (`0x48862D` to `0x48873E`, `0x5D9F00`; #3543): whether it
+    /// found room.
+    pub fn give_marked(&mut self, dropped: Dropped, size: (u8, u8), uses: Option<String>) -> bool {
+        if !self.take(dropped, size) {
+            return false;
+        }
+        if let Some(key) = self.next.checked_sub(1) {
+            self.marked.push(key);
+        }
+        if let Some(function) = uses {
+            self.bind_use(function);
+        }
+        true
+    }
+
+    /// Whether the item of the key `key` is marked as the scripts put it into the grid
+    /// ([`Pack::give_marked`]).
+    pub fn marked(&self, key: u32) -> bool {
+        self.marked.contains(&key)
+    }
+
+    /// Takes the marks of the items that left the grid off: an item worn, sold or used keeps its
+    /// key, and its mark goes with its move, so that it comes back unmarked (#3543); whether one
+    /// went.
+    pub fn unmark_moved(&mut self) -> bool {
+        let grid = &self.grid;
+        let before = self.marked.len();
+        self.marked
+            .retain(|&key| grid.items.iter().any(|placed| placed.key == key));
+        self.marked.len() != before
     }
 
     /// Puts the item on the cursor at the cell `at` of the grid (`0x6C0150`): where it fits, the
@@ -655,6 +702,14 @@ impl Pack {
             self.grid.remove(key);
             self.quest.push(kept);
         }
+    }
+}
+
+/// Takes the marks of the items that left the backpack's grid off ([`Pack::unmark_moved`]),
+/// touching the pack only where one went.
+fn unmark_moved(mut pack: ResMut<Pack>) {
+    if pack.bypass_change_detection().unmark_moved() {
+        pack.set_changed();
     }
 }
 
@@ -1584,7 +1639,7 @@ impl Plugin for PickupPlugin {
             .add_systems(OnEnter(AppState::InGame), start)
             .add_systems(
                 Update,
-                (receive, gold_sounds).run_if(in_state(AppState::InGame)),
+                (receive, gold_sounds, unmark_moved).run_if(in_state(AppState::InGame)),
             )
             .add_systems(
                 Update,
@@ -1625,6 +1680,34 @@ mod tests {
             name_key: 0,
             script: None,
         }
+    }
+
+    #[test]
+    fn a_scripts_item_given_into_the_pack_is_marked_until_it_is_moved() {
+        let mut pack = Pack::default();
+        assert!(pack.give_marked(dropped(Kind::Other, 5775, 1), (1, 2), Some("use_it".into())));
+        let key = pack.items[0].0;
+        assert!(pack.marked(key));
+        assert_eq!(pack.use_of(key), Some("use_it"));
+        // Kept through a save.
+        let mut loaded = Pack::default();
+        loaded.restore(pack.kept());
+        assert!(loaded.marked(key));
+        // Lifted onto the cursor and put back in its place, it is marked no more.
+        assert!(pack.lift((0, 0)));
+        assert!(!pack.marked(key));
+        assert_eq!(pack.put_held((0, 0)), Put::Placed);
+        assert!(!pack.marked(key));
+        // Worn, its mark goes, and it comes back from the slot unmarked.
+        assert!(loaded.marked(key) && loaded.wear(key, 0, (1, 1)));
+        assert!(loaded.unmark_moved() && !loaded.marked(key));
+        assert!(loaded.unwear(0, (1, 2)) && !loaded.marked(key));
+        assert!(!loaded.unmark_moved());
+        // A pack without room takes none and marks nothing.
+        let mut full = Pack::default();
+        while full.take(dropped(Kind::Other, 1, 1), (1, 1)) {}
+        assert!(!full.give_marked(dropped(Kind::Other, 5775, 1), (1, 1), None));
+        assert!(full.marked.is_empty());
     }
 
     #[test]
