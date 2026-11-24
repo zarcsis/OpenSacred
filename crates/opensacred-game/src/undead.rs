@@ -356,6 +356,8 @@ fn stand(world: &mut World, corpse: Entity, hostile: bool) {
         if let Some(mut mind) = risen.get_mut::<Mind>() {
             mind.flags |= RISEN;
         }
+        // Woken as it rises, its sight running where it sees the hero (`0x541A8F`, #3149).
+        risen.insert(crate::ai::Woken);
         if let Some(mut health) = risen.get_mut::<Health>() {
             health.current = undead::risen_health(health.most, roll).max(1);
             info!(
