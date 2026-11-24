@@ -594,7 +594,7 @@ fn act(
                     object: true,
                     mount: false,
                 });
-                crate::lightning_strikes::strike(&mut commands, place, false);
+                crate::lightning_strikes::strike(&mut commands, cast.target, place, false);
             }
             spells::STONE | casts::CAGE => {
                 // The stone, or the plant cage about the hero (its objects 849, `0x52494F`): the

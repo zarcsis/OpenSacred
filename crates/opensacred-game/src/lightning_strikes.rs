@@ -4,10 +4,13 @@
 //! `FX_LIGHTSTRIKE05` turned over at random at each draw, a glow for 0.1 s and a burst of sparks
 //! (`opensacred_rules::particles::{LightningBolt, lightning_sparks}`, by `puffs`), all added
 //! whole and untinted by the night, its light of 200 while its sparks fall; a creature's of
-//! `FX_LIGHTSTRIKE06` in violet (`+0xA9`).
-//!
-//! Not followed: the bolts drawn over all else (its depth test off), and the glow at the
-//! system's first point, which the game takes for its place on the ground.
+//! `FX_LIGHTSTRIKE06` in violet (`+0xA9`). The system stands at the struck creature's
+//! `Bip01 Neck`, else its root, following it while it lives (the FX event `0x1F`, its flags
+//! `0x1200`): the bolts' foot, the sparks' burst and the glow 2 under it (#3156). Its bolts and
+//! its glow, which the original draws with their depth not tested (`0x77D000`), lie at one depth
+//! of its place in the order, after the struck creature's model (`fx::Orders::borne_by`,
+//! `fx::Quads::at_order`, #3156; docs/decisions/drawing.md, "Effects at their bearers' places"):
+//! over the creature and what the order draws before it, under what it draws after.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -26,15 +29,18 @@ const SEGMENTS: u16 = 12;
 /// How long a lightning lives: as long as its sparks (the life −250 a second).
 const LIVES: f32 = 255.0 / 250.0;
 
-/// A lightning to make at the place `at`, a hero's or a creature's.
+/// A lightning to make at the creature `target`, else at the place `at`, a hero's or a
+/// creature's.
 #[derive(Component)]
 struct Unmade {
+    target: Option<Entity>,
     at: Vec3,
     hero: bool,
 }
 
 /// A lightning: its clock, its bolts, its kind (0 a hero's, 1 a creature's), its dice of the
-/// strips' turns, its lamp, and its parts' meshes, the bolts' and the glow's.
+/// strips' turns, its lamp, its parts' meshes, the bolts' and the glow's, the struck
+/// creature's neck (or root) that it follows, and the struck creature.
 #[derive(Component)]
 struct Strike {
     clock: f32,
@@ -43,7 +49,12 @@ struct Strike {
     dice: Rng,
     lamp: Entity,
     parts: [Handle<Mesh>; 2],
+    follows: Option<Entity>,
+    struck: Option<Entity>,
 }
+
+/// How far under the system's first point its glow lies, in the models' units (`0x77D000`).
+const GLOW_UNDER: f32 = 2.0;
 
 /// The bolts' materials, a hero's and a creature's, and the glow's, made as the first lightning
 /// strikes; none where a texture is missing.
@@ -60,12 +71,21 @@ impl Default for Rolls {
     }
 }
 
-/// A lightning striking at the place `at`, a hero's or a creature's (`spells`, `creature_casts`).
-pub(crate) fn strike(commands: &mut Commands, at: Vec3, hero: bool) {
-    commands.spawn((Unmade { at, hero }, DespawnOnExit(AppState::InGame)));
+/// A lightning striking the creature `target` at the place `at`, a hero's or a creature's
+/// (`spells`, `creature_casts`).
+pub(crate) fn strike(commands: &mut Commands, target: Entity, at: Vec3, hero: bool) {
+    commands.spawn((
+        Unmade {
+            target: Some(target),
+            at,
+            hero,
+        },
+        DespawnOnExit(AppState::InGame),
+    ));
 }
 
-/// Makes each lightning asked for (`0x77D5C0`): its sparks, its bolts, its glow and its lamp.
+/// Makes each lightning asked for (`0x77D5C0`): its sparks, its bolts, its glow and its lamp, at
+/// its target's neck, else its root (`0x5A49FD`, `0x44CB80`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources as arguments"
@@ -74,6 +94,11 @@ fn make(
     mut commands: Commands,
     unmade: Query<(Entity, &Unmade)>,
     mut rolls: ResMut<Rolls>,
+    (children, bones, worn): (
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
     (data, assets, mut made, mut materials, mut meshes): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -82,7 +107,15 @@ fn make(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (entity, &Unmade { at, hero }) in &unmade {
+    for (entity, &Unmade { target, at, hero }) in &unmade {
+        // The struck creature's neck, else its root, which the system follows.
+        let follows = target.map(|target| {
+            crate::making::bone_entity(target, &[crate::arrows::NECK], &children, (&bones, &worn))
+                .unwrap_or(target)
+        });
+        let at = follows
+            .and_then(|follows| bones.get(follows).ok())
+            .map_or(at, |(_, place)| place.translation());
         let made = made
             .0
             .get_or_insert_with(|| {
@@ -111,7 +144,7 @@ fn make(
             &mut commands,
             lightning_sparks(particles::LIGHTNING_COLOURS[kind], &mut rolls.0),
             at,
-            None,
+            follows,
         );
         let lamp = commands
             .spawn((
@@ -155,24 +188,40 @@ fn make(
             dice: crate::seed::dice(0x31E ^ index),
             lamp,
             parts,
+            follows,
+            struck: target,
         });
     }
 }
 
-/// Runs each lightning a frame on (`0x77CF70`, `0x77D000`): its bolts for 0.25 s, its strips
-/// turned at random at each draw, its glow for 0.1 s; once its sparks are gone it goes, its lamp
-/// with it.
+/// Runs each lightning a frame on (`0x77CF70`, `0x77D000`): at its creature's neck while it
+/// lives, its bolts for 0.25 s, its strips turned at random at each draw, its glow for 0.1 s;
+/// once its sparks are gone it goes, its lamp with it.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its queries with their filters"
+)]
 fn run(
     mut commands: Commands,
     time: Res<Time>,
-    mut strikes: Query<(Entity, &mut Strike, &GlobalTransform)>,
+    mut strikes: Query<(Entity, &mut Strike, &mut Transform), Without<daynight::Light>>,
+    (places, mut lamps): (
+        Query<&GlobalTransform>,
+        Query<&mut Transform, (With<daynight::Light>, Without<Strike>)>,
+    ),
     (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let s = iso::MODEL_SCALE;
     let (across, down) = iso::fx_axes();
     let at = |[x, y, z]: [f32; 3]| (across * x + down * y + Vec3::Y * z) * s;
-    for (entity, mut strike, place) in &mut strikes {
+    for (entity, mut strike, mut place) in &mut strikes {
         let strike = &mut *strike;
+        if let Some(at) = strike.follows.and_then(|follows| places.get(follows).ok()) {
+            place.translation = at.translation();
+            if let Ok(mut lamp) = lamps.get_mut(strike.lamp) {
+                lamp.translation = at.translation().with_y(0.0);
+            }
+        }
         let clock = strike.clock;
         strike.clock += time.delta_secs();
         if clock >= LIVES {
@@ -198,19 +247,23 @@ fn run(
         let mut glow = Quads::default();
         if clock <= particles::LIGHTNING_GLOW_SHOWS {
             glow.push(
-                Vec3::ZERO,
+                Vec3::NEG_Y * GLOW_UNDER * s,
                 particles::LIGHTNING_GLOW_HALF * s,
                 0.0,
                 (Vec2::ZERO, 1.0),
                 colour,
             );
         }
-        // At its object's place in the order, as the original draws the system (#2188).
-        let origin = place.translation();
-        let order = orders.at(origin);
+        // At one depth of its object's place in the order, its depth not tested (#3156): after
+        // the struck creature's model, which carries it, else at its place.
+        let origin = place.translation;
+        let order = strike
+            .struck
+            .and_then(|struck| orders.borne_by(struck))
+            .or_else(|| orders.at(origin));
         for (handle, mut quads) in strike.parts.iter().zip([bolts, glow]) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
-                quads.in_order(order, origin);
+                quads.at_order(order, origin);
                 quads.into_mesh(&mut mesh);
             }
         }
