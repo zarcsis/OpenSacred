@@ -6995,8 +6995,8 @@ mod tests {
         let mut none = crate::spawning::Script::new(Vec::new());
         // From 10 to 1,000 off its target, 700 beyond its place along the line from it.
         assert_eq!(
-            runs_off(at(10.0, 0.0), at(0.0, 0.0), &mut none),
-            at(710.0, 0.0)
+            runs_off(at(110.0, 50.0), at(100.0, 50.0), &mut none),
+            at(810.0, 50.0)
         );
         assert_eq!(
             runs_off(at(0.0, -1_000.0), at(0.0, 0.0), &mut none),
