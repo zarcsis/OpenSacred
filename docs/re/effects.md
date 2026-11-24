@@ -2943,7 +2943,7 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
 
 `opensacred-game` draws them since #1092 (`holding_sights`, `opensacred_rules::particles::{BurningLight, HolyConversion}`, `spells::holding_sight`): the irritation's light and the conversion's halo as `spells` holds their target, and the light on every creature that a blow knocks back (`making::Knocked` inserted), for 3 s; the halo's offset taken in the head bone's glTF axes, the original's `y` its `z`.
 **Seen** 2026-11-06 beside the original: the irritation's bursts of white and pale blue sparks about the goblin, and the conversion's white halo over its head, alike in both, the game's halo a little bluer.
-Not followed: the Dwarf's 1083's and the Gladiator's 1003's own lights and the stun of 862's (#3142); the laser stare's follows since #2567 (`creature_arts::stare`, docs/re/ai.md).
+The Dwarf's 1083's own lights since #3142, its thrown target's for its hold and each creature bowled over's for 2 s (`making`), and the stun of 862's for 0.5 s since #3081 (`fight`); not followed: the Gladiator's 1003's at himself (#3639); the laser stare's follows since #2567 (`creature_arts::stare`, docs/re/ai.md).
 
 ## The mortar's impact
 

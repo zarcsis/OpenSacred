@@ -2112,6 +2112,9 @@ fn make(
                         "making: {} throws {} at {speed:.0}, held {hold:.1} s",
                         making.art, playing.target
                     );
+                    // Its burning light for its hold's whole seconds (the FX event `0x2B`'s `[1]`,
+                    // #3142).
+                    crate::holding_sights::burn(&mut commands, playing.target, hold);
                     // Its hit clip at the rate 1.0 (`0x5182F3`, seen, #3141).
                     commands
                         .entity(playing.target)
@@ -3682,6 +3685,8 @@ fn knock(
                         },
                         crate::npcs::ScriptClip::fall(arts::BOWLED_CLIP),
                     ));
+                // Its burning light for its hold's 2 s (the blows' object 816, #3142).
+                crate::holding_sights::burn(&mut commands, other, arts::BOWL_HOLD);
                 flight.velocity = flight.velocity.map(|v| v * arts::BOWL_KEEPS);
             }
             if flight.landed() {

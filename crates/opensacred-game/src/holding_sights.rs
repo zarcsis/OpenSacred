@@ -1,8 +1,9 @@
 //! The holds' sights (#1092; docs/re/effects.md, "The burning light and the holy conversion"): the
 //! burning light (816) about a creature that the Seraphim's irritation holds, that a blow knocks
 //! back or that a brain-footer stares at (`creature_arts`), pale blue sparks bursting now and then
-//! about its neck and falling, left in the world, for the hold's seconds, 3 s or the stare's 2 s
-//! (`opensacred_rules::particles::BurningLight`); and the holy conversion's halo (806) at a
+//! about its neck and falling, left in the world, for the hold's seconds, 3 s or the stare's 2 s,
+//! the Dwarf's 1083's thrown target's for its hold and each creature it bowls over's for 2 s
+//! (`making`, #3142) (`opensacred_rules::particles::BurningLight`); and the holy conversion's halo (806) at a
 //! converted creature's head, forty small blue-violet glows on a ring that swells away as the
 //! conversion ends (`particles::HolyConversion`). Both are added and untinted by the night.
 
@@ -79,8 +80,20 @@ pub(crate) fn convert(commands: &mut Commands, target: Entity, seconds: f32) {
     ));
 }
 
-/// Every knock-back burns its creature 3 s, each its own (the creature's event 3, `0x531BB6`).
-fn knocked(added: On<Insert<crate::making::Knocked>>, mut commands: Commands) {
+/// Every knock-back burns its creature 3 s, each its own (the creature's event 3, `0x531BB6`);
+/// a throw, the Dwarf's 1083's, no event 3, burns its own seconds where `making` throws it
+/// (#3142).
+fn knocked(
+    added: On<Insert<crate::making::Knocked>>,
+    knocks: Query<&crate::making::Knocked>,
+    mut commands: Commands,
+) {
+    if knocks
+        .get(added.entity)
+        .is_ok_and(|knock| knock.throw.is_some())
+    {
+        return;
+    }
     burn(&mut commands, added.entity, BURNING_KNOCKED);
 }
 
@@ -284,5 +297,48 @@ impl Plugin for HoldingSightsPlugin {
                     .in_set(Unpaused)
                     .run_if(in_state(AppState::InGame)),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::making::Knocked;
+
+    /// The seconds of the burning lights made so far.
+    fn lights(app: &mut App) -> Vec<f32> {
+        app.world_mut()
+            .query::<&Unmade>()
+            .iter(app.world())
+            .filter_map(|unmade| match *unmade {
+                Unmade::Burning { seconds, .. } => Some(seconds),
+                Unmade::Conversion { .. } => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_knock_back_burns_3_s_and_a_throw_leaves_its_light_to_its_thrower() {
+        let mut app = App::new();
+        app.add_observer(knocked);
+        let by = app.world_mut().spawn_empty().id();
+        let knock = |throw| Knocked {
+            by,
+            from: Vec3::ZERO,
+            left: 1_000.0,
+            held: 0.0,
+            throw,
+            unheld: false,
+        };
+        app.world_mut().spawn(knock(None));
+        app.world_mut().flush();
+        assert_eq!(lights(&mut app), [BURNING_KNOCKED]);
+        app.world_mut()
+            .spawn(knock(Some(opensacred_rules::arts::Flight::new(
+                [10.0, 0.0],
+                80.0,
+            ))));
+        app.world_mut().flush();
+        assert_eq!(lights(&mut app), [BURNING_KNOCKED]);
     }
 }
