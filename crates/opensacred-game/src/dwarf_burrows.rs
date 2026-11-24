@@ -143,7 +143,8 @@ fn make(
         // The lit pass's material and the added pass's, which every phase's meshes share.
         let [lit, added] = looks.textures.clone();
         let made = [
-            in_order(
+            // Its lit pass with the device's specular highlights (`0x80`, #3169).
+            model_looks::specular(in_order(
                 StandardMaterial {
                     base_color: Color::WHITE,
                     base_color_texture: lit,
@@ -152,7 +153,7 @@ fn make(
                 },
                 &anchors,
                 Pass::UnderBlended(Layer::Objects),
-            ),
+            )),
             in_order(
                 StandardMaterial {
                     base_color: Color::WHITE,
