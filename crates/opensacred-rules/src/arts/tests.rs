@@ -2475,3 +2475,9 @@ fn the_dwarfs_gun_rundum_shoots_its_target_then_the_gathered() {
     assert_eq!(gun_rundum_shot(4, Some(9), &[1, 2, 3]), None);
     assert_eq!(gun_rundum_shot(0, None, &gathered), None);
 }
+
+#[test]
+fn the_daemons_forms_are_his_own_alone() {
+    assert!(forms(FORM) && forms(1097) && forms(1100));
+    assert!(!forms(1095) && !forms(1096) && !forms(1101) && !forms(1015));
+}

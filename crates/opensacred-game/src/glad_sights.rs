@@ -8,8 +8,8 @@
 //! system before the creature it follows (`fx::Orders`, #2178)
 //! (`opensacred_rules::particles::GladSight`).
 //!
-//! Not followed: the awe at a follower or an allied hero that its action targets (the game makes
-//! it at him), and the items' glows of his arts with empty hands.
+//! The awe made on a follower of his shows at that friend (#3124). Not followed: the items' glows
+//! of his arts with empty hands.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -34,6 +34,9 @@ impl Default for Dice {
         Self(crate::seed::dice(0x803))
     }
 }
+
+/// The Gladiator's awe, which shows about its target, himself or a friend (#3124).
+const AWE: u16 = 1014;
 
 /// The sights' materials, made as the first asks, none where a texture is missing: the sparks,
 /// the hand of god's glow and the heroism's star added whole, the awe's auras laid over by their
@@ -107,8 +110,14 @@ fn start(
                 ));
             }
         }
+        // The awe about the friend it is made on, its root (`0x5490B0`, #3124).
+        let at = if making.art == AWE {
+            making.target
+        } else {
+            caster
+        };
         sight.insert(Sight {
-            caster,
+            caster: at,
             look,
             before: None,
             meshes: parts,

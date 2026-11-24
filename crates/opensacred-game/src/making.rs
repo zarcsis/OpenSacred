@@ -395,11 +395,12 @@ pub(crate) fn aim(
         Option<Res<crate::pickup::Pack>>,
         MessageWriter<crate::trample::Start>,
     ),
-    (creatures, corpses, ranks, experience): (
+    (creatures, corpses, ranks, experience, followers): (
         Query<(Entity, &GlobalTransform, &Mind, &Health), Without<Dies>>,
         Query<(Entity, &GlobalTransform), With<crate::npcs::Corpse>>,
         Query<&fight::Ranked>,
         Option<Res<fight::Experience>>,
+        Query<(&crate::followers::Follower, Option<&crate::crowd::InTheWay>)>,
     ),
     mut heroes: Query<
         (
@@ -480,6 +481,20 @@ pub(crate) fn aim(
             // is on (`0x51D840`).
             (Some(5), ..) if spell => (hero, at.translation()),
             (Some(2), true, _) => (hero, at.translation()),
+            // A follower of his alive on his floor, his friend (`0x5490B0`, #3124), but for the
+            // Daemon's forms, which are his alone.
+            (Some(2), false, _)
+                if !arts::forms(art)
+                    && let Some(friend) = under.and_then(|entity| {
+                        let (_, place, _, health) = creatures.get(entity).ok()?;
+                        let (follower, way) = followers.get(entity).ok()?;
+                        let on_floor = way.is_none_or(|way| way.level == body.level());
+                        (follower.master == hero && health.current > 0 && on_floor)
+                            .then(|| (entity, place.translation()))
+                    }) =>
+            {
+                friend
+            }
             (Some(2), false, _) => {
                 info!("making: {art} wants a friend, or the hero himself, under the cursor");
                 continue;
@@ -946,10 +961,15 @@ fn make(
             // A boon is made where the hero stands, on itself; any other art on its target alive,
             // within its distance.
             if making.target != hero && !raises {
+                // On an enemy hostile; one of the launch type 2 on a friend, which the aim
+                // admitted (#3124).
+                let friendly = launch(arts, making.art) == Some(2);
                 let Some((target, target_reach)) = creatures
                     .get(making.target)
                     .ok()
-                    .filter(|(_, _, mind, health)| mind.hostile() && health.current > 0)
+                    .filter(|(_, _, mind, health)| {
+                        (mind.hostile() || friendly) && health.current > 0
+                    })
                     .map(|(_, at, mind, _)| (at.translation(), reach(mind)))
                 else {
                     end(&mut commands);
@@ -1936,11 +1956,15 @@ fn make(
                 end(&mut commands);
             }
             Style::Roar => {
-                // At its first run each hostile creature within its radius of the hero, by a
-                // kick's roll, is knocked back and held; then its regeneration starts and its
-                // clip plays on (`0x4FF0B0` at `0x4FFB75`).
+                // At its first run each hostile creature within its radius of the hero, or of
+                // the friend it is made on (`0x5490B0`, #3124), by a kick's roll, is knocked back
+                // from there and held; then its regeneration starts and its clip plays on
+                // (`0x4FF0B0` at `0x4FFB75`).
                 if playing.struck == 0 {
                     playing.struck = 1;
+                    let here = creatures
+                        .get(playing.target)
+                        .map_or(here, |(_, at, ..)| at.translation());
                     if let Some(record) =
                         arts.tables.weapon_arts.iter().find(|a| a.id == making.art)
                     {
@@ -2749,8 +2773,17 @@ fn make(
                         });
                     // The Seraphim's 1018 and 1019 end as they give their effects (`0x5038F0`).
                     let ends = boon.as_ref().is_some_and(|boon| boon.ends);
+                    // An art of the launch type 2 made on a friend gives it its effects and its
+                    // sights there (`0x5490B0`; 1015's target, the wards' objects at it; #3124).
+                    let bearer = if launch(arts, making.art) == Some(2)
+                        && creatures.contains(playing.target)
+                    {
+                        playing.target
+                    } else {
+                        hero
+                    };
                     if let Some(boon) = boon {
-                        info!("making: {} gives the hero {:?}", making.art, boon.effects);
+                        info!("making: {} gives {bearer} {:?}", making.art, boon.effects);
                         // The soulcatcher's object 869 hangs at him for its effect's time,
                         // looping `DELF_SOULCATCHER_LOOP` from its start (`0x76AC5F`), its
                         // twirls over his neck (`soulcatchers`).
@@ -2808,7 +2841,7 @@ fn make(
                         {
                             commands.spawn((
                                 crate::dark_wards::Ward {
-                                    bearer: hero,
+                                    bearer,
                                     arrows: making.art == 1045,
                                     seconds,
                                 },
@@ -2859,7 +2892,7 @@ fn make(
                             ));
                         }
                         commands
-                            .entity(hero)
+                            .entity(bearer)
                             .entry::<crate::effects::Effects>()
                             .or_default()
                             .and_modify(move |mut effects| {
