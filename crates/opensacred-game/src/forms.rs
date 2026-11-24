@@ -49,6 +49,9 @@ pub struct Clips {
     pub riding_attack: Option<(String, [f32; 2])>,
     /// The fall of a hero knocked down (`fight::KNOCKED_DOWN_SLOT`, #2311).
     pub knocked: Option<String>,
+    /// The defending clip for what it holds, where the model has its slot
+    /// (`motions::Slots::defend_slot`, `hero_defence`, #3392).
+    pub defend: Option<String>,
 }
 
 /// A form of the hero: its type, its model and clips, its record's values for its fight, its

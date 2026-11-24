@@ -214,7 +214,7 @@ pub fn clips(
         // A kick strikes at its class's point of its clip, not at the clip's hit points, and the
         // backbreaker at its own by what the hero holds.
         let points = if style == Style::Kick {
-            vec![arts::kick_point(kind, class)]
+            arts::kick_point(kind, class).into_iter().collect()
         } else if style == Style::Backbreaker {
             vec![1.0 - arts::backbreaker_lets_go(class)]
         } else {
@@ -2900,9 +2900,9 @@ fn make(
             }
             Style::Kick => {
                 // One strike at its point, which may knock its target back; its clip plays on
-                // to its end (#650).
-                if playing.struck == 0 && due(playing.points.first().copied().unwrap_or(0.6), done)
-                {
+                // to its end (#650). The Wood Elf's 1064 and the generic 1009 have none and
+                // strike nothing, their regeneration not started (#3121).
+                if playing.struck == 0 && playing.points.first().is_some_and(|&at| due(at, done)) {
                     playing.struck = 1;
                     if let Ok((_, _, mind, health)) = creatures.get(playing.target)
                         && health.current > 0
