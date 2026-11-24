@@ -3231,7 +3231,7 @@ Read 2026-11-23 for #3129 and #3131 in Ghidra (**confirmed** by code unless mark
 
 `opensacred-game` draws the hits' sights since #3129: 1004's sparks at a creature its strike leaves alive, once the strike is resolved, their light at the creature (`hit_sparks`, `opensacred_rules::particles::sparks_if_alive`); the club arrow's ring at the struck creature's neck, else its root, with its light (`arrow_sights`, `opensacred_rules::particles::ClubRing`); the spider arrow's smoke at its left thigh, placed once (`arrow_sights`, `opensacred_rules::particles::spider_smoke`); and the thrown weapons' hits' 864, the Dark Elf's class's burst at the struck creature's neck (`hurled`, `hit_sparks`).
 A creature that 1004's strike leaves dead takes the sparks where it rises again, an undead whose death is not its last, and bursts otherwise (#3130, docs/re/arts.md, "The Wood Elf's").
-Not followed: the trails (#3131).
+The trails since #3131 (`arrows`, `opensacred_rules::particles::arrow_trail`, `ARROW_TRAIL_EVERY`): 1004's arrow lays a piece at its own point, moved on 40 along its way from where it was shot (the **hypothesis** above), as many as its way passed in the frame, and a blade one at its place, one a frame at most; each piece twenty glows between 20 before and 20 beyond its point along the arrow's direction, each of its own colour (`puffs` takes a particle's own colour times its ramp's), added whole and untinted, shrinking away within 1.5 s; the variant 1 of the class is no arrow's and is not made.
 
 ## The effect 33's auras
 

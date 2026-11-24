@@ -13,10 +13,12 @@
 //! The hero's shot of a special arrow ([`Special`], the Wood Elf's 1004, 1006, 1007 and 1008)
 //! looses the art's own arrows, whose hits are the art's strikes, the spider arrow leaving its
 //! spiders with no strike and the blades homing on their foes for a time (docs/re/arts.md, "The
-//! Wood Elf's", #756); its `Rundum`, `Hardhit` and `Attacke` with a bow loose theirs (#2238,
+//! Wood Elf's", #756), the explosive arrow and the blades leaving their trails every 40 of their
+//! way (`lay_trail`, #3131); its `Rundum`, `Hardhit` and `Attacke` with a bow loose theirs (#2238,
 //! #2275), and a shooter with the multi-shot as many arrows as its value, fanned. A hero with the
 //! effect of deflection may turn an arrow aside (`0x561090`), and the plain arrow, the `Rundum`'s
-//! and the `Attacke`'s pass through a ghost (#2276).
+//! and the `Attacke`'s pass through a ghost (#2276). The explosive arrow and the homing blades
+//! leave a trail of green glows, a piece every 40 of their way (`0x5BB7FA`–`0x5BBA6B`, #3131).
 
 use bevy::prelude::*;
 use opensacred_rules::arrows::{self, Point};
