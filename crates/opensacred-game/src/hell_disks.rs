@@ -3,7 +3,8 @@
 //! clip's loop, in the lava's frames, lit and again added over itself; a dull orange glow pulses
 //! about it and a trail of orange glows runs behind it, both added and untinted by the night
 //! (`opensacred_rules::particles::HellDisk`). Stopped past its seconds, it stays where it is until
-//! its trail is gone.
+//! its trail is gone. Its model casts its shadow on the ground under it as it flies, shifted by
+//! half its height (`shadows::Plane`, `0x7ADC84`, #3162).
 
 use bevy::camera::visibility::{DynamicSkinnedMeshBounds, NoFrustumCulling, RenderLayers};
 use bevy::gltf::Gltf;
@@ -69,9 +70,16 @@ type ModelMesh = (
 );
 
 /// Gives each new disk its look (`0x7AD8C0`, `0x7AE040`): its model, its glow and its trail.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, grouped"
+)]
 fn show(
     mut commands: Commands,
-    disks: Query<(Entity, &Transform), Added<crate::spells::HellDisk>>,
+    (disks, heights): (
+        Query<(Entity, &Transform), Added<crate::spells::HellDisk>>,
+        Res<crate::terrain::Heights>,
+    ),
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
@@ -122,6 +130,9 @@ fn show(
                     Transform::from_translation(place.translation)
                         .with_scale(Vec3::splat(particles::HELL_DISK_SCALE * iso::MODEL_SCALE)),
                     model_looks::Ordered::default(),
+                    // Its shadow on the ground under it (`0x406FF0`).
+                    crate::shadows::Casts,
+                    crate::shadows::Plane(ground_of(&heights, place.translation)),
                     DespawnOnExit(AppState::InGame),
                 ))
                 .id()
@@ -262,6 +273,11 @@ fn dress(
     }
 }
 
+/// The ground's height under `at`, where the disk's shadow falls (`0x5A9A6D`), else its own.
+fn ground_of(heights: &crate::terrain::Heights, at: Vec3) -> f32 {
+    heights.at(at.x, at.z).unwrap_or(at.y)
+}
+
 /// Runs each disk's look a frame on (`0x7ADB10`, `0x7ADBC0`): its model at its place in the
 /// lava's frames, its glow about it and its trail; it goes with its last glow.
 #[expect(
@@ -270,10 +286,13 @@ fn dress(
 )]
 fn fly(
     mut commands: Commands,
-    time: Res<Time>,
+    (time, heights): (Res<Time>, Res<crate::terrain::Heights>),
     mut shown: Query<(Entity, &mut Shown)>,
     disks: Query<&Transform, With<crate::spells::HellDisk>>,
-    mut transforms: Query<&mut Transform, (Without<crate::spells::HellDisk>, Without<Shown>)>,
+    (mut transforms, mut planes): (
+        Query<&mut Transform, (Without<crate::spells::HellDisk>, Without<Shown>)>,
+        Query<&mut crate::shadows::Plane>,
+    ),
     (looks, mut dice, mut meshes, mut materials): (
         Res<Looks>,
         ResMut<Dice>,
@@ -307,6 +326,9 @@ fn fly(
         }
         if let Some(mut at) = look.model.and_then(|model| transforms.get_mut(model).ok()) {
             at.translation = look.place;
+        }
+        if let Some(mut plane) = look.model.and_then(|model| planes.get_mut(model).ok()) {
+            plane.0 = ground_of(&heights, look.place);
         }
         for (material, frame) in look.materials.iter().flatten().zip(look.look.frames()) {
             if let Some(mut material) = materials.get_mut(material) {
