@@ -3230,7 +3230,8 @@ Read 2026-11-23 for #3129 and #3131 in Ghidra (**confirmed** by code unless mark
   So a green ring spreads flat about the struck creature's neck, from a disc 26 across to a band from 40 to 66 across, fading away in half a second; its light of 200 lies at the creature's place.
 
 `opensacred-game` draws the hits' sights since #3129: 1004's sparks at a creature its strike leaves alive, once the strike is resolved, their light at the creature (`hit_sparks`, `opensacred_rules::particles::sparks_if_alive`); the club arrow's ring at the struck creature's neck, else its root, with its light (`arrow_sights`, `opensacred_rules::particles::ClubRing`); the spider arrow's smoke at its left thigh, placed once (`arrow_sights`, `opensacred_rules::particles::spider_smoke`); and the thrown weapons' hits' 864, the Dark Elf's class's burst at the struck creature's neck (`hurled`, `hit_sparks`).
-Not followed: the undead whose death is not its last, which takes 1004's sparks in the original and none in the game (with #3130's burst), and the trails (#3131).
+A creature that 1004's strike leaves dead takes the sparks where it rises again, an undead whose death is not its last, and bursts otherwise (#3130, docs/re/arts.md, "The Wood Elf's").
+Not followed: the trails (#3131).
 
 ## The effect 33's auras
 
