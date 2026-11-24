@@ -518,6 +518,9 @@ struct Placement {
     /// An object of an item's type that lies to be picked up as any lying item, not a quest's
     /// (`CreateObj` without [`QUEST_ITEM`], #1296).
     lies: bool,
+    /// Whether such an item goes straight into the hero's backpack as its record runs, where it
+    /// finds room ([`TO_PACK`], #3543).
+    to_pack: bool,
     /// The function that the taking of such an item runs, its `CreateObj`'s [`ON_TAKE`], as the
     /// pick-up runs it whichever way the item goes (`0x558080`, #2891).
     taking: Option<String>,
@@ -775,6 +778,14 @@ const QUEST_ITEM: u8 = 0x8E;
 const ON_TAKE: u8 = 0x41;
 /// The `CreateObj`'s tag of an item's use's function (`Use:`, `0x486263`).
 const ON_USE: u8 = 0x83;
+/// The `CreateObj`'s tag that gives its item straight into the local hero's backpack, marked
+/// until it is moved (`0x48862D` to `0x48873E`; docs/re/inventory.md, "Finding, testing and
+/// placing"; #3543).
+const TO_PACK: u8 = 0x3F;
+/// The keys' category (`0x428170`), whose items such a `CreateObj` puts into the keys' list
+/// rather than the backpack, their objects destroyed (`0x4886F2`; docs/re/containers.md, "The
+/// triggers' keys").
+const KEY: u8 = 14;
 /// A quest's item's quality key as a drop: a plain item's, made by no item maker.
 const QUEST_KEY: u8 = 16;
 /// `CreateObj`'s mark of an item only raised to its level (`0x485E70`, the flag that `0x487D1D`
@@ -1227,6 +1238,7 @@ fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
         quest: None,
         key: None,
         lies: false,
+        to_pack: false,
         taking: None,
         raised: false,
         container: None,
@@ -3831,6 +3843,9 @@ pub struct Added {
     /// after them, by their placements' indices ([`Npcs::equip_made`]), for those in the world
     /// (#2756).
     pub equipped: Vec<Equipped>,
+    /// The placements of the items that go straight into the hero's backpack ([`TO_PACK`],
+    /// #3543), which the play's run gives and a load's does not.
+    pub into_pack: Vec<usize>,
 }
 
 /// A placement's index and the items its creature held before a run's `EquipNPC`s and after them
@@ -4203,6 +4218,7 @@ impl Makers {
             lies: record.kind == CREATE_OBJ
                 && takeable(item)
                 && !ops.iter().any(|o| o.tag == QUEST_ITEM),
+            to_pack: record.kind == CREATE_OBJ && ops.iter().any(|o| o.tag == TO_PACK),
             taking: (record.kind == CREATE_OBJ)
                 .then(|| {
                     ops.iter().find_map(|o| match (o.tag, &o.value) {
@@ -9284,6 +9300,7 @@ impl Npcs {
         let side = u32::try_from(SIDE)?;
         let mut made: HashMap<*const Record, usize> = HashMap::new();
         let mut changes = Vec::new();
+        let mut into_pack = Vec::new();
         for &record in &records {
             let Body::Operands(ops) = &record.body else {
                 continue;
@@ -9338,6 +9355,9 @@ impl Npcs {
                 self.named.insert(name, trigger);
             }
             self.by_sector.entry(at).or_default().push(index);
+            if placement.to_pack && placement.lies {
+                into_pack.push(index);
+            }
             self.placements.push(placement);
             self.played.insert(index);
             made.insert(std::ptr::from_ref(record), index);
@@ -9362,7 +9382,31 @@ impl Npcs {
             placed: made.len(),
             changes,
             born,
+            into_pack,
         })
+    }
+
+    /// The item that the `CreateObj` of the placement `index` gives straight into the hero's
+    /// backpack ([`TO_PACK`], #3543): as it would lie ([`laid_item`], by `hero` and `made`), with
+    /// its script name, and its `Use:` function; none for no such placement.
+    fn pack_item(
+        &mut self,
+        index: usize,
+        (hero, made): (u32, Option<Laying>),
+    ) -> Option<(opensacred_rules::drops::Dropped, Option<String>)> {
+        let placement = self.placements.get(index)?.clone();
+        let side = u32::try_from(SIDE).ok()?;
+        let at = (placement.cell.0 / side, placement.cell.1 / side);
+        let laid = laid_item(
+            (&mut self.laid, self.values.get(&at), &self.fight),
+            (index, &placement),
+            (hero, made),
+        );
+        let dropped = opensacred_rules::drops::Dropped {
+            script: placement.key.as_ref().map(|key| key.to_lowercase()),
+            ..laid
+        };
+        Some((dropped, placement.uses))
     }
 
     /// What the play changed of the scripts' placements and triggers, as a save keeps it.
@@ -11770,7 +11814,7 @@ pub(crate) fn script_records(
         ResMut<ScriptAttacks>,
         ResMut<crate::creature_casts::PendingCasts>,
     ),
-    (dying, mut particles, traders, objects, indexed): (
+    (dying, mut particles, traders, objects, indexed, giving): (
         Query<
             (
                 Entity,
@@ -11787,8 +11831,16 @@ pub(crate) fn script_records(
         Query<&Trades>,
         Query<(Entity, &ObjectName)>,
         Query<(Entity, &PlacementIndex), Without<Dies>>,
+        (
+            Res<fight::Experience>,
+            Option<Res<crate::game::Difficulty>>,
+            Option<Res<drops::Tables>>,
+            Option<ResMut<crate::pickup::Pack>>,
+            MessageWriter<crate::pickup::Taken>,
+        ),
     ),
 ) {
+    let (experience, difficulty, items, mut pack, mut taken) = giving;
     // A creature's dialogue as a change leaves it, its mind's flag with it.
     let talk_to = |commands: &mut Commands, entity: Entity, talk: Option<String>| match talk {
         Some(talk) => {
@@ -11876,7 +11928,7 @@ pub(crate) fn script_records(
                     })
             }),
     });
-    let (born, equipped) = match npcs.add(&records, |at| streamer.area(at)) {
+    let (born, equipped, into_pack) = match npcs.add(&records, |at| streamer.area(at)) {
         Ok(added) => {
             if added.placed > 0 {
                 bevy::log::info!(
@@ -11885,13 +11937,46 @@ pub(crate) fn script_records(
                 );
             }
             changes.0.extend(added.changes);
-            (added.born, added.equipped)
+            (added.born, added.equipped, added.into_pack)
         }
         Err(e) => {
             bevy::log::warn!("npcs: the scripts' records: {e:#}");
-            (Vec::new(), Vec::new())
+            (Vec::new(), Vec::new(), Vec::new())
         }
     };
+    // A `CreateObj` of the tag `0x3F` gives its item straight into the hero's backpack where it
+    // finds room, marked until it is moved, the scripts hearing of it as of an item picked up into
+    // the grid, its placement taken; a key goes to the keys' list, which no trigger asks, its
+    // object gone; without room it lies where its record put it, unmarked (`0x48862D` to
+    // `0x48873E`, #3543).
+    let laying = items
+        .as_deref()
+        .map(|items| (items, difficulty.map(|d| d.0).unwrap_or_default()));
+    for index in into_pack {
+        let Some((dropped, uses)) = npcs.pack_item(index, (experience.level, laying)) else {
+            continue;
+        };
+        let item = dropped.item;
+        let size = items.as_deref().map_or((1, 1), |items| items.size(item));
+        if items
+            .as_deref()
+            .is_some_and(|items| items.category(item) == KEY)
+        {
+            bevy::log::info!("npcs: the scripts give the key {item} to the hero's keys");
+            npcs.taken.insert(index);
+        } else if pack
+            .as_deref_mut()
+            .is_some_and(|pack| pack.give_marked(dropped, size, uses))
+        {
+            bevy::log::info!("npcs: the scripts give {item} straight into the hero's backpack");
+            npcs.taken.insert(index);
+            taken.write(crate::pickup::Taken(item));
+        } else {
+            bevy::log::info!(
+                "npcs: no room in the hero's backpack for {item}, which lies where its record put it"
+            );
+        }
+    }
     // Kept for a save, whose load places them again (`Npcs::resume`, #1958).
     if !records.is_empty() {
         npcs.records.push(records.clone());
@@ -16030,6 +16115,13 @@ mod tests {
         assert!(made(6001, &[]).sinks);
         assert!(!made(5218, &[]).sinks);
         assert!(!sign.sinks);
+        // The tag `0x3F` gives a lying item straight into the backpack (#3543); without it, or
+        // on a signpost, none goes.
+        let given = made(6001, &[op(TO_PACK, Value::Marker)]);
+        assert!(given.lies && given.to_pack);
+        assert!(!made(6001, &[]).to_pack);
+        let posted = made(4993, &[op(TO_PACK, Value::Marker)]);
+        assert!(posted.to_pack && !posted.lies);
     }
 
     #[test]
