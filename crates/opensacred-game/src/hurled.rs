@@ -9,7 +9,8 @@
 //! in the place of his attack record's, so without the survival's raise (#3382), and the art's
 //! factor (`0x56B130` at `0x56BCE2`); its hit takes the arts' roll while his action is still the
 //! art's, its clip playing and no walk or attack ordered since, and lands without one after
-//! (`0x56BC81`, #3381); then it falls there, or at its end, an item lying on the ground, which
+//! (`0x56BC81`, #3381), and bursts the Dark Elf's hit sparks there (the object 864, `0x44E570`,
+//! `hit_sparks`, #3129); then it falls there, or at its end, an item lying on the ground, which
 //! the hero picks up again into his hand (`pickup`).
 
 use bevy::prelude::*;
@@ -64,6 +65,9 @@ struct Flying {
 fn in_the_art(flown: f32, clip_left: f32, alive: bool, left: bool) -> bool {
     flown < clip_left && alive && !left
 }
+
+/// The art of the hurled weapon, whose hit sparks its strike bursts.
+const HURLED: u16 = 1013;
 
 /// The dice of the hurled weapons' damages.
 #[derive(Resource)]
@@ -159,7 +163,10 @@ fn fly(
     arts: Option<Res<HeroArts>>,
     arsenal: Option<Res<Arsenal>>,
     mut dice: ResMut<Dice>,
-    mut hits: MessageWriter<fight::Hit>,
+    (mut hits, mut sparks): (
+        MessageWriter<fight::Hit>,
+        MessageWriter<crate::hit_sparks::Spark>,
+    ),
     mut flying: Query<(Entity, &mut Transform, &mut Flying)>,
     throwers: Query<(
         &Combat,
@@ -271,6 +278,12 @@ fn fly(
                 hurled: true,
                 object: false,
                 mount: false,
+            });
+            // The object 864 at it (`0x44E570`).
+            sparks.write(crate::hit_sparks::Spark {
+                art: HURLED,
+                by: flight.thrower,
+                on: target,
             });
         }
         if struck.is_none() && share < 1.0 {
