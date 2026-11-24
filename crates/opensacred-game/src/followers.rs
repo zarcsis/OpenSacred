@@ -417,6 +417,9 @@ fn take_hires(world: &mut World) {
 
 /// The bats' types, which never step off from their master (`0x4F3E65`).
 const BATS: [u32; 5] = [514, 515, 594, 595, 596];
+/// The Vampiress's distracting bat, of her art 1036, which takes the mark `0x80` and swoops
+/// (`0x5116A0`; docs/re/ai.md, "The flyers", "Swooping").
+const DISTRACTING_BAT: u32 = 595;
 
 /// Calls a bat of type `bat` beside `master`, the Vampiress's 1035 to 1037 at the level in play
 /// `level` (`0x50E6C0`): her bats of that type beyond `most` less the new one dismissed, the new
@@ -516,6 +519,10 @@ fn call_bat(
         };
         if let Some(mut mind) = called.get_mut::<Mind>() {
             mind.flags |= opensacred_rules::arts::BATS_FLAGS;
+            // Her distracting bat swoops (`0x5116A0`, #3589).
+            if bat == DISTRACTING_BAT {
+                mind.distracts();
+            }
             if let Some(foe) = foe {
                 mind.send_at(foe);
             }
