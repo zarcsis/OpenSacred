@@ -615,6 +615,59 @@ enum Charge {
     /// Its ride away, of the legs ridden.
     Away(u8),
 }
+/// The marks' bits of a creature that swoops at its target in melee (`0x4D74F9`–`0x4D765B`;
+/// docs/re/ai.md, "The flyers", "Swooping"): `0x80`, which the Vampiress's distracting bat 595
+/// takes as her art 1036 makes it ([`Mind::distracts`]), and `0x100`, which none takes.
+const SWOOPS: u16 = 0x180;
+/// A swooping flyer's band of its target, the two creatures' reach less this (`0x4DBC60` less
+/// 15), within which its pass strikes, and how far beyond its target the pass takes it
+/// (`0x4E24CC`–`0x4E2B7B`).
+const SWOOP_BAND: f32 = 15.0;
+pub const SWOOP_BEYOND: f32 = 350.0;
+/// Its turn (`0x4E2B80`–`0x4E2E8E`): nearer than 300 to its target and farther than 450 from its
+/// home (the original's beyond 32,000 along an axis is farther too) it flies off to 350 from the
+/// target on its own side;
+/// farther than 750 it flies at the target; moving with its heading's cosine to the target below
+/// 0.8, it flies to a point 300 off along its heading turned by 0.05 rad (**hypothesis** as to
+/// the turn), else it passes again.
+const TURN_NEAR: f32 = 300.0;
+const TURN_HOME: f32 = 450.0;
+const TURN_OFF: f32 = 350.0;
+const TURN_FAR: f32 = 750.0;
+const TURN_COSINE: f32 = 0.8;
+const TURN_STEP: f32 = 0.05;
+const TURN_AHEAD: f32 = 300.0;
+
+/// A swooping flyer's step in melee (`+0x2A0`'s sub-states 7 and 8): its pass through its
+/// target, and its turn back.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Swoop {
+    #[default]
+    Pass,
+    Turn,
+}
+
+/// The chance in 101 that a blow of `damage` fells a swooping flyer left at `health` by it, the
+/// struck one taking its attacker (`0x535CDD`–`0x535CF6`): `⌊100·d/(h + d)⌋`, 0 for a blow of no
+/// damage (docs/re/ai.md, "Foes among the creatures"; seen, #3499).
+pub fn swoop_fall_chance(damage: u32, health: u32) -> u32 {
+    let whole = u64::from(damage) + u64::from(health);
+    if whole == 0 {
+        return 0;
+    }
+    u32::try_from(100 * u64::from(damage) / whole).unwrap_or(0)
+}
+
+/// Whether a roll of 0 to 100 (`rand() % 101`, `0x443B20(0, 100)`) below `chance` fells the
+/// flyer ([`swoop_fall_chance`]).
+pub fn swoop_falls(roll: u32, chance: u32) -> bool {
+    roll < chance
+}
+
+/// How long a felled swooping flyer's AI stands, its knock-back's hold (`+0x200` bit `0x40000`,
+/// its timer set 3 s on, the float at `0x890768`).
+pub const SWOOP_FALL_HOLD: f32 = 3.0;
+
 /// How far beyond its reach its target stands for a creature that went to melee from its bow to
 /// take one again (`0x4D4A80`, the archers' switch above).
 const TAKES_BOW_BEYOND: f32 = 100.0;
@@ -889,6 +942,8 @@ pub struct Mind {
     pub rides: Option<bool>,
     /// Its charge's step, a riding black rider's (#2288) or the hornet hunter's (#2562).
     charge: Charge,
+    /// A swooping flyer's step in melee ([`Swoop`], #3589).
+    swoop: Swoop,
     /// At range: whether it moves at a run (`+0x1F8`), the chain of its shots (`+0x210`), and
     /// whether a call to fight reached it in mid-shot since its last update.
     runs_at_range: bool,
@@ -1009,6 +1064,7 @@ impl Mind {
             backs: 0,
             rides: None,
             charge: Charge::None,
+            swoop: Swoop::Pass,
             runs_at_range: false,
             shots: Chain::default(),
             called: false,
@@ -1644,6 +1700,84 @@ impl Mind {
         self.phase.unwrap_or_else(|| casts::mark(self.creature))
     }
 
+    /// The Vampiress's distracting bat takes the mark `0x80` as her art 1036 makes it, the other
+    /// bits but `0xF000` cleared (`(mark & 0xF080) | 0x80`, `0x5116A0`), so that it swoops
+    /// ([`Self::swoops`], #3589).
+    pub fn distracts(&mut self) {
+        self.phase = Some((self.mark() & 0xF080) | 0x80);
+    }
+
+    /// Whether it swoops at its target in melee, its mark of [`SWOOPS`] (`0x4D74F9`).
+    pub fn swoops(&self) -> bool {
+        self.mark() & SWOOPS != 0
+    }
+
+    /// Whether it is aloft in its swoop, which a blow may fell ([`swoop_fall_chance`]): fighting,
+    /// flying, of a swooping mark.
+    pub fn swooping(&self) -> bool {
+        self.fighting && self.flying && self.swoops()
+    }
+
+    /// A swooping flyer felled: its swoop starts again from its pass as it decides next.
+    pub fn falls_from_swoop(&mut self) {
+        self.swoop = Swoop::Pass;
+    }
+
+    /// A swooping flyer's decision at `here` against its target at `target`, its walk `walk` and
+    /// the reach of the two `reach` (the sub-states 7 and 8, `0x4E24CC`–`0x4E2E8E`): its pass
+    /// within its band strikes the target and flies on [`SWOOP_BEYOND`] beyond it along its line,
+    /// taking its turn, and farther flies at the target; its turn as the constants of [`TURN_NEAR`]
+    /// tell, else it passes again at its next decision. A hold's clips' factor, at which the
+    /// original's pass strikes nothing, is not asked: a held creature decides nothing here.
+    fn swoop(
+        &mut self,
+        (here, target): (Spot, Spot),
+        walk: Option<Walking>,
+        reach: f32,
+    ) -> Option<Pursues> {
+        let d = (target - here).length();
+        match self.swoop {
+            Swoop::Pass if d <= reach - SWOOP_BAND => {
+                self.swoop = Swoop::Turn;
+                let to = target + (target - here).unit() * SWOOP_BEYOND;
+                Some(Pursues::Swoops { to, strikes: true })
+            }
+            Swoop::Pass => Some(Pursues::Swoops {
+                to: target,
+                strikes: false,
+            }),
+            Swoop::Turn => {
+                let far_from_home = (here - self.home).length() > TURN_HOME;
+                if d < TURN_NEAR && far_from_home {
+                    return walk.is_none().then(|| Pursues::Swoops {
+                        to: target + (here - target).unit() * TURN_OFF,
+                        strikes: false,
+                    });
+                }
+                if d > TURN_FAR {
+                    return Some(Pursues::Swoops {
+                        to: target,
+                        strikes: false,
+                    });
+                }
+                if let Some(walk) = walk {
+                    let heading = (walk.target - here).unit();
+                    let toward = (target - here).unit();
+                    let cosine = heading.x * toward.x + heading.y * toward.y;
+                    if cosine < TURN_COSINE {
+                        let turned = heading.turned(-TURN_STEP.to_degrees());
+                        return Some(Pursues::Swoops {
+                            to: here + turned * TURN_AHEAD,
+                            strikes: false,
+                        });
+                    }
+                }
+                self.swoop = Swoop::Pass;
+                None
+            }
+        }
+    }
+
     /// A Fetzer struck while it chooses takes its phase (`0x535C78`, #2568): `0x21B` by `roll` of
     /// 0 of 3, else `0x217`.
     pub fn fetzer_struck(&mut self, roll: u32) {
@@ -1697,6 +1831,7 @@ impl Mind {
     fn leaves_fight(&mut self) {
         self.fighting = false;
         self.fled = false;
+        self.swoop = Swoop::Pass;
         self.placing = None;
         self.stepped = false;
         self.shot = false;
@@ -2396,11 +2531,13 @@ impl Mind {
         // Every decision in melee sets its shots' chain back (`0x4E1443`, `0x4E0E45`).
         self.shots.reset();
         // In melee a flyer is no flyer at each decision, but in its flight from the fight (its
-        // sub-state 3: a fled one walking), and the hornets take it again at once
-        // (`0x4E05DE`–`0x4E062F`, #2577); it comes down from where it is.
+        // sub-state 3: a fled one walking) and its swoop (the sub-states 7 and 8), and the
+        // hornets take it again at once (`0x4E05DE`–`0x4E062F`, #2577); it comes down from where
+        // it is.
         if self.flying
             && !casts::HORNETS.contains(&self.creature)
             && !(self.fled && sight.walk.is_some())
+            && !self.swoops()
         {
             self.flying = false;
             self.descends = true;
@@ -2425,6 +2562,13 @@ impl Mind {
         if d > GIVES_UP {
             self.leaves_fight();
             return Some(Pursues::GivesUp);
+        }
+        // A creature of a swooping mark flies at its target and swoops (`0x4D74F9`–`0x4D765B`,
+        // the sub-states 7 and 8; #3589).
+        if self.swoops() {
+            self.flying = true;
+            self.descends = false;
+            return self.swoop((here, hero), walk, reach);
         }
         if self.takes_bow && !striking && d > reach + TAKES_BOW_BEYOND {
             return Some(self.takes_a_bow(rng));
@@ -3505,6 +3649,9 @@ pub enum Pursues {
     Charges { to: Spot, again: bool },
     /// It strikes the hero in passing and rides on to the point (#2288).
     Passes { to: Spot },
+    /// A swooping flyer flies to the point, striking its target first where `strikes`: its
+    /// pass's strike as it flies on beyond it, or its turn back ([`Swoop`], #3589).
+    Swoops { to: Spot, strikes: bool },
     /// It rides another leg of its charge away to the point (#2288).
     RidesAway { to: Spot },
     /// Too near the hero, it steps back to the point.
@@ -7250,6 +7397,132 @@ mod tests {
             let next = rider().pursue(&at_range(140.0, None), || true, &mut rng);
             assert!(!matches!(next, Some(Pursues::ToMelee(_))), "{next:?}");
         }
+    }
+
+    #[test]
+    fn the_distracting_bat_swoops_through_its_target_and_turns_back() {
+        let mut rng = Rng::of(7, 0, 1);
+        let at = |x, y| Spot::new(x, y);
+        // Its target at (1000, 500); its home far off.
+        let target = at(1_000.0, 500.0);
+        let off = |x, y| target + at(x, y);
+        let mut bat = Mind::new(
+            off(5_000.0, 0.0),
+            0x1,
+            (true, false),
+            None,
+            SPEEDS,
+            (595, 0),
+        );
+        assert!(!bat.swoops());
+        bat.distracts();
+        assert_eq!(bat.mark(), 0x80);
+        assert!(bat.swoops());
+        // The mark keeps its high bits and its own `0x80`, clearing the rest.
+        bat.phase = Some(0x10A1);
+        bat.distracts();
+        assert_eq!(bat.mark(), 0x1080);
+        bat.fighting = true;
+        let sight = |here: Spot, walk: Option<Spot>| Pursuit {
+            hero: target,
+            walk: walk.map(|target| Walking {
+                target,
+                comes_on: false,
+                runs: true,
+            }),
+            ..listed(here, 0, here)
+        };
+        let reach = reach_f32(bat.size(), SIZE);
+        let band = reach - SWOOP_BAND;
+        let swoops = |next: Option<Pursues>, want: Spot, strike: bool| {
+            matches!(next, Some(Pursues::Swoops { to, strikes })
+                if (to - want).length() < 1e-2 && strikes == strike)
+        };
+        // Beyond its band, by a unit, it flies at its target, aloft.
+        let next = bat.pursue(&sight(off(band + 1.0, 0.0), None), || true, &mut rng);
+        assert!(swoops(next, target, false), "{next:?}");
+        assert!(bat.swooping());
+        // At its band, its pass strikes and flies on 350 beyond the target along its line.
+        let next = bat.pursue(&sight(off(band, 0.0), None), || true, &mut rng);
+        assert!(swoops(next, off(-SWOOP_BEYOND, 0.0), true), "{next:?}");
+        // Felled, it passes again at once.
+        bat.falls_from_swoop();
+        let next = bat.pursue(&sight(off(0.0, band), None), || true, &mut rng);
+        assert!(swoops(next, off(0.0, -SWOOP_BEYOND), true), "{next:?}");
+        // Turning: near its target and far from home, standing, it flies off to 350 on its side;
+        // moving, it flies on; at 300, not nearer, it does not.
+        let next = bat.pursue(&sight(off(0.0, -200.0), None), || true, &mut rng);
+        assert!(swoops(next, off(0.0, -TURN_OFF), false), "{next:?}");
+        let moving = sight(off(-200.0, 0.0), Some(off(-350.0, 0.0)));
+        assert_eq!(bat.pursue(&moving, || true, &mut rng), None);
+        // Farther than 750 it flies at the target; at 750 it does not.
+        let next = bat.pursue(&sight(off(-751.0, 0.0), None), || true, &mut rng);
+        assert!(swoops(next, target, false), "{next:?}");
+        // Between, moving away from it, it turns its heading by 0.05 rad, as the original turns
+        // its heading's components, 300 on.
+        let away = sight(off(-500.0, 0.0), Some(off(-900.0, 0.0)));
+        let turned = at(-(TURN_STEP.cos()), -(TURN_STEP.sin())) * TURN_AHEAD;
+        let next = bat.pursue(&away, || true, &mut rng);
+        assert!(swoops(next, off(-500.0, 0.0) + turned, false), "{next:?}");
+        // Its heading's cosine to the target at 0.8 is not below it: it passes again at its next
+        // decision, the cosine taken of both components.
+        let toward = sight(off(-500.0, 0.0), Some(off(-500.0 + 400.0, 300.0)));
+        assert_eq!(bat.pursue(&toward, || true, &mut rng), None);
+        let next = bat.pursue(&sight(off(-500.0, 0.0), None), || true, &mut rng);
+        assert!(swoops(next, target, false), "{next:?}");
+        // On a diagonal: its heading's cosine to the target at 0.8 passes again, at 0.79 turns.
+        let here = off(-300.0, -400.0);
+        let heading = |x: f32, y: f32| sight(here, Some(here + at(x, y) * 100.0));
+        bat.swoop = Swoop::Turn;
+        assert_eq!(bat.pursue(&heading(0.96, 0.28), || true, &mut rng), None);
+        bat.swoop = Swoop::Turn;
+        let next = bat.pursue(&heading(0.964_5, 0.264_1), || true, &mut rng);
+        assert!(
+            matches!(next, Some(Pursues::Swoops { strikes: false, .. })),
+            "{next:?}"
+        );
+        // Turning at 300 from it with its home near: no flight off; at 750 none at the target.
+        bat.swoop = Swoop::Turn;
+        bat.home = off(-300.0, 0.0);
+        assert_eq!(
+            bat.pursue(&sight(off(-300.0, 0.0), None), || true, &mut rng),
+            None
+        );
+        bat.swoop = Swoop::Turn;
+        bat.home = off(5_000.0, 0.0);
+        assert_eq!(
+            bat.pursue(&sight(off(0.0, -300.0), None), || true, &mut rng),
+            None
+        );
+        bat.swoop = Swoop::Turn;
+        assert_eq!(
+            bat.pursue(&sight(off(-750.0, 0.0), None), || true, &mut rng),
+            None
+        );
+        // Its home 450 off is not farther than 450.
+        bat.swoop = Swoop::Turn;
+        bat.home = off(-650.0, 0.0);
+        assert_eq!(
+            bat.pursue(&sight(off(-200.0, 0.0), None), || true, &mut rng),
+            None
+        );
+        // Out of the fight its swoop starts again from its pass.
+        bat.swoop = Swoop::Turn;
+        bat.leaves_fight();
+        assert!(!bat.swooping());
+        assert_eq!(bat.swoop, Swoop::Pass);
+    }
+
+    #[test]
+    fn a_blow_fells_a_swooping_flyer_by_its_share_of_its_health() {
+        // As seen: 11 of 26 left gives 29, 16 of 37 30, 33 of 20 62.
+        assert_eq!(swoop_fall_chance(11, 26), 29);
+        assert_eq!(swoop_fall_chance(16, 37), 30);
+        assert_eq!(swoop_fall_chance(33, 20), 62);
+        assert_eq!(swoop_fall_chance(0, 30), 0);
+        assert_eq!(swoop_fall_chance(0, 0), 0);
+        assert_eq!(swoop_fall_chance(10, 0), 100);
+        assert!(swoop_falls(18, 30) && !swoop_falls(30, 30) && !swoop_falls(0, 0));
     }
 
     /// A goblin warrior (76, class 8) fighting the hero in melee.

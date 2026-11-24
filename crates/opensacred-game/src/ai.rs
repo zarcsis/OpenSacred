@@ -330,6 +330,45 @@ fn turn_on_attackers(
     }
 }
 
+/// Fells each swooping flyer that a blow of some damage struck aloft, by a roll of 0 to 100 below
+/// `⌊100·d/(h + d)⌋` of the blow's damage `d` and its health left `h` (the event 5's handler's
+/// tail, `0x535C89`–`0x535D89`; docs/re/ai.md, "Foes among the creatures", #3589): it is held 3
+/// s as a knock-back holds, stops and plays its slot 173 once, its swoop starting again from its
+/// pass, its flyer's bit kept; its hop from where it is, some 4 units high, is not followed.
+fn swoop_falls(
+    mut commands: Commands,
+    mut blows: MessageReader<crate::fight::Struck>,
+    mut rolls: ResMut<Minds>,
+    mut minds: Query<(&mut Mind, &crate::fight::Health), Without<crate::npcs::Dies>>,
+) {
+    for blow in blows.read() {
+        let Ok((mut mind, health)) = minds.get_mut(blow.target) else {
+            continue;
+        };
+        if !mind.swooping() || blow.damage == 0 {
+            continue;
+        }
+        let chance = minds::swoop_fall_chance(blow.damage, health.current);
+        let roll = rolls.rng.below(101);
+        if !minds::swoop_falls(roll, chance) {
+            continue;
+        }
+        debug!(
+            "ai: {} falls from its swoop, {roll} below {chance}",
+            blow.target
+        );
+        mind.falls_from_swoop();
+        mind.held_at_least(minds::SWOOP_FALL_HOLD);
+        commands
+            .entity(blow.target)
+            .remove::<(Walk, Strikes)>()
+            .insert(crate::npcs::ScriptClip::fidget(SWOOP_FALL_SLOT));
+    }
+}
+
+/// The clip a felled swooping flyer plays once (`*_DYING_A`, `0x535D60`).
+const SWOOP_FALL_SLOT: u16 = 173;
+
 /// A creature's stand-in for the original's object id, which a hornet's flank and the queen's
 /// circle take (#2562): the sum of its home cell's coordinates, as for the guards' torches
 /// (docs/decisions/ai.md, "The guards' torches").
@@ -1626,6 +1665,40 @@ fn pursue(
                 commands
                     .entity(entity)
                     .insert(Walk::run(point(to, here.y), way.level, mind.run));
+            }
+            Pursues::Swoops { to, strikes } => {
+                debug!(
+                    "ai: {entity} swoops to {:.0},{:.0} from {:.0},{:.0}, {:.0} from {aimed},                      moving {}",
+                    to.x,
+                    to.y,
+                    here.x,
+                    here.z,
+                    (hero - here).xz().length(),
+                    walk.is_some()
+                );
+                // Its pass strikes its target once with no clip as it flies on beyond it
+                // (`0x4EA3F0` at the sub-state 7, #3589); its flight at the gait 2, aloft.
+                if strikes {
+                    debug!("ai: {entity} swoops through {aimed}");
+                    hits.write(crate::fight::Hit {
+                        attacker: entity,
+                        target: aimed,
+                        share: 1.0,
+                        ranged: false,
+                        art: None,
+                        fixed: None,
+                        sure: false,
+                        poison: false,
+                        ward: false,
+                        hurled: false,
+                        object: false,
+                        mount: false,
+                    });
+                }
+                commands
+                    .entity(entity)
+                    .remove::<Strikes>()
+                    .insert(Walk::fly(point(to, here.y), way.level, mind.fly));
             }
             Pursues::RidesAway { to } => {
                 commands
@@ -3374,6 +3447,7 @@ impl Plugin for AiPlugin {
                 Update,
                 (alarm, turn_on_attackers).in_set(Step::Crowd).before(think),
             )
+            .add_systems(Update, swoop_falls.in_set(Step::Crowd).before(think))
             .add_systems(Update, face_shooed.in_set(Step::Crowd).after(behave));
     }
 }
@@ -3381,6 +3455,49 @@ impl Plugin for AiPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_swooping_bat_struck_aloft_may_fall_and_a_blow_of_nothing_never_fells_it() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<crate::fight::Struck>()
+            .init_resource::<Minds>()
+            .add_systems(Update, swoop_falls);
+        let bat = |app: &mut App, swooping: bool| {
+            let mut mind = Mind::new(
+                Vec3::ZERO,
+                0x1,
+                (false, false),
+                None,
+                [70.0, 180.0],
+                (595, 0),
+            );
+            mind.thinks.distracts();
+            assert!(mind.thinks.sent_at());
+            mind.thinks.flying = swooping;
+            let health = crate::fight::Health {
+                current: 0,
+                most: 100,
+                level: 10,
+            };
+            app.world_mut().spawn((mind, health)).id()
+        };
+        let swooping = bat(&mut app, true);
+        let landed = bat(&mut app, false);
+        let missed = bat(&mut app, true);
+        for (target, damage) in [(swooping, 1_000), (landed, 1_000), (missed, 0)] {
+            app.world_mut().write_message(crate::fight::Struck {
+                target,
+                damage,
+                most: 100,
+            });
+        }
+        app.update();
+        let clip = |entity| app.world().get::<crate::npcs::ScriptClip>(entity).is_some();
+        // Its whole health in one blow: a chance of 100 in 101.
+        assert!(clip(swooping));
+        assert!(!clip(landed) && !clip(missed));
+    }
 
     #[test]
     fn a_dormant_goblin_struck_by_the_hero_turns_on_it() {
