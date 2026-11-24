@@ -115,6 +115,9 @@ const SPIDER_ARROW_RATE: f32 = 0.5;
 /// rate (`0x5BCCF4`, a hero's arrow alone).
 const BURNING_ARROW_SOUND: u32 = 708;
 const BURNING_ARROW_RATE: f32 = 0.4;
+/// The explosive arrow and the club arrow, whose hits show their sights (#3129).
+const EXPLOSIVE: u16 = 1004;
+const CLUB: u16 = 1007;
 
 /// The rules' point of world point `at`.
 fn point(at: Vec3) -> Point {
@@ -396,6 +399,10 @@ fn fly(
         MessageWriter<crate::bolts::Pops>,
         MessageWriter<crate::shields::Flash>,
     ),
+    (mut sparks, mut sights): (
+        MessageWriter<crate::hit_sparks::Spark>,
+        MessageWriter<crate::arrow_sights::Sight>,
+    ),
 ) {
     let dt = time.delta_secs();
     let hero = hero.iter().next();
@@ -608,6 +615,11 @@ fn fly(
                     opensacred_rules::arts::spiders(record, special.level, experience.level);
                 crate::followers::spiders(&mut commands, on, count, level);
             }
+            // Its smoke at the creature (the effect `0x4F`, #3129).
+            sights.write(crate::arrow_sights::Sight {
+                look: crate::arrow_sights::Look::Spider,
+                on,
+            });
             commands.entity(entity).despawn();
             continue;
         }
@@ -657,6 +669,25 @@ fn fly(
             ranged: true,
             art: arrow.special.map(|special| special.level),
         });
+        // The explosive arrow's sparks at a creature its strike leaves alive, their light at it,
+        // the object's caster (`0x5BC958`); the club arrow's ring at the creature (`0x5BC6F9`;
+        // the effect `0x55`, #3129).
+        match arrow.special.map(|special| special.art) {
+            Some(EXPLOSIVE) => {
+                sparks.write(crate::hit_sparks::Spark {
+                    art: EXPLOSIVE,
+                    by: on,
+                    on,
+                });
+            }
+            Some(CLUB) => {
+                sights.write(crate::arrow_sights::Sight {
+                    look: crate::arrow_sights::Look::Club,
+                    on,
+                });
+            }
+            _ => {}
+        }
         // A hero's burning arrow sets its target's head burning, with `TORCH_HIT01` there
         // (`0x5BCCF4`).
         if elemental.is_some_and(|e| e.element == arrows::Element::Fire)

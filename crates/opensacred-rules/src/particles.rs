@@ -7229,6 +7229,8 @@ pub enum SparksAt {
 /// `0x4FF0B0` to `0x5192E0`, the FX events `0x42`, `0x44`, `0x55`, `0x57`, `0x59`), whether it lands
 /// or not: the `Attacke`s, `Hardhit`s and `Rundum`s of every class, the kicks, the Gladiator's
 /// 1012 and 1014, the Seraphim's 1017, 1020 and 1054, the Dwarf's 1084 and the Daemon's 1091;
+/// the Gladiator's hurled weapon 1013 at the creature it strikes (`0x44E570`) and the Wood Elf's
+/// explosive arrow 1004 at one its strike leaves alive ([`sparks_if_alive`], `0x5BC958`; #3129);
 /// none for the other arts.
 pub fn sparks_of(art: u16) -> Option<(Sparks, SparksAt)> {
     let (sparks, at) = match art {
@@ -7236,18 +7238,27 @@ pub fn sparks_of(art: u16) -> Option<(Sparks, SparksAt)> {
         1012 | 1014 | 1057..=1059 | 1078..=1080 | 1084 | 1091 | 1092 => {
             (Sparks::Glad, SparksAt::Neck)
         }
+        // The hurled weapon's object 864 (`FX_DARK_SM_HIT`), the Dark Elf's class's burst.
+        1013 => (Sparks::Dark, SparksAt::Neck),
         1060 | 1041 | 1076 => (Sparks::Glad, SparksAt::RightFoot),
         // The Seraphim's, and the Mage's `Hardhit` and `Rundum`.
         1000 | 1001 | 1020 | 1054 | 1069..=1071 => (Sparks::Sera, SparksAt::Neck),
         1072 => (Sparks::Sera, SparksAt::LeftFoot),
         1017 => (Sparks::Sera, SparksAt::Root),
-        // The Wood Elf's, and the Mage's `Attacke`.
-        1002 | 1061..=1063 => (Sparks::Elve, SparksAt::Neck),
+        // The Wood Elf's, her explosive arrow's, and the Mage's `Attacke`.
+        1002 | 1004 | 1061..=1063 => (Sparks::Elve, SparksAt::Neck),
         1038..=1040 | 1073..=1075 => (Sparks::Vamp, SparksAt::Neck),
         1065..=1068 => (Sparks::Dark, SparksAt::Neck),
         _ => return None,
     };
     Some((sparks, at))
+}
+
+/// Whether the sparks of the art `art` burst only at a creature that its strike leaves alive, the
+/// strike resolved first: the explosive arrow 1004's (`0x5BC8FE` to `0x5BC958`), whose dead burst
+/// instead.
+pub fn sparks_if_alive(art: u16) -> bool {
+    art == 1004
 }
 
 impl Sparks {
@@ -7296,6 +7307,108 @@ pub const SPARKS_LIGHT: f32 = 200.0;
 pub const FLOOPS_LIGHT: f32 = 200.0;
 /// How long the sparks live: their life's rate of −200 a second.
 pub const SPARKS_LIFE: f32 = 255.0 / 200.0;
+
+/// The club arrow's ring's texture, its segments and its light at the struck creature
+/// (`0x7911C4`–`0x79124A`, the system's light 200).
+pub const CLUB_RING_TEXTURE: &str = "RUNESHIELD_GRADIENT";
+pub const CLUB_RING_SEGMENTS: u16 = 20;
+pub const CLUB_RING_LIGHT: f32 = 200.0;
+
+/// The club arrow 1007's ring at the creature it strikes (860 `FX_ELVE_SM_HIT` of the event's
+/// `+0x3C` 1007, its start `0x791450`–`0x79151C`, its run `0x7910B0`, its draw `0x7911C4`;
+/// docs/re/effects.md, "The Wood Elf's arrows' sights", #3129): a flat green ring at the
+/// creature's neck whose growth `s` rises by 2 a second, between the radii `20·s` and
+/// `20·s + 13`, fading to black as it grows and gone past 1, half a second.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ClubRing {
+    /// Its growth (`+0x2534`).
+    pub growth: f32,
+}
+
+impl ClubRing {
+    /// A run of `dt` seconds.
+    pub fn update(&mut self, dt: f32) {
+        self.growth += 2.0 * dt;
+    }
+
+    /// Its inner and outer radii.
+    pub fn radii(&self) -> (f32, f32) {
+        let inner = 20.0 * self.growth;
+        (inner, inner + 13.0)
+    }
+
+    /// Its colour, `(⌊128·(1 − s)⌋, ⌊255·(1 − s)⌋, ⌊128·(1 − s)⌋)`, drawn whole.
+    pub fn colour(&self) -> [f32; 4] {
+        let f = (1.0 - self.growth).clamp(0.0, 1.0);
+        let byte = |most: f32| (most * f).floor() / 255.0;
+        [byte(128.0), byte(255.0), byte(128.0), 1.0]
+    }
+
+    /// Whether it ended: its growth past 1.
+    pub fn done(&self) -> bool {
+        self.growth > 1.0
+    }
+}
+
+/// The spider arrow's smoke's texture and its puffs.
+pub const SPIDER_SMOKE_TEXTURE: &str = "PARTICLE_SMOKE01";
+const SPIDER_SMOKE_COUNT: usize = 10;
+
+/// The spider arrow 1006's smoke at the creature it hits (855 `FX_ARACATTACK`,
+/// `cParticleSystem_aracattack`, its start `0x78E630`, its run `0x78E550`, its draw `0x78E5C0`;
+/// docs/re/effects.md, "The Wood Elf's arrows' sights", #3129): ten puffs at once within
+/// (20, 20, 30) of its place, each of the size 20 ± 5, turned at random, moving at most 5 along
+/// each axis, swelling by 30 a second and rising ever faster (the buoyancy −30 a second), living
+/// 1.275 s in a pale green (127, 195, 127) that darkens to black, added by their alpha and
+/// turned, untinted.
+pub fn spider_smoke(dice: &mut impl Dice) -> Burst {
+    let block = Block {
+        size: spread(20.0, 5.0),
+        angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+        velocity: spread([0.0; 3], [5.0; 3]),
+        offset: spread([0.0; 3], [20.0, 20.0, 30.0]),
+        ..Block::default()
+    };
+    let particles = (0..SPIDER_SMOKE_COUNT)
+        .map(|_| Particle {
+            place: spread_3(block.offset, dice),
+            velocity: spread_3(block.velocity, dice),
+            buoyancy: 0.0,
+            size: spread_f32(block.size, dice),
+            life: 255.0,
+            angle: spread_f32(block.angle, dice),
+            spin: 0.0,
+            layer: 0,
+            frame: 0,
+            colour: [1.0; 3],
+        })
+        .collect();
+    Burst {
+        texture: SPIDER_SMOKE_TEXTURE,
+        grid: 1,
+        blend: Blend::Add,
+        layer: Layer {
+            buoyancy: -30.0,
+            life: -200.0,
+            size: 30.0,
+            ..Layer::default()
+        },
+        ramp: Ramp(std::array::from_fn(|i| {
+            let i = u16::try_from(i).unwrap_or(255);
+            [
+                f32::from(i / 2) / 255.0,
+                f32::from(196 * i / 256) / 255.0,
+                f32::from(i / 2) / 255.0,
+                1.0,
+            ]
+        })),
+        particles,
+        ground: None,
+        light: 0.0,
+        tinted: false,
+        stream: None,
+    }
+}
 
 /// A strike's sparks of the class `sparks` (the default of the five classes' starts, `0x78F180`,
 /// `0x790340`, `0x791410`, `0x7938D0`, `0x794CE0`): all at once about the point it bursts at, each
@@ -18671,8 +18784,71 @@ mod tests {
         // The jumps of the Gladiator and the Vampiress, the throw and the spells, none.
         assert_eq!(sparks_of(1003), None);
         assert_eq!(sparks_of(1032), None);
-        assert_eq!(sparks_of(1013), None);
         assert_eq!(sparks_of(5), None);
+        // The hurled weapon's and the explosive arrow's, at the struck creature (#3129); the
+        // explosive arrow's only where it lives.
+        assert_eq!(sparks_of(1013), Some((Sparks::Dark, SparksAt::Neck)));
+        assert_eq!(sparks_of(1004), Some((Sparks::Elve, SparksAt::Neck)));
+        assert!(sparks_if_alive(1004));
+        assert!(!sparks_if_alive(1013) && !sparks_if_alive(1002));
+        // The club arrow's and the spider arrow's are their own looks.
+        assert_eq!(sparks_of(1007), None);
+        assert_eq!(sparks_of(1006), None);
+    }
+
+    #[test]
+    fn the_club_arrows_ring_spreads_and_fades_in_half_a_second() {
+        let mut ring = ClubRing::default();
+        assert_eq!(ring.radii(), (0.0, 13.0));
+        assert_eq!(ring.colour(), [128.0 / 255.0, 1.0, 128.0 / 255.0, 1.0]);
+        ring.update(0.25);
+        assert_eq!(ring.radii(), (10.0, 23.0));
+        assert_eq!(
+            ring.colour(),
+            [64.0 / 255.0, 127.0 / 255.0, 64.0 / 255.0, 1.0]
+        );
+        assert!(!ring.done());
+        ring.update(0.25);
+        assert_eq!(ring.radii(), (20.0, 33.0));
+        assert!(!ring.done());
+        ring.update(0.01);
+        assert!(ring.done());
+        assert_eq!(ring.colour(), [0.0, 0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn the_spider_arrows_smoke_is_ten_pale_green_puffs_rising_away() {
+        let mut dice = Rng::of(7, 8, 7);
+        let smoke = spider_smoke(&mut dice);
+        assert_eq!(smoke.particles.len(), 10);
+        assert_eq!(smoke.texture, "PARTICLE_SMOKE01");
+        for puff in &smoke.particles {
+            assert!((15.0..=25.0).contains(&puff.size), "{}", puff.size);
+            assert!(puff.place[0].abs() <= 20.0 && puff.place[2].abs() <= 30.0);
+            assert!(puff.velocity.iter().all(|v| v.abs() <= 5.0));
+            assert!((0.0..=std::f32::consts::TAU).contains(&puff.angle));
+        }
+        assert!(
+            smoke
+                .particles
+                .iter()
+                .any(|puff| puff.place[2].abs() > 20.0)
+        );
+        assert_eq!(
+            smoke.ramp.0[255],
+            [127.0 / 255.0, 195.0 / 255.0, 127.0 / 255.0, 1.0]
+        );
+        assert_eq!(smoke.ramp.0[0], [0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(
+            smoke.ramp.0[100],
+            [50.0 / 255.0, 76.0 / 255.0, 50.0 / 255.0, 1.0]
+        );
+        assert_eq!(
+            (smoke.layer.buoyancy, smoke.layer.life, smoke.layer.size),
+            (-30.0, -200.0, 30.0)
+        );
+        assert_eq!(smoke.blend, Blend::Add);
+        assert!(!smoke.tinted);
     }
 
     #[test]

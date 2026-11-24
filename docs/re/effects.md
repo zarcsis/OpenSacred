@@ -467,7 +467,7 @@ Read 2026-11-04 for #1092 (**confirmed** by code unless marked).
 `opensacred-game` draws 864's sights since #2923 (`dark_sights`, `opensacred_rules::particles::DarkSight`): the viper's circle under each creature it holds for its hold (`making`), the spellproof's symbol of the turned spell's largest kind under each creature it strikes (`spells::share_turned`), and the boons' crackles at the Dark Elf's two hands for their time (`making`), each lighting the night; the fear's symbol, which nothing makes, is not drawn.
 `opensacred-game` draws 862's three since #3062 (`bite_sights`, `opensacred_rules::particles::{MasterGhost, SkullCurse}`): the blood bite's star at her spine and at the bitten creature's, the master's bite's three ghosts along `cast02.grn`'s points about the bitten creature's head, each with its light of 150 where she stood and its loop 2075, and the skull's curse's drops at the cursed creature's neck, drawn after its model so that those before it veil it, with its splashes, the violence on, else its glow.
 **Seen** 2026-11-21 beside the original's frames: the curse's cloud as big and dense, the stars' and the ghosts' sizes, places and lives the same; the game's stars' rims and ghosts a little redder (**estimate**: over different ground).
-Not followed: the other values' looks but 862's, 864's (`dark_sights`) and a trampling horse's floops (1077, drawn since #2329: `floops`, `opensacred_rules::particles::HorseFloops`; docs/re/horses.md, "Fighting from horseback"), the thrown weapons' hits' 864 (`0x44E570`, #3129) and the Wood Elf's arrows' 860 (`0x5BC660`, `0x5BC965`, #3129), and the creatures' specials of the melee state's sub-states 7, 11 and 13 (842, `0x4E166B`).
+Not followed: the other values' looks but 862's, 864's (`dark_sights`) and a trampling horse's floops (1077, drawn since #2329: `floops`, `opensacred_rules::particles::HorseFloops`; docs/re/horses.md, "Fighting from horseback"), and the creatures' specials of the melee state's sub-states 7, 11 and 13 (842, `0x4E166B`).
 
 ### Not followed here
 
@@ -3228,6 +3228,9 @@ Read 2026-11-23 for #3129 and #3131 in Ghidra (**confirmed** by code unless mark
   Its run (`0x7910B0`): `s` grows by 2 a second, and past 1 it ends: 0.5 s.
   Its draw (`0x7911C4`–`0x79124A`): one ring (`0x763530`) flat at the system's place and height, between the radii `20·s` and `20·s + 13`, of 20 segments, of `RUNESHIELD_GRADIENT`, of the colour `(⌊128·(1 − s)⌋, ⌊255·(1 − s)⌋, ⌊128·(1 − s)⌋)`, added whole as the bubble's burst's ring (the same two last arguments, "The bubble"), turned by its turn, untinted.
   So a green ring spreads flat about the struck creature's neck, from a disc 26 across to a band from 40 to 66 across, fading away in half a second; its light of 200 lies at the creature's place.
+
+`opensacred-game` draws the hits' sights since #3129: 1004's sparks at a creature its strike leaves alive, once the strike is resolved, their light at the creature (`hit_sparks`, `opensacred_rules::particles::sparks_if_alive`); the club arrow's ring at the struck creature's neck, else its root, with its light (`arrow_sights`, `opensacred_rules::particles::ClubRing`); the spider arrow's smoke at its left thigh, placed once (`arrow_sights`, `opensacred_rules::particles::spider_smoke`); and the thrown weapons' hits' 864, the Dark Elf's class's burst at the struck creature's neck (`hurled`, `hit_sparks`).
+Not followed: the undead whose death is not its last, which takes 1004's sparks in the original and none in the game (with #3130's burst), and the trails (#3131).
 
 ## The effect 33's auras
 

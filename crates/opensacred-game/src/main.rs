@@ -9,6 +9,7 @@
 mod ai;
 mod ambience;
 mod arrow_elements;
+mod arrow_sights;
 mod arrows;
 mod arsenal;
 mod art_burn;
@@ -527,6 +528,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         ai::AiPlugin,
         ambience::AmbiencePlugin,
         arrow_elements::ArrowElementsPlugin,
+        arrow_sights::ArrowSightsPlugin,
         arrows::ArrowsPlugin,
         arsenal::ArsenalPlugin,
         art_burn::ArtBurnPlugin,
