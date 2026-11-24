@@ -116,6 +116,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/ai.rs`: The creatures' life and their way of fighting
 - `crates/opensacred-game/src/ambience.rs`: The world's ambience of the sound manager
 - `crates/opensacred-game/src/arrow_elements.rs`: The arrows' elements
+- `crates/opensacred-game/src/arrow_sights.rs`: The Wood Elf's special arrows' sights where they strike
 - `crates/opensacred-game/src/arrows.rs`: The archers' arrows
 - `crates/opensacred-game/src/arsenal.rs`: The arms that the heroes' arts change
 - `crates/opensacred-game/src/art_burn.rs`: The burn of the bar's art slots

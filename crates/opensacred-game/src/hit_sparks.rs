@@ -8,26 +8,33 @@
 //! yellow for the Dark Elf (`particles::hit_sparks`, drawn by `puffs`, untinted by the night); and
 //! its object lights the night by 200 at the striker's place on the ground while it lives. A
 //! hero's flight that a cell stops bursts the Dark Elf's at the hero's own neck, whatever the class
-//! (`making::leap`, #3203).
+//! (`making::leap`, #3203). The Gladiator's hurled weapon 1013 bursts the Dark Elf's at the
+//! creature it strikes (`hurled`, `0x44E570`), and the Wood Elf's explosive arrow 1004 the Wood
+//! Elf's at a creature its strike leaves alive, once the strike is resolved (`arrows`,
+//! `opensacred_rules::particles::sparks_if_alive`, `0x5BC958`), its light at that creature, the
+//! object's caster (#3129).
 //!
 //! The Dwarf's `Attacke`, `Hardhit` and `Rundum` with a gun make none (`0x514DC4` to `0x515011`,
 //! `0x515C21` to `0x516028`). Not
 //! followed: the variants of the sparks' classes that are not hits (the Gladiator's rings of 1015
-//! and 1016, the Seraphim's 1003), and the sparks of the thrown weapons' and the Wood Elf's
-//! arrows' hits; a horse's floops are `floops`' (#2329), the Dark Elf's 1042 and 1046 to 1048
+//! and 1016, the Seraphim's 1003); the club arrow's ring and the spider arrow's smoke are
+//! `arrow_sights`'; a horse's floops are `floops`' (#2329), the Dark Elf's 1042 and 1046 to 1048
 //! `dark_sights`' (#2923), the Vampiress's 1030, 1031 and 1033 `bite_sights`' (#3062). A horse's trample sends the awe's at each creature it knocks and at the
 //! horse (`trample`), and a riding creature's strike in passing the same at its target (`ai`).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{DWARF_ATTACKE, DWARF_HARDHIT, DWARF_RUNDUM};
-use opensacred_rules::particles::{SPARKS_LIFE, SPARKS_LIGHT, SparksAt, hit_sparks, sparks_of};
+use opensacred_rules::particles::{
+    SPARKS_LIFE, SPARKS_LIGHT, SparksAt, hit_sparks, sparks_if_alive, sparks_of,
+};
 use opensacred_rules::spawning::Rng;
 
 use crate::frame::Playing;
 use crate::game::AppState;
 
 /// A strike of the art `art` by `by` at the creature `on`: `making` sends one with each strike of
-/// a hero's art, `trample` and `ai` the awe's for a horse's trample and a rider's passing strike.
+/// a hero's art, `trample` and `ai` the awe's for a horse's trample and a rider's passing strike,
+/// `hurled` the hurled weapon's and `arrows` the explosive arrow's.
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Spark {
     pub art: u16,
@@ -44,6 +51,15 @@ const LEFT_FOOT: [&str; 1] = ["Bip01 L Foot"];
 #[derive(Component)]
 struct Lamp(f32);
 
+/// The strikes whose sparks wait for their strike's resolution, to burst where it leaves its
+/// creature alive ([`sparks_if_alive`]), each with the frames it has waited.
+#[derive(Resource, Default)]
+struct Waiting(Vec<(Spark, u8)>);
+
+/// How many frames a strike's sparks wait for its resolution at most: `fight`'s resolution reads
+/// a strike in its frame or the next.
+const WAITS: u8 = 3;
+
 /// The sparks' rolls.
 #[derive(Resource)]
 struct Rolls(Rng);
@@ -54,21 +70,45 @@ impl Default for Rolls {
     }
 }
 
-/// Bursts each strike's sparks where its art makes them, and lights its striker's place.
+/// Bursts each strike's sparks where its art makes them, and lights its striker's place; those of
+/// an art that sparks only at a creature left alive wait for their strike's resolution
+/// (`fight::Struck`) and burst where its creature lives on.
 fn burst(
     mut commands: Commands,
-    mut sparks: MessageReader<Spark>,
+    (mut sparks, mut struck): (MessageReader<Spark>, MessageReader<crate::fight::Struck>),
     hero: Option<Res<crate::hero::Hero>>,
-    places: Query<&GlobalTransform>,
+    (places, lives): (
+        Query<&GlobalTransform>,
+        Query<&crate::fight::Health, Without<crate::npcs::Dies>>,
+    ),
     (children, bones, worn): (
         Query<&Children>,
         Query<(&Name, &GlobalTransform)>,
         crate::making::Worn,
     ),
-    mut rolls: ResMut<Rolls>,
+    (mut rolls, mut waiting): (ResMut<Rolls>, ResMut<Waiting>),
 ) {
     let gun = hero.is_some_and(|hero| hero.armed.gun);
-    for spark in sparks.read() {
+    let mut due: Vec<Spark> = Vec::new();
+    for &spark in sparks.read() {
+        if sparks_if_alive(spark.art) {
+            waiting.0.push((spark, 0));
+        } else {
+            due.push(spark);
+        }
+    }
+    let resolved: Vec<Entity> = struck.read().map(|struck| struck.target).collect();
+    waiting.0.retain_mut(|(spark, frames)| {
+        if resolved.contains(&spark.on) {
+            if lives.get(spark.on).is_ok_and(|health| health.current > 0) {
+                due.push(*spark);
+            }
+            return false;
+        }
+        *frames += 1;
+        *frames <= WAITS
+    });
+    for spark in &due {
         let Some((kind, at)) = sparks_of(spark.art) else {
             continue;
         };
@@ -116,6 +156,7 @@ impl Plugin for HitSparksPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Spark>()
             .init_resource::<Rolls>()
+            .init_resource::<Waiting>()
             .add_systems(
                 Update,
                 (burst, put_out)
@@ -123,5 +164,93 @@ impl Plugin for HitSparksPlugin {
                     .after(crate::frame::Step::Npcs)
                     .run_if(in_state(AppState::InGame)),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::fight::{Health, Struck};
+
+    fn app() -> App {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<Spark>()
+            .add_message::<Struck>()
+            .init_resource::<Rolls>()
+            .init_resource::<Waiting>()
+            .add_systems(Update, burst);
+        app
+    }
+
+    fn creature(app: &mut App, current: u32) -> Entity {
+        app.world_mut()
+            .spawn((
+                Transform::default(),
+                GlobalTransform::default(),
+                Health {
+                    current,
+                    most: 50,
+                    level: 1,
+                },
+            ))
+            .id()
+    }
+
+    fn bursts(app: &mut App) -> usize {
+        app.world_mut()
+            .query_filtered::<(), With<crate::puffs::Unmade>>()
+            .iter(app.world())
+            .count()
+    }
+
+    #[test]
+    fn the_explosive_arrows_sparks_wait_for_its_strike_and_burst_where_it_lives() {
+        let mut app = app();
+        let alive = creature(&mut app, 20);
+        let dead = creature(&mut app, 0);
+        for on in [alive, dead] {
+            app.world_mut().write_message(Spark {
+                art: 1004,
+                by: on,
+                on,
+            });
+        }
+        app.update();
+        // Not before its strike is resolved.
+        assert_eq!(bursts(&mut app), 0);
+        for target in [alive, dead] {
+            app.world_mut().write_message(Struck {
+                target,
+                damage: 30,
+                most: 50,
+            });
+        }
+        app.update();
+        // At the creature left alive alone.
+        assert_eq!(bursts(&mut app), 1);
+        assert!(app.world().resource::<Waiting>().0.is_empty());
+    }
+
+    #[test]
+    fn a_hurled_weapons_sparks_burst_at_once_and_unresolved_ones_are_given_up() {
+        let mut app = app();
+        let on = creature(&mut app, 0);
+        app.world_mut().write_message(Spark {
+            art: 1013,
+            by: on,
+            on,
+        });
+        app.world_mut().write_message(Spark {
+            art: 1004,
+            by: on,
+            on,
+        });
+        app.update();
+        assert_eq!(bursts(&mut app), 1);
+        for _ in 0..=WAITS {
+            app.update();
+        }
+        assert!(app.world().resource::<Waiting>().0.is_empty());
     }
 }
