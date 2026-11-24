@@ -4,9 +4,8 @@
 //! `PARTICLE_SMOKE03` for its seconds, laid over by its alpha and tinted by the light at it
 //! (`opensacred_rules::particles::battle_fog`), its puffs living out after; a blink's two of their
 //! variants, the warm one where it leaves and the cool one where it lands (the FX event `0x5C`'s
-//! `+0x3C`, #3157), a fog trap's of none.
-//!
-//! Not followed: the renderer's vector in its layer's wind, as the world's smokes'.
+//! `+0x3C`, #3157), a fog trap's of none. Its layer takes the renderer's wind at each frame
+//! (`daynight::Clock::wind`, #3154), which its buoyancy of 0 ± 3 carries its puffs by, both ways.
 
 use bevy::camera::visibility::NoFrustumCulling;
 use bevy::prelude::*;
@@ -156,20 +155,24 @@ fn make(
     }
 }
 
-/// Runs each fog a frame on (`0x770700`): its puffs aged, and new ones for its seconds; then it
-/// goes with its last.
+/// Runs each fog a frame on (`0x770700`): its puffs aged, carried by the renderer's wind, and new
+/// ones for its seconds; then it goes with its last.
 fn drift(
     mut commands: Commands,
-    time: Res<Time>,
+    (time, clock): (Res<Time>, Option<Res<crate::daynight::Clock>>),
     looks: Res<Looks>,
     mut fogs: Query<(Entity, &mut Fog, &GlobalTransform)>,
     (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let dt = time.delta_secs().min(0.1);
+    let wind = clock
+        .as_deref()
+        .map_or([0.0; 3], crate::daynight::Clock::wind);
     for (entity, mut puffs, place) in &mut fogs {
         let puffs = &mut *puffs;
         let fog = looks.fog(puffs.variant);
-        puffs.puffs.update(dt, &fog.layers);
+        let layers: Vec<_> = fog.layers.iter().map(|layer| layer.blown(wind)).collect();
+        puffs.puffs.update(dt, &layers);
         if puffs.puffs.clock < puffs.seconds {
             puffs
                 .puffs

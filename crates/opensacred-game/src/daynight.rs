@@ -117,6 +117,13 @@ impl Clock {
         self.minutes() as u16
     }
 
+    /// The renderer's wind at this minute, in the models' frame (`0x41A4F0`,
+    /// `opensacred_rules::particles::renderer_wind`), which the particle systems that copy it
+    /// drift by.
+    pub fn wind(&self) -> [f32; 3] {
+        opensacred_rules::particles::renderer_wind(self.minute())
+    }
+
     pub fn phase(&self) -> Phase {
         phase(self.minutes())
     }

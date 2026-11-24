@@ -11,7 +11,8 @@
 //! vanish at their first tick of lying instead (#2514, `undead::at_once`): the Vampiress's raised
 //! dead in black smoke, the ghosts, the visions, the crow, the types without a dying clip and the
 //! bodies on water or lava in blue-white sparks, the bodies turned to stone in pale green dust
-//! (781 at their vertices, [`Ends`]), the dummy with no effect, unless their flag, a death's
+//! (781 at their vertices, [`Ends`], its dusts drifting with the renderer's wind of their start,
+//! `daynight::Clock::wind`, #3154), the dummy with no effect, unless their flag, a death's
 //! function or a dialogue holds them. The undead of the class 5 and the bodies that burst end
 //! their own ways (`undead`). With the violence on, a body that bleeds lays a blood puddle under
 //! it at its first tick of lying past its dying clip's end (907, `marks::puddle`, #2516, #3082),
@@ -392,8 +393,15 @@ fn burst(
     mut commands: Commands,
     bursting: Query<(Entity, &Ends, &Transform), Added<Ends>>,
     shapes: crate::vertices::ModelPoints,
-    (meshes, mut dice): (Res<Assets<Mesh>>, ResMut<Dice>),
+    (meshes, mut dice, clock): (
+        Res<Assets<Mesh>>,
+        ResMut<Dice>,
+        Option<Res<crate::daynight::Clock>>,
+    ),
 ) {
+    let wind = clock
+        .as_deref()
+        .map_or([0.0; 3], crate::daynight::Clock::wind);
     for (marker, ends, place) in &bursting {
         let origin = place.translation;
         let points: Vec<[f32; 3]> = shapes
@@ -409,7 +417,7 @@ fn burst(
         );
         crate::puffs::spawn(
             &mut commands,
-            particles::body_end(ends.end, &points, &mut dice.0),
+            particles::body_end(ends.end, &points, wind, &mut dice.0),
             origin,
             None,
         );
