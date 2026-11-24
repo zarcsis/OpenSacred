@@ -240,7 +240,7 @@ fn run(
                 particle.size * iso::MODEL_SCALE,
                 particle.angle,
                 (frame / grid, 1.0 / grid),
-                burst.ramp.at(particle.life),
+                own(burst.ramp.at(particle.life), particle.colour),
             );
         }
         // Over the creature it was made at, as the original draws the system after it (#2762),
@@ -265,6 +265,13 @@ fn run(
 /// coordinate up.
 pub fn local(at: Vec3, origin: Vec3) -> [f32; 3] {
     crate::bolt_looks::models(at - origin)
+}
+
+/// A particle's colour of its ramp's `ramp`, times its own `colour` where its block rolled one
+/// (each glow its own, as the arrows' trails, `opensacred_rules::particles::arrow_trail`); white
+/// for the others, which keep their ramp's.
+fn own([r, g, b, a]: [f32; 4], [cr, cg, cb]: [f32; 3]) -> [f32; 4] {
+    [r * cr, g * cg, b * cb, a]
 }
 
 /// The bursts that make their particles once.
