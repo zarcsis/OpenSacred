@@ -1631,19 +1631,20 @@ fn show(
     };
     // The header bar, under its text, but in the learning mode, under a hovered line of the
     // lower panel and while a portrait is under the mouse (`0x6AA993`).
+    // It glows under the pointer, its control at the window's `+0x154` (`0x6AC927`, #3103).
     if !sheet.learning && block.is_none() && sheet.portrait.is_none() {
-        add(
-            piece(
-                if sheet.attributes {
-                    HEADER_ATTRIBUTES
-                } else {
-                    HEADER_SKILLS
-                },
-                HEADER.min,
-            ),
-            None,
-            &mut commands,
+        let header = piece(
+            if sheet.attributes {
+                HEADER_ATTRIBUTES
+            } else {
+                HEADER_SKILLS
+            },
+            HEADER.min,
         );
+        let child = commands
+            .spawn((header, Pickable::IGNORE, crate::control_glow::Glows))
+            .id();
+        commands.entity(window).add_child(child);
     }
     // A text in its box, at its left, its right or its middle (the font's flags 0, 4 and 1).
     let mut write = |text: &str, at: Vec2, width: f32, (colour, justify): (u32, JustifyContent)| {

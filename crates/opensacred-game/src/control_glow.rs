@@ -3,12 +3,11 @@
 //! own hit test holds the cursor's point, draws its picture again as the glow `0x732220(0.3)`:
 //! 49 copies shifted by −6 to +6 pixels in steps of 2, added onto the screen at the alpha
 //! ⌊12.75 · 0.3⌋/255 each (`low_health::Glow`). The game gives it to the bar's buttons, the
-//! belt's slots, the inventory's sort button, the statistics window's close button, the
-//! options window's ticks and round choices, in the menus too, and the world map's two buttons
-//! ([`Glows`]).
-//!
-//! Not followed yet: the other controls of the flag (the statistics window's second button, the
-//! quest book's, the column's two, and four not named).
+//! belt's slots, the inventory's sort button, the statistics window's close button and header
+//! bar, the quest book's close button and four tabs, the column's bonuses' "+" and horse's
+//! button, the combat master's exchange's two arrows, the options window's ticks and round
+//! choices, in the menus too, and the world map's two buttons ([`Glows`]). The players' trade
+//! window's four are a network game's (M9).
 
 use bevy::prelude::*;
 use bevy::ui_render::prelude::MaterialNode;

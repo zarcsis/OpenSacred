@@ -2305,8 +2305,15 @@ fn show(
             ),
         );
     }
+    // The four tabs and the close button glow under the pointer (`0x6AFAA7`, `0x6AF81D`; #3103).
+    let glowing = |commands: &mut Commands, bundle: (ImageNode, Node)| {
+        let child = commands
+            .spawn((bundle, Pickable::IGNORE, crate::control_glow::Glows))
+            .id();
+        commands.entity(root).add_child(child);
+    };
     for tab in 0..TABS {
-        add(
+        glowing(
             &mut commands,
             piece(tab_image(tab, look.creature), tab_at(tab, look.tab)),
         );
@@ -2341,7 +2348,7 @@ fn show(
             );
         }
     }
-    add(&mut commands, piece(CLOSE.0, CLOSE.1));
+    glowing(&mut commands, piece(CLOSE.0, CLOSE.1));
     if look.tab >= TABS - 1 {
         if let Some(stats) = &look.stats {
             stats_block(&mut commands, root, (&assets, texts), stats);
