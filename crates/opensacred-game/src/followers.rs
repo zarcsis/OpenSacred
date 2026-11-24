@@ -183,7 +183,7 @@ const SUMMONS: f32 = 1.5;
 const MOST_LEVEL: u32 = 250;
 /// The side a hiring gives a follower of the animals' side 6 or hostile to its master, a friend
 /// of the heroes' (`0x54CF70`).
-const HIRED_SIDE: u8 = 3;
+pub(crate) const HIRED_SIDE: u8 = 3;
 
 /// The followers' generator for their steps off.
 #[derive(Resource)]

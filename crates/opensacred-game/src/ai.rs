@@ -253,7 +253,8 @@ const TURNS_STRIKERS: u16 = 0x80;
 
 /// Turns each creature struck by an attacker hostile to it on that attacker, where it is hostile
 /// to the hero or the hero's follower, no horse ridden and alive (the event 5's handler's tail,
-/// `0x535A72`–`0x535C45`; docs/re/ai.md, "Foes among the creatures", #3470): it takes the AI's
+/// `0x535A72`–`0x535C45`; docs/re/ai.md, "Foes among the creatures", #3470, #3590), a follower
+/// by a creature alone, as the hero is no foe of its own: it takes the AI's
 /// state 4 or 8 against it, unless a script's order waits for it, it casts or makes a weapon art,
 /// or its own strike or shot plays and the attacker's mark has no bit `0x80`. A Fetzer that it
 /// turns so from another state while it chooses takes its phase, `0x21B` by a roll of 0 of 3,
@@ -276,6 +277,7 @@ fn turn_on_attackers(
                 Option<&crate::npcs::ScriptQueue>,
             ),
             Has<crate::npcs::Strikes>,
+            Option<&crate::followers::Follower>,
         ),
         (Without<crate::npcs::Dies>, Without<crate::riding::Ridden>),
     >,
@@ -293,11 +295,14 @@ fn turn_on_attackers(
                 Err(_) => continue,
             }
         };
-        let Ok((mut mind, (casting, ordered, makes, queue), striking)) = minds.get_mut(hit.target)
+        let Ok((mut mind, (casting, ordered, makes, queue), striking, follower)) =
+            minds.get_mut(hit.target)
         else {
             continue;
         };
-        if !mind.hostile() {
+        // The hero's follower (`+0x251` the local player), whom the hero's own blows turn not.
+        let follows_hero = follower.is_some_and(|follower| heroes.contains(follower.master));
+        if !mind.hostile() && !(follows_hero && !by_hero) {
             continue;
         }
         let hostile_to_it = attacker
@@ -3497,6 +3502,64 @@ mod tests {
         // Its whole health in one blow: a chance of 100 in 101.
         assert!(clip(swooping));
         assert!(!clip(landed) && !clip(missed));
+    }
+
+    #[test]
+    fn the_heros_follower_struck_by_a_goblin_turns_on_it_and_not_on_the_hero() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<crate::fight::Hit>()
+            .init_resource::<Minds>()
+            .add_systems(Update, turn_on_attackers);
+        let hero = app.world_mut().spawn(Body::standing()).id();
+        let goblin = app
+            .world_mut()
+            .spawn(Mind::new(
+                Vec3::ZERO,
+                0x4000,
+                (false, false),
+                None,
+                [70.0, 180.0],
+                (76, 2),
+            ))
+            .id();
+        // A goblin hired as the hiring makes it: following, of the hired side.
+        let follower = |app: &mut App, master: Entity| {
+            let mut mind = Mind::new(Vec3::ZERO, 0, (false, false), None, [70.0, 180.0], (76, 2));
+            mind.flags = minds::FOLLOWS;
+            mind.side = crate::followers::HIRED_SIDE;
+            app.world_mut()
+                .spawn((mind, crate::followers::Follower::of(master)))
+                .id()
+        };
+        let hit = |attacker, target| crate::fight::Hit {
+            attacker,
+            target,
+            share: 1.0,
+            ranged: false,
+            art: None,
+            fixed: None,
+            sure: true,
+            poison: false,
+            ward: false,
+            hurled: false,
+            object: false,
+            mount: false,
+        };
+        let struck = follower(&mut app, hero);
+        let by_the_hero = follower(&mut app, hero);
+        // Another's follower, the hero's not, is no creature the tail admits.
+        let stranger = app.world_mut().spawn_empty().id();
+        let others = follower(&mut app, stranger);
+        for (attacker, target) in [(goblin, struck), (hero, by_the_hero), (goblin, others)] {
+            assert!(!app.world().get::<Mind>(target).unwrap().hostile());
+            app.world_mut().write_message(hit(attacker, target));
+        }
+        app.update();
+        let mind = |entity| app.world().get::<Mind>(entity).unwrap();
+        assert!(mind(struck).fighting() && mind(struck).foe() == Some(goblin));
+        assert!(!mind(by_the_hero).fighting());
+        assert!(!mind(others).fighting());
     }
 
     #[test]
