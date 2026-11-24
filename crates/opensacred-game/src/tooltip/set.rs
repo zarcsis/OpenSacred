@@ -37,6 +37,12 @@ pub(crate) struct Wearer<'a> {
 }
 
 /// `x` as a share in per cent, signed, to a tenth where it is not whole.
+/// A share in whole per cent, cut as the original's `%d` cuts a float (`0x571710`), a hair
+/// over it kept from the float's error below a whole (40 % of the share 0.4).
+fn whole_pc(x: f32) -> f64 {
+    (f64::from(x) * 100.0 + 1e-4).trunc()
+}
+
 pub(super) fn share(x: f32) -> String {
     let p = (f64::from(x) * 1000.0).round() / 10.0;
     if p.fract() == 0.0 {
@@ -173,6 +179,17 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
         // struck down: the key names no string of the installation's texts, and the converter
         // adds the project's own words under it (the maintainer's choice of 2026-11-11, #2559).
         Told::StrikesFleeing => white(words.of("UI_SET_FLUCHT")),
+        // Set 42's line at 6 (`0x571710`'s `%d%% {T8225}`), the night form's share more as the
+        // executor applies it, `1.4·D − 1`, where the original's tells `0.4·D`
+        // (docs/decisions/arts.md, "Vampiress's form's time with set 42 told as applied", #3136).
+        Told::NightForm(more) => white(format!("{:.0}% {}", whole_pc(more), n(8225))),
+        // Set 59's line at 6 (`0x571710`'s `%+d%% {K:UI_SET_FLIEGEN}`), 1094's share more,
+        // `0.4·D` (#3136).
+        Told::Flight(more) => white(format!(
+            "{:+.0}% {}",
+            whole_pc(more),
+            words.of("UI_SET_FLIEGEN")
+        )),
         // The open wounds' chance of a strike, as the items' effect 857 is worded.
         Told::OpenWounds(chance) => white(format!("{}: {}", n(1151), share(chance))),
         // Against the ranged fighters, as an item's bonus against them is worded.
@@ -450,6 +467,10 @@ mod tests {
         assert_eq!(told(Told::Unseen), ["<783>"]);
         assert_eq!(told(Told::Pierces), ["<UI_SET_DURCHBOHREN>"]);
         assert_eq!(told(Told::StrikesFleeing), ["<UI_SET_FLUCHT>"]);
+        // Sets 42's and 59's at 6 on silver: 1.4·1.34 − 1 and 0.4·1.34, cut (#3136).
+        assert_eq!(told(Told::NightForm(0.876)), ["87% <8225>"]);
+        assert_eq!(told(Told::NightForm(0.4)), ["40% <8225>"]);
+        assert_eq!(told(Told::Flight(0.536)), ["+53% <UI_SET_FLIEGEN>"]);
         assert_eq!(told(Told::Binds(30)), ["30% <UI_SET_ROOTEN>"]);
         assert_eq!(told(Told::Potions(10.0)), ["<OPENSACRED_SET_POTIONS>: 10%"]);
         assert_eq!(

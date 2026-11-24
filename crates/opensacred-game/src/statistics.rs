@@ -1125,6 +1125,8 @@ fn art_damage(
         rules,
         halved: false,
         thrown: crate::tooltip::art::Thrown::default(),
+        night_times: 1.0,
+        flight_times: 1.0,
     };
     crate::tooltip::art::window_damage(selected?, &hero, &arts.tables, combat.damage)
 }

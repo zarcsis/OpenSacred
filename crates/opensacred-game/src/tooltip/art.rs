@@ -82,6 +82,10 @@ pub(crate) struct Hero<'a> {
     pub halved: bool,
     /// The damages that its hurled blades and its hurled weapon take.
     pub thrown: Thrown,
+    /// How many times as long its sets make the Vampiress's night form and the Daemon's 1094
+    /// last (`opensacred_rules::set_bonuses::Stats::night_form_times` and `flight_times`, #3136).
+    pub night_times: f32,
+    pub flight_times: f32,
 }
 
 /// The damages, each kind's least and most, that the hero's hurled blades 1054 and hurled
@@ -1025,7 +1029,12 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
             let w = v.weapon?;
             vec![seconds(
                 n(1097),
-                ftol(f64::from(arts::changeling_seconds(w, v.level, v.hero.day))),
+                ftol(f64::from(arts::changeling_seconds(
+                    w,
+                    v.level,
+                    v.hero.day,
+                    v.hero.night_times,
+                ))),
             )]
         }
         1024 | 1025 | 1031 => vec![seconds(
@@ -1171,7 +1180,13 @@ fn own_lines(id: u16, v: &Values, words: &Words, base: u32) -> Option<Vec<Line>>
         1094 if weapon => vec![
             signed_pc(n(1167), ftol(100.0 * v.w58())),
             signed_pc(n(1098), v.w60() - 100),
-            seconds(n(1097), ftol(v.w50().min(180.0))),
+            // Its time, held at 180, times set 59's factor, as its run applies it (`0x519A5E`),
+            // which the original's line leaves out (docs/decisions/arts.md, "Daemon's 1094
+            // tooltip tells set 59's factor", #3136).
+            seconds(
+                n(1097),
+                ftol(v.w50().min(180.0) * f64::from(v.hero.flight_times)),
+            ),
         ],
         // The effects 1 and 3 of `W68/100` and `W60/100`, in per cent their whole `W68` and
         // `W60`, where the original's line takes the float 0.01 a little short, 19 for 20 (#1741).
@@ -1357,6 +1372,8 @@ mod tests {
                 strike: Some([[10.0, 20.0], [0.0, 0.0], [5.0, 5.0], [0.0, 0.0]]),
                 hurled: Some([[8.0, 12.0], [0.0, 0.0], [0.0, 0.0], [2.0, 4.0]]),
             },
+            night_times: 1.0,
+            flight_times: 1.0,
         };
         let words = Words {
             text: &|name| Some(format!("<{name}>")),
@@ -1567,6 +1584,8 @@ mod tests {
                 rules: &opensacred_rules::fight::Rules::default(),
                 halved: false,
                 thrown: Thrown::default(),
+                night_times: 1.0,
+                flight_times: 1.0,
             },
             spell: None,
             weapon: Some(&weapon_art(1013)),

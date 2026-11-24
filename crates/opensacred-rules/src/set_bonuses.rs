@@ -578,6 +578,27 @@ pub const MARKS_FOR_FIRE: u32 = 0x4;
 /// The stats' flag `+0x4F0` bit `0x1000` (set 55 at 8), by which its wearer refuses a knock-back
 /// in two cases of three (`0x55D260`'s query `0x50`; docs/re/sets.md §5, #3437).
 pub const STEADY: u32 = 0x1000;
+/// The stats' flag `+0x148` bit `0x400000` (set 42 at 6), by which the Vampiress's night form
+/// 1022 lasts [`night_times`] as long (`0x5128D6`; [`Stats::night_form_times`], #3136).
+pub const LONGER_NIGHT: u32 = 0x40_0000;
+/// The stats' flag `+0x4F0` bit `0x8000` (set 59 at 6, `UI_SET_FLIEGEN`), by which the Daemon's
+/// 1094 lasts [`flight_times`] as long (`0x519A5E`; [`Stats::flight_times`], #3136).
+pub const LONGER_FLIGHT: u32 = 0x8000;
+
+/// How many times as long set 42 makes the Vampiress's night form last on the difficulty's
+/// factor `d`: `1.4·d` (`0x5128D6`, the float 1.4 at `0x8910AC`), where the original's tooltip
+/// and the set's line tell `1 + 0.4·d` (`0x58DE2B`; docs/decisions/arts.md, "Vampiress's form's
+/// time with set 42 told as applied").
+pub fn night_times(d: f32) -> f32 {
+    1.4 * d
+}
+
+/// How many times as long set 59 makes the Daemon's 1094 last on the difficulty's factor `d`:
+/// `1 + 0.4·d` (`0x519A5E`).
+pub fn flight_times(d: f32) -> f32 {
+    0.4_f32.mul_add(d, 1.0)
+}
+
 /// The stats' flag `+0x4F0` bit `0x800` (set 52 at 6), by which a creature's hold ordered at its
 /// wearer, the stone or the plant cage, is turned one cast in three (`0x55D260`'s query `0x4F`,
 /// [`crate::casts::turned_hold`], #3437).
@@ -891,6 +912,26 @@ impl Stats {
         self.flags & UNCAGED != 0
     }
 
+    /// How many times as long the wearer's night form lasts: [`night_times`] of its `D` where
+    /// the flag [`LONGER_NIGHT`] holds, else 1.
+    pub fn night_form_times(&self) -> f32 {
+        if self.flags & LONGER_NIGHT == 0 {
+            1.0
+        } else {
+            night_times(self.factor)
+        }
+    }
+
+    /// How many times as long the wearer's 1094 lasts: [`flight_times`] of its `D` where the
+    /// flag [`LONGER_FLIGHT`] holds, else 1.
+    pub fn flight_times(&self) -> f32 {
+        if self.flags & LONGER_FLIGHT == 0 {
+            1.0
+        } else {
+            flight_times(self.factor)
+        }
+    }
+
     /// Whether the wearer's flag [`SNOWS`] holds, by which the weather snows.
     pub fn snows(&self) -> bool {
         self.flags & SNOWS != 0
@@ -1198,6 +1239,10 @@ pub enum Told {
     KnowEnemy,
     /// A wounded creature that would flee the wearer struck down ([`STRIKES_FLEEING`]).
     StrikesFleeing,
+    /// The Vampiress's night form's time's share more ([`LONGER_NIGHT`], [`night_times`]).
+    NightForm(f32),
+    /// The Daemon's 1094's time's share more ([`LONGER_FLIGHT`], [`flight_times`]).
+    Flight(f32),
     /// The per cent of a slain foe's drops of no type that are a potion ([`Reader::Potions`]).
     Potions(f32),
 }
@@ -1223,6 +1268,8 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty, night: bool) -> Vec<To
                 Bonus::Flag(BINDS) => Told::Binds(crate::minds::bind_chance(difficulty)),
                 Bonus::Flag(KNOW_ENEMY) => Told::KnowEnemy,
                 Bonus::Flag(STRIKES_FLEEING) => Told::StrikesFleeing,
+                Bonus::Flag(LONGER_NIGHT) => Told::NightForm(night_times(d) - 1.0),
+                Bonus::Flag(LONGER_FLIGHT) => Told::Flight(flight_times(d) - 1.0),
                 Bonus::Flag(_) | Bonus::CreatureFlag(_) => return None,
                 bonus => Told::Bonus(bonus),
             };

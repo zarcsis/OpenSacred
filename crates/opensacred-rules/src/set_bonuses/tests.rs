@@ -522,3 +522,37 @@ fn set_55_refuses_two_knocks_in_three_and_set_52_answers_the_holds() {
     assert!(uncaged.turns_holds() && !steady.turns_holds() && !none.turns_holds());
     assert!(!(0..6).any(|roll| none.refuses_knock(roll) || uncaged.refuses_knock(roll)));
 }
+
+#[test]
+fn sets_42_and_59_lengthen_the_forms_and_tell_it() {
+    // Set 42 at 6 pieces: the night form 1.4·D times as long, its line telling the share more.
+    let night = stats(&wearing(42, 6), Difficulty::Silver, false);
+    assert!((night.night_form_times() - 1.876).abs() < 1e-5);
+    assert_eq!(night.flight_times(), 1.0);
+    assert_eq!(
+        stats(&wearing(42, 5), Difficulty::Silver, false).night_form_times(),
+        1.0
+    );
+    let told_night = told(42, &wearing(42, 6), Difficulty::Bronze, false);
+    assert!(
+        told_night
+            .iter()
+            .any(|line| matches!(line, Told::NightForm(x) if (x - 0.4).abs() < 1e-5))
+    );
+    // Set 59 at 6 pieces: 1094 `1 + 0.4·D` times as long.
+    let flight = stats(&wearing(59, 6), Difficulty::Niobium, false);
+    assert!((flight.flight_times() - 1.936).abs() < 1e-5);
+    assert_eq!(flight.night_form_times(), 1.0);
+    assert_eq!(
+        stats(&wearing(59, 5), Difficulty::Niobium, false).flight_times(),
+        1.0
+    );
+    let told_flight = told(59, &wearing(59, 6), Difficulty::Niobium, false);
+    assert!(
+        told_flight
+            .iter()
+            .any(|line| matches!(line, Told::Flight(x) if (x - 0.936).abs() < 1e-5))
+    );
+    assert_eq!(night_times(2.0), 2.8);
+    assert_eq!(flight_times(2.0), 1.8);
+}
