@@ -13609,10 +13609,11 @@ fn first_fight(
 /// the level's setter (`0x564D60`, with `a` 1 and `b` 0) gives it their level held at the sector
 /// it stands in (`opensacred_rules::fight::Rank::held`) and makes its values anew with its health
 /// refilled, its items as they are, even where the hold keeps its level, as the original's does
-/// at each such kill, and bursts it into its sparks (`0x57F504`, `level_sparks`, #2762). Not
-/// followed: the same share of a rider's mount or a horse's rider (`+0x1EC`, #3393); a follower of
-/// the hero earns nothing, its kill going to the hero (`fight::resolve`, #3394); a blue potion's
-/// effect adds to the kill's experience (#1353).
+/// at each such kill, and bursts it into its sparks (`0x57F504`, `level_sparks`, #2762). The
+/// hero's mount takes what the hero takes ([`mount_earns`], #3393); not followed for a creature's
+/// mount or a horse's rider (`+0x1EC`); a follower of the hero earns nothing, its kill going to
+/// the hero (`fight::resolve`, #3394); a blue potion's effect adds to the kill's experience
+/// (#1353).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their filters"
@@ -13707,6 +13708,76 @@ pub(crate) fn earn(
             health.most
         );
     }
+}
+
+/// Gives the horse that the hero rides, where it rides one, the experience `amount` that the hero
+/// took of a kill, whole, by the same `addExperience` (`0x5319B1`–`0x531A37`; docs/re/fight.md,
+/// "The mount's and the rider's share", #3393): added to its points, and once they pass its
+/// level's end the level of its points, held at 250 alone and not by its sector (`0x564D60` at
+/// `0x5654EB`, `opensacred_rules::fight::held_level`), its values made anew and its health
+/// refilled, with the level's sparks.
+pub(crate) fn mount_earns(world: &mut bevy::prelude::World, amount: u32) {
+    let horse = world
+        .query_filtered::<&crate::riding::Seat, bevy::prelude::With<hero::Body>>()
+        .iter(world)
+        .next()
+        .and_then(crate::riding::Seat::ridden);
+    let Some(horse) = horse else {
+        return;
+    };
+    world.resource_scope(|world, npcs: bevy::prelude::Mut<Npcs>| {
+        let rules = &npcs.fight;
+        let mut horses = world.query::<(
+            Option<&mut fight::Points>,
+            (&mut ai::Mind, &mut fight::Health, &mut fight::Combat),
+            (&Arms, &mut Npc),
+            Option<&crate::effects::Effects>,
+        )>();
+        let Ok((points, (mut mind, mut health, mut combat), (arms, mut npc), effects)) =
+            horses.get_mut(world, horse)
+        else {
+            return;
+        };
+        let from = health.level;
+        let mut sum = points
+            .as_deref()
+            .map_or_else(|| fight::level_start(from), |points| points.0);
+        let reached = fight::creature_earns(&mut sum, from, u64::from(amount));
+        let had = points.is_some();
+        if let Some(mut points) = points {
+            points.0 = sum;
+        }
+        let creature = mind.creature;
+        let raised = reached.map(|reached| {
+            let grade =
+                opensacred_rules::fight::held_level(reached, None, mind.creature, true, rules);
+            let regenerates = relevel(
+                grade,
+                fight::Rank::Common,
+                (&mut *mind, &mut *health, &mut *combat, &mut *npc),
+                arms,
+                rules,
+                &effects
+                    .map(crate::effects::Effects::list)
+                    .unwrap_or_default(),
+            );
+            (grade, regenerates, health.most)
+        });
+        let mut entity = world.entity_mut(horse);
+        if !had {
+            entity.insert(fight::Points(sum));
+        }
+        bevy::log::info!(
+            "npcs: the hero's horse {horse}, a {creature} of level {from}, earns {amount} \
+             experience with its rider, {sum} in all"
+        );
+        if let Some((grade, regenerates, most)) = raised {
+            entity.insert((regenerates, crate::level_sparks::Rises));
+            bevy::log::info!(
+                "npcs: the hero's horse {horse} reaches the level {grade}, health {most}"
+            );
+        }
+    });
 }
 
 /// Sets the level of the follower `entity` as the hero of level `hero` sets it (#2896): at its
