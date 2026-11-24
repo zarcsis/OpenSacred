@@ -1053,10 +1053,19 @@ fn show_exchange(
     if let Some(rune) = page.look.preview {
         models.push((rune, control(images, SLOT_FILLED, RESULT_AT).center()));
     }
+    // The arrows glow under the pointer (`0x6D5D2D`, `0x6D5DB9`; #3103).
     if runes.count() == exchange::SLOTS && runes.result.is_none() {
         let (back, next) = arrows(images);
-        add(commands, ARROW_LEFT, back.min);
-        add(commands, ARROW_RIGHT, next.min);
+        for (index, at) in [(ARROW_LEFT, back.min), (ARROW_RIGHT, next.min)] {
+            let arrow = commands
+                .spawn((
+                    bar::piece(images, assets, index, at, Vec2::ZERO),
+                    Pickable::IGNORE,
+                    crate::control_glow::Glows,
+                ))
+                .id();
+            commands.entity(root).add_child(arrow);
+        }
     }
     let gold = page.look.gold;
     let lit = runes.result.is_none() && runes.count() > 1 && page.price <= gold;

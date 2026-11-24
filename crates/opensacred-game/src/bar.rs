@@ -664,7 +664,14 @@ pub(crate) fn spawn(
         pieces.push(commands.spawn(portrait).id());
     }
     pieces.extend([
-        commands.spawn(image(BONUSES.0, BONUSES.1, COLUMN.min)).id(),
+        // The bonuses' "+" and the horse's button glow under the pointer (`0x6D83D5`,
+        // `0x6D840D`; #3103).
+        commands
+            .spawn((
+                image(BONUSES.0, BONUSES.1, COLUMN.min),
+                crate::control_glow::Glows,
+            ))
+            .id(),
         commands
             .spawn(image(EXPERIENCE_FRAME.0, EXPERIENCE_FRAME.1, COLUMN.min))
             .id(),
@@ -693,6 +700,7 @@ pub(crate) fn spawn(
                 HorsePiece,
                 image(HORSE_BUTTON.0, HORSE_BUTTON.1, COLUMN.min),
                 Visibility::Hidden,
+                crate::control_glow::Glows,
             ))
             .id(),
     ]);
