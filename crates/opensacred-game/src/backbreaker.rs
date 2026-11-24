@@ -5,7 +5,8 @@
 //! at the rate 1.0 (`0x502EFC`–`0x50317B`); as the arm lets it go it is put at his right hand's
 //! point, its heading back, plays its dying clip, the slot 173, once at the rate 1.0, and flies
 //! the throw's flight (`arts::backbreaker_throw`, `0x5014C7`–`0x501769`) until the ground takes
-//! it. A taker who makes the art no more, or is gone, drops it where it hangs onto the ground.
+//! it, neither walking nor striking meanwhile. A taker who makes the art no more, or is gone,
+//! drops it where it hangs onto the ground.
 
 use bevy::prelude::*;
 use opensacred_rules::arts;
@@ -34,9 +35,11 @@ struct TakenUp {
     rotation: Quat,
 }
 
-/// A creature that the backbreaker has let go, in its flight.
+/// A creature that the backbreaker has let go, in its flight: it neither walks nor strikes nor
+/// pursues its foe meanwhile (`ai`, `npcs`), as one thrown by the Dwarf's 1083
+/// (`making::Knocked`).
 #[derive(Component, Clone, Copy, Debug)]
-struct Flung(arts::Flight);
+pub(crate) struct Flung(arts::Flight);
 
 /// Takes the creature `target` up into the hands of `by`, its heading `rotation`: it hangs at
 /// his neck, its hit clip playing.
@@ -60,7 +63,9 @@ pub(crate) fn throw(commands: &mut Commands, target: Entity, hand: Vec3, flight:
                 transform.rotation = rotation;
             }
         }
-        entity.insert((Flung(flight), ScriptClip::fall(THROWN)));
+        entity
+            .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
+            .insert((Flung(flight), ScriptClip::fall(THROWN)));
     });
 }
 

@@ -1076,7 +1076,11 @@ fn pursue(
                 Option<&crate::bolt_hands::BoltHands>,
             ),
         ),
-        (Without<Body>, Without<crate::making::Knocked>),
+        (
+            Without<Body>,
+            Without<crate::making::Knocked>,
+            Without<crate::backbreaker::Flung>,
+        ),
     >,
     (real, experience, rules, difficulty): (
         Res<Time<bevy::time::Real>>,
