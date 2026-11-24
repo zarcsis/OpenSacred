@@ -4,9 +4,10 @@
 //! wide flickers down onto its bearer's neck, its frame of eight rolled anew every 0.07 s, opaque
 //! at its foot and clear at its top, added by its alpha, over a glow added whole; it stands in
 //! the models' upright plane, facing the viewer, and is untinted by the night; its light of 200
-//! stands where its object was made (`opensacred_rules::particles::LightStrike`).
-//!
-//! Not followed: the strike and its glow over all else (their depth test off, `0x770F30`).
+//! stands where its object was made (`opensacred_rules::particles::LightStrike`). The strike and
+//! its glow, which the original draws with their depth not tested (`0x770F30`), lie at one depth
+//! after their bearer's model in the order (`fx::Orders::borne_by`, `fx::Quads::at_order`, #3156):
+//! over the bearer and what the order draws before it, under what it draws after.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -232,12 +233,12 @@ fn run(
             (Vec2::ZERO, 1.0),
             shown.look.kind.glow_colour(shown.creature),
         );
-        // Just behind its bearer's model, as the original draws the system before the creature
-        // (#2188).
+        // At one depth after its bearer's model, as the original draws the system after the
+        // creature, its depth not tested (#3156).
         let order = orders.borne_by(shown.bearer);
         for (handle, mut part) in shown.parts.iter().zip(quads) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
-                part.in_order(order, transform.translation);
+                part.at_order(order, transform.translation);
                 part.into_mesh(&mut mesh);
             }
         }
