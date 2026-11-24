@@ -96,6 +96,9 @@ pub struct Playing {
     struck: usize,
     /// How many of its hit points a `Rundum` of a gun has fired at (#1963).
     fired: usize,
+    /// The creatures that the Dwarf's `Rundum` with a gun gathered before its clip, which its
+    /// second to fourth shots take in turn (`arts::gun_rundum_gathers`, #3122).
+    gathered: Vec<Entity>,
     /// Whether the Dwarf's `Rundum` has started its regeneration (#3011).
     regenerated: bool,
     target: Entity,
@@ -667,9 +670,11 @@ pub(crate) fn whole_distance(a: Vec3, b: Vec3) -> u32 {
 /// clip's hit points, on its target or the next hostile creature within the reach and 45, and
 /// ends with none or after its last; a `Rundum`, the Gladiator's from 0.3 of its clip, about its
 /// weapon's or its hand's bone, on the nearest creature within its radius but the one it struck
-/// last, until its clip ends; a `Hardhit` once at its hit point, on its target. The first strike,
-/// or a `Rundum`'s start, starts the regeneration. The spells' casts and the special weapon arts
-/// are carried out in their styles' arms, told there.
+/// last, until its clip ends; a `Hardhit` once at its hit point, on its target. The Dwarf's three
+/// with a gun are made where he stands, a pistol's by a line of sight, his `Attacke` striking its
+/// one target at any distance and his `Rundum` its target and those it gathered in turn, a shot at
+/// each hit point (#3122). The first strike, or a `Rundum`'s start, starts the regeneration. The
+/// spells' casts and the special weapon arts are carried out in their styles' arms, told there.
 #[expect(
     clippy::too_many_arguments,
     clippy::type_complexity,
@@ -738,6 +743,7 @@ fn make(
         Option<Res<crate::daynight::Dungeons>>,
         Query<(Entity, &crate::npcs::Wielded, &crate::models::OrderedWith)>,
     ),
+    places: Query<&GlobalTransform>,
 ) {
     let (Some(clips), Some(arts)) = (clips, arts.as_mut()) else {
         return;
@@ -862,6 +868,7 @@ fn make(
                     points: vec![1.0 - share],
                     struck: 0,
                     fired: 0,
+                    gathered: Vec::new(),
                     regenerated: false,
                     target: making.target,
                     last: None,
@@ -888,6 +895,10 @@ fn make(
             .find(|(own, _)| own(making.art))
             .map(|(_, shot)| shot)
             .filter(|_| holding.is_some_and(|holding| holding.0.ranged && !holding.0.gun));
+            // The class of the gun in hand of one of the Dwarf's own three (#3122).
+            let gun = holding
+                .filter(|holding| holding.0.gun && arts::dwarf_gun_art(making.art))
+                .map(|holding| holding.0.class);
             if raises {
                 let level = body.level();
                 let takes = corpses.get(making.target).is_ok_and(|(at, corpse)| {
@@ -945,9 +956,16 @@ fn make(
                     continue;
                 };
                 // With a bow, the `Rundum`, the `Hardhit` and the `Attacke` are shots made where
-                // the hero stands (`0x4FD0F0`).
+                // the hero stands (`0x4FD0F0`); with a gun the Dwarf's own three too, a pistol's
+                // only by a line of sight to the target, which the order asks again as he walks.
+                let level = body.level();
+                let by_gun = gun.and_then(|class| {
+                    arts::gun_order_distance(class, || in_sight(here, target, level, &heights))
+                });
                 let distance = if bow.is_some() {
                     0
+                } else if let Some(distance) = by_gun {
+                    distance
                 } else {
                     arts::order_distance(making.art, record.distance)
                 };
@@ -1108,6 +1126,18 @@ fn make(
                 } else {
                     info!("making: {} wants a bow or a crossbow", making.art);
                 }
+                end(&mut commands);
+                continue;
+            }
+            // With a gun the Dwarf's own three test a line of sight to their target from his floor,
+            // the way of the flyer's flag, at their first run; without it he stands and the art
+            // ends without its clip or its regeneration (`0x518484` to `0x51852B`).
+            if gun.is_some()
+                && making.target != hero
+                && let Ok((_, at, ..)) = creatures.get(making.target)
+                && !in_sight(here, at.translation(), body.level(), &heights)
+            {
+                info!("making: {} sees no line to its target", making.art);
                 end(&mut commands);
                 continue;
             }
@@ -1307,6 +1337,18 @@ fn make(
                 sure: crate::art_sounds::cries_surely(making.art),
             });
             let seconds = length / played.max(f32::EPSILON);
+            // The Dwarf's `Rundum` with a gun gathers up to three other hostiles of the hero's
+            // list before its clip (`0x518760` to `0x518894`).
+            let gathered = if gun.is_some() && style == Style::Rundum {
+                let listed = nearest.hostiles.iter().filter_map(|&entity| {
+                    let (_, at, mind, health) = creatures.get(entity).ok()?;
+                    let hostile = mind.hostile() && health.current > 0;
+                    Some((entity, at.translation(), reach(mind), hostile))
+                });
+                gathers((here, body.level(), making.target), listed, &heights)
+            } else {
+                Vec::new()
+            };
             commands.entity(hero).insert(Playing {
                 style,
                 node,
@@ -1316,6 +1358,7 @@ fn make(
                 points,
                 struck: 0,
                 fired: 0,
+                gathered,
                 regenerated: false,
                 target: making.target,
                 last: None,
@@ -1350,6 +1393,7 @@ fn make(
             ranged: false,
             art: Some(playing.level),
         };
+        let gun_held = holding.is_some_and(|holding| holding.0.gun);
         match playing.style {
             Style::Cast(_) => {
                 // Once the share of its clip still to play falls below the spell's, it acts
@@ -2843,9 +2887,30 @@ fn make(
                     }
                     continue;
                 }
-                // The Dwarf's with a gun fires at each point, at any distance (`0x514E8F`).
+                // The Dwarf's with a gun fires at each point at its one target, alive or not, at
+                // any distance (`0x514B62` to `0x514CA8`, `0x514E8F`).
                 if making.art == arts::DWARF_ATTACKE {
                     fires.write(crate::sfx::Gunfire { shooter: hero });
+                }
+                if making.art == arts::DWARF_ATTACKE && gun_held {
+                    if playing.struck == 0 {
+                        arts.start(making.art);
+                    }
+                    if creatures.contains(playing.target) {
+                        hits.write(hit(playing.target, &playing));
+                    }
+                    if places.contains(playing.target) {
+                        sparks.write(Spark {
+                            art: making.art,
+                            by: hero,
+                            on: playing.target,
+                        });
+                    }
+                    playing.struck += 1;
+                    if playing.struck >= playing.points.len() {
+                        end(&mut commands);
+                    }
+                    continue;
                 }
                 // Its target, else the first hostile creature within the reach and 45.
                 let mut found: Vec<(Entity, Candidate)> = Vec::new();
@@ -2960,8 +3025,56 @@ fn make(
                 }
             }
             Style::Rundum | Style::Whirl => {
-                // The Dwarf's fires a gun held at each of its clip's hit points (`0x515E27`).
-                // Its regeneration below 0.6 of its clip left, once, of the group 0
+                // The Dwarf's with a gun fires at each of its clip's hit points, its target first,
+                // the gathered three in turn, the fifth at no one, turning to each, and ends after
+                // its last, its clip playing on (`0x515C21` to `0x516028`, #3122).
+                if making.art == arts::DWARF_RUNDUM && gun_held {
+                    while playing
+                        .points
+                        .get(playing.fired)
+                        .is_some_and(|&point| due(point, done))
+                    {
+                        let shot = playing.fired;
+                        let whom =
+                            arts::gun_rundum_shot(shot, Some(playing.target), &playing.gathered)
+                                .filter(|&whom| places.contains(whom));
+                        // At an object of the shot's word, alive or not, at any distance; with
+                        // none toward the order's point, striking nothing.
+                        let at = whom
+                            .and_then(|whom| places.get(whom).ok())
+                            .map_or(playing.point, GlobalTransform::translation);
+                        let toward = (at - here).with_y(0.0);
+                        if toward.length() > f32::EPSILON {
+                            transform.rotation = hero::facing(toward);
+                        }
+                        info!(
+                            "making: {}'s shot {shot} with a gun at {whom:?}, {} gathered",
+                            making.art,
+                            playing.gathered.len()
+                        );
+                        fires.write(crate::sfx::Gunfire { shooter: hero });
+                        if let Some(whom) = whom {
+                            if creatures.contains(whom) {
+                                hits.write(hit(whom, &playing));
+                            }
+                            sparks.write(Spark {
+                                art: making.art,
+                                by: hero,
+                                on: whom,
+                            });
+                        }
+                        // The first starts its regeneration, of the group 0 (`0x515FB3`).
+                        if shot == 0 {
+                            arts.start_with(making.art, 1.0, None);
+                        }
+                        playing.fired += 1;
+                    }
+                    if finished || playing.fired >= playing.points.len() {
+                        end(&mut commands);
+                    }
+                    continue;
+                }
+                // Without one its regeneration below 0.6 of its clip left, once, of the group 0
                 // (`0x51556D`, #3011).
                 if making.art == arts::DWARF_RUNDUM
                     && !playing.regenerated
@@ -2969,16 +3082,6 @@ fn make(
                 {
                     arts.start_with(making.art, 1.0, None);
                     playing.regenerated = true;
-                }
-                if making.art == arts::DWARF_RUNDUM {
-                    while playing
-                        .points
-                        .get(playing.fired)
-                        .is_some_and(|&point| due(point, done))
-                    {
-                        fires.write(crate::sfx::Gunfire { shooter: hero });
-                        playing.fired += 1;
-                    }
                 }
                 if finished {
                     end(&mut commands);
@@ -3072,6 +3175,59 @@ fn make(
             }
         }
     }
+}
+
+/// Whether a line of sight or of flight leads from `here` to `there`, tested on the level `level`:
+/// the straight way of the flyer's flag (`0x4FCC80`), over the water and the fences, which the
+/// Dwarf's gun arts ask at their order, at their first run and of the creatures his `Rundum`
+/// gathers (`0x4FD40D`, `0x51852B`, `0x518760`).
+fn in_sight(
+    here: Vec3,
+    there: Vec3,
+    level: crate::terrain::Level,
+    heights: &crate::terrain::Heights,
+) -> bool {
+    crate::paths::straight(here.xz(), there.xz(), |cell| {
+        heights.flown_onto(cell, level)
+    })
+}
+
+/// The creatures that the Dwarf's `Rundum` with a gun, made from `here` on the level `level` at
+/// `target`, gathers of the hero's list of hostiles `listed` (`crowd::Nearest`, nearest first:
+/// each creature with its place, its reach with the hero and whether it lives and he may strike
+/// it; `arts::gun_rundum_gathers`): up to three others alive that he may strike, nearer him than
+/// 1,000 and in his line of sight ([`in_sight`]), in the list's order.
+fn gathers(
+    (here, level, target): (Vec3, crate::terrain::Level, Entity),
+    listed: impl IntoIterator<Item = (Entity, Vec3, u32, bool)>,
+    heights: &crate::terrain::Heights,
+) -> Vec<Entity> {
+    let listed: Vec<(Entity, Vec3, Candidate)> = listed
+        .into_iter()
+        .enumerate()
+        .map(|(index, (entity, at, reach, hostile))| {
+            let candidate = Candidate {
+                id: u32::try_from(index).unwrap_or(u32::MAX),
+                distance: whole_distance(at, here),
+                reach,
+                hostile,
+            };
+            (entity, at, candidate)
+        })
+        .collect();
+    let of = |id: u32| usize::try_from(id).ok().and_then(|index| listed.get(index));
+    let target = listed
+        .iter()
+        .find(|(entity, ..)| *entity == target)
+        .map(|(_, _, candidate)| candidate.id);
+    let candidates: Vec<Candidate> = listed.iter().map(|&(_, _, candidate)| candidate).collect();
+    let sees = |candidate: &Candidate| {
+        of(candidate.id).is_some_and(|&(_, at, _)| in_sight(here, at, level, heights))
+    };
+    arts::gun_rundum_gathers(target, &candidates, sees)
+        .into_iter()
+        .filter_map(|id| of(id).map(|&(entity, ..)| entity))
+        .collect()
 }
 
 /// The points about which a `Rundum` looks for a creature in turn, and whether the radius of each
@@ -3583,6 +3739,39 @@ mod tests {
         // A gap down the wall: no line, but a way.
         let gapped = column_walled(Some(20));
         assert!(enemy_reached((at(1.0, 5.0), None), at(6.0, 5.0), &gapped));
+    }
+
+    #[test]
+    fn the_dwarfs_gun_rundum_gathers_the_hostiles_in_his_sight() {
+        let at = |x: f32, y: f32| crate::iso::ground(x + 0.5, y + 0.5);
+        let walled = column_walled(None);
+        let mut world = World::new();
+        let [target, behind, dead, far, near, nearer, next] =
+            std::array::from_fn(|_| world.spawn_empty().id());
+        let here = at(5.0, 5.0);
+        // Nearest first: its target, one behind the wall, one dead, one 1,000 off or more, and
+        // three in his sight, of which the first two fill the slots left.
+        let listed = [
+            (target, at(6.0, 5.0), 60, true),
+            (behind, at(1.0, 5.0), 60, true),
+            (dead, at(7.0, 5.0), 60, false),
+            (near, at(8.0, 5.0), 60, true),
+            (nearer, at(9.0, 5.0), 60, true),
+            (next, at(10.0, 5.0), 60, true),
+            (far, here + Vec3::X * 1_000.0, 60, true),
+        ];
+        assert_eq!(
+            gathers((here, None, target), listed, &walled),
+            [near, nearer, next]
+        );
+        // The wall gapped, the one behind it is in sight.
+        let gapped = column_walled(Some(5));
+        assert_eq!(
+            gathers((here, None, target), listed, &gapped),
+            [behind, near, nearer]
+        );
+        // Only the target listed: none.
+        assert!(gathers((here, None, target), listed.into_iter().take(1), &walled).is_empty());
     }
 
     #[test]
