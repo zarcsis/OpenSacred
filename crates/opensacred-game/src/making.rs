@@ -22,8 +22,8 @@ use std::time::Duration;
 use bevy::prelude::*;
 use opensacred_data::tables::WeaponArt;
 use opensacred_rules::arts::{
-    self, ArtClip, Candidate, Creature, Style, attacke_target, due, hardhit_point, held_factor,
-    made_from, rundum_radius, rundum_target,
+    self, ArtClip, Candidate, Creature, SaddleRate, Style, attacke_target, due, hardhit_point,
+    held_factor, made_from, rundum_radius, rundum_target,
 };
 use opensacred_rules::particles::DarkSightKind;
 use opensacred_rules::{minds, spells};
@@ -171,6 +171,10 @@ pub fn clips(
         Style::Cast(162),
         Style::Cast(163),
         Style::Cast(164),
+        // The riders' clips of the spells and, with the slots 169 and 194, of the arts from the
+        // saddle (`arts::saddle_clip`, #3134).
+        Style::Cast(169),
+        Style::Cast(194),
         Style::Cast(197),
         Style::Cast(199),
         Style::Smite,
@@ -1179,14 +1183,33 @@ fn make(
             };
             // From the saddle a `Hardhit` plays the rider's 194 at its attack speed (the Gladiator's
             // `0x4FF0B0` at `0x502B01`, the Seraphim's `0x5038F0` at `0x505EC6`, the Wood Elf's
-            // `0x50AC00` at `0x50C35D`, the others' alike), at its first hit.
-            let saddle = (riding && style == Style::Hardhit)
-                .then_some(clips.riding_attack.as_ref())
-                .flatten();
+            // `0x50AC00` at `0x50C35D`, the others' alike), at its first hit; the arts of a
+            // rider's clip of their own play it, at its hit points where it has them, else at
+            // the art's (`arts::saddle_clip`, #3134).
+            let saddle = if !riding {
+                None
+            } else if style == Style::Hardhit {
+                clips.riding_attack.as_ref().map(|(node, clip, fractions)| {
+                    (*node, clip.clone(), vec![fractions[0]], SaddleRate::Attack)
+                })
+            } else {
+                arts::saddle_clip(making.art).and_then(|(slot, rate)| {
+                    let own = clips
+                        .arts
+                        .iter()
+                        .find(|a| a.style == Style::Cast(slot) && a.node.is_some())?;
+                    let points = if own.points.is_empty() {
+                        action.points.clone()
+                    } else {
+                        own.points.clone()
+                    };
+                    Some((own.node?, own.clip.clone()?, points, rate))
+                })
+            };
             // The art's clip, or one of the attack's at random for the Seraphim's `Hardhit`.
             let (node, clip, mut points) = match (action.node, &action.clip) {
-                _ if let Some((node, clip, fractions)) = saddle => {
-                    (*node, clip.clone(), vec![fractions[0]])
+                _ if let Some((node, clip, points, _)) = &saddle => {
+                    (*node, clip.clone(), points.clone())
                 }
                 (Some(node), Some(clip)) => (node, clip.clone(), action.points.clone()),
                 _ => {
@@ -1285,12 +1308,11 @@ fn make(
             // Times its motion's own factor, the Vampiress's clip of the slot 221 among them
             // (`0x413610`, #3567).
             let played = factors.of(&clip)
-                * if saddle.is_some() {
-                    speed.0 * clip_speed
-                } else if action.fixed {
-                    speed.0 * rate
-                } else {
-                    speed.0 * clip_speed * rate
+                * match saddle.as_ref().map(|saddle| saddle.3) {
+                    Some(SaddleRate::Attack) => speed.0 * clip_speed,
+                    Some(SaddleRate::One) => speed.0,
+                    None if action.fixed => speed.0 * rate,
+                    None => speed.0 * clip_speed * rate,
                 };
             transitions.play(&mut player, node, BLEND).set_speed(played);
             let factor = if style == Style::Backbreaker {

@@ -2528,3 +2528,22 @@ fn the_backbreaker_throws_its_target_by_the_levels() {
     };
     assert_eq!(backbreaker_throw(&by_target, 10, 1, 4), 1_220.0);
 }
+
+#[test]
+fn the_arts_from_the_saddle_play_the_riders_clips_of_their_executors() {
+    assert_eq!(saddle_clip(1014), Some((169, SaddleRate::One)));
+    assert_eq!(saddle_clip(1015), Some((169, SaddleRate::One)));
+    for art in [1044, 1047, 1048, 1049, 1053] {
+        assert_eq!(saddle_clip(art), Some((194, SaddleRate::Attack)), "{art}");
+    }
+    assert_eq!(saddle_clip(1026), Some((199, SaddleRate::Attack)));
+    assert_eq!(saddle_clip(1027), Some((199, SaddleRate::Attack)));
+    assert_eq!(saddle_clip(1034), Some((199, SaddleRate::One)));
+    for art in [1097, 1100] {
+        assert_eq!(saddle_clip(art), Some((197, SaddleRate::One)), "{art}");
+    }
+    // The Dark Elf's 1042 and 1043, the generic arts and the spells keep their own.
+    for art in [1042, 1043, 1013, 1016, 1028, 1096, 1101, 1001, 7] {
+        assert_eq!(saddle_clip(art), None, "{art}");
+    }
+}

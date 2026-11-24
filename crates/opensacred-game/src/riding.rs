@@ -19,8 +19,9 @@
 //! mount's bar shows (`bar_tips`), and from the saddle the slot of an art that may not be made on
 //! horseback (`tooltip`); the rider's most health raised by the horse under it ([`Saddle`],
 //! #2302); the rider thrown off by a knock-down ([`throw_off`], #2311) and its horse felled in
-//! its place by a lethal blow ([`fell`]); the line of a hero that may not ride and the call's
-//! whistles (#1180); and the command `ride` ([`ride`]).
+//! its place by a lethal blow ([`fell`]); the Seraphim's bolts' effects ended on a rider
+//! ([`unbolt`], #3134); the line of a hero that may not ride and the call's whistles (#1180); and
+//! the command `ride` ([`ride`]).
 
 use std::time::Duration;
 
@@ -401,6 +402,20 @@ impl Saddle {
     }
 }
 
+/// Ends the Seraphim's bolts' effects, the BFG's 16 and the railgun's 17, on a hero that rides,
+/// as the stats' update ends them on a creature of `+0x14` bit 2 (`0x562DA1`; docs/re/arts.md,
+/// "The effects", #3134): her bolts are no rider's, nor are 1018 and 1019 made on horseback.
+fn unbolt(mut riders: Query<(&Seat, &mut crate::effects::Effects)>) {
+    use opensacred_rules::arts::{BFG, RAILGUN};
+    for (seat, mut effects) in &mut riders {
+        if seat.ridden().is_some() && (effects.holds(BFG) || effects.holds(RAILGUN)) {
+            debug!("riding: the rider's bolts end");
+            effects.remove(BFG);
+            effects.remove(RAILGUN);
+        }
+    }
+}
+
 /// The hero's seat on a horse, from its walk to the horse to its getting off.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub enum Seat {
@@ -490,7 +505,7 @@ impl Plugin for RidingPlugin {
             )
             .add_systems(
                 Update,
-                (approach, mount, dismount, carry, saddle)
+                (approach, mount, dismount, carry, saddle, unbolt)
                     .chain()
                     .after(hero::run)
                     .in_set(Step::HeroMove),
@@ -1350,6 +1365,45 @@ const MODEL_ROOT: &str = "__Root";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rider_loses_the_seraphims_bolts_and_one_on_foot_keeps_them() {
+        use opensacred_rules::arts::{BFG, RAILGUN};
+        use opensacred_rules::fight::Effect;
+        let mut app = App::new();
+        app.add_systems(Update, unbolt);
+        let bolts = || {
+            let mut effects = crate::effects::Effects::default();
+            effects.add(Effect::new(BFG, 1.0), 60.0);
+            effects.add(Effect::new(RAILGUN, 1.0), 60.0);
+            effects.add(Effect::new(1, 0.5), 60.0);
+            effects
+        };
+        let horse = app.world_mut().spawn_empty().id();
+        let rider = app
+            .world_mut()
+            .spawn((
+                Seat::Riding {
+                    horse,
+                    speeds: [70.0, 140.0],
+                    offset: Vec3::ZERO,
+                },
+                bolts(),
+            ))
+            .id();
+        let mounting = app
+            .world_mut()
+            .spawn((Seat::Mounting { horse, left: 0.5 }, bolts()))
+            .id();
+        app.update();
+        let effects = app.world().get::<crate::effects::Effects>(rider).unwrap();
+        assert!(!effects.holds(BFG) && !effects.holds(RAILGUN) && effects.holds(1));
+        let effects = app
+            .world()
+            .get::<crate::effects::Effects>(mounting)
+            .unwrap();
+        assert!(effects.holds(BFG) && effects.holds(RAILGUN));
+    }
     use crate::tooltip::{Line, Piece};
 
     /// The texts of a line, its images left out.
