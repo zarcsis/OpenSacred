@@ -803,6 +803,9 @@ pub struct Mind {
     /// Whether it has a dialogue (`+0x245`, `sdk_STAMP_IDX` `0x5498F0`), which holds it: a
     /// townsperson keeps still, a guard does not stroll, a crowded creature does not part.
     pub dialogue: bool,
+    /// Whether `CreateNPC`'s tags `0x1A` or `0x70` to `0x72` keep it (`+0x200` bit `0x200`, with
+    /// `0x100` for `0x1A`, `0x482510`), which the lens takes for talkable (`0x54FBC0`, #3107).
+    pub kept: bool,
     /// Whether it is a trader: a smith, a merchant or a wizard (`+0x200` bits `0x1000`, `0x2000`,
     /// `0x4000`, `0x4000000`, `CreateNPC`'s tags `0x23`, `0x24`, `0x25`, `0x64`), which the
     /// townsfolk visit, which does not part and which a meeting does not stop.
@@ -976,6 +979,7 @@ impl Mind {
             phase: None,
             side,
             dialogue: false,
+            kept: false,
             trader: false,
             level: 1,
             active: false,
@@ -1030,6 +1034,7 @@ impl Mind {
     pub fn hold(&mut self, dialogue: bool, trader: bool, kept: bool) {
         self.dialogue = dialogue;
         self.trader = trader;
+        self.kept = kept;
         if self.first && (dialogue || trader || kept) {
             self.flags = 0;
             self.first = false;

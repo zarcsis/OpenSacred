@@ -533,9 +533,14 @@ const LENS: Vec2 = Vec2::new(700.0, 525.0);
 const LENS_RATE: f32 = 5.0;
 const TITLE_RUNS: u32 = 0xFFFF_FFFF;
 const TITLE_ENDED: u32 = 0xFFAF_AFAF;
-/// The lens's titles beside their icons (**hypothesis**: the label layout `0x6620F0`, which
-/// keeps them apart, is not followed), 2 pixels off.
-const TITLE_BESIDE: f32 = 2.0;
+/// The lens's quests' icons' boxes, laid out by the labels' layout (`0x6620F0`), each wanted with
+/// its top left 8 left of and 8 above its compass's point (`0x6CE3FD`, `0x6CE404`); their titles
+/// from 8 right of the laid box's right edge, its top at the box's, over a panel from 2 left of the
+/// text to 2 right of it and to 4 below its foot (`0x6CE7F8`, #3107).
+const QUEST_BOX: f32 = 16.0;
+const TITLE_FROM_BOX: f32 = 8.0;
+const TITLE_PAD: f32 = 2.0;
+const TITLE_FOOT: f32 = 4.0;
 
 /// The lens: whether the left button holds it, its alpha, the screen's point it shows, and the
 /// iso plane's point and sector its content was laid out for.
@@ -841,10 +846,14 @@ pub(crate) fn places_in_lens(
 }
 
 /// The quests' icons and titles in the lens about the iso plane's point `point`, at their
-/// compasses' cells (`0x497620`): each icon at its own size in its colour, its title beside it in
-/// the font 2 over grey, white for a quest that runs and grey for one ended; none in a hidden
-/// sector where `hides` names the dungeons whose hidden sectors the lens strikes from its list
-/// (the world map's, #3479).
+/// compasses' cells (`0x497620`): the log's entries whose cell lies in one of the lens's sectors,
+/// sector by sector in the order of their list and each sector's in the log's order (**hypothesis**
+/// for the list's order, `minimap::ground`'s); their icons' boxes laid out not to overlap by the
+/// labels' layout, an icon of no free place left out with its title ([`QUEST_BOX`], #3107); each
+/// icon at its own size from its laid box's top left in its colour, its title beside the box in
+/// the font 2 over grey, white for a quest that runs and grey for one ended, free to overlap; none
+/// in a hidden sector where `hides` names the dungeons whose hidden sectors the lens strikes from
+/// its list (the world map's, #3479).
 pub(crate) fn quests_in_lens(
     commands: &mut Commands,
     plane: Entity,
@@ -857,6 +866,12 @@ pub(crate) fn quests_in_lens(
     point: Vec2,
 ) {
     let quests = live.quests();
+    let sectors: Vec<(i32, i32)> = crate::minimap::ground(point)
+        .into_iter()
+        .map(|(sector, _)| sector)
+        .collect();
+    // The listed entries, by their sector's place in the lens's list, each with its point.
+    let mut listed: Vec<(usize, &Entry, Vec2)> = Vec::new();
     for entry in quests.book() {
         let Some(at) = quests
             .compass(entry.quest)
@@ -869,12 +884,27 @@ pub(crate) fn quests_in_lens(
         if hides.is_some_and(|dungeons| dungeons.hides(sector)) {
             continue;
         }
+        let Some(place) = sectors.iter().position(|&listed| listed == sector) else {
+            continue;
+        };
         let middle = crate::paths::centre(cell);
         let screen = (crate::minimap::iso(middle) - point) / 12.0 + bar::SCREEN / 2.0;
+        listed.push((place, entry, screen));
+    }
+    listed.sort_by_key(|&(place, ..)| place);
+    let corners: Vec<Vec2> = listed
+        .iter()
+        .map(|&(.., screen)| screen - Vec2::splat(QUEST_BOX / 2.0))
+        .collect();
+    let sizes = vec![Vec2::splat(QUEST_BOX); corners.len()];
+    let order: Vec<usize> = (0..corners.len()).collect();
+    let laid = crate::labels::lay_out_in(&order, &corners, &sizes);
+    for (&(_, entry, _), laid) in listed.iter().zip(laid) {
+        let Some(laid) = laid else {
+            continue;
+        };
         let (image, colour) = icon(entry);
-        let size = images.size(image);
-        let (mut picture, node) =
-            bar::piece(images, assets, image, screen - size / 2.0, Vec2::ZERO);
+        let (mut picture, node) = bar::piece(images, assets, image, laid.min, Vec2::ZERO);
         picture.color = argb(colour);
         let child = commands.spawn((picture, node, Pickable::IGNORE)).id();
         commands.entity(plane).add_child(child);
@@ -893,9 +923,14 @@ pub(crate) fn quests_in_lens(
             .spawn((
                 Node {
                     position_type: PositionType::Absolute,
-                    left: Val::Px(screen.x + size.x / 2.0 + TITLE_BESIDE),
-                    top: Val::Px(screen.y - TIP_SIZE / 2.0 - TIP_INSET),
-                    padding: UiRect::all(Val::Px(TIP_INSET)),
+                    left: Val::Px(laid.max.x + TITLE_FROM_BOX - TITLE_PAD),
+                    top: Val::Px(laid.min.y),
+                    padding: UiRect {
+                        left: Val::Px(TITLE_PAD),
+                        right: Val::Px(TITLE_PAD),
+                        top: Val::Px(0.0),
+                        bottom: Val::Px(TITLE_FOOT),
+                    },
                     ..default()
                 },
                 BackgroundColor(argb(TIP_GROUND)),
