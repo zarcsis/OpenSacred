@@ -2547,3 +2547,12 @@ fn the_arts_from_the_saddle_play_the_riders_clips_of_their_executors() {
         assert_eq!(saddle_clip(art), None, "{art}");
     }
 }
+
+#[test]
+fn a_knock_above_10_plays_its_creatures_hit_clip_at_three_times_the_rate() {
+    assert!(knock_plays_hit_clip(10.5));
+    assert!(knock_plays_hit_clip(1_000.0));
+    assert!(!knock_plays_hit_clip(10.0));
+    assert!(!knock_plays_hit_clip(0.0));
+    assert_eq!((HIT_CLIP, HIT_CLIP_RATE, BOWLED_CLIP), (175, 3.0, 173));
+}
