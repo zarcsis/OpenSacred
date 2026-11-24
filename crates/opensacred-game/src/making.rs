@@ -236,10 +236,16 @@ pub fn clips(
 }
 
 /// What a boon of `record` gives at the level in play `level` ([`Style::Boon`] and its kin): the
-/// effects of `arts::boon`, `ward`, `form` or `glance` (by the factor `glance`), or the Dark
-/// Elf's 1044's by the first table's record 47 (`arts::soulcatcher`).
-fn boon_of(arts: &HeroArts, record: &WeaponArt, level: u32, glance: f64) -> Option<arts::Boon> {
-    arts::boon(record, level)
+/// effects of `arts::boon` (1094's time `flight` times as long, set 59's), `ward`, `form` or
+/// `glance` (by the factor `glance`), or the Dark Elf's 1044's by the first table's record 47
+/// (`arts::soulcatcher`).
+fn boon_of(
+    arts: &HeroArts,
+    record: &WeaponArt,
+    level: u32,
+    (glance, flight): (f64, f32),
+) -> Option<arts::Boon> {
+    arts::boon(record, level, flight)
         .or_else(|| arts::ward(record, level))
         .or_else(|| arts::form(record, level))
         .or_else(|| arts::glance(record, level, glance))
@@ -781,6 +787,8 @@ fn make(
         // From the saddle its spells take the rider's clips, its `Hardhit` the rider's 194, and
         // it does not turn to its target (#2302).
         let riding = seat.is_some_and(|seat| seat.ridden().is_some());
+        // How many times as long set 59 makes the Daemon's 1094 last (#3136).
+        let flight_times = holding.map_or(1.0, |holding| holding.0.sets.flight_times());
         // The reach of the hero and a creature, by their sizes (`0x4DBC60`, #642).
         let size = size.map_or(minds::SIZE, |size| size.0);
         let reach = |mind: &Mind| minds::reach(size, mind.size());
@@ -1320,7 +1328,7 @@ fn make(
                     | Style::WardSpells
                     | Style::Form
             ) {
-                let boon = boon_of(arts, record, level, 1.0);
+                let boon = boon_of(arts, record, level, (1.0, flight_times));
                 points = boon
                     .as_ref()
                     .map(|boon| vec![boon.point])
@@ -1896,7 +1904,12 @@ fn make(
                     .iter()
                     .find(|a| a.id == making.art)
                     .map_or(0.0, |record| {
-                        arts::changeling_seconds(record, playing.level, by_day)
+                        arts::changeling_seconds(
+                            record,
+                            playing.level,
+                            by_day,
+                            holding.map_or(1.0, |holding| holding.0.sets.night_form_times()),
+                        )
                     });
                 commands.trigger(crate::forms::Change { night, seconds });
                 // 1022 its own start; 1023 its own only out of her night's form, which it is
@@ -2805,7 +2818,7 @@ fn make(
                                 &arts.skills,
                                 combat.map_or(0.0, |combat| combat.attributes[0]),
                             );
-                            boon_of(arts, record, playing.level, glance)
+                            boon_of(arts, record, playing.level, (glance, flight_times))
                         });
                     // The Seraphim's 1018 and 1019 end as they give their effects (`0x5038F0`).
                     let ends = boon.as_ref().is_some_and(|boon| boon.ends);

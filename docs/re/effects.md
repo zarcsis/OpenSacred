@@ -2581,7 +2581,7 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
 `opensacred-game` draws the four since #1092 (`shields`, `opensacred_rules::particles::{HolyShield, ShieldWall, Regen}`), as `spells` casts the spells and the ice elf's creature cast its holy shield, at their bearer's root for the spells' time, on the layer that the night leaves untinted, the two shields with a light of 300 that goes with them; an arrow that the hero's holy shield or shield wall turns aside flashes it (`arrows`, `shields::Flash`).
 **Seen** 2026-11-06 beside the original at the Seraphim's and the Mage's starts at 22:00 and the zoom 2: the holy shield's pale blue band sweeping about her over its arc on the ground, the shield wall's red walls over their bright ring of glows, and the mana's spring's blue symbol over its glow, alike in both.
 A spell that the shield wall turns aside by its effect `0x1A` flashes it since #2945 (`fight::resolve`, `shields::Flash`).
-Not followed: the set 32's spring (#3136).
+Not followed: the set 32's spring (#3634).
 
 ## The Dark Elf's wards
 

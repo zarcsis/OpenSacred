@@ -925,7 +925,7 @@ fn the_dark_elfs_boons_give_him_their_effects() {
         action(4, Style::Boon, 1).map(|a| (a.clip, a.fixed)),
         Some((ArtClip::Slot(180), true))
     );
-    let testosterone = boon(&record(1047), 3).unwrap();
+    let testosterone = boon(&record(1047), 3, 1.0).unwrap();
     assert_eq!(testosterone.point, 0.7);
     let [(attack, seconds), (poison, _)] = testosterone.effects.as_slice() else {
         panic!("two effects");
@@ -933,7 +933,7 @@ fn the_dark_elfs_boons_give_him_their_effects() {
     assert_eq!((attack.id, attack.art, *seconds), (1, 1047, 32.0));
     assert!((attack.value - 0.9).abs() < 1e-6 && (poison.value - 0.35).abs() < 1e-6);
     assert_eq!(poison.id, 6);
-    let adrenaline = boon(&record(1048), 1).unwrap();
+    let adrenaline = boon(&record(1048), 1, 1.0).unwrap();
     assert_eq!(adrenaline.point, 0.8);
     assert_eq!(
         adrenaline
@@ -943,7 +943,7 @@ fn the_dark_elfs_boons_give_him_their_effects() {
             .collect::<Vec<_>>(),
         [(2, 30.0), (12, 30.0)]
     );
-    assert!(boon(&record(1071), 1).is_none());
+    assert!(boon(&record(1071), 1, 1.0).is_none());
 }
 
 #[test]
@@ -962,9 +962,12 @@ fn the_changeling_changes_the_vampiress_for_the_night_forms_time() {
         launch: 0,
         ..weapon_art(1022, [30.0, 0.0], 32)
     };
-    assert_eq!(changeling_seconds(&changeling, 1, true), 30.0);
-    assert_eq!(changeling_seconds(&changeling, 1, false), 60.0);
-    assert_eq!(changeling_seconds(&changeling, 10, true), 84.0);
+    assert_eq!(changeling_seconds(&changeling, 1, true, 1.0), 30.0);
+    assert_eq!(changeling_seconds(&changeling, 1, false, 1.0), 60.0);
+    assert_eq!(changeling_seconds(&changeling, 10, true, 1.0), 84.0);
+    // Set 42 at 6 pieces on silver: 1.4·1.34 times as long, by night too (#3136).
+    let times = crate::set_bonuses::night_times(1.34);
+    assert!((changeling_seconds(&changeling, 1, false, times) - 60.0 * 1.876).abs() < 1e-3);
     // Her day arts by day, her night arts by night, the others in either.
     assert!(in_form(1022, VAMPIRESS_BY_DAY));
     assert!(!in_form(1022, VAMPIRESS_BY_NIGHT));
@@ -1061,7 +1064,7 @@ fn the_dwarfs_frenzy_quickens_his_attack() {
     };
     // Seen at level 4: the effect 47 of the whole value 36 and the value 5 for 43 s; its list
     // word, the berserk's per cent, 27 + 3·4.
-    let boon = boon(&record, 4).expect("1082 is a boon");
+    let boon = boon(&record, 4, 1.0).expect("1082 is a boon");
     assert_eq!(boon.point, 0.1);
     let (effect, seconds) = boon.effects[0];
     assert_eq!(
@@ -1559,7 +1562,7 @@ fn the_daemons_boon_takes_his_forms_off_and_quickens_him() {
         distance: 0,
         ..weapon_art(1094, [20.0, 12.0], 0x80_0000)
     };
-    let given = boon(&fury, 1).unwrap();
+    let given = boon(&fury, 1, 1.0).unwrap();
     assert_eq!(given.point, 0.7);
     let effects: Vec<(u32, u32, f32)> = given
         .effects
@@ -1579,7 +1582,18 @@ fn the_daemons_boon_takes_his_forms_off_and_quickens_him() {
     assert_eq!(given.clears, [1094, 1097, 1098, 1099, 1100, DAEMON_FORM]);
     assert_eq!(given.starts.len(), 1);
     // At most 180 s.
-    assert_eq!(boon(&fury, 200).unwrap().effects[0].1, 180.0);
+    assert_eq!(boon(&fury, 200, 1.0).unwrap().effects[0].1, 180.0);
+    // Set 59 at 6 pieces: its time, held at 180, then `1 + 0.4·D` as long (#3136).
+    let flight = crate::set_bonuses::flight_times(2.34);
+    let longer = boon(&fury, 200, flight).unwrap();
+    assert!((longer.effects[0].1 - 180.0 * 1.936).abs() < 1e-3);
+    assert!(
+        longer
+            .effects
+            .iter()
+            .all(|(_, seconds)| (*seconds - 348.48).abs() < 1e-3)
+    );
+    assert_eq!(boon(&fury, 1, flight).unwrap().starts[0].1, 10.0);
 }
 
 #[test]
@@ -1807,7 +1821,7 @@ fn the_seraphims_bfg_gives_her_its_effect_halfway_through_its_clip() {
         ..weapon_art(1018, [0.0; 2], 1)
     };
     // Seen at the level 1: the effect 16 of the whole value 1 for 30 s, keyed by 1018.
-    let given = boon(&bfg, 1).unwrap();
+    let given = boon(&bfg, 1, 1.0).unwrap();
     assert_eq!(given.point, 0.5);
     assert_eq!(
         given
@@ -1817,8 +1831,8 @@ fn the_seraphims_bfg_gives_her_its_effect_halfway_through_its_clip() {
             .collect::<Vec<_>>(),
         [(BFG, 1, 1018, 30.0)]
     );
-    assert_eq!(boon(&bfg, 7).unwrap().effects[0].0.whole, 7);
-    assert_eq!(boon(&bfg, 7).unwrap().effects[0].1, 33.0);
+    assert_eq!(boon(&bfg, 7, 1.0).unwrap().effects[0].0.whole, 7);
+    assert_eq!(boon(&bfg, 7, 1.0).unwrap().effects[0].1, 33.0);
     assert_eq!(
         action(1, Style::Boon, 1).map(|a| (a.clip, a.rate, a.fixed)),
         Some((ArtClip::Slot(149), 1.0, true))
@@ -1838,7 +1852,7 @@ fn the_seraphims_energy_bolts_give_her_their_effect_at_their_own_clip() {
         ..weapon_art(1019, [0.0; 2], 1)
     };
     // Seen at the level 1: the effect 17 of the whole value 1 for 30 s, below 0.35 of its clip.
-    let given = boon(&bolts, 1).unwrap();
+    let given = boon(&bolts, 1, 1.0).unwrap();
     assert_eq!(given.point, 0.65);
     assert!(given.ends);
     assert_eq!(
@@ -2259,7 +2273,7 @@ fn the_dwarfs_war_cry_is_a_boon_and_the_boons_wait_for_their_effects() {
         distance: 0,
         ..weapon_art(1015, [0.0; 2], 2)
     };
-    let given = boon(&heroism, 1).unwrap();
+    let given = boon(&heroism, 1, 1.0).unwrap();
     assert_eq!(given.point, 0.7);
     assert_eq!(
         given
@@ -2283,7 +2297,7 @@ fn the_dwarfs_war_cry_is_a_boon_and_the_boons_wait_for_their_effects() {
         distance: 0,
         ..weapon_art(1089, [0.0; 2], 0x40_0000)
     };
-    let given = boon(&war_cry, 1).unwrap();
+    let given = boon(&war_cry, 1, 1.0).unwrap();
     assert_eq!(given.point, 0.8);
     assert_eq!(
         given
