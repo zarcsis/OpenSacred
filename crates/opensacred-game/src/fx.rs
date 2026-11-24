@@ -29,7 +29,11 @@
 //! of a system's place in the original's order of drawing ([`Orders`], [`InOrder`], #2178).
 //!
 //! The smoke class's layers take the renderer's wind at each frame (`0x76E2D0`,
-//! `daynight::Clock::wind`, #3154), which carries its rising flames and smokes against it.
+//! `daynight::Clock::wind`, #3154), which carries its rising flames and smokes against it. A fire
+//! of flames added and smoke laid over, the steps' small fires among them, draws both as one mesh
+//! in their particles' slots' order, as the original switches the blend at each change of layer
+//! (`0x761B00`, [`mixed_material`], #3661), so that a flame born after the smoke about it lies
+//! over it whichever way the wind lays them.
 //!
 //! Left out: the small fire's variant 1. The other classes are their own modules', the small
 //! fire's variant 0 `lava_bursts`'s and the torches' flames `torches`'s.
@@ -49,8 +53,8 @@ use bevy::render::render_resource::{
 use bevy::shader::ShaderRef;
 use opensacred_rules::particles::{
     Blend, DEATH_FLAMES_EMIT, Fire, GROUND_GRID, GROUND_HALF, GROUND_TEXTURE, Geyser, Jet,
-    SCORCH_HALF, SMALL_FIRE_EMITS, System, death_flames, fire, ground_frame, scorch_alpha,
-    scorch_texture, small_fire,
+    Particle, SCORCH_HALF, SMALL_FIRE_EMITS, System, death_flames, fire, ground_frame,
+    scorch_alpha, scorch_texture, small_fire,
 };
 use opensacred_rules::spawning::Rng;
 
@@ -407,14 +411,16 @@ pub(crate) type Effect = ExtendedMaterial<StandardMaterial, Particles>;
 /// unused, as the original's source `ONE` does (`0x761B00`'s flag `0x10`, the glows' styles but
 /// 3), where Bevy's premultiplies it by its alpha: the texels of `PARTICLE_FIRE02` and of some
 /// glows carry an alpha as their brightness, which that would take twice (#1092); whether its
-/// `depth_bias` is a blended layer's, for its order alone ([`layered`]); and whether it is of list
-/// 4 ([`over_all`]).
+/// `depth_bias` is a blended layer's, for its order alone ([`layered`]); whether it is of list
+/// 4 ([`over_all`]); and whether it draws a system's added and laid layers in one mesh
+/// ([`mixed_material`]).
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug, Default)]
 #[bind_group_data(ParticlesKey)]
 pub(crate) struct Particles {
     whole: bool,
     layered: bool,
     over: bool,
+    mixed: bool,
 }
 
 /// What the pipeline of an [`Effect`] depends on beyond Bevy's own material.
@@ -423,6 +429,7 @@ pub(crate) struct ParticlesKey {
     whole: bool,
     layered: bool,
     over: bool,
+    mixed: bool,
 }
 
 impl From<&Particles> for ParticlesKey {
@@ -431,6 +438,7 @@ impl From<&Particles> for ParticlesKey {
             whole: extension.whole,
             layered: extension.layered,
             over: extension.over,
+            mixed: extension.mixed,
         }
     }
 }
@@ -450,6 +458,9 @@ impl MaterialExtension for Particles {
             fragment.shader_defs.push("PARTICLES".into());
             if key.bind_group_data.whole {
                 fragment.shader_defs.push("WHOLE".into());
+            }
+            if key.bind_group_data.mixed {
+                fragment.shader_defs.push("MIXED".into());
             }
             if key.bind_group_data.over {
                 // A model's texel nearer than its true point hides it (`standard.wesl`).
@@ -530,6 +541,22 @@ pub(crate) fn whole_material(image: Handle<Image>) -> Effect {
             ..Particles::default()
         },
         ..particle_material(image, AlphaMode::Add)
+    }
+}
+
+/// A particles' material of the texture `image` for a system of two layers, one added to the frame
+/// by its alpha and one laid over it (`SRCALPHA` with `ONE` or `INVSRCALPHA`), drawn as one mesh
+/// in their particles' slots' order, as the original switches the blend at each change of layer
+/// (`0x761B00`, docs/re/effects.md, "The billboards"): premultiplied, an added particle's colour
+/// taking nothing of the frame away, a laid one's covering it by its alpha; its added particles'
+/// vertices carry their alpha negative ([`mixed_quads`], `standard.wesl`'s `MIXED`).
+pub(crate) fn mixed_material(image: Handle<Image>) -> Effect {
+    Effect {
+        extension: Particles {
+            mixed: true,
+            ..Particles::default()
+        },
+        ..particle_material(image, AlphaMode::Premultiplied)
     }
 }
 
@@ -1213,11 +1240,37 @@ fn begin(
     mut materials: ResMut<Assets<Effect>>,
 ) {
     let mut made: Vec<(MaterialKey, Material)> = Vec::new();
+    let mut mixed: Vec<((&'static str, bool, bool), Material)> = Vec::new();
+    // A fire's material of its layers drawn as one ([`mixes`]), of list 4 or not.
+    let mut mixed_of = |fire: &Fire, over: bool, materials: &mut Assets<Effect>| -> Material {
+        let key = (fire.texture, over, fire.tinted);
+        if let Some((_, material)) = mixed.iter().find(|(k, _)| *k == key) {
+            return material.clone();
+        }
+        let image = data
+            .as_ref()
+            .and_then(|data| particle_texture(&data.0.assets, &assets, fire.texture));
+        let material = image.map(|image| {
+            let material = mixed_material(image);
+            materials.add(match (over, fire.tinted) {
+                (true, _) => over_all(material),
+                (false, true) => among_objects(material),
+                (false, false) => material,
+            })
+        });
+        mixed.push((key, material.clone()));
+        material
+    };
     let mut variants = Vec::new();
     for variant in VARIANTS {
         let Some(fire) = fire(variant) else {
             continue;
         };
+        if mixes(&fire) {
+            let layers = [false, true].map(|over| vec![mixed_of(&fire, over, &mut materials)]);
+            variants.push((variant, Arc::new(fire), layers));
+            continue;
+        }
         let [layers, over] = [false, true].map(|over| {
             fire.blends
                 .iter()
@@ -1253,22 +1306,25 @@ fn begin(
         });
         variants.push((variant, Arc::new(fire), [layers, over]));
     }
-    // The steps' small fire takes the fires' two materials, and its burnt ground one added.
+    // The steps' small fire takes the fires' materials, and its burnt ground one added.
     let step = small_fire();
-    let layers = step
-        .blends
-        .iter()
-        .map(|&blend| {
-            made.iter()
-                .find(|(key, _)| *key == (step.texture, blend, false, step.tinted))
-                .or_else(|| {
-                    made.iter().find(|((texture, of, over, _), _)| {
-                        (*texture, *of, *over) == (step.texture, blend, false)
+    let layers = if mixes(&step) {
+        vec![mixed_of(&step, false, &mut materials)]
+    } else {
+        step.blends
+            .iter()
+            .map(|&blend| {
+                made.iter()
+                    .find(|(key, _)| *key == (step.texture, blend, false, step.tinted))
+                    .or_else(|| {
+                        made.iter().find(|((texture, of, over, _), _)| {
+                            (*texture, *of, *over) == (step.texture, blend, false)
+                        })
                     })
-                })
-                .and_then(|(_, material)| material.clone())
-        })
-        .collect();
+                    .and_then(|(_, material)| material.clone())
+            })
+            .collect()
+    };
     let ground = data
         .as_ref()
         .and_then(|data| particle_texture(&data.0.assets, &assets, GROUND_TEXTURE))
@@ -1415,29 +1471,69 @@ fn light_small_fire(
 
 /// The quads of a fire's layer `layer` of its system `system`, facing the camera.
 pub(crate) fn layer_quads(fire: &Fire, system: &System, layer: usize) -> Quads {
-    let ramp = &fire.ramps[layer.min(fire.ramps.len() - 1)];
-    let grid = f32::from(fire.grid.max(1));
     let mut quads = Quads::default();
     for particle in system
         .particles
         .iter()
         .filter(|p| usize::from(p.layer) == layer)
     {
-        // Its frame's square of the texture's grid.
-        let side = fire.grid.max(1);
-        let frame = Vec2::new(
-            f32::from(particle.frame % side),
-            f32::from(particle.frame / side % side),
-        );
-        quads.push(
-            world(particle.place),
-            particle.size * iso::MODEL_SCALE,
-            particle.angle,
-            (frame / grid, 1.0 / grid),
-            ramp.at(particle.life),
-        );
+        push_particle(&mut quads, fire, particle, 1.0);
     }
     quads
+}
+
+/// Whether a fire's layers are drawn as one mesh in their particles' slots' order
+/// ([`mixed_material`]): two or more, some added by their alpha and some laid over, none added
+/// whole.
+pub(crate) fn mixes(fire: &Fire) -> bool {
+    fire.layers.len() > 1
+        && fire.blends.contains(&Blend::Add)
+        && fire.blends.contains(&Blend::Over)
+        && !fire.blends.contains(&Blend::Whole)
+}
+
+/// The quads of every layer of a fire's system `system` in its particles' slots' order, facing the
+/// camera, an added layer's alpha negative ([`mixed_material`]).
+pub(crate) fn mixed_quads(fire: &Fire, system: &System) -> Quads {
+    let mut quads = Quads::default();
+    for particle in &system.particles {
+        let added = fire.blends.get(usize::from(particle.layer)) == Some(&Blend::Add);
+        push_particle(&mut quads, fire, particle, if added { -1.0 } else { 1.0 });
+    }
+    quads
+}
+
+/// The quads of a fire's system for its `meshes` meshes: one of its layers in their particles'
+/// slots' order where it [`mixes`] them, else one a layer.
+pub(crate) fn drawn_quads(fire: &Fire, system: &System, meshes: usize) -> Vec<Quads> {
+    if mixes(fire) && meshes == 1 {
+        return vec![mixed_quads(fire, system)];
+    }
+    (0..meshes)
+        .map(|layer| layer_quads(fire, system, layer))
+        .collect()
+}
+
+/// A particle's quad of its layer's ramp at its life, its texture's frame of the grid, its alpha
+/// times `sign`.
+fn push_particle(quads: &mut Quads, fire: &Fire, particle: &Particle, sign: f32) {
+    let layer = usize::from(particle.layer);
+    let ramp = &fire.ramps[layer.min(fire.ramps.len() - 1)];
+    let grid = f32::from(fire.grid.max(1));
+    // Its frame's square of the texture's grid.
+    let side = fire.grid.max(1);
+    let frame = Vec2::new(
+        f32::from(particle.frame % side),
+        f32::from(particle.frame / side % side),
+    );
+    let [r, g, b, a] = ramp.at(particle.life);
+    quads.push(
+        world(particle.place),
+        particle.size * iso::MODEL_SCALE,
+        particle.angle,
+        (frame / grid, 1.0 / grid),
+        [r, g, b, a * sign],
+    );
 }
 
 /// Runs each step's small fire a frame on (`0x79F6D0`): its particles, emitted while its clock is
@@ -1473,9 +1569,12 @@ fn smoulder(
             commands.entity(entity).despawn();
             continue;
         }
-        for (layer, handle) in layers.iter().enumerate() {
+        for (quads, handle) in drawn_quads(fire, system, layers.len())
+            .into_iter()
+            .zip(layers)
+        {
             if let Some(mut mesh) = meshes.get_mut(handle) {
-                layer_quads(fire, system, layer).into_mesh(&mut mesh);
+                quads.into_mesh(&mut mesh);
             }
         }
         if let Some(mut mesh) = ground.as_ref().and_then(|handle| meshes.get_mut(handle)) {
@@ -1826,11 +1925,13 @@ fn burn(
         let blown: Vec<_> = fire.layers.iter().map(|layer| layer.blown(wind)).collect();
         system.update(dt, &blown);
         system.emit(&fire.blocks, &fire.layers, fire.count, dice);
-        for (layer, handle) in layers.iter().enumerate() {
+        for (mut quads, handle) in drawn_quads(fire, system, layers.len())
+            .into_iter()
+            .zip(layers)
+        {
             let Some(mut mesh) = meshes.get_mut(handle) else {
                 continue;
             };
-            let mut quads = layer_quads(fire, system, layer);
             if over {
                 quads.ahead(crate::statics::LIST_4_FORWARD);
             } else {
@@ -2002,6 +2103,55 @@ impl Plugin for FxPlugin {
 mod tests {
     use super::*;
     use crate::statics::tests::{ORDER, shader_constant};
+
+    #[test]
+    fn a_fires_flames_and_smoke_go_into_one_mesh_in_their_slots_order() {
+        let flame = |layer: u8, life: f32| Particle {
+            place: [0.0; 3],
+            velocity: [0.0; 3],
+            buoyancy: 0.0,
+            size: 4.0,
+            life,
+            angle: 0.0,
+            spin: 0.0,
+            layer,
+            frame: 0,
+            colour: [1.0; 3],
+        };
+        let Some(fire) = fire(10) else {
+            panic!("the fire 10 is made");
+        };
+        // The fires' flames added, their smoke laid over: one mesh.
+        assert!(mixes(&fire));
+        assert!(!mixes(&Fire {
+            blends: vec![Blend::Over],
+            layers: fire.layers[..1].to_vec(),
+            ..fire.clone()
+        }));
+        assert!(!mixes(&Fire {
+            blends: vec![Blend::Whole, Blend::Over],
+            ..fire.clone()
+        }));
+        let mut system = System::new(3);
+        system.particles = vec![flame(1, 200.0), flame(0, 200.0), flame(1, 100.0)];
+        let quads = mixed_quads(&fire, &system);
+        // Four corners a particle, in the slots' order: the smoke laid by its alpha, the flame's
+        // alpha negative as an added one's.
+        let alphas: Vec<f32> = quads.colours.iter().step_by(4).map(|c| c[3]).collect();
+        assert_eq!(alphas.len(), 3);
+        assert!(
+            alphas[0] > 0.0 && alphas[1] < 0.0 && alphas[2] > 0.0,
+            "{alphas:?}"
+        );
+        assert_eq!(alphas[1], -fire.ramps[0].at(200.0)[3]);
+        assert_eq!(drawn_quads(&fire, &system, 1).len(), 1);
+        // Two meshes take a layer each.
+        let apart = drawn_quads(&fire, &system, 2);
+        assert_eq!(
+            apart.iter().map(|q| q.colours.len()).collect::<Vec<_>>(),
+            [4, 8]
+        );
+    }
 
     /// The targets that a small fire of the caster `caster` of the world `world` strikes at its
     /// first second.
