@@ -3218,7 +3218,9 @@ impl Mind {
     /// Where it steps aside to, walking at `here` under an order of its own (its AI's state and
     /// its action other than 0, which the caller tells), at the hero's look from `hero`, the
     /// hero's AI in its state 0 (`0x547070`): not hostile and within 91 of the hero, to the first
-    /// of 10 points within 200 of itself that it `reaches`.
+    /// of 10 points within 200 of itself that it `reaches`, where the original's look finds the
+    /// point and stops the creature (docs/decisions/ai.md, "Creature walking by the standing hero
+    /// steps aside").
     pub fn steps_aside(
         &self,
         here: Spot,

@@ -2303,7 +2303,9 @@ fn danger(here: Vec3, hostiles: &[Vec3], rng: &mut Rng) -> Option<Vec3> {
 /// (`opensacred_rules::minds::Mind::steps_aside`, `0x547070`): only while the hero's AI is in its
 /// state 0, not attacking, and only a creature whose AI is not, whose walk is not one of the AI's
 /// state 0 (`Walk::is_idle`). A script's walk, the original's `NPC_Goto`, stops at the hero
-/// instead, whom the step's test does not let it pass (#977).
+/// instead, whom the step's test does not let it pass (#977). The original's look stops such a
+/// creature and uses its point for nothing (docs/decisions/ai.md, "Creature walking by the
+/// standing hero steps aside").
 fn aside(
     mut commands: Commands,
     mut minds: ResMut<Minds>,
