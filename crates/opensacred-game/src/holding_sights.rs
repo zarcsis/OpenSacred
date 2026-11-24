@@ -3,7 +3,8 @@
 //! back or that a brain-footer stares at (`creature_arts`), pale blue sparks bursting now and then
 //! about its neck and falling, left in the world, for the hold's seconds, 3 s or the stare's 2 s,
 //! the Dwarf's 1083's thrown target's for its hold and each creature it bowls over's for 2 s
-//! (`making`, #3142) (`opensacred_rules::particles::BurningLight`); and the holy conversion's halo (806) at a
+//! (`making`, #3142), and each creature that the Gladiator's 1003 stuns for its hold (`making`,
+//! #3639) (`opensacred_rules::particles::BurningLight`); and the holy conversion's halo (806) at a
 //! converted creature's head, forty small blue-violet glows on a ring that swells away as the
 //! conversion ends (`particles::HolyConversion`). Both are added and untinted by the night.
 
