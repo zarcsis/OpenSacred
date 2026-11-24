@@ -3027,12 +3027,14 @@ fn make(
             Style::Rundum | Style::Whirl => {
                 // The Dwarf's with a gun fires at each of its clip's hit points, its target first,
                 // the gathered three in turn, the fifth at no one, turning to each, and ends after
-                // its last, its clip playing on (`0x515C21` to `0x516028`, #3122).
+                // its last, its clip playing on (`0x515C21` to `0x516028`, #3122); each shot at
+                // the world's first tick after its point, as its executor runs (seen, #3607).
                 if making.art == arts::DWARF_RUNDUM && gun_held {
-                    while playing
-                        .points
-                        .get(playing.fired)
-                        .is_some_and(|&point| due(point, done))
+                    while tick.seconds.is_some()
+                        && playing
+                            .points
+                            .get(playing.fired)
+                            .is_some_and(|&point| due(point, done))
                     {
                         let shot = playing.fired;
                         let whom =
