@@ -5,9 +5,9 @@
 //! random points along its sweep, falling, fading over 0.85 s, riding with the bearer; added by
 //! their alpha, untinted by the night, drawn just behind the bearer's model, as the original draws
 //! the system before the creature it follows (`fx::Orders`, #2178)
-//! (`opensacred_rules::particles::ForceOfHell`). A hand that holds nothing shows none.
-//!
-//! Not followed: the sparks' trails of the top detail (`0x761B00`'s trail layer).
+//! (`opensacred_rules::particles::ForceOfHell`). A hand that holds nothing shows none; an item
+//! without either bone takes its root for it (`0x5B6840`, #3168). At the top detail each spark
+//! draws its trail back along its way (`ForceOfHell::trail`, `0x7C4000`, #3168).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -22,6 +22,9 @@ use crate::spawning::Rng;
 
 /// A blade's bones, its glow line's ends (`+0x72` 15, `+0x74` 16, the handler's case `0x93`).
 const BLADE: [&str; 2] = ["weapon_fx01", "weapon_fx02"];
+
+/// An item's bone 0, which stands for a blade's bone that the item lacks (`0x5B6840`).
+const ITEM_ROOT: &str = "__Root";
 
 /// A force to show at its bearer for its seconds, made with its spell (`spells`).
 #[derive(Component)]
@@ -131,7 +134,7 @@ fn make(
 )]
 fn run(
     mut commands: Commands,
-    time: Res<Time>,
+    (time, settings): (Res<Time>, Option<Res<crate::settings::Settings>>),
     mut blades: Query<(Entity, &mut Blade, &mut Transform)>,
     (places, children, bones, worn): (
         Query<&GlobalTransform>,
@@ -144,6 +147,8 @@ fn run(
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
+    // The sparks' trails at the top detail alone (`DETAILLEVEL` 2).
+    let trails = crate::settings::detail(settings.as_deref()) == 2;
     for (entity, mut blade, mut transform) in &mut blades {
         let blade = &mut *blade;
         let Ok(origin) = places.get(blade.bearer).map(GlobalTransform::translation) else {
@@ -152,8 +157,14 @@ fn run(
         };
         transform.translation = origin;
         if blade.bones.is_none() {
+            // A bone the item lacks, its bone 0 (`0x5B6840`).
             let [first, second] = BLADE.map(|bone| {
-                crate::making::bone_entity(blade.weapon, &[bone], &children, (&bones, &worn))
+                crate::making::bone_entity(
+                    blade.weapon,
+                    &[bone, ITEM_ROOT],
+                    &children,
+                    (&bones, &worn),
+                )
             });
             blade.bones = first.zip(second).map(|(a, b)| [a, b]);
         }
@@ -174,13 +185,13 @@ fn run(
         let whole = (Vec2::ZERO, 1.0);
         let mut sparks = Quads::default();
         for spark in &blade.look.system.particles {
-            sparks.push(
-                world(spark.place),
-                spark.size * s,
-                0.0,
-                whole,
-                ForceOfHell::colour(spark.life),
-            );
+            let colour = ForceOfHell::colour(spark.life);
+            sparks.push(world(spark.place), spark.size * s, 0.0, whole, colour);
+            if trails {
+                for (place, half) in ForceOfHell::trail(spark) {
+                    sparks.push(world(place), half * s, 0.0, whole, colour);
+                }
+            }
         }
         let mut line = Quads::default();
         if let Some([a, b]) = points.filter(|_| blade.look.lit()) {
