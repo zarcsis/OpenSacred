@@ -294,17 +294,19 @@ pub struct Glow(pub bool);
 struct Under {
     foe: bool,
     hero: bool,
+    /// A follower of the hero alive, its friend (`0x5490B0`, #3124).
+    friend: bool,
     dead: bool,
 }
 
 /// Whether an art of the launch type `launch` (`making::launch`) admits what lies `under` the
 /// cursor (`0x51D840`), as the right button makes it there (`making::aim`): an art on an enemy a
-/// foe; on a friend (the type 2) the hero himself, and on the dead (the type 4) a dead creature
-/// (#2938); one on the ground, on its maker or of any target anything.
+/// foe; on a friend (the type 2) the hero himself or his follower (#3124), and on the dead (the
+/// type 4) a dead creature (#2938); one on the ground, on its maker or of any target anything.
 fn admits(launch: Option<u8>, under: Under) -> bool {
     match launch {
         Some(1) => under.foe,
-        Some(2) => under.hero,
+        Some(2) => under.hero || under.friend,
         Some(4) => under.dead,
         Some(0 | 3 | 5) => true,
         _ => false,
@@ -423,9 +425,12 @@ fn choose(
         Query<(), With<Node>>,
         Option<Res<crate::frame::HeldBack>>,
     ),
-    (under_cursor, hero_ids, owners, mut described, keys): (
+    (under_cursor, (hero_ids, followers), owners, mut described, keys): (
         Res<crate::under_cursor::UnderCursor>,
-        Query<Entity, With<Body>>,
+        (
+            Query<Entity, With<Body>>,
+            Query<&crate::followers::Follower>,
+        ),
         crate::riding::HorseOwners,
         ResMut<Described>,
         crate::controls::Keys,
@@ -507,6 +512,11 @@ fn choose(
             under = Under {
                 foe: foe_under.is_some(),
                 hero: picked.is_some_and(|entity| hero_ids.contains(entity)),
+                friend: creature.is_some_and(|(entity, ..)| {
+                    followers
+                        .get(entity)
+                        .is_ok_and(|follower| hero_ids.contains(follower.master))
+                }),
                 dead: picked.is_some_and(|entity| corpses.contains(entity)),
             };
             let creature_look =
@@ -797,6 +807,12 @@ mod tests {
         assert!(admits(Some(3), nothing) && admits(Some(5), nothing) && admits(Some(0), nothing));
         // On a friend the hero himself, on the dead a corpse (#2938).
         assert!(admits(Some(2), hero) && !admits(Some(2), foe) && !admits(Some(2), nothing));
+        // The hero's follower too, his friend (#3124).
+        let friend = Under {
+            friend: true,
+            ..Under::default()
+        };
+        assert!(admits(Some(2), friend) && !admits(Some(1), friend));
         assert!(admits(Some(4), dead) && !admits(Some(4), foe));
         assert!(!admits(None, foe));
     }

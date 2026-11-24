@@ -2598,7 +2598,7 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
 **Seen** 2026-11-07 in the game (not beside the original): the arrowproof's magenta rings rising about the Dark Elf and standing, the spellproof's cyan rings with it, both under his model and under a creature in a row in front of him.
 The spellproof turns spells aside by its effect `0x1A` since #2945 (`fight::resolve`, `spells::share_turned`).
 Since #3172 the spellproof flashes at each spell it turns aside, a strike's or a gift's (`dark_wards`, `fight`).
-Not followed yet: the wards made at an admitted target other than the Dark Elf (#3124).
+Since #3124 the wards made on a follower of his show at it (`making`, `dark_wards`).
 
 ## The Dark Elf's casts
 
@@ -2628,7 +2628,7 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
 
 `opensacred-game` draws the three since #1092 (`glad_sights`, `opensacred_rules::particles::GladSight`), as the art's clip starts (`making::Playing` added), at the Gladiator, just behind his model (`fx::Orders`, #2178); the hand of god's interval takes its class's own factors at the lower details, 0.0375 and 0.055 s, since #2817 (`hand_of_god_factor`).
 **Seen** 2026-11-07 in the game (not beside the original): the green glow at his right hand, the five auras on the ground about him, and the heroism's star and sparks about his raised hand, his arm over them.
-Not followed: the awe at a target other than him (#3124); the empty-handed arts show nothing in the original, as in the game.
+Since #3124 the awe made on a follower of his shows about that friend (`glad_sights`); the empty-handed arts show nothing in the original, as in the game.
 
 ## The arts' streaks
 
