@@ -26,7 +26,7 @@ import package::post::encode;
 @if(LINEAR || VISION)
 import bevy_render::color_operations::{linear_to_srgb, srgb_to_linear};
 @if(LIT_BY_SLOT)
-import bevy_pbr::render::{mesh_functions, mesh_view_bindings::lights};
+import bevy_pbr::render::{mesh_functions, mesh_view_bindings::{lights, view}};
 @if(NEAREST && DEPTH_PREPASS)
 import bevy_pbr::render::mesh_view_bindings::depth_prepass_texture;
 @if(NEAREST && DEPTH_PREPASS)
@@ -37,6 +37,11 @@ const OPAQUE: f32 = 254.5 / 255.0;
 /// The original's alpha test of a model's texels, which drops those of alpha 64 or less
 /// (`models::CUTOFF`).
 const CUTOFF: f32 = 64.5 / 255.0;
+
+/// The device's default material's specular power (`models::specular`), and π, by which the
+/// light's colour falls to what a white texel takes of it.
+const SPECULAR_POWER: f32 = 30.0;
+const PI: f32 = 3.14159265;
 /// How much nearer the camera a particle of list 4 is laid than its true point
 /// (`statics::LIST_4_FORWARD`, `fx::Quads::ahead`).
 const LIST_4_FORWARD: f32 = 1000.0;
@@ -186,6 +191,16 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
         let lit = min(1.0, share + diffuse) / min(1.0, light.y + diffuse);
         out.color = vec4<f32>(out.color.rgb * lit, out.color.a);
     }
+}
+// The device's specular highlight where the model's draw turns it on (`models::specular`,
+// `SPECULARENABLE`): the fixed function's Blinn-Phong term of the default material's power 30
+// in the light's colour, added after the texture, white where the light is.
+@if(SPECULAR) {
+    let sun = lights.directional_lights[0];
+    let half_way = normalize(sun.direction_to_light + pbr_input.V);
+    let highlight = pow(max(dot(normalize(pbr_input.N), half_way), 0.0), SPECULAR_POWER);
+    let colour = sun.color.rgb * view.exposure / PI;
+    out.color = vec4<f32>(out.color.rgb + colour * highlight, out.color.a);
 }
 @if(PARTICLES) {
     // A particle's colour in the frame's values, then times its alpha where Bevy's last steps

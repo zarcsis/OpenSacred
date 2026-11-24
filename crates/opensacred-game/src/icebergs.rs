@@ -140,6 +140,8 @@ fn show(
                     .with_scale(Vec3::splat(iso::MODEL_SCALE)),
                 Visibility::Hidden,
                 models::Ordered::default(),
+                // Drawn with the device's specular highlights (`0x405C90`, #3169).
+                models::Specular,
                 DespawnOnExit(AppState::InGame),
             ));
             if let Some(texture) = &looks.texture {
