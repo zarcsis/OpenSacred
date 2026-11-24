@@ -1,15 +1,14 @@
 //! The plant cages' looks (849, `FX_PLANTCAGE`, #1092; docs/re/effects.md, "The plant cage"): each
 //! cage about a held creature, the Wood Elf's spell 40 (`spells`), a creature's at the hero
-//! (`creature_casts`), the crab queen's (`spits`), the ten of the hero's set 60 (`attack`, held
-//! by [`hold`]) or the ten of the hero's terror (`ai`), is a vine of dots facing the camera
+//! (`creature_casts`), the crab queen's (`spits`) or the ten of the hero's set 60 (`attack`, held
+//! by [`hold`]), is a vine of dots facing the camera
 //! from the creature's neck down to a base point on the ground within 50 of it, growing from the
 //! ground up over 0.667 s, swaying as its waves run down it, seven spurs from its bends and a glow
 //! flat on the ground at its base, all added by their alpha in its colour, green a hero's and blue
 //! a creature's, untinted by the night, and its light at its base
 //! (`opensacred_rules::particles::PlantCage`). Grown, the first cage of a cast holds its creature
 //! for the hold's seconds (its action 7, `0x5B5CC8`; #3166), as long as the cages stand; after the
-//! hold they sink as they rose. Every fifth cage of a cast plays `DRYADE_DORNEN` as it comes, the
-//! terror's none.
+//! hold they sink as they rose. Every fifth cage of a cast plays `DRYADE_DORNEN` as it comes.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -94,16 +93,6 @@ fn hold(commands: &mut Commands, target: Entity, seconds: f32) {
         .and_modify(move |mut effects| effects.add(effect, seconds));
     held.entry::<crate::ai::Mind>()
         .and_modify(move |mut mind| mind.stunned(seconds));
-}
-
-/// [`cage`] with no sound, as the hero's terror cages its creature (`0x4E26F1`).
-pub(crate) fn cage_quietly(
-    commands: &mut Commands,
-    target: Entity,
-    count: u32,
-    (hero, seconds): (bool, f32),
-) {
-    cages(commands, target, count, (hero, seconds), false);
 }
 
 fn cages(

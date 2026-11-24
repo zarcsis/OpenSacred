@@ -656,8 +656,10 @@ pub enum Reader {
     /// The wearer's steps leave small fires (M8, the creature's `+0x1FC` bit 1, `0x63918C`;
     /// [`Stats::fiery_steps`]), which no text of the original's list tells.
     FierySteps,
-    /// A wild animal that would flee from the wearer stands in `⌊c·D⌋` rolls of `R(0, 100)`
-    /// (M16, `0x4E263D`; [`Stats::terror`]).
+    /// A flyer that swoops at the wearer is grounded after its pass's strike in `⌊c·D⌋` rolls of
+    /// `R(0, 100)`, where the wearer's items give no effect 855 (M16, `0x4E263D`; docs/re/sets.md),
+    /// which in a game of one player no foe of the hero does, so that the game follows it not and
+    /// tells no line of it (#3596, #3597).
     Terror(f32),
     /// The killer's effect 863, the exorcism, grows by `c·D` at an undead's death (M20,
     /// `0x532D77`, `0x532D9F`; `undead::exorcised`): set 61's flag `0x2000000` first, then set 54.
@@ -852,21 +854,6 @@ impl Stats {
         self.worn
             .reads()
             .any(|read| matches!(read.reads, Reader::FierySteps))
-    }
-
-    /// The per cent of a wild animal's flights from its wearer in which the animal stands
-    /// instead (M16, `0x4E263D`): `⌊20·D⌋` from four pieces of set 41 (`R(0, 100)` below it),
-    /// where the wearer's own items give no effect 855, which the game does not follow; 0
-    /// without them.
-    pub fn terror(&self) -> u32 {
-        // ⌊20·D⌋: 20, 26, 33, 40, 46 (`0x4E26B6`, the float 20 at `0x890798`).
-        self.worn
-            .reads()
-            .find_map(|read| match read.reads {
-                Reader::Terror(c) => Some(crate::fight::whole_part(c * self.factor)),
-                _ => None,
-            })
-            .unwrap_or(0)
     }
 
     /// Whether the wearer's flag [`KNOW_ENEMY`] holds, by which a foe's label tells its values.
@@ -1211,9 +1198,6 @@ pub enum Told {
     KnowEnemy,
     /// A wounded creature that would flee the wearer struck down ([`STRIKES_FLEEING`]).
     StrikesFleeing,
-    /// The per cent of a wild animal's flights from the wearer in which it stands
-    /// ([`Reader::Terror`]): the terror's whole chance of the roll's 101 faces.
-    Terror(f32),
     /// The per cent of a slain foe's drops of no type that are a potion ([`Reader::Potions`]).
     Potions(f32),
 }
@@ -1267,10 +1251,9 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty, night: bool) -> Vec<To
                 Reader::Painkiller(c) => Told::Painkiller(c * d),
                 Reader::Exorcist(c) => Told::Exorcist(c * d),
                 Reader::Unseen => Told::Unseen,
-                Reader::Terror(c) => {
-                    let terror = crate::fight::whole_part(c * d);
-                    Told::Terror(crate::fight::to_f32(terror) * 100.0 / 101.0)
-                }
+                // A swooping flyer's terror, which no foe of a single player's hero makes
+                // (#3596).
+                Reader::Terror(_) => return None,
                 Reader::OpenWounds(c) => Told::OpenWounds(crate::fight::wound_chance(c, d)),
                 // No text of the game tells the small fires (#1808).
                 Reader::FierySteps => return None,

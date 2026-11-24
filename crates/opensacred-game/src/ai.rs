@@ -2276,16 +2276,7 @@ fn behave(
     crowd: Res<Crowd>,
     (heights, dungeons): (Res<Heights>, Option<Res<crate::daynight::Dungeons>>),
     (hero, keys): (
-        Query<(
-            Entity,
-            &Transform,
-            &Body,
-            (
-                Option<&crate::fight::Holding>,
-                Option<&crate::fight::Combat>,
-            ),
-            Option<&crate::attack::Attack>,
-        )>,
+        Query<(Entity, &Transform, &Body, Option<&crate::attack::Attack>)>,
         crate::controls::Keys,
     ),
     cameras: Query<&Projection, crate::iso::Eye>,
@@ -2297,12 +2288,7 @@ fn behave(
         (Entity, &mut Transform, &InTheWay, &mut Mind, Option<&Walk>),
         (Without<Body>, Without<crate::npcs::Dies>),
     >,
-    (arts, experience, effects, forms): (
-        Option<Res<crate::arts::HeroArts>>,
-        Option<Res<crate::fight::Experience>>,
-        Query<&crate::effects::Effects>,
-        Option<Res<crate::forms::Forms>>,
-    ),
+    forms: Option<Res<crate::forms::Forms>>,
     (followers, queued, arms, clips): (
         Query<(), With<crate::followers::Follower>>,
         Query<
@@ -2316,7 +2302,7 @@ fn behave(
         Query<&crate::npcs::Npc>,
     ),
 ) {
-    let Some((the_hero, hero, body, (holding, combat), attack)) = hero.iter().next() else {
+    let Some((the_hero, hero, body, attack)) = hero.iter().next() else {
         return;
     };
     // The hero shoos the children standing with Shift held, the walk's key (`0x4F2AD7`, #1364).
@@ -2324,35 +2310,6 @@ fn behave(
     // The hero attacks while its attack has a target (`0x4EB890`).
     let hero_attacks = attack.is_some_and(|attack| attack.target().is_some());
     let hero = hero.translation;
-    // The animals' terror of the hero's sets (#1727's M16), or of its items' effect 855, which
-    // holds every one and may cage it (`0x4E2616`, #1806).
-    let caging = holding.map_or(0.0, |holding| {
-        opensacred_rules::fight::item_effect(
-            &holding.0.items,
-            opensacred_rules::fight::CAGING,
-            crate::drops::attributes_of(combat),
-            None,
-        )
-    });
-    let terror = if caging > 2f32.powi(-23) {
-        minds::TERROR_ALWAYS
-    } else {
-        holding.map_or(0, |holding| holding.0.sets.terror())
-    };
-    // The cage's hold of the spell 40 at a third of the hero's level (`0x4E2790`).
-    let cage_seconds = arts.as_deref().and_then(|arts| {
-        let cage = arts
-            .tables
-            .spells
-            .iter()
-            .find(|spell| spell.id == opensacred_rules::spells::CAGE)?;
-        let level = experience
-            .as_deref()
-            .map_or(1, |experience| experience.level)
-            / 3;
-        let seconds = opensacred_rules::spells::value(cage, 0, level);
-        Some(u16::try_from(seconds).map_or(f32::MAX, f32::from))
-    });
     // Every creature as a guard sees it, for the nearest hostile to it, the hero among them
     // (`0x4EEE40`): the hero of its side 1 and a type of no exception's.
     let others: Vec<Other> = creatures
@@ -3017,36 +2974,26 @@ fn behave(
             }
             continue;
         }
-        // The nearest it fears in its own sector, each within its distance, and its terror: the
-        // hero's sets'.
+        // Held, a cage's or a knockback's, it moves not: the hold's factor of the clips (`+0x2C9`,
+        // the effect 15's value, 0 for the plant cage) times its walk's speed (**hypothesis**,
+        // `0x4F510F`; docs/re/ai.md, "Open"), which a decision of its behaviour leaves standing.
+        if mind.held() {
+            continue;
+        }
+        // The nearest it fears in its own sector, each within its distance; it flees whatever
+        // the hero wears, the effect 855's and set 41's terror being a swooping flyer's (#3596).
         let fear = mind.nearest_feared(
             spot(here),
             feared
                 .iter()
                 .filter(|&&(other, at, ..)| other != entity && sector(at) == sector(here))
-                .map(|&(other, at, animal, flags, attacks)| minds::Fearsome {
+                .map(|&(_, at, animal, flags, attacks)| minds::Fearsome {
                     at: spot(at),
                     animal,
                     flags,
                     attacks,
-                    terror: if other == Entity::PLACEHOLDER {
-                        terror
-                    } else {
-                        0
-                    },
                 }),
         );
-        // One that a hold freezes, its clips' factor at most 0.2 (`+0x2C9`, which the effect 15
-        // sets to its value, `0x5834BE`), does nothing while one it fears is within its distance
-        // (`0x4E24EF`): a caged animal is caged no more while its cages hold it (#2282).
-        let frozen = effects.get(entity).is_ok_and(|effects| {
-            effects.list().iter().any(|effect| {
-                effect.id == opensacred_rules::spells::HELD && minds::frozen(effect.value)
-            })
-        });
-        if frozen && fear.is_some() {
-            continue;
-        }
         let Some((target, why)) = mind.behaves(
             spot(here),
             fear,
@@ -3055,22 +3002,6 @@ fn behave(
         ) else {
             continue;
         };
-        // Held by the hero's terror, it stops; of the effect 855, `R(0, 100)` below its value cages
-        // it, the plant cage's hold (`0x4E26F1`, the objects 849 by the event `0x49`; #1806).
-        if why == Why::Stands {
-            debug!("ai: {entity} stands in the hero's terror");
-            stops.push(entity);
-            let roll = minds.rng.below(101);
-            if opensacred_rules::fight::cages(caging, roll)
-                && let Some(seconds) = cage_seconds
-            {
-                debug!("ai: {entity} caged for {seconds} s");
-                // Its ten cages, the hero's (`0x4E26F1`, no sound), which hold it as they have
-                // grown (#3166).
-                crate::plant_cages::cage_quietly(&mut commands, entity, 10, (true, seconds));
-            }
-            continue;
-        }
         let target = point(target, here.y);
         debug!(
             "ai: {entity} {why:?} from {:.0},{:.0} to {:.0},{:.0}",

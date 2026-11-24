@@ -3,7 +3,7 @@
 //! making (#2569); a flyer's every walk is flown at its speed aloft ([`take_wing`]), climbing to
 //! its height over the ground as it moves, at most half its distance to its target in melee, and
 //! where it stands it comes down and lands, but the hornets, which keep flying on the ground
-//! (`0x5941A0`); the terror and its death set it down at once (`0x44D520`).
+//! (`0x5941A0`); its death sets it down at once (`0x44D520`).
 
 use bevy::prelude::*;
 use opensacred_rules::minds;
@@ -60,8 +60,7 @@ fn take_wing(inserted: On<Insert<Walk>>, mut walks: Query<(&mut Walk, &Mind)>) {
 /// the hero, `0x596600`), and comes down where it stands (`minds::climbs`), its model on its
 /// place's ground plus its height; landed, its flying is over (`+0x1F4` bit `0x200000` cleared,
 /// `0x598FDD`) and it stands in its idle clip (`npcs::stance`), but a hornet keeps flying on the
-/// ground (`minds::lands`). One that flies no more, held by the terror or dead, is on the ground
-/// at once.
+/// ground (`minds::lands`). One that flies no more, dead, is on the ground at once.
 /// A flyer is aloft from its flight's first frame; the walk that its behaviour gives it as it
 /// takes off comes a frame after its flying.
 #[expect(
