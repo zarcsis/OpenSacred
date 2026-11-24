@@ -882,7 +882,8 @@ pub fn clips_of(
             .unwrap_or_default();
         (name, fractions)
     };
-    // The shots of the bolts on foot (`0x4DCB80`; mounted 169, not followed).
+    // The shots of the bolts on foot (`0x4DCB80`; mounted 169, which no rider reaches, her
+    // bolts' effects ending as she mounts, `riding::unbolt`).
     let bolts = BOLTS.map(|bolt| {
         slots
             .as_ref()
