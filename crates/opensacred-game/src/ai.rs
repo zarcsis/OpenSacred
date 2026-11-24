@@ -3220,6 +3220,7 @@ fn face_shooed(
 /// member in mid-shot that the alarm of a member that fights reaches takes it in its shots' chain
 /// and aims its playing shot at that member's foe (docs/re/fight.md, "The shots' chain", #3313).
 fn alarm(
+    mut commands: Commands,
     mut hits: MessageReader<crate::fight::Hit>,
     mut creatures: Query<(Entity, &mut Mind)>,
     ridden: Query<&crate::riding::Ridden>,
@@ -3289,7 +3290,14 @@ fn alarm(
                     }
                     hears
                 }
-                None => mind.wakes(group),
+                // Woken, its sight runs where it sees the hero (`0x46B336`, #3149).
+                None => {
+                    let wakes = mind.wakes(group);
+                    if wakes {
+                        commands.entity(entity).insert(Woken);
+                    }
+                    wakes
+                }
             };
             woken += usize::from(heard);
         }
@@ -3378,13 +3386,21 @@ fn face(
     }
 }
 
+/// A creature that a wake other than the hero's look woke this frame (`sdk_WAKE`'s other callers;
+/// docs/re/ai.md, "Dormant and awake", #3149): `CreateNPC`'s of the flags' bit 0 as it is made,
+/// `SetNPCState`'s writing that bit, the group's alarm at an idle member, the hiring and the
+/// undead's rising; its sight runs where it sees the hero ([`sight`]), and the mark goes.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct Woken;
+
 /// Runs each creature's sight function as it first sees the hero (`sdk_WAKE` `0x59F580`, #2475;
 /// docs/re/ai.md, "Dormant and awake"): at each of the hero's looks, a creature of a sight
-/// pending (`minds::SIGHT`) that the look wakes (`minds::look_wakes`) and that sees the hero
-/// within 600 along x and 400 along y and within 1 rad of its heading on the screen
-/// (`minds::sees`), by a straight way (`0x4FCC80`), runs its first `See:` function, and its bit
-/// clears, its kept placement's with it (`0x59F78F`), whether it had one or not. Quest 11 of the
-/// Underworld is entered so, as its guards see the hero come through the gate.
+/// pending (`minds::SIGHT`) that the look wakes (`minds::look_wakes`), and at each of the other
+/// wakes a creature [`Woken`] that fights no one (#3149), that sees the hero within 600 along x
+/// and 400 along y and within 1 rad of its heading on the screen (`minds::sees`), by a straight
+/// way (`0x4FCC80`), runs its first `See:` function, and its bit clears, its kept placement's
+/// with it (`0x59F78F`), whether it had one or not. Quest 11 of the Underworld is entered so, as
+/// its guards see the hero come through the gate.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -3400,27 +3416,31 @@ fn sight(
             &mut Mind,
             &InTheWay,
             (Option<&crate::npcs::OnDeath>, Option<&crate::npcs::Placed>),
+            Has<Woken>,
         ),
         Without<crate::npcs::Dies>,
     >,
     heights: Res<Heights>,
     mut npcs: ResMut<Npcs>,
 ) {
-    if !nearest.looked {
-        return;
-    }
     let Ok((hero, body)) = heroes.single() else {
         return;
     };
     let at = spot(hero.translation);
     let moves = body.target().is_some();
-    for (entity, transform, mut mind, way, (on_death, placed)) in &mut creatures {
+    for (entity, transform, mut mind, way, (on_death, placed), woken) in &mut creatures {
+        if woken {
+            commands.entity(entity).remove::<Woken>();
+        }
         if mind.flags & minds::SIGHT == 0 {
             continue;
         }
         let here = spot(transform.translation);
         let (hostile, fighting) = (mind.hostile(), mind.fighting());
-        if !minds::look_wakes(hostile, mind.flags, fighting, (here - at).length(), moves) {
+        // The look's wake, or another's of one that fights no one (`0x59F580`).
+        let looks = nearest.looked
+            && minds::look_wakes(hostile, mind.flags, fighting, (here - at).length(), moves);
+        if !looks && !(woken && !fighting) {
             continue;
         }
         let heading = transform.rotation * Vec3::X;

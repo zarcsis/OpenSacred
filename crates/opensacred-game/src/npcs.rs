@@ -7770,6 +7770,11 @@ fn spawn(
         if let Some(called) = placement.called {
             entity.insert(Called(called));
         }
+        // `CreateNPC` wakes its creature of the flags' bit 0 as it makes it, its sight running
+        // where it sees the hero (`0x483A03`, #3149).
+        if placement.made.1 && word & 0x1 != 0 {
+            entity.insert(crate::ai::Woken);
+        }
         if placement.emerges {
             // In its glow as it emerges (`0x483311`, the event `0x109` of the state 13, #3074).
             entity.insert((
@@ -12185,6 +12190,10 @@ pub(crate) fn script_records(
                 let trades = traders.get(entity).map_or(0, |trades| trades.0);
                 let (flags, stated, untrades) = state.flags_of(mind.flags, trades);
                 mind.flags = flags;
+                // A word of the bit 0 written wakes it (`0x461DE6`, #3149).
+                if stated & 0x1 != 0 {
+                    commands.entity(entity).insert(crate::ai::Woken);
+                }
                 if untrades {
                     commands.entity(entity).remove::<Trades>();
                 }
