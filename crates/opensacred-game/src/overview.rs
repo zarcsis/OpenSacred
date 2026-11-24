@@ -233,21 +233,21 @@ fn show(
         plane,
         (&minimaps, &assets),
         (point, Vec2::ZERO),
-        ground_alpha(interface.map_alpha),
+        (ground_alpha(interface.map_alpha), None),
     );
     crate::minimap::spawn_fog(
         &mut commands,
         plane,
         (&land, &mut pictures),
         (point, Vec2::ZERO),
-        interface.explore_map,
+        (interface.explore_map, None),
     );
     if let Some(live) = live.as_deref() {
         crate::world_map::quests_in_lens(
             &mut commands,
             plane,
             (&images, &assets, texts.as_deref()),
-            (live, &seek),
+            (live, &seek, None),
             point,
         );
         crate::world_map::places_in_lens(

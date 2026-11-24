@@ -190,6 +190,22 @@ impl Explored {
     }
 }
 
+/// The blocks of dungeon sectors that are not hidden, their columns' and rows' bounds (`0x6238C0`;
+/// docs/re/interface.md, "The markers"): the columns 2 to 11 of the rows 26 to 33, and 40 to 47 of
+/// the rows 1 to 8.
+const SHOWN_BLOCKS: [((u32, u32), (u32, u32)); 2] = [((2, 11), (26, 33)), ((40, 47), (1, 8))];
+
+/// Whether the sector `sector`, a dungeon's where `dungeon` (its `+0x2E` bit 2, `sectors.keyx`'s
+/// `+0x1CC`), is hidden (`0x6238C0`): every dungeon's sector outside the two [`SHOWN_BLOCKS`],
+/// 2,359 of the world's 2,428 (docs/re/interface.md, "The markers"), which the world map's lens
+/// draws black (docs/re/questbook.md, "The lens's ground", #3479).
+pub fn hidden((x, y): (u32, u32), dungeon: bool) -> bool {
+    dungeon
+        && !SHOWN_BLOCKS.iter().any(|&((left, right), (top, bottom))| {
+            (left..=right).contains(&x) && (top..=bottom).contains(&y)
+        })
+}
+
 /// The frontier's grid's sectors along each side (the world's `+0xB73C`, 100 × 100).
 const GRID: i32 = 100;
 /// A sector's eight neighbours in the frontier's order, (x, y) offsets: the row above from the
@@ -284,6 +300,28 @@ impl Sectors {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_dungeons_sector_is_hidden_but_in_the_two_blocks() {
+        assert!(hidden((92, 16), true));
+        assert!(!hidden((92, 16), false));
+        // The blocks' corners and their sides' neighbours.
+        for shown in [(2, 26), (11, 33), (40, 1), (47, 8)] {
+            assert!(!hidden(shown, true), "{shown:?}");
+        }
+        for beside in [
+            (1, 26),
+            (12, 33),
+            (2, 25),
+            (11, 34),
+            (39, 1),
+            (48, 8),
+            (40, 0),
+            (47, 9),
+        ] {
+            assert!(hidden(beside, true), "{beside:?}");
+        }
+    }
 
     #[test]
     fn a_sector_entered_is_seen_with_its_neighbours_and_its_frontier_points_at_it() {
