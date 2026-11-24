@@ -225,7 +225,7 @@ Field names: a0…a5 the attributes `+0x10…+0x1A` (texts 1090–1095); m, m′
 | 42 | 2 | skill 28's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9427}: +5 ; {T9427}: +11 |  |
 | 42 | 4 | every art the creature holds: bonus byte | +⌊3·D⌋ (3/4/5/6/7) | +3 {T8225} {T9031} ; +7 {T8225} {T9031} | With the creature's +0x14 bit 0x2000 every art the creature holds; without it the arts 1030–1037 only (both branches emulated). |
 | 42 | 5 | flags +0x148 bit(s) | or 0x200000 | +5 {K:UI_RARE_SCHOCK} ; +11 {K:UI_RARE_SCHOCK} | Stun: +0.05·D while no other stun set applies (M18). |
-| 42 | 6 | flags +0x148 bit(s) | or 0x400000 | 40% {T8225} ; 93% {T8225} | New bit 0x400000: arts 1022/1023's f = 1 + 0.4·D (docs/re/arts.md). |
+| 42 | 6 | flags +0x148 bit(s) | or 0x400000 | 40% {T8225} ; 93% {T8225} | New bit 0x400000: 1022's effect 22 lasts 1.4·D times as long, its tooltip and this line tell 1 + 0.4·D (docs/re/arts.md, "The Vampiress's"; section 5). |
 | 43 | 2 | skill 2's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9401}: +5 ; {T9401}: +11 |  |
 | 43 | 4 | — (text only in 0x571710) | — | {T1137}: +3 ; {T1137}: +7 | Text only (all arts +3): nothing applied. |
 | 43 | 5 | flags +0x148 bit(s) | or 0x800000 | {T1128}: +6% ; {T1128}: +14% | Bit 0x800000 (reader 0x57DC05, not read). |
@@ -302,7 +302,7 @@ Field names: a0…a5 the attributes `+0x10…+0x1A` (texts 1090–1095); m, m′
 | 59 | 2 | skill 14's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9413}: +5 ; {T9413}: +11 |  |
 | 59 | 3 | flags +0x148 bit(s) | or 0x100000 | 15% {K:MAGIEABWEHR} ; 35% {K:MAGIEABWEHR} | Magic defence: effect 858 + 15·D (M17). |
 | 59 | 4 | a4 (+0x18) | +⌊10·D⌋ (10/13/16/20/23) | {T1094}: +10 ; {T1094}: +23 |  |
-| 59 | 6 | flags +0x148 bit(s) | or 0x8000 | +40% {K:UI_SET_FLIEGEN} ; +93% {K:UI_SET_FLIEGEN} | New bit 0x8000 (reader not found). |
+| 59 | 6 | flags +0x148 bit(s) | or 0x8000 | +40% {K:UI_SET_FLIEGEN} ; +93% {K:UI_SET_FLIEGEN} | New bit 0x8000: the Daemon's 1094 lasts 1 + 0.4·D times as long (0x519A5E; section 5). |
 | 59 | 8 | — (text only in 0x571710) | — | {T1138}: +3 ; {T1138}: +7 | Text only; no reader of set 59 at 8. |
 | 60 | 2 | skill 4's bonus | +⌊5·D⌋ (5/6/8/10/11) | {T9403}: +5 ; {T9403}: +11 |  |
 | 60 | 3 | — (text only in 0x571710) | — | {T1151}: 9% ; {T1151}: 21% | Text only here; open wounds ⌊10·D⌋ % (M15), not 9 %. |
@@ -393,13 +393,13 @@ A creature in the water form itself is drawn so by its own state; the effect's d
 | `0x1000` | 55 ≥ 8 | `NOSTUNN` | the creature's query `0x50` (`0x55D260` at `0x55DB27`), which the knockback's event 3 asks (`0x531AE8`): with the bit, two knockbacks of three are refused (`rand() % 3` not 0; docs/re/arts.md, "The kicks") |
 | `0x2000` | 40 ≥ 4 | `TIERSCHRECK` | not found |
 | `0x4000` | 58 ≥ 6 | `UI_SET_FLUCHT` | `0x4E1052` (the melee's flight, docs/re/fight.md) |
-| `0x8000` | 59 ≥ 6 | `UI_SET_FLIEGEN` | not found |
+| `0x8000` | 59 ≥ 6 | `UI_SET_FLIEGEN` | `0x519A5E` (the Daemon's 1094: its time `min(29 + L, 180)` times `1 + 0.4·D`, docs/re/arts.md, "The Daemon's"; its tooltip leaves the factor out), the one test of the bit that a scan of the loads and tests of `+0x4F0` and `+0x148` finds (read 2026-11-23 for #3136) |
 | `0x10000` | 51 ≥ 6 | T1098 | `0x57D153` (the recomputation) |
 | `0x20000` | 43 ≥ 6 | T8220 | `0x57B025` (the Gladiator's effect 40 with 1015), `0x57C48F`, `0x586EC5` |
 | `0x80000` | 40 ≥ 6 | T1073 | `0x565B51` (the most health ×104/100) |
 | `0x100000` | 41 ≥ 5, 44 ≥ 3, 59 ≥ 3, 65 ≥ 3 | `MAGIEABWEHR` | `0x5618A1` (M17) |
 | `0x200000` | 42 ≥ 5, 49 ≥ 4, 50 ≥ 6, 64 ≥ 3 | `UI_RARE_SCHOCK` | `0x56D4D6` (M18) |
-| `0x400000` | 42 ≥ 6 | T8225 | `0x5128D6`, `0x58DE2B` (arts 1022/1023's f = 1 + 0.4·D) |
+| `0x400000` | 42 ≥ 6 | T8225 | `0x5128D6` (1022's effect 22, its seconds times `1.4·D`, the float 1.4 at `0x8910AC` and `D` of `0x51CEF0`), `0x58DE2B` (1022's tooltip, its time times `1 + 0.4·D`, as the set's line tells: a text that disagrees with the code above bronze; read 2026-11-23 for #3136, docs/re/arts.md, "The Vampiress's") |
 | `0x800000` | 43 ≥ 5, 64 ≥ 4 | T1128 | `0x57DC05` (not read) |
 | `0x1000000` | 60 ≥ 4 with `+0x190` = 7 | `UI_SET_ROOTEN` | `0x4E0713` (the melee's sub-state 0's cages, docs/re/fight.md), `0x526367` (not read) |
 | `0x2000000` | 61 ≥ 4 | `UI_RARE_EXORZIST` | `0x532D77` (M20) |
@@ -411,9 +411,17 @@ A creature in the water form itself is drawn so by its own state; the effect's d
 | `0x80000000` | 3 ≥ 4 | `UI_KNOW_ENEMY` | `0x62737F`, `0x62759D`, `0x6279E8`: the values of the foe that the mouse picks on its label while Alt is held (docs/re/interface.md, "The labels on Alt"; #1425) |
 | creature `+0x1FC` 1 | 23 = 6 | — | `0x63918C`, the step's small fires (M8); `0x57AEE4` is the writer's own test |
 | creature `+0x1FC` 4 | 27 ≥ 6, 31 ≥ 5 | T788 | `0x56E0A4`, in the strike's resolution: a strike of the bearer's, of a hit's kind other than 17 and 18, where the bearer's fire damage passes the struck one's fire resistance (`0x56E0B1`), gives the struck creature the effect 38 (`0x26`), keyed by the bearer's id, its values by a share of the strike's held at 20 (`0x56E0B1` to `0x56E158`, not read further; **seen** 2026-11-23 for #3480, docs/re/arts.md, "The Daemon's"); the one giver of that effect, which the Daemon's breath's fires test (docs/re/arts.md, "The Daemon's", 1102) |
-| creature `+0x1FC` 8 | 32 ≥ 7 | T835 | `0x57AF1E` (the Mage's effect 40), `0x586EBC` |
+| creature `+0x1FC` 8 | 32 ≥ 7 | T835 | `0x57AF1E` (the Mage's effect 40), `0x586EBC` (read 2026-11-23 for #3136, below) |
 
 The bits 4 and 8, which the arts' regeneration reads (`0x562470`: the time an art's use adds taken down to 0.8 of it, docs/re/arts.md, "The regeneration"), no case of `0x571710` sets, and nothing else either (read 2026-11-22 for #3112, **confirmed** by a byte scan of the code for every instruction that writes at the displacement `+0x148` or `+0x4F0`: on the stats only the stats' maker `0x55E29E`, the recomputation's clearing `0x57978C`, the serialiser `0x586695`, `0x586878` and `0x586A1C`, and the cases' `or`s of the bits above; **seen** 2026-11-23 for #3480 with set 27's six pieces, the word 0 at each art's start and its time whole, docs/re/arts.md, "The regeneration").
+**Set 32's spring** (read 2026-11-23 for #3136 in the Ghidra project alone, **confirmed** by code where an address is named; not seen): the Mage's seventh piece gives no regeneration of its own, but holds the mana's spring's (the spell 31, `AUE`, docs/re/arts.md, "The Mage's spells"; its effect 11 of `(95 + 5·L)/100` to both regeneration speeds for `70 + 2·L` s, at most 180).
+
+- At each recomputation of the local hero's stats, a Mage (type 3) of the creature's `+0x1FC` bit 8 takes an effect 40 keyed by 31 for 1.5 s, its whole value and value 0 (`0x582D50(40, 0, 0, 1.5, 31, …)` at `0x57AF53`), where it holds none, and the effects' adder's case 40 makes at him an 835 (`FX_MANAREGEN`, the spring's sight) of 7.5 s as it takes it anew (docs/re/effects.md, "The mana's spring and the regeneration"); then the first effect 11 that he holds, a spring's, whatever its source, has its seconds set to 10.0 (`0x57AF9B`), at every recomputation, a spring of a longer time left shortened to 10 s.
+- Without the bit, a Mage holding the effect 40 takes `0x582D50(40, 0, 0, 0, 31, …)` (`0x57AFCC`) and his first effect 11's seconds are set to 0 (`0x57B009`): taking a piece off ends a running spring at once.
+- The effect 40 keyed by 31 adds nothing to his stats: the recomputation's case 40 reads only the art 1015 with the set 43's bit (`0x57C481` to `0x57C522`, docs/re/arts.md, "The effects").
+- The effects' taker's case 40 (`0x586EAF`), as an effect 40 runs out: where neither the bit 8 (set 32) nor the stats' `+0x148` bit `0x20000` (set 43) holds, the object whose id the entry keeps (its whole value) is taken out of the world and destroyed, and the first effect 11's seconds set to 0 (`0x586F37`); where one holds, an object 835 (836 for the art 32, the regeneration) of the entry's seconds is made at him anew where the entry's own is gone (`0x586F3F` to `0x587161`), its id kept in the entry; what the taker then answers the stats' update, whether the entry is kept or removed (`0x562DDB` to `0x562DE9`), is not read.
+- So, by **hypothesis**, a Mage of the whole set who casts the spring keeps its effect 11 for as long as his stats are recomputed within 10 s of each other, the effect 40's running out every 1.5 s among the recomputations' causes where the stats' update recomputes then, with its sight 835 made again as it goes; the run left open: the spring cast with the set worn whole, the effect 11's seconds and the effect 40's entries read over a minute (the driver's `stats`), and the 835s counted.
+
 The creature's query handler (`0x55D260`) reads three bits more as answers: the query `0x4E` the bit `0x2`, which `0x5FCC0F` asks of the local hero (not read further), the query `0x4F` the bit `0x800` and the query `0x50` the bit `0x1000` (the table above).
 
 **The holds turned by set 52** (read 2026-11-23 for #3437 in the Ghidra project alone, the running original held by another session: what the code does is read, what the turned casts do in play a **hypothesis** until seen).

@@ -156,7 +156,7 @@ Read 2026-10-30 (#1462), **confirmed** by code unless marked otherwise.
   The controls that take the flag at their makers (read again 2026-11-23 for #3103, **confirmed** by code: a scan of `Sacred.exe` for the flag as an immediate pushed or stored, each place read at its maker):
   - the taskbar's (`0x6E4DF0`): its six buttons, Inventory, Options, Map, Book, Collect and Net info (`0x6E521A` to `0x6E5F69`, made with the flags `0x8000005`), and the belt's five slots (`0x6E6249`, in a loop of five);
   - the inventory's sort button (`0x6C69B7`, in its layout `0x6C6490`);
-  - the statistics window's (`0x6AC470`, docs/re/character.md, "The window"): its close button `UI_STAT_BTN_BASE` (`0x6AC810`), the header bar, the toggle of the skills and the attributes (`0x6AC927`), and its eight "+" buttons (`0x6AC87A`, in a loop of eight), which its lists draw by their own draw (`0x6A96C3`, `0x6A9F08`);
+  - the statistics window's (`0x6AC470`, docs/re/character.md, "The window"): its close button `UI_STAT_BTN_BASE` (`0x6AC810`), the header bar, one control at the window's `+0x154` that toggles the skills and the attributes (`0x6AC927`; read again 2026-11-23 for #3600), and its eight "+" buttons (`0x6AC87A`, in a loop of eight), which its lists draw by their own draw (`0x6A96C3`, `0x6A9F08`);
   - the quest book's (`0x6AF440`, docs/re/questbook.md, "The window"): its close button (`0x6AF81D`, the image `0x167`) and its four main tabs (`0x6AFAA7`, in a loop of four);
   - the world map's (`0x6CB530`): its pin's button and its close button (`0x6CB699`, `0x6CB75B`; #2933);
   - the combat master's exchange page's (`cUI_MasterLotto`'s layout `0x6D5B80`, docs/re/arts.md, "The combat master's exchange"): its two arrows, the images 358 and 357 (`0x6D5D2D`, `0x6D5DB9`);

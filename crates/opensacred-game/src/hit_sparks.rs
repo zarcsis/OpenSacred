@@ -10,7 +10,8 @@
 //! hero's flight that a cell stops bursts the Dark Elf's at the hero's own neck, whatever the class
 //! (`making::leap`, #3203).
 //!
-//! The Dwarf's `Attacke` and `Hardhit` with a gun make none (`0x514DC4` to `0x515011`). Not
+//! The Dwarf's `Attacke`, `Hardhit` and `Rundum` with a gun make none (`0x514DC4` to `0x515011`,
+//! `0x515C21` to `0x516028`). Not
 //! followed: the variants of the sparks' classes that are not hits (the Gladiator's rings of 1015
 //! and 1016, the Seraphim's 1003), and the sparks of the thrown weapons' and the Wood Elf's
 //! arrows' hits; a horse's floops are `floops`' (#2329), the Dark Elf's 1042 and 1046 to 1048
@@ -18,7 +19,7 @@
 //! horse (`trample`), and a riding creature's strike in passing the same at its target (`ai`).
 
 use bevy::prelude::*;
-use opensacred_rules::arts::{DWARF_ATTACKE, DWARF_HARDHIT};
+use opensacred_rules::arts::{DWARF_ATTACKE, DWARF_HARDHIT, DWARF_RUNDUM};
 use opensacred_rules::particles::{SPARKS_LIFE, SPARKS_LIGHT, SparksAt, hit_sparks, sparks_of};
 use opensacred_rules::spawning::Rng;
 
@@ -71,7 +72,7 @@ fn burst(
         let Some((kind, at)) = sparks_of(spark.art) else {
             continue;
         };
-        if gun && matches!(spark.art, DWARF_ATTACKE | DWARF_HARDHIT) {
+        if gun && matches!(spark.art, DWARF_ATTACKE | DWARF_HARDHIT | DWARF_RUNDUM) {
             continue;
         }
         let (whom, names): (Entity, &[&str]) = match at {

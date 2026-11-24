@@ -822,7 +822,8 @@ fn the_other_classes_arts_play_their_executors_clips() {
     assert_eq!(slot(8, Style::Attacke, 14), Some((248, true, Some(211))));
     assert_eq!(slot(8, Style::Hardhit, 13), Some((247, true, Some(202))));
     assert_eq!(slot(8, Style::Rundum, 3), Some((222, true, Some(220))));
-    assert_eq!(slot(8, Style::Rundum, 14), None);
+    assert_eq!(slot(8, Style::Rundum, MUSKET), Some((248, true, Some(220))));
+    assert_eq!(slot(8, Style::Rundum, PISTOL), Some((248, true, Some(220))));
     // The Daemon's `Attacke` at 1.0, and neither a `Rundum` nor a `Hardhit`: his 1091 is a
     // charge, a style of its own.
     assert_eq!(slot(9, Style::Attacke, 1), Some((211, true, None)));
@@ -2414,4 +2415,63 @@ fn a_rundums_regeneration_starts_by_its_class() {
     assert_eq!(rundum_starts(DWARF_RUNDUM), None);
     assert_eq!(rundum_starts(1065), Some(Some(1065)));
     assert_eq!(rundum_starts(1073), Some(None));
+}
+
+#[test]
+fn the_dwarfs_gun_arts_are_made_by_their_gun() {
+    assert!([1078, 1079, 1080].into_iter().all(dwarf_gun_art));
+    assert!(!dwarf_gun_art(1061) && !dwarf_gun_art(1085));
+    // A musket where he stands, whatever lies between; a pistol only by a line of sight.
+    assert_eq!(gun_order_distance(MUSKET, || false), Some(0));
+    assert_eq!(gun_order_distance(PISTOL, || true), Some(0));
+    assert_eq!(gun_order_distance(PISTOL, || false), None);
+    // No other weapon, not even a crossbow's 12.
+    assert_eq!(gun_order_distance(12, || true), None);
+    assert_eq!(gun_order_distance(3, || true), None);
+}
+
+#[test]
+fn the_dwarfs_gun_rundum_gathers_three_hostiles_in_sight() {
+    let c = |id, distance, hostile| Candidate {
+        id,
+        distance,
+        reach: 60,
+        hostile,
+    };
+    // Nearest first: the target itself, one dead or friendly, one hidden, one at 1,000 and
+    // three more within it, of which the gathering takes the first three it sees.
+    let list = [
+        c(7, 50, true),
+        c(1, 80, false),
+        c(2, 100, true),
+        c(3, 200, true),
+        c(4, 999, true),
+        c(5, 999, true),
+        c(6, GUN_RUNDUM_WITHIN, true),
+    ];
+    let hidden = |c: &Candidate| c.id != 2;
+    assert_eq!(gun_rundum_gathers(Some(7), &list, hidden), vec![3, 4, 5]);
+    // The one at 1,000 is not nearer him than 1,000.
+    assert_eq!(
+        gun_rundum_gathers(Some(3), &list[3..], |_| true),
+        vec![4, 5]
+    );
+    // Without a target the first in sight is gathered too.
+    assert_eq!(gun_rundum_gathers(None, &list, |_| true), vec![7, 2, 3]);
+    assert_eq!(
+        gun_rundum_gathers(Some(7), &[], |_| true),
+        Vec::<u32>::new()
+    );
+}
+
+#[test]
+fn the_dwarfs_gun_rundum_shoots_its_target_then_the_gathered() {
+    let gathered = [4, 5];
+    assert_eq!(gun_rundum_shot(0, Some(9), &gathered), Some(9));
+    assert_eq!(gun_rundum_shot(1, Some(9), &gathered), Some(4));
+    assert_eq!(gun_rundum_shot(2, Some(9), &gathered), Some(5));
+    // A slot the gathering left unfilled, and the fifth shot, strike nothing.
+    assert_eq!(gun_rundum_shot(3, Some(9), &gathered), None);
+    assert_eq!(gun_rundum_shot(4, Some(9), &[1, 2, 3]), None);
+    assert_eq!(gun_rundum_shot(0, None, &gathered), None);
 }
