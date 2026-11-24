@@ -780,9 +780,12 @@ fn think(
         if sliding && !mind.held() {
             continue;
         }
-        // One whose script's queue runs leaves its idle thought, fighting still where it fights
-        // (`0x542B20` at `0x542D9E`, #1220).
+        // One whose script's queue runs or whose script's clip plays leaves its idle thought,
+        // fighting still where it fights (`0x542B20` at `0x542D9E`, #1220); its timer runs on all
+        // the same, as the creatures' update runs it, so that a hold ends while a clip plays
+        // (`0x53947B`, #3628).
         if queued.contains(entity) && !mind.fighting() {
+            mind.run_timer(dt, sliding, &mut minds.rng);
             continue;
         }
         let here = transform.translation;

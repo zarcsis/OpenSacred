@@ -1357,6 +1357,25 @@ impl Mind {
         }
     }
 
+    /// Runs its timer `dt` seconds on (the creatures' update, `0x53947B`–`0x53954A`): a creature
+    /// of the timed flags or held counts it, and its firing wakes it, the jitter taken off what
+    /// the timer kept (`0x5375C0`, #617), and lets a held creature go where it slides no more.
+    /// The update runs it whatever its AI does: [`Self::think`] runs it first, and a creature
+    /// that thinks not, a script's clip or queue running, still runs it (#3628).
+    pub fn run_timer(&mut self, dt: f32, sliding: bool, rng: &mut impl Dice) {
+        if self.flags & TIMED != 0 || self.held {
+            self.clock += dt;
+            if fires(&mut self.clock, self.period) {
+                let jitter = f32::from(u16::try_from(rng.below(31)).unwrap_or(15)) * 0.1;
+                self.clock -= jitter - JITTER;
+                self.awake = true;
+                if !sliding {
+                    self.held = false;
+                }
+            }
+        }
+    }
+
     /// Its own timer, the hero's look and its thought this tick, by what it `senses`
     /// (`0x5375C0`, `0x542B20`): the timer of a hostile creature or a townsperson wakes it
     /// every 5 s (2.5 s for one that `CreateNPC` woke), jittered by ±1.5 s; the hero's look
@@ -1398,19 +1417,7 @@ impl Mind {
             own,
         } = *senses;
         let mut thought = Thought::default();
-        if self.flags & TIMED != 0 || self.held {
-            self.clock += dt;
-            if fires(&mut self.clock, self.period) {
-                // The jitter is taken off what the timer kept (`0x5375C0`, #617).
-                let jitter = f32::from(u16::try_from(rng.below(31)).unwrap_or(15)) * 0.1;
-                self.clock -= jitter - JITTER;
-                self.awake = true;
-                // The firing that finds its slide over lets a held creature go (`0x5375C0`).
-                if !sliding {
-                    self.held = false;
-                }
-            }
-        }
+        self.run_timer(dt, sliding, rng);
         // Held, it thinks nothing (`0x542B20`); nor a hostile one on guard (the AI's state 2,
         // which the look, the idle action and its group's alarm, all of the state 0, do not
         // reach; #3073).
@@ -8114,6 +8121,16 @@ mod tests {
         assert!(thrown.held());
         thrown.think(&senses(0.11, false), |_| true, || false, &mut rng);
         assert!(!thrown.held());
+        // Its timer runs without its thought, as while a script's clip plays (#3628): a stun of
+        // 5 s run 4.9 s so and thought once at 5.0 s lets it go, and it attacks in that tick.
+        let mut clipped = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
+        clipped.stunned(5.0);
+        for _ in 0..49 {
+            clipped.run_timer(0.1, false, &mut rng);
+        }
+        assert!(clipped.held());
+        let thought = clipped.think(&senses(0.11, false), |_| true, || false, &mut rng);
+        assert!(!clipped.held() && thought.attacks);
         // A hold due sooner than 0.5 s keeps its own.
         let mut sooner = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
         sooner.stunned(2.0);
