@@ -12,7 +12,10 @@
 //! creature it strikes (`hurled`, `0x44E570`), and the Wood Elf's explosive arrow 1004 the Wood
 //! Elf's at a creature its strike leaves alive, once the strike is resolved (`arrows`,
 //! `opensacred_rules::particles::sparks_if_alive`, `0x5BC958`), its light at that creature, the
-//! object's caster (#3129).
+//! object's caster (#3129); a creature that its strike leaves dead takes them too where it rises
+//! again, an undead whose death is not its last, and else bursts (`undead::Bursts`, `0x4E8DA0(1,
+//! 2)`: its cloud, `CHAR_SPLASH`, its body gone, and under the violence its parts and its blood;
+//! `0x5BC8FE`–`0x5BC9E9`, #3130).
 //!
 //! The Dwarf's `Attacke`, `Hardhit` and `Rundum` with a gun make none (`0x514DC4` to `0x515011`,
 //! `0x515C21` to `0x516028`). Not
@@ -52,9 +55,18 @@ const LEFT_FOOT: [&str; 1] = ["Bip01 L Foot"];
 struct Lamp(f32);
 
 /// The strikes whose sparks wait for their strike's resolution, to burst where it leaves its
-/// creature alive ([`sparks_if_alive`]), each with the frames it has waited.
+/// creature alive ([`sparks_if_alive`]).
 #[derive(Resource, Default)]
-struct Waiting(Vec<(Spark, u8)>);
+struct Waiting(Vec<Waits>);
+
+/// A strike's sparks that wait: the frames they have waited, and whether the strike left its
+/// creature dead, whose death tells whether it rises again.
+#[derive(Clone, Copy, Debug)]
+struct Waits {
+    spark: Spark,
+    frames: u8,
+    dead: bool,
+}
 
 /// How many frames a strike's sparks wait for its resolution at most: `fight`'s resolution reads
 /// a strike in its frame or the next.
@@ -72,14 +84,17 @@ impl Default for Rolls {
 
 /// Bursts each strike's sparks where its art makes them, and lights its striker's place; those of
 /// an art that sparks only at a creature left alive wait for their strike's resolution
-/// (`fight::Struck`) and burst where its creature lives on.
+/// (`fight::Struck`) and burst where its creature lives on, or where its death is not its last
+/// (`npcs::Dies::rises`); a creature that dies of it otherwise bursts ([`crate::undead::Bursts`],
+/// `0x5BC8FE`–`0x5BC9E9`).
 fn burst(
     mut commands: Commands,
     (mut sparks, mut struck): (MessageReader<Spark>, MessageReader<crate::fight::Struck>),
     hero: Option<Res<crate::hero::Hero>>,
-    (places, lives): (
+    (places, lives, deaths): (
         Query<&GlobalTransform>,
         Query<&crate::fight::Health, Without<crate::npcs::Dies>>,
+        Query<&crate::npcs::Dies>,
     ),
     (children, bones, worn): (
         Query<&Children>,
@@ -92,21 +107,40 @@ fn burst(
     let mut due: Vec<Spark> = Vec::new();
     for &spark in sparks.read() {
         if sparks_if_alive(spark.art) {
-            waiting.0.push((spark, 0));
+            waiting.0.push(Waits {
+                spark,
+                frames: 0,
+                dead: false,
+            });
         } else {
             due.push(spark);
         }
     }
     let resolved: Vec<Entity> = struck.read().map(|struck| struck.target).collect();
-    waiting.0.retain_mut(|(spark, frames)| {
-        if resolved.contains(&spark.on) {
-            if lives.get(spark.on).is_ok_and(|health| health.current > 0) {
-                due.push(*spark);
+    waiting.0.retain_mut(|waits| {
+        let on = waits.spark.on;
+        if !waits.dead && resolved.contains(&on) {
+            if lives.get(on).is_ok_and(|health| health.current > 0) {
+                due.push(waits.spark);
+                return false;
+            }
+            waits.dead = true;
+            waits.frames = 0;
+        }
+        // Dead of it: the sight where it rises again, else its burst (`0x549460(1)`).
+        if waits.dead
+            && let Ok(dies) = deaths.get(on)
+        {
+            if dies.rises {
+                due.push(waits.spark);
+            } else {
+                debug!("hit_sparks: {on}, dead of {}, bursts", waits.spark.art);
+                commands.entity(on).insert(crate::undead::Bursts);
             }
             return false;
         }
-        *frames += 1;
-        *frames <= WAITS
+        waits.frames += 1;
+        waits.frames <= WAITS
     });
     for spark in &due {
         let Some((kind, at)) = sparks_of(spark.art) else {
@@ -157,11 +191,14 @@ impl Plugin for HitSparksPlugin {
         app.add_message::<Spark>()
             .init_resource::<Rolls>()
             .init_resource::<Waiting>()
+            // After the strikes' resolution, whose deaths it reads, and before the dead are laid
+            // down as corpses (`npcs::die`), which a burst takes at once (`undead`).
             .add_systems(
                 Update,
                 (burst, put_out)
                     .in_set(Playing)
-                    .after(crate::frame::Step::Npcs)
+                    .after(crate::fight::resolve)
+                    .before(crate::frame::Step::Npcs)
                     .run_if(in_state(AppState::InGame)),
             );
     }
@@ -227,7 +264,38 @@ mod tests {
             });
         }
         app.update();
-        // At the creature left alive alone.
+        // At the creature left alive alone; the dead one waits for its death.
+        assert_eq!(bursts(&mut app), 1);
+        assert_eq!(app.world().resource::<Waiting>().0.len(), 1);
+    }
+
+    #[test]
+    fn a_creature_the_explosive_arrow_kills_bursts_but_where_it_rises_again() {
+        let mut app = app();
+        let dead = creature(&mut app, 0);
+        let rises = creature(&mut app, 0);
+        app.world_mut()
+            .entity_mut(dead)
+            .insert(crate::npcs::Dies::new(0));
+        let mut rising = crate::npcs::Dies::new(0);
+        rising.rises = true;
+        app.world_mut().entity_mut(rises).insert(rising);
+        for on in [dead, rises] {
+            app.world_mut().write_message(Spark {
+                art: 1004,
+                by: on,
+                on,
+            });
+            app.world_mut().write_message(Struck {
+                target: on,
+                damage: 60,
+                most: 50,
+            });
+        }
+        app.update();
+        // The dead bursts, its sparks none; the undead that will rise takes the sight.
+        assert!(app.world().get::<crate::undead::Bursts>(dead).is_some());
+        assert!(app.world().get::<crate::undead::Bursts>(rises).is_none());
         assert_eq!(bursts(&mut app), 1);
         assert!(app.world().resource::<Waiting>().0.is_empty());
     }
