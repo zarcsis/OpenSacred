@@ -2297,7 +2297,12 @@ fn act(
                     object: true,
                     mount: false,
                 });
-                crate::lightning_strikes::strike(&mut commands, place.translation(), true);
+                crate::lightning_strikes::strike(
+                    &mut commands,
+                    act.target,
+                    place.translation(),
+                    true,
+                );
             }
             spell => {
                 let Some(area) = spells::area(spell) else {

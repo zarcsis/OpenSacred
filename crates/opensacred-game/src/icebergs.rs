@@ -5,9 +5,9 @@
 //! fall and bounce, and stands its iceberg (`ICEBERG0N.GRN` in `ICEBERG`, lit as the world's
 //! models are) over a wider glow; its light of 150 with it
 //! (`opensacred_rules::particles::Iceberg`). The strike, the glows and the sparks are untinted by
-//! the night.
-//!
-//! Not followed: the strike over all else (its depth test off, `0x78DED0`).
+//! the night. The strike, which the original draws with its depth not tested (`0x78DED0`), lies at
+//! one depth of its object's place in the order (`fx::Quads::at_order`, #3156): over what the
+//! order draws before it, under what it draws after.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -237,12 +237,17 @@ fn run(
                 ramp.at(spark.life),
             );
         }
-        // At its object's place in the order, as the original draws the system (#2188).
+        // At its object's place in the order, as the original draws the system (#2188); its
+        // strike, of the first four meshes, at one depth there, its depth not tested (#3156).
         let origin = place.translation();
         let order = orders.at(origin);
-        for (handle, mut part) in look.parts.iter().zip(quads) {
+        for (k, (handle, mut part)) in look.parts.iter().zip(quads).enumerate() {
             if let Some(mut mesh) = meshes.get_mut(handle) {
-                part.in_order(order, origin);
+                if k < particles::ICE_STRIKES.len() {
+                    part.at_order(order, origin);
+                } else {
+                    part.in_order(order, origin);
+                }
                 part.into_mesh(&mut mesh);
             }
         }

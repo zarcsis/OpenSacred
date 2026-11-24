@@ -952,7 +952,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` draws it since #1092 (`lightning_strikes`, `opensacred_rules::particles::{LightningBolt, lightning_sparks}`, `fx::repeated_texture`): at what the Seraphim's lightning strikes, and at what a creature's lightning strikes in violet (#1852), its three bolts of 12 segments, its glow and its sparks (`puffs`), added whole and untinted by the night, its light of 200 while its sparks fall.
 **Seen** 2026-11-04 beside the original's frames in the chapel of 50,39: three slanting blue zigzags rising out of the frame from the goblin, a white flash at their foot and a shower of blue-white sparks after, alike.
-Not followed (#3156): the bolts over all else (their depth test off), and the system at the struck creature's neck ("Where it stands" above), its bolts' foot, its sparks and its glow, which the game lays at the strike's place on the ground (the original's flash was seen a little higher, at the goblin's body).
+Since #3156 the system stands at the struck creature's neck, else its root, following it while it lives ("Where it stands" above): its bolts' foot, its sparks' burst and its glow 2 under it; and its bolts and its glow lie at one depth after the struck creature's model in the order (`fx::Orders::borne_by`, `fx::Quads::at_order`; docs/decisions/drawing.md, "Effects at their bearers' places"), over the creature and what the order draws before them, as their depth not tested does.
 
 ## The light
 
@@ -1138,7 +1138,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` draws it since #1092 (`icebergs`, `opensacred_rules::particles::Iceberg`): each object that `spells` makes gets a look of its own at its place, its strike facing the camera and its glow, then its burst of sparks and its iceberg, untinted by the night but for the iceberg, its light of 150.
 **Seen** 2026-11-04 beside the original's frames at the Mage's start by day: white strikes of light flickering down at the objects' places, then white icebergs standing there over a glow, alike in size and place.
 **Seen** 2026-11-23 in the running original for #3169 (#3601; the Mage of level 1 at her start, 3292,2508, at 12:00, 35 of the level 1 by `arts make` on herself, six frames 0.5 s apart): four icebergs about her, tall white spires lit near white on their faces toward the upper left and pale blue-grey in their folds, with white sparks about their feet; the frames are kept for the comparison.
-Not followed: its strike over all else (its depth test off, #3156).
+Since #3156 its strike lies at one depth of its object's place in the order (`fx::Quads::at_order`), over what the order draws before it, as its depth not tested does; its glows and sparks keep their own depths.
 
 ## The chain lightning
 
@@ -2545,7 +2545,8 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
 It draws the overlays since #1092 too (`skins`, `opensacred_rules::spells::{cross_skin_grey, skin_shows}`), asked with the spells' effects as the strikes end: the stone skin's glow and its blink of 2 s, the crusader's strength's crosses and the quickening's speed, each a copy of the bearer's meshes added over them, dressed again on the new meshes where the model is made anew (the hero's is after the quickening; **hypothesis**: by its pace).
 **Seen** 2026-11-06 beside the original: the stone skin's pale glow over the Mage, alike in both; the quickening's blue skin brighter in the game than the original's (#2169).
   The skins' grey taken in the frame's values since #2169 ("The fire skin"), **seen** again at the Mage's start at 22:00 and the zoom 2, the frames about half a second apart over the pulse: the quickening's blue streaks over the Mage's own colours rise and fall in both, the bluish pixels' mean from (43, 55, 74) to (82, 101, 135) in the original and from (66, 74, 101) to (93, 109, 151) in the game, where it lay between (91, 105, 141) and (105, 122, 164) before, a pale blue all over; the crusader's crosses on the Seraphim faint in both, where the game's had laid white crosses over her body.
-Not followed: the strikes over all else (their depth test off, #3156), and whether the light follows its object's creature (**hypothesis**: it stands).
+Since #3156 the strikes and their glows lie at one depth after their bearer's model in the order (`fx::Orders::borne_by`, `fx::Quads::at_order`), over the bearer and what the order draws before them, as their depth not tested does.
+Not followed: whether the light follows its object's creature (**hypothesis**: it stands).
 Since #1092 the hero's water form wears its overlay too (`skins::Overlay::Water`, `models::Pass::Water`, `opensacred_rules::spells::WATER_SKIN_TEXTURE`), as its strike ends: its model's meshes, not its held items, take a material of `GRN_SHADETEXTURE02` taken by each fragment's normal turned back into the model's frame (glTF's x and −z, the model's x and y), lit, blended by its alpha with the alpha test, their depth written; then 2 s of that look and the plain model in turns.
 **Seen** 2026-11-06 beside the original at the Mage's start at 22:00: a faint translucent figure of light outlines, her head and limbs edged, her staff as it was, alike in both.
 Not followed: a script creature's water form (`ECS_SUPERFLUID`), which no record of any tree names.
