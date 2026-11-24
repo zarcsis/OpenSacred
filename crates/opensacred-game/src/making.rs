@@ -2692,6 +2692,11 @@ fn make(
                                 });
                                 if knocks_back(&mut dice.0, playing.level, mind) {
                                     let seconds = arts::jump_stun(mind.level);
+                                    // Its burning light for its hold, where the original's shows
+                                    // at the Gladiator for 0.5 s (`0x5009F6`; docs/decisions/
+                                    // arts.md, "Gladiator's jump's light at each creature it
+                                    // stuns").
+                                    crate::holding_sights::burn(&mut commands, entity, seconds);
                                     commands
                                         .entity(entity)
                                         .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
