@@ -1138,6 +1138,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 `opensacred-game` draws it since #1092 (`icebergs`, `opensacred_rules::particles::Iceberg`): each object that `spells` makes gets a look of its own at its place, its strike facing the camera and its glow, then its burst of sparks and its iceberg, untinted by the night but for the iceberg, its light of 150.
 **Seen** 2026-11-04 beside the original's frames at the Mage's start by day: white strikes of light flickering down at the objects' places, then white icebergs standing there over a glow, alike in size and place.
 **Seen** 2026-11-23 in the running original for #3169 (#3601; the Mage of level 1 at her start, 3292,2508, at 12:00, 35 of the level 1 by `arts make` on herself, six frames 0.5 s apart): four icebergs about her, tall white spires lit near white on their faces toward the upper left and pale blue-grey in their folds, with white sparks about their feet; the frames are kept for the comparison.
+Since #3169 its iceberg draws the device's specular highlight (`models::Specular`); its faces toward the light stay greyer than the original's near white (#3669).
 Since #3156 its strike lies at one depth of its object's place in the order (`fx::Quads::at_order`), over what the order draws before it, as its depth not tested does; its glows and sparks keep their own depths.
 
 ## The chain lightning
@@ -1790,7 +1791,7 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the runn
   - its rays, billboards of `PARTICLE_LINE01` of the flags `0x8D` (`0x761B00`: standing on their feet, turned, the ramp's colour, added by their alpha), the grid 1, the factor 0.125: each `0.125·size` to each side and `2·size` long from its foot at the ball's centre, at its angle in the screen's plane, so that thin rays up to about 74 long stand out about the ball, their feet hidden within the inner sphere, whose depth they test.
 - So a ball of flowing lava bobs about 45 over the point in a starburst of thin orange rays, growing in over two seconds and shrinking away over its last two; its strikes' beam is not its own (#2119).
 
-`opensacred-game` draws it since #1092 (`demon_fires`, `opensacred_rules::particles::{DemonFire, lava_frame}`): each demon fire's object of `spells` shows its two spheres in the lava's frames, the outer added, and its rays added and untinted by the night, their feet within the inner sphere left out (`Quads::push_ray`), as its depth hides them in the original; its shadow is not followed (#3162), its Direct3D light follows since #2106.
+`opensacred-game` draws it since #1092 (`demon_fires`, `opensacred_rules::particles::{DemonFire, lava_frame}`): each demon fire's object of `spells` shows its two spheres in the lava's frames, the outer added, and its rays added and untinted by the night, their feet within the inner sphere left out (`Quads::push_ray`), as its depth hides them in the original; its inner sphere's shadow on the ground under its point follows since #3162 (`shadows::Plane`), its Direct3D light since #2106.
 **Seen** 2026-11-05 beside the original: in both an orange lava ball in a starburst of thin rays over the point.
 
 ## The hell disk
@@ -1812,7 +1813,7 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the runn
   - its trail, billboards of the flags `0x0D` (`0x761B00`: the ramp's colour, added by their alpha), the grid 1, the factor 1.
 - So a small gyroscope of flowing lava whirls along its flight in a pulsing dull orange glow, trailing orange glows that light up a little behind it and fade within 1.3 s.
 
-`opensacred-game` draws it since #1092 (`hell_disks`, `opensacred_rules::particles::HellDisk`): each hell disk of `spells` shows its model at 0.08 of its size playing its clip's loop, in the lava's frames, lit in its own material and again added over itself on copies of its meshes, and its glow and its trail added and untinted by the night; stopped, it stays where its disk ended until its last glow; its shadow is not followed (#3162), its Direct3D light follows since #2106.
+`opensacred-game` draws it since #1092 (`hell_disks`, `opensacred_rules::particles::HellDisk`): each hell disk of `spells` shows its model at 0.08 of its size playing its clip's loop, in the lava's frames, lit in its own material and again added over itself on copies of its meshes, and its glow and its trail added and untinted by the night; stopped, it stays where its disk ended until its last glow; its shadow on the ground under it follows since #3162 (`shadows::Plane`), its Direct3D light since #2106.
 **Seen** 2026-11-05 beside the original: in both a whirling ring of lava at the goblin's neck in a bright orange glow, a curving trail of orange glows behind it.
 
 ## The `Hardhit`'s ray
@@ -1994,7 +1995,7 @@ Its FX event (`0x47`) takes the event's direction and the flag `0x40`, so the bu
 
 `opensacred-game` draws them since #1092 (`bubble_traps`, `opensacred_rules::particles::{BubbleTrap, SonarRing}`), in place of its stand-in ball: the bubble leaves its caster's right hand, its bush its clip's loop playing, along its flight; burst by an arrow (`bolts::Pops`), its glows from its bush's `Bone01` as its clip has it and its ring on the ground under it, both untinted by the night; since #3153 the bubble lights the world by 100 on the ground under it, by 150 once burst, and its ring by 200 (`daynight::Light`).
 **Seen** 2026-11-05 beside the original: the Wood Elf's bubble of the level 5, an orange ball of vines and green leaves alike in size flying from her hand; in the game her arrow burst it over a chasm, its green puff and the ring spreading on the chasm's floor (the original's arrow struck the goblin before it reached the bubble).
-Not followed: its bush's shadow (#3162).
+Its bush's shadow on the ground under it follows since #3162 (`shadows::Plane`).
 
 ## The soulcatcher
 
@@ -2053,7 +2054,7 @@ The two draw no particles: each object raises spikes about its place, its constr
 
 `opensacred-game` draws them since #1092 (`spikes`, `opensacred_rules::particles::{Spikes, SpikesKind}`), in place of the stand-in balls of flame: each object of `creature_casts`' rings and fan raises its 3, 6 or 10 spikes by the detail on the ground (`spikes_at`, #2817), its models in `Andukar_demon_512`, their glow added in copies of their meshes; the last stand-in ball of the bolts gone with them.
 **Seen** 2026-11-05 beside the original: Anducar's demon's rings about the Mage, a field of dark red spikes with glowing tips in both, the game's a little shorter and thinner; in the game alone, the demon prince 250's fan, its smaller spikes' tips orange, along his line to the Mage.
-Not followed: their shadows (#3162).
+Their shadows, at the highest detail alone, follow since #3162 (`shadows::Casts`).
 
 ## The element stones
 
@@ -2734,9 +2735,9 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
 - The run: the clock on, past its seconds stopped; its sparks aged; until stopped a spark every interval at a point at random on the blade from its point 0 to its point 1 between the frame before and this one (`0x766200`); stopped, it dies with its last spark.
 - The draw: its sparks as `PARTICLE_GLOW01` billboards in its colour at the alpha of their life, added by their alpha, untinted; at the top detail a trail behind each (steps of 0.01 s back along its velocity, each 0.03 smaller): its draw (`0x7C4000`) passes the billboards (the flags 3, the grid 1, the factor 1) its own one layer (`+0x20C0`, the life −300 a second) as the trail's at `DETAILLEVEL` 2 and none below (read 2026-11-23 for #3168, **confirmed** by code), so the trail is the bats' of "The Vampiress's casts", by the same draw (`0x761B00`), of that layer: of the half side `min(0.65, 0.63)` less 0.03 a step, up to 21; then a glow line (`0x40DA80`) from its point 0 to its point 1, `max(1, ⌊0.5·length⌋)` camera-facing quads of `PARTICLE_GLOW01` every 2 units, each of the half side 3 and a roll of up to 1 more, in the colour (255, 170, 101) opaque, added by their alpha, depth tested without writing it.
 
-`opensacred-game` draws it since #1092 (`hell_forces`, `opensacred_rules::particles::ForceOfHell`): at the spell's target, for each weapon that the bearer holds in a hand with both bones, sparks along its blade's sweep and its line of beads along the blade, for the effects' seconds, riding with the bearer and just behind its model (`fx::Orders`, #2178).
+`opensacred-game` draws it since #1092 (`hell_forces`, `opensacred_rules::particles::ForceOfHell`): at the spell's target, for each weapon that the bearer holds, sparks along its blade's sweep and its line of beads along the blade, for the effects' seconds, riding with the bearer and just behind its model (`fx::Orders`, #2178).
 **Seen** 2026-11-07 in the game (not beside the original): the Daemon's claw in a fight, an orange line along its blades and orange sparks about them.
-Not followed: the sparks' trails of the top detail, and an item without the bones, whose sparks the original makes at its bone 0 (#3168); the lower details' longer intervals follow since #2352 ("The emission").
+Since #3168 its sparks draw their trails at the top detail (`ForceOfHell::trail`), and an item without either bone takes its root for it, as the original its bone 0; the lower details' longer intervals follow since #2352 ("The emission").
 
 ## The Dwarf's burrowing
 
@@ -2750,8 +2751,9 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
   Then its phase's model at 1.2 times its size, turned about the upright by `t` (D3DX's turn about `z`), at its place, its texture coordinates moved by the texture transform (`0x8000`); first lit (`0x40D060`) in `Fx_dwarf_shield` moved by `(sin 0.285t, cos 0.193t)`, white at the alpha `⌊128·b⌋`, laid over by its alpha, depth tested and not written, culled, the specular on (`0x80`); then unlit (`0x40D310`) in `Fx_dwarf_shield2` moved by `(sin 0.247t, cos 0.125t)`, of the grey `⌊255·b⌋`, added.
 
 `opensacred-game` draws it since #1092 (`dwarf_burrows`, `opensacred_rules::particles::Burrow`): over the caster for its seconds, its four phases' models each made at the start and shown by its phase, the lit pass laid under his model by its alpha (`models::Pass::UnderBlended`, new) and the added one added under it (`Pass::Under`), their textures repeated both ways (`fx::wrapped_texture`), the glow just behind his model (`fx::Orders`, #2178); untinted.
-Not followed: the specular (#3169).
+Since #3169 its lit pass draws the device's specular highlight (`models::specular`, `standard.wesl`'s `SPECULAR`): the fixed function's Blinn-Phong term of the default material's power 30, in the light's colour, added after the texture.
 **Seen** 2026-11-23 in the running original for #3169 (#3601; the driver of #448, the Dwarf of level 1 at his start, 3470,2779, the clock held at 12:00, 57 of the level 1 by `arts make` on himself, six frames 0.7 s apart): a pale blue translucent dome of large flat facets about him, turning, its facets toward the upper left bright, near white at their brightest, the others grey-blue and nearly clear, so that the highlights move from facet to facet as it turns; the frames are kept for the comparison.
+**Seen** 2026-11-24 in the game at the Dwarf's start by noon at 1024 × 768, beside those frames: its facets toward the upper left brighter and whiter than before #3169, toward the original's near white, the others as they were.
 **Seen** 2026-11-07 in the game (not beside the original): the Dwarf of level 1 under a translucent faceted dome of pale blue and violet, built down over him as he leaps, a blue glow at his feet.
 
 ## The Dwarf's berserk
@@ -3374,7 +3376,7 @@ The last burnings of the 856 (`cParticleSystem_generic`, its virtual table `0x89
   So by the code a save keeps a gold arrow standing, and a load shows it where it stood.
   **Seen** 2026-11-22 in the running original (#3443), the Gladiator's game of `extquest1`, `extquest2` and `trigger2_2` by the stairs at 3787,337: a save, then its load through the saves' window, and the gold arrow stood over the stairs as before, the load's log rebuilding two systems of the type 856, the two arrows, among the others of the particles' part.
   The game's save keeps each arrow's place and colour since #3456 (`beacons`, `saves`), and its load sets them again in place of those that its start made.
-  Not followed: the arrow's specular highlights (its gold is duller than the original's, #3169).
+  Since #3169 its model draws the device's specular highlight (`models::Specular`, as the burrowing's dome); its upright faces seldom meet the half-way vector, so that it shows little, and the arrow stays duller than the original's as a whole, its faces toward the light darker (#3669: how `0x405C90` lights it is not read).
   **Seen** 2026-11-23 for #3169 (#3601; the driver of #448, the Gladiator's new game, `extquest1`, `extquest2` and `trigger2_2` run, the hero at 3787,337 at 12:00, three frames): the arrow a saturated yellow gold, the face turned toward the light an even bright yellow and its edges and the facets toward the upper left a lighter, near-white yellow, the faces turned away a deeper ochre, the thin gold ring about it; the frames are kept for the comparison.
 The butterflies fly (`butterflies`, #1073): as a sector of the butterflies' weather entries comes in, ten swarms an entry, each at a walkable cell of the sector at random (a place that `0x638CD0` admits; **estimate**: 40 tries), one in 31 with a glow; a swarm of 3 to 6 wanders at 20 to 40 units of the models a second and turns back where it may not go, its butterflies fluttering about the point 50 units above it, drawn by day as `BUTTERFLY01`'s 8 × 8 wing beats in their own colours at the alpha of their life, and as fireflies by the night's level, by the same billboards as the fires.
 Seen 2026-10-27 in 54,42: small coloured specks by noon; by night clusters of three to six yellow dots, which add to the frame after its night's colouring as the original's do, the butterflies' system drawn by the camera of what the night leaves untinted (#1191).

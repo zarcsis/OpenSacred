@@ -161,6 +161,8 @@ pub struct InOrder {
     #[uniform(108)]
     glows: Vec4,
     pass: Pass,
+    /// Whether it draws the device's specular highlights ([`specular`]).
+    specular: bool,
 }
 
 /// What the pipeline of a [`ModelMaterial`] depends on beyond Bevy's own material.
@@ -172,6 +174,7 @@ pub struct InOrderKey {
     water: bool,
     vision: bool,
     under: bool,
+    specular: bool,
 }
 
 impl From<&InOrder> for InOrderKey {
@@ -183,6 +186,7 @@ impl From<&InOrder> for InOrderKey {
             water: extension.pass == Pass::Water,
             vision: extension.pass == Pass::Vision,
             under: matches!(extension.pass, Pass::Under(_) | Pass::UnderBlended(_)),
+            specular: extension.specular,
         }
     }
 }
@@ -240,6 +244,9 @@ impl MaterialExtension for InOrder {
                 .shader_defs
                 .push("VERTEX_OUTPUT_INSTANCE_INDEX".into());
             fragment.shader_defs.push("LIT_BY_SLOT".into());
+            if key.bind_group_data.specular {
+                fragment.shader_defs.push("SPECULAR".into());
+            }
             if key.bind_group_data.fringe {
                 fragment.shader_defs.push("FRINGE".into());
             }
@@ -362,6 +369,20 @@ impl Ordered {
 #[derive(Component)]
 pub struct Sinks;
 
+/// The root of a model whose draw turns the device's specular highlights on (`SPECULARENABLE`;
+/// the gold arrow and the iceberg, `0x405C90`, #3169): its materials draw them ([`specular`]).
+#[derive(Component)]
+pub struct Specular;
+
+/// `material` with the device's specular highlights (`standard.wesl`'s `SPECULAR`): the
+/// default material's specular 1 of the power 30 (docs/re/effects.md, "The systems' Direct3D
+/// lights"), the fixed function's Blinn-Phong term in the light's colour added after the texture,
+/// as `SPECULARENABLE` adds it, where Bevy's own highlight is a far fainter spot.
+pub fn specular(mut material: ModelMaterial) -> ModelMaterial {
+    material.extension.specular = true;
+    material
+}
+
 /// The root of a [`Sinks`] model that stands in a liquid cell: its place in the order lies as far
 /// back as the liquid cells' miniatures ([`statics::UNDER_LIQUIDS_BACK`]), under the surfaces,
 /// and its translucent texels and its shadow are drawn in their layer ([`Layer::UnderLiquids`]).
@@ -396,6 +417,7 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
             offsets: Vec4::ZERO,
             glows: Vec4::ZERO,
             pass,
+            specular: false,
         },
     }
 }
@@ -827,7 +849,7 @@ fn copy_of(
 pub fn convert(
     mut commands: Commands,
     models: Query<(Entity, Option<&OrderedWith>), With<Unplaced>>,
-    roots: Query<(&Ordered, Has<Sunk>)>,
+    roots: Query<(&Ordered, Has<Sunk>, Has<Specular>)>,
     children: Query<&Children>,
     meshes: Query<ModelMesh>,
     veiled: Query<(), With<Veiled>>,
@@ -843,7 +865,7 @@ pub fn convert(
     let shown = crate::model_effects::shown(settings.as_deref());
     'models: for (model, with) in &models {
         let root = with.map_or(model, |with| with.0);
-        let Ok((Ordered(Some(slot)), sunk)) = roots.get(root) else {
+        let Ok((Ordered(Some(slot)), sunk, glossy)) = roots.get(root) else {
             commands.entity(model).remove::<Unplaced>();
             unveil(&mut commands, &children, &veiled, model);
             continue;
@@ -864,6 +886,18 @@ pub fn convert(
             ) else {
                 continue 'models;
             };
+            // Its specular highlights where its draw turns them on: the materials of its own
+            // texture, which no other model shares (`npcs::Retexture`).
+            if glossy {
+                let fringes = plain.fringe.iter().flat_map(|f| [&f.dry, &f.wet]);
+                for handle in std::iter::once(&plain.mesh).chain(fringes) {
+                    if let Some(mut made) = materials.get_mut(handle)
+                        && !made.extension.specular
+                    {
+                        made.extension.specular = true;
+                    }
+                }
+            }
             // Its pulse's copy, the effect texture unlit and added over it (#1850).
             if let Some(Pulse(texture)) = pulse {
                 let added = converted
