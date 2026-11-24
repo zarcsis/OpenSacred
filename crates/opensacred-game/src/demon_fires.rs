@@ -3,7 +3,9 @@
 //! lit and the outer added over it, turning against each other's pace, and a starburst of thin
 //! orange rays about it, added and untinted by the night
 //! (`opensacred_rules::particles::DemonFire`); it grows in over its first two seconds and shrinks
-//! away over its last two, making no rays once it strikes no more.
+//! away over its last two, making no rays once it strikes no more. Its inner sphere casts its
+//! shadow on the ground under its point, shifted by half its height (`shadows::Plane`,
+//! `0x7B2F7D`, #3162).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -96,20 +98,26 @@ fn show(
                     rays.map(|image| effects.add(particle_material(image, AlphaMode::Add)));
             }
         }
-        let mut sphere = || {
+        let mut sphere = |inner: bool| {
             looks.model.as_ref().map(|model| {
-                commands
-                    .spawn((
-                        models::scene(&assets, model),
-                        Transform::from_translation(place.translation).with_scale(Vec3::ZERO),
-                        models::Ordered::default(),
-                        SphereOf(entity),
-                        DespawnOnExit(AppState::InGame),
-                    ))
-                    .id()
+                let mut made = commands.spawn((
+                    models::scene(&assets, model),
+                    Transform::from_translation(place.translation).with_scale(Vec3::ZERO),
+                    models::Ordered::default(),
+                    SphereOf(entity),
+                    DespawnOnExit(AppState::InGame),
+                ));
+                // The inner sphere's shadow on the ground under the fire's point (`0x406FF0`).
+                if inner {
+                    made.insert((
+                        crate::shadows::Casts,
+                        crate::shadows::Plane(place.translation.y),
+                    ));
+                }
+                made.id()
             })
         };
-        let spheres = [sphere(), sphere()];
+        let spheres = [sphere(true), sphere(false)];
         let mesh = meshes.add(empty());
         // Its Direct3D light 45 over its place (`0x7B2B00`, `0x7B2DF0`; its wobble of 3 left out).
         commands.spawn(crate::fx_lights::light(

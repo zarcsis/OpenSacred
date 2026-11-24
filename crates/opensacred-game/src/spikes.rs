@@ -3,7 +3,8 @@
 //! spikes about its place as the wave comes to them, one of five models at random, turned and
 //! sized at random, lit in their texture and their glow added over them, the prince's in the
 //! colour of his type; each rises in half a second, stands and sinks back
-//! (`opensacred_rules::particles::Spikes`).
+//! (`opensacred_rules::particles::Spikes`). At the highest detail alone each casts its shadow from
+//! its foot (`0x7C03E3`, `0x7C0BF3`, #3162).
 
 use bevy::camera::visibility::{DynamicSkinnedMeshBounds, NoFrustumCulling};
 use bevy::mesh::MeshTag;
@@ -93,7 +94,10 @@ struct Shown {
 /// Gives each new object its spikes (`0x7C04B0`, `0x7C0CC0`).
 fn raise(
     mut commands: Commands,
-    objects: Query<&Raise, Added<Raise>>,
+    (objects, settings): (
+        Query<&Raise, Added<Raise>>,
+        Option<Res<crate::settings::Settings>>,
+    ),
     (data, assets, mut looks, mut dice): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -101,6 +105,8 @@ fn raise(
         ResMut<Dice>,
     ),
 ) {
+    // Their shadows at the highest detail alone (`DETAILLEVEL` 2).
+    let shadowed = crate::settings::detail(settings.as_deref()) == 2;
     for raise in &objects {
         looks.make(data.as_deref(), &assets);
         debug!("spikes: {:?} at {}", raise.kind, raise.ground);
@@ -120,6 +126,9 @@ fn raise(
                 ));
                 if let Some(texture) = &looks.texture {
                     made.insert(Retexture::load(&assets, texture));
+                }
+                if shadowed {
+                    made.insert(crate::shadows::Casts);
                 }
                 Some(made.id())
             })

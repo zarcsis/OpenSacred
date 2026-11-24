@@ -1785,7 +1785,7 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the runn
   - its rays, billboards of `PARTICLE_LINE01` of the flags `0x8D` (`0x761B00`: standing on their feet, turned, the ramp's colour, added by their alpha), the grid 1, the factor 0.125: each `0.125·size` to each side and `2·size` long from its foot at the ball's centre, at its angle in the screen's plane, so that thin rays up to about 74 long stand out about the ball, their feet hidden within the inner sphere, whose depth they test.
 - So a ball of flowing lava bobs about 45 over the point in a starburst of thin orange rays, growing in over two seconds and shrinking away over its last two; its strikes' beam is not its own (#2119).
 
-`opensacred-game` draws it since #1092 (`demon_fires`, `opensacred_rules::particles::{DemonFire, lava_frame}`): each demon fire's object of `spells` shows its two spheres in the lava's frames, the outer added, and its rays added and untinted by the night, their feet within the inner sphere left out (`Quads::push_ray`), as its depth hides them in the original; its shadow is not followed (#3162), its Direct3D light follows since #2106.
+`opensacred-game` draws it since #1092 (`demon_fires`, `opensacred_rules::particles::{DemonFire, lava_frame}`): each demon fire's object of `spells` shows its two spheres in the lava's frames, the outer added, and its rays added and untinted by the night, their feet within the inner sphere left out (`Quads::push_ray`), as its depth hides them in the original; its inner sphere's shadow on the ground under its point follows since #3162 (`shadows::Plane`), its Direct3D light since #2106.
 **Seen** 2026-11-05 beside the original: in both an orange lava ball in a starburst of thin rays over the point.
 
 ## The hell disk
@@ -1807,7 +1807,7 @@ Read 2026-11-05 for #1092 in Ghidra (**confirmed** by code) and seen in the runn
   - its trail, billboards of the flags `0x0D` (`0x761B00`: the ramp's colour, added by their alpha), the grid 1, the factor 1.
 - So a small gyroscope of flowing lava whirls along its flight in a pulsing dull orange glow, trailing orange glows that light up a little behind it and fade within 1.3 s.
 
-`opensacred-game` draws it since #1092 (`hell_disks`, `opensacred_rules::particles::HellDisk`): each hell disk of `spells` shows its model at 0.08 of its size playing its clip's loop, in the lava's frames, lit in its own material and again added over itself on copies of its meshes, and its glow and its trail added and untinted by the night; stopped, it stays where its disk ended until its last glow; its shadow is not followed (#3162), its Direct3D light follows since #2106.
+`opensacred-game` draws it since #1092 (`hell_disks`, `opensacred_rules::particles::HellDisk`): each hell disk of `spells` shows its model at 0.08 of its size playing its clip's loop, in the lava's frames, lit in its own material and again added over itself on copies of its meshes, and its glow and its trail added and untinted by the night; stopped, it stays where its disk ended until its last glow; its shadow on the ground under it follows since #3162 (`shadows::Plane`), its Direct3D light since #2106.
 **Seen** 2026-11-05 beside the original: in both a whirling ring of lava at the goblin's neck in a bright orange glow, a curving trail of orange glows behind it.
 
 ## The `Hardhit`'s ray
@@ -1989,7 +1989,7 @@ Its FX event (`0x47`) takes the event's direction and the flag `0x40`, so the bu
 
 `opensacred-game` draws them since #1092 (`bubble_traps`, `opensacred_rules::particles::{BubbleTrap, SonarRing}`), in place of its stand-in ball: the bubble leaves its caster's right hand, its bush its clip's loop playing, along its flight; burst by an arrow (`bolts::Pops`), its glows from its bush's `Bone01` as its clip has it and its ring on the ground under it, both untinted by the night; since #3153 the bubble lights the world by 100 on the ground under it, by 150 once burst, and its ring by 200 (`daynight::Light`).
 **Seen** 2026-11-05 beside the original: the Wood Elf's bubble of the level 5, an orange ball of vines and green leaves alike in size flying from her hand; in the game her arrow burst it over a chasm, its green puff and the ring spreading on the chasm's floor (the original's arrow struck the goblin before it reached the bubble).
-Not followed: its bush's shadow (#3162).
+Its bush's shadow on the ground under it follows since #3162 (`shadows::Plane`).
 
 ## The soulcatcher
 
@@ -2048,7 +2048,7 @@ The two draw no particles: each object raises spikes about its place, its constr
 
 `opensacred-game` draws them since #1092 (`spikes`, `opensacred_rules::particles::{Spikes, SpikesKind}`), in place of the stand-in balls of flame: each object of `creature_casts`' rings and fan raises its 3, 6 or 10 spikes by the detail on the ground (`spikes_at`, #2817), its models in `Andukar_demon_512`, their glow added in copies of their meshes; the last stand-in ball of the bolts gone with them.
 **Seen** 2026-11-05 beside the original: Anducar's demon's rings about the Mage, a field of dark red spikes with glowing tips in both, the game's a little shorter and thinner; in the game alone, the demon prince 250's fan, its smaller spikes' tips orange, along his line to the Mage.
-Not followed: their shadows (#3162).
+Their shadows, at the highest detail alone, follow since #3162 (`shadows::Casts`).
 
 ## The element stones
 

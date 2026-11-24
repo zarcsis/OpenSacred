@@ -84,10 +84,19 @@ pub const MASK_LAYER: usize = 21;
 
 /// The root of a model that casts a shadow: the hero, an NPC whose creature has no flag `0x10`
 /// (`NOSHADOW`, `0x426D30`), a script's object (a `CreateObj` record) of category 4, which the
-/// client makes a `cChest3D` (`0x451300`, whose draw `0x5C97B0` draws the shadow), and an arrow
-/// (`cArrow3D`, `0x5BAF00`).
+/// client makes a `cChest3D` (`0x451300`, whose draw `0x5C97B0` draws the shadow), an arrow
+/// (`cArrow3D`, `0x5BAF00`), and the models of four effects: the demon fire's inner sphere, the
+/// hell disk, the bubble's bush and the spikes, these at the highest detail alone (#3162;
+/// docs/re/effects.md, "The effects' models' shadows").
 #[derive(Component)]
 pub struct Casts;
+
+/// The height of the plane that a caster's shadow falls on, where it is not its root's: the
+/// ground's under an effect's model that flies (the demon fire's sphere, the hell disk, the
+/// bubble), as the effects' draws pass `0x406FF0` the system's height less its height over the
+/// ground (`0x5A9A6D`), so that it casts on the ground under it, shifted by half its height.
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
+pub struct Plane(pub f32);
 
 /// The copy of a model's mesh that draws its shadow.
 #[derive(Component)]
@@ -636,21 +645,22 @@ fn soak(
     }
 }
 
-/// Keeps every caster's root in the shader's buffer.
+/// Keeps every caster's root in the shader's buffer, its height its [`Plane`]'s where it has one.
 pub fn ground(
-    roots: Query<(&Transform, &Ordered), With<Casts>>,
+    roots: Query<(&Transform, &Ordered, Option<&Plane>), With<Casts>>,
     mut grounds: ResMut<Grounds>,
     mut buffers: ResMut<Assets<ShaderBuffer>>,
 ) {
     let mut changed = false;
-    for (transform, ordered) in &roots {
+    for (transform, ordered, plane) in &roots {
         let Some(slot) = ordered.slot().and_then(|slot| usize::try_from(slot).ok()) else {
             continue;
         };
         if grounds.roots.len() <= slot {
             grounds.roots.resize(slot + 1, Vec4::ZERO);
         }
-        let root = transform.translation.extend(0.0);
+        let at = transform.translation;
+        let root = plane.map_or(at, |plane| at.with_y(plane.0)).extend(0.0);
         if grounds.roots[slot] != root {
             grounds.roots[slot] = root;
             changed = true;
