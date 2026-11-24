@@ -336,12 +336,17 @@ fn hire(world: &mut World, entity: Entity, master: Entity, listed: bool) {
     if let Some(mut way) = creature.get_mut::<InTheWay>() {
         way.stands.hostile = false;
     }
-    creature.insert(Follower {
-        master,
-        stepping_off: false,
-        escorted: false,
-        listed,
-    });
+    // Woken as it is hired, its sight running where it sees the hero (`sdk_HIRE`, `0x54CFD6`,
+    // #3149).
+    creature.insert((
+        Follower {
+            master,
+            stepping_off: false,
+            escorted: false,
+            listed,
+        },
+        crate::ai::Woken,
+    ));
     info!("followers: {master} hires {entity}");
 }
 

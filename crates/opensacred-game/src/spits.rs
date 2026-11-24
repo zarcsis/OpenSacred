@@ -254,7 +254,15 @@ fn bear(world: &mut World, (place, layer): (Vec3, Level), count: u32, level: u32
         roams: false,
     };
     match world.run_system_cached_with(crate::npcs::spawn_creatures, request) {
-        Ok(Ok(made)) => debug!("spits: young spiders {made:?}"),
+        Ok(Ok(made)) => {
+            debug!("spits: young spiders {made:?}");
+            // Each woken, its sight running where it sees the hero (`0x4E58E4`, #3149).
+            for young in made {
+                if let Ok(mut young) = world.get_entity_mut(young) {
+                    young.insert(crate::ai::Woken);
+                }
+            }
+        }
         Ok(Err(e)) => warn!("spits: no young spider is made: {e}"),
         Err(e) => warn!("spits: no young spider is made: {e}"),
     }
