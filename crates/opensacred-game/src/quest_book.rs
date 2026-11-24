@@ -470,14 +470,44 @@ const CLASS_PICTURE: f32 = 256.0;
 const PICTURE_MIDDLE: f32 = 684.0;
 
 /// The picture of a leaf's right page (`0x6B1FF0`): none, an art's icon (an image) at its own size,
-/// or the circle of a main quest's item of a height in cells (its model not followed, #3547). The
-/// class's picture is its chapter's own ([`Chapter::own`]).
+/// or the circle of a main quest's item, its type turning over it ([`circle_model`], #3547), of
+/// its type's height in cells. The class's picture is its chapter's own ([`Chapter::own`]).
 #[derive(Clone, Debug, PartialEq)]
 enum Picture {
     None,
     Icon(u32),
-    Circle(u8),
+    Circle { item: u32, cells: u8 },
 }
+
+/// The circle's model (`0x6B2586` to `0x6B2632`): the render layer its picture's camera draws, its
+/// origin's point on the original's screen, and the scale it takes its type's pose at, as the
+/// backpack's draw of items (`0x40E9C0`, `0x434270`) where the grid passes 1.
+const MODEL_LAYER: usize = 22;
+const MODEL_AT: Vec2 = Vec2::new(701.0, 391.0);
+const MODEL_SCALE: f32 = 2.5;
+/// The model's rocking (`0x6B2586`): `0.2·sin(1.03541·t)` radians about the screen's x and
+/// `0.2·sin(0.9142·t)` about its up axis, `t` the seconds it has been drawn.
+const ROCK: f32 = 0.2;
+const ROCK_X: f32 = 1.035_41;
+const ROCK_UP: f32 = 0.914_2;
+
+/// The circle's model's picture: its camera, its light and the model, taken away with the book's
+/// page.
+#[derive(Component, Clone)]
+struct BookScene;
+
+/// The circle's model, its origin's point and its type's pose at [`MODEL_SCALE`], which [`rock`]
+/// turns by the rocking after the pose.
+#[derive(Component)]
+struct Rocks {
+    centre: Vec3,
+    pose: Transform,
+}
+
+/// The seconds the circle's model has been drawn, growing by the real time of each frame that
+/// draws it and standing while none does (`0x6B2652`).
+#[derive(Resource, Default)]
+struct Rocking(f32);
 
 /// A row of the hero's or the information's book and the item its right page shows: its title,
 /// its text and its picture.
@@ -622,7 +652,7 @@ fn other_books(
                     .to_owned(),
                 text: record(*item)
                     .map_or_else(String::new, |record| indexed(texts, record.words_14[2])),
-                picture: Picture::Circle(cells),
+                picture: Picture::Circle { item: *item, cells },
             }
         } else {
             Leaf {
@@ -631,7 +661,7 @@ fn other_books(
                     .map(crate::talk::shown_text)
                     .unwrap_or_default(),
                 text: String::new(),
-                picture: Picture::Circle(cells),
+                picture: Picture::Circle { item: *item, cells },
             }
         };
         heros[4].leaves.push(leaf);
@@ -1000,7 +1030,7 @@ impl Model {
         let later = fits(height).max(1);
         let first = match leaf.as_ref().map(|leaf| &leaf.picture) {
             Some(Picture::Icon(_)) => fits(height - ICON_SIDE - ICON_BELOW),
-            Some(Picture::Circle(cells)) => {
+            Some(Picture::Circle { cells, .. }) => {
                 fits(height - CIRCLE_CELL * f32::from(*cells) - CIRCLE_BELOW)
             }
             _ if picture => fits(height - PICTURE_ROOM),
@@ -2069,6 +2099,8 @@ type Histories<'w> = (
     Option<Res<'w, crate::statistics::History>>,
     Option<Res<'w, crate::pickup::Pack>>,
     ResMut<'w, Assets<Image>>,
+    ResMut<'w, Assets<crate::choice::Layer>>,
+    Option<Res<'w, crate::drops::Tables>>,
 );
 
 /// What the book shows, made again as it changes.
@@ -2091,11 +2123,85 @@ struct Look {
     graph: Option<Graph>,
 }
 
+/// Spawns the circle's model of the type `item` into the book's `root`, a picture over the
+/// original's screen at the window's pixels' `scale` that its own camera draws
+/// (`backpack::spawn_picture`): the type's model, unlit (`backpack::Matte`, the draw's flags 0
+/// lighting nothing), its origin at [`MODEL_AT`], its pose at [`MODEL_SCALE`] (`0x6B2586`,
+/// `0x40E9C0`; docs/re/questbook.md, "The hero's book (type 1, `0x6B0E00`)", #3547); none for a
+/// type of no model.
+fn circle_model(
+    commands: &mut Commands,
+    root: Entity,
+    (tables, assets): (&crate::drops::Tables, &AssetServer),
+    (targets, layers): (&mut Assets<Image>, &mut Assets<crate::choice::Layer>),
+    (scale, item): (f32, u32),
+) {
+    let Some((model, texture, pose)) = tables.look(item) else {
+        return;
+    };
+    let picture = commands
+        .spawn((bar::placed(Vec2::ZERO, bar::SCREEN), Pickable::IGNORE))
+        .id();
+    commands.entity(root).add_child(picture);
+    crate::backpack::spawn_picture(
+        commands,
+        (targets, layers),
+        scale,
+        (picture, bar::SCREEN),
+        (MODEL_LAYER, BookScene),
+    );
+    let centre = Vec3::new(MODEL_AT.x, -MODEL_AT.y, 0.0);
+    let mut posed = crate::backpack::posed(Vec3::ZERO, pose);
+    posed.scale *= MODEL_SCALE;
+    let mut entity = commands.spawn((
+        BookScene,
+        crate::backpack::Matte,
+        crate::models::scene(assets, model),
+        Transform::from_translation(centre) * posed,
+        Rocks {
+            centre,
+            pose: posed,
+        },
+        bevy::camera::visibility::RenderLayers::layer(MODEL_LAYER),
+        DespawnOnExit(AppState::InGame),
+    ));
+    if let Some(texture) = texture {
+        entity.insert(crate::npcs::Retexture::load(assets, texture));
+    }
+}
+
+/// The rocking at `t` seconds drawn (`0x6B2586`: `Rx(0.2·sin(1.03541·t))·Rz(0.2·sin(0.9142·t))`
+/// after the pose, row vectors), about the screen's x and its up axis in the models' frame, the
+/// original's frame's y mirrored (`backpack::posed`) turning each the other way.
+fn rocked(t: f32) -> Quat {
+    let about_x = ROCK * (ROCK_X * t).sin();
+    let about_up = ROCK * (ROCK_UP * t).sin();
+    Quat::from_rotation_y(-about_up) * Quat::from_rotation_x(-about_x)
+}
+
+/// Turns the circle's model by its rocking after its pose, about its origin, and adds the frame's
+/// real time to the seconds it has been drawn while one shows (`0x6B2652`).
+fn rock(
+    time: Res<Time<bevy::time::Real>>,
+    mut rocking: ResMut<Rocking>,
+    mut models: Query<(&mut Transform, &Rocks)>,
+) {
+    if models.is_empty() {
+        return;
+    }
+    let turn = Transform::from_rotation(rocked(rocking.0));
+    for (mut transform, rocks) in &mut models {
+        *transform = Transform::from_translation(rocks.centre) * turn * rocks.pose;
+    }
+    rocking.0 += time.delta_secs();
+}
+
 /// Makes the book as it shows and as it changes, and takes it away as it hides.
 #[expect(
     clippy::too_many_lines,
     clippy::too_many_arguments,
-    reason = "the book's pieces read best in their order"
+    clippy::type_complexity,
+    reason = "the book's pieces read best in their order; a Bevy system takes its queries with               their filters"
 )]
 fn show(
     mut commands: Commands,
@@ -2105,7 +2211,7 @@ fn show(
     (measures, minimaps): (Res<Measures>, Res<crate::minimap::Minimaps>),
     hero: Option<Res<crate::hero::Hero>>,
     live: Option<NonSend<crate::scripts::Live>>,
-    roots: Query<Entity, With<BookRoot>>,
+    roots: Query<Entity, Or<(With<BookRoot>, With<BookScene>)>>,
     mut was: Local<Option<Look>>,
     (tally, sectors, data): (
         Option<Res<crate::statistics::Tally>>,
@@ -2113,7 +2219,7 @@ fn show(
         Option<Res<crate::game::Data>>,
     ),
     (kills, portraits, heroes): Foes,
-    (history, pack, mut images_made): Histories,
+    (history, pack, mut images_made, mut layers, tables): Histories,
 ) {
     let texts = texts.as_deref();
     let model = book.shown.then(|| Model::of(&book, texts, &measures));
@@ -2437,8 +2543,8 @@ fn show(
             );
             (top + size.y + ICON_BELOW, model.first, 0)
         }
-        (0, _) if matches!(leaf_picture, Some(Picture::Circle(_))) => {
-            let Some(Picture::Circle(cells)) = leaf_picture else {
+        (0, _) if matches!(leaf_picture, Some(Picture::Circle { .. })) => {
+            let Some(&Picture::Circle { item, cells }) = leaf_picture else {
                 return;
             };
             if let Some(file) = images.file(CIRCLE) {
@@ -2450,8 +2556,18 @@ fn show(
                     ),
                 );
             }
+            if let Some(tables) = tables.as_deref() {
+                let scale = ui_scale.0 * windows.single().map_or(1.0, Window::scale_factor);
+                circle_model(
+                    &mut commands,
+                    root,
+                    (tables, &assets),
+                    (&mut images_made, &mut layers),
+                    (scale, item),
+                );
+            }
             (
-                top + CIRCLE_CELL * f32::from(*cells) + CIRCLE_BELOW,
+                top + CIRCLE_CELL * f32::from(cells) + CIRCLE_BELOW,
                 model.first,
                 0,
             )
@@ -2676,6 +2792,7 @@ impl Plugin for QuestBookPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Book>()
             .init_resource::<Measures>()
+            .init_resource::<Rocking>()
             .hold_clicks(off_the_book)
             .add_systems(OnEnter(AppState::InGame), reset)
             .add_systems(
@@ -2696,6 +2813,7 @@ impl Plugin for QuestBookPlugin {
                     show,
                     tooltip,
                     foe_tip,
+                    rock,
                 )
                     .chain()
                     .after(crate::inventory::Opened)
@@ -2707,6 +2825,26 @@ impl Plugin for QuestBookPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_circles_model_rocks_by_its_two_sines() {
+        assert!(rocked(0.0).angle_between(Quat::IDENTITY) < 1e-6);
+        // At a quarter of the turn about x the tilt about x is the whole 0.2, and about the up
+        // axis 0.2·sin(0.9142·t).
+        let t = std::f32::consts::FRAC_PI_2 / ROCK_X;
+        let (about_up, about_x, about_z) = rocked(t).to_euler(EulerRot::YXZ);
+        assert!((about_x + ROCK).abs() < 1e-5, "{about_x}");
+        assert!(
+            (about_up + ROCK * (ROCK_UP * t).sin()).abs() < 1e-5,
+            "{about_up}"
+        );
+        assert!(about_z.abs() < 1e-5);
+        // Never more than 0.2 about either.
+        for k in 0..200 {
+            let (up, x, _) = rocked(k as f32 * 0.37).to_euler(EulerRot::YXZ);
+            assert!(up.abs() <= ROCK + 1e-5 && x.abs() <= ROCK + 1e-5);
+        }
+    }
 
     #[test]
     fn a_latest_foes_portrait_asks_its_tooltip_over_its_upper_16_rows() {
