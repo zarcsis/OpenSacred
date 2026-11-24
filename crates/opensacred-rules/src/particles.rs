@@ -7350,6 +7350,63 @@ impl ClubRing {
     }
 }
 
+/// The way an explosive arrow or a homing blade flies between two of its trail's systems, and
+/// half the way each system spans along its direction (`0x890974`, the event `0x26`'s 20 at
+/// `0x890798`).
+pub const ARROW_TRAIL_EVERY: f32 = 40.0;
+pub const ARROW_TRAIL_HALF: f32 = 20.0;
+/// The trail's texture and its glows.
+pub const ARROW_TRAIL_TEXTURE: &str = "PARTICLE_GLOW03";
+const ARROW_TRAIL_COUNT: usize = 20;
+
+/// A piece of the trail of the explosive arrow 1004 and of the homing blades 1008 (807
+/// `FX_ARROWTRAIL`, `cParticleSystem_arrowtrail`, its start `0x783400` of the variant 0, its run
+/// `0x7830A0`, its draw `0x783190`; docs/re/effects.md, "The Wood Elf's arrows' sights", #3131),
+/// between its points 0 and 1 (`from`, `to`, the event `0x26`'s, 20 to either side of its place
+/// along the arrow's way): twenty glows at once at points at random between them (`0x766200`),
+/// each within 3 of its point on each axis, of the size 7 ± 5 shrinking by 8 a second, so dying
+/// within 0.25 to 1.5 s, rising at the buoyancy −30 ± 4, each of its own colour (80, 224, 80) ±
+/// (64, 31, 64), added whole and not turned, untinted.
+pub fn arrow_trail((from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) -> Burst {
+    let byte = |c: f32| c / 255.0;
+    let block = Block {
+        buoyancy: spread(-30.0, 4.0),
+        size: spread(7.0, 5.0),
+        offset: spread([0.0; 3], [3.0; 3]),
+        colour: spread(
+            [byte(80.0), byte(224.0), byte(80.0)],
+            [byte(64.0), byte(31.0), byte(64.0)],
+        ),
+        ..Block::default()
+    };
+    let particles = (0..ARROW_TRAIL_COUNT)
+        .map(|_| {
+            let mut glow = born(&block, 0, dice);
+            let t = spread_f32(spread(0.5, 0.5), dice);
+            for (k, axis) in glow.place.iter_mut().enumerate() {
+                *axis += from[k] + (to[k] - from[k]) * t;
+            }
+            glow
+        })
+        .collect();
+    Burst {
+        texture: ARROW_TRAIL_TEXTURE,
+        grid: 1,
+        blend: Blend::Whole,
+        layer: Layer {
+            life: -1.0,
+            size: -8.0,
+            ..Layer::default()
+        },
+        ramp: Ramp([[1.0; 4]; 256]),
+        particles,
+        ground: None,
+        light: 0.0,
+        tinted: false,
+        stream: None,
+    }
+}
+
 /// The spider arrow's smoke's texture and its puffs.
 pub const SPIDER_SMOKE_TEXTURE: &str = "PARTICLE_SMOKE01";
 const SPIDER_SMOKE_COUNT: usize = 10;
@@ -18794,6 +18851,46 @@ mod tests {
         // The club arrow's and the spider arrow's are their own looks.
         assert_eq!(sparks_of(1007), None);
         assert_eq!(sparks_of(1006), None);
+    }
+
+    #[test]
+    fn an_arrows_trail_lays_twenty_green_glows_along_its_way_that_rise_and_shrink_away() {
+        let mut dice = Rng::of(7, 8, 7);
+        let trail = arrow_trail(([-20.0, 0.0, 0.0], [20.0, 0.0, 0.0]), &mut dice);
+        assert_eq!(trail.particles.len(), 20);
+        assert_eq!(
+            (trail.texture, trail.blend),
+            ("PARTICLE_GLOW03", Blend::Whole)
+        );
+        assert_eq!((trail.layer.life, trail.layer.size), (-1.0, -8.0));
+        assert_eq!(trail.ramp.0[17], [1.0; 4]);
+        for glow in &trail.particles {
+            // Along its way, within 3 of it.
+            assert!(glow.place[0].abs() <= 23.0, "{:?}", glow.place);
+            assert!(glow.place[1].abs() <= 3.0 && glow.place[2].abs() <= 3.0);
+            assert!((2.0..=12.0).contains(&glow.size), "{}", glow.size);
+            assert!(
+                (-34.0..=-26.0).contains(&glow.buoyancy),
+                "{}",
+                glow.buoyancy
+            );
+            let [r, g, b] = glow.colour.map(|c| c * 255.0);
+            assert!(
+                (16.0..=144.0).contains(&r) && (193.0..=255.0).contains(&g),
+                "{r} {g}"
+            );
+            assert!((16.0..=144.0).contains(&b), "{b}");
+        }
+        // Spread over its whole way, both halves.
+        assert!(trail.particles.iter().any(|glow| glow.place[0] < -8.0));
+        assert!(trail.particles.iter().any(|glow| glow.place[0] > 8.0));
+        // Each its own shade.
+        assert!(
+            trail
+                .particles
+                .windows(2)
+                .any(|pair| pair[0].colour != pair[1].colour)
+        );
     }
 
     #[test]
