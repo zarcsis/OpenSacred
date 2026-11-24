@@ -324,6 +324,7 @@ pub(crate) fn resolve(
                     Option<&Downed>,
                     Option<&KnockMarks>,
                     Option<&crate::npcs::ScriptClip>,
+                    Option<&crate::hero_defence::Defending>,
                 ),
                 (
                     Has<crate::followers::Follower>,
@@ -377,7 +378,7 @@ pub(crate) fn resolve(
                     guarded,
                     arms,
                     seat,
-                    (downed, knock_marks, clip),
+                    (downed, knock_marks, clip, hero_defends),
                     (followed, rises, talks, on_death, undead_marked),
                 ),
             )),
@@ -447,12 +448,20 @@ pub(crate) fn resolve(
             }
         }
         // A defender in its defending clip, a parry's or a script's (the slots 53 to 65), doubles
-        // its defence (`0x56B96A`–`0x56B9A5`, #2487); a hero's eight times, with its resistances
-        // twice, under Shift, which the game's hero, playing no such clip, never takes (#3392).
+        // its defence (`0x56B96A`–`0x56B9A5`, #2487); the hero in its own under Shift past its
+        // blend, eight times, with its four resistances twice (`0x56C6B4`–`0x56C70F`, #3392).
         let mut defending = defender.0;
         if clip.is_some_and(crate::npcs::ScriptClip::defends) {
             defending.defence *= opensacred_rules::fight::PARRY_DEFENCE;
             debug!("fight: {} defends against {}", hit.target, hit.attacker);
+        }
+        if hero_defends.is_some_and(|defends| defends.on) {
+            defending.defence *=
+                opensacred_rules::fight::PARRY_DEFENCE * opensacred_rules::fight::HERO_DEFENCE;
+            for resistance in &mut defending.resistance {
+                *resistance *= opensacred_rules::fight::HERO_RESISTANCE;
+            }
+            debug!("fight: the hero defends against {}", hit.attacker);
         }
         // The two's records against each other (`0x568D70`, #3417): the attacker's slots against
         // the struck one's class raise its ends and `A` for a blow of no fixed damages (a hurl's
