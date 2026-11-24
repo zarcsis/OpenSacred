@@ -2487,3 +2487,28 @@ fn the_daemons_forms_are_his_own_alone() {
     assert!(forms(FORM) && forms(1097) && forms(1100));
     assert!(!forms(1095) && !forms(1096) && !forms(1101) && !forms(1015));
 }
+
+#[test]
+fn the_backbreaker_throws_its_target_by_the_levels() {
+    let record = WeaponArt {
+        factor: [70.0, 6.0],
+        value_58: [0.0, 1.0],
+        ..weapon_art(1010, [0.0; 2], 2)
+    };
+    // As read: 75 at the art's level 1 on a goblin of 1, 129 at 10 on one of 1, 70 at least.
+    assert_eq!(backbreaker_throw(&record, 1, 1, 1), 750.0);
+    assert_eq!(backbreaker_throw(&record, 10, 1, 1), 1_290.0);
+    assert_eq!(backbreaker_throw(&record, 1, 1, 30), 700.0);
+    // The maker's level by its own factor.
+    let by_maker = WeaponArt {
+        value_58: [2.0, 1.0],
+        ..record.clone()
+    };
+    assert_eq!(backbreaker_throw(&by_maker, 1, 5, 1), 850.0);
+    // The target's level by its own factor.
+    let by_target = WeaponArt {
+        value_58: [0.0, 2.0],
+        ..record.clone()
+    };
+    assert_eq!(backbreaker_throw(&by_target, 10, 1, 4), 1_220.0);
+}

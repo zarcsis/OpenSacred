@@ -2353,6 +2353,24 @@ pub fn backbreaker_hold(maker: u32, target: u32) -> f32 {
     f32::from(u8::try_from(seconds).unwrap_or(10))
 }
 
+/// How fast the backbreaker throws its target up as it lets it go (`0x44DED0`'s third argument,
+/// the float 10 at `0x89076C`).
+pub const BACKBREAKER_RISE: f32 = 10.0;
+
+/// The speed on the ground of the backbreaker's throw of its target as it lets it go, `record`
+/// at the level in play `level` by its maker of level `maker` and its target of level `target`
+/// (`0x5014C7`–`0x501769`, `0x44DED0`; docs/re/arts.md, "The Gladiator's", #3127): ten times
+/// `v = max(r₅₀, r₅₀ + L·r₅₄ + G·r₅₈ − M·r₅C)` of the record's `+0x50` to `+0x5C` (70, 6, 0 and 1
+/// for 1010), the throw's step moving it a tenth of that a second.
+pub fn backbreaker_throw(record: &WeaponArt, level: u32, maker: u32, target: u32) -> f32 {
+    let [base, step] = record.factor.map(f64::from);
+    let [by_maker, by_target] = record.value_58.map(f64::from);
+    let v = (base + f64::from(level) * step + f64::from(maker) * by_maker
+        - f64::from(target) * by_target)
+        .max(base);
+    narrow(10.0 * v)
+}
+
 /// The factor of the backbreaker's strike at its level in play `level` (`0x4FF0B0`; `0x4D1EB0`
 /// gives the same): `1 + 0.1·L`, its record's `[+0x50]` and `[+0x54]` not read.
 pub fn backbreaker_factor(level: u32) -> f32 {

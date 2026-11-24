@@ -13342,7 +13342,11 @@ fn strike(
             Option<&fight::Combat>,
             (Option<&crate::ai::Mind>, Option<&Arms>),
         ),
-        (Without<Dies>, Without<crate::making::Knocked>),
+        (
+            Without<Dies>,
+            Without<crate::making::Knocked>,
+            Without<crate::backbreaker::Flung>,
+        ),
     >,
     places: Query<(
         &GlobalTransform,
