@@ -2467,7 +2467,7 @@ fn show(
                 picture,
                 (&minimaps, &assets),
                 (place, origin),
-                1.0,
+                (1.0, None),
             );
             (top + PICTURE_ROOM, model.first, 0)
         }

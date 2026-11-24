@@ -491,6 +491,15 @@ impl Dungeons {
     pub fn sector(&self, at: (u32, u32)) -> bool {
         self.0.contains(&at)
     }
+
+    /// Whether sector `at` is hidden (`0x6238C0`, `opensacred_rules::explored::hidden`): a
+    /// dungeon's outside the two blocks of them that are not.
+    pub fn hides(&self, (x, y): (i32, i32)) -> bool {
+        let (Ok(x), Ok(y)) = (u32::try_from(x), u32::try_from(y)) else {
+            return false;
+        };
+        opensacred_rules::explored::hidden((x, y), self.sector((x, y)))
+    }
 }
 
 /// The glows' texture, relative to the asset directory (`PARTICLE_GLOW01`).

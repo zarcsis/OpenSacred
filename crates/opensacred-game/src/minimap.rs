@@ -16,7 +16,8 @@
 //! (256, 256) of its picture's corner, its texels along the sector's x from the top corner to
 //! the right one and along its y to the left one.
 //!
-//! Not followed: the corners faded where a sector lacks a neighbour (#3479).
+//! The world map's lens draws the hidden sectors black (#3479). Not followed: the corners faded
+//! where a sector lacks a neighbour (#3609).
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -127,37 +128,78 @@ fn corner((x, y): (i32, i32)) -> Vec2 {
     Vec2::new(across * PICTURE - PICTURE, down * PICTURE / 2.0)
 }
 
+/// The sectors of the ground about the iso plane's point `point` in the order the lens draws them
+/// (`0x6CCBD0`): a column of one x − y at a time from the left, each from the top down.
+fn in_order(point: Vec2) -> Vec<((i32, i32), Vec2)> {
+    let mut sectors = ground(point);
+    sectors.sort_by_key(|&((x, y), _)| (x - y, x + y));
+    sectors
+}
+
 /// Spawns the ground about the iso plane's point `point` as the children of `parent`, a node
 /// whose top left corner stands at `origin` of the screen and which clips them, at the alpha
-/// `alpha` (the call's, `alpha << 24 | 0xFFFFFF`; an absent sector's black of it).
+/// `alpha` (the call's, `alpha << 24 | 0xFFFFFF`), in the lens's order: each sector's picture, and
+/// a sector without one, or hidden where `hides` names the dungeons whose hidden sectors it hides
+/// (the world map's lens, `0x6CA81A`), black of the alpha, its square and then its own diamond,
+/// whose right half the next column's pictures cover (`0x6CDADA`; docs/re/questbook.md, "The
+/// lens's ground", #3479).
 pub fn spawn(
     commands: &mut Commands,
     parent: Entity,
     (minimaps, assets): (&Minimaps, &AssetServer),
     (point, origin): (Vec2, Vec2),
-    alpha: f32,
+    (alpha, hides): (f32, Option<&crate::daynight::Dungeons>),
 ) {
-    for (sector, corner) in ground(point) {
+    for (sector, corner) in in_order(point) {
         let node = crate::bar::placed(corner - origin, Vec2::splat(PICTURE));
-        let child = match minimaps.file(sector) {
-            Some(file) => commands
+        let file = minimaps
+            .file(sector)
+            .filter(|_| !hides.is_some_and(|dungeons| dungeons.hides(sector)));
+        if let Some(file) = file {
+            let child = commands
                 .spawn((
                     node,
                     ImageNode::new(crate::hud::image(assets, file.to_owned()))
                         .with_color(Color::WHITE.with_alpha(alpha)),
                     Pickable::IGNORE,
                 ))
-                .id(),
-            None => commands
-                .spawn((
-                    node,
-                    BackgroundColor(Color::BLACK.with_alpha(alpha)),
-                    Pickable::IGNORE,
-                ))
-                .id(),
-        };
-        commands.entity(parent).add_child(child);
+                .id();
+            commands.entity(parent).add_child(child);
+            continue;
+        }
+        let black = BackgroundColor(Color::BLACK.with_alpha(alpha));
+        let square = commands.spawn((node, black, Pickable::IGNORE)).id();
+        let diamond = on_diamond(commands, corner - origin, black);
+        commands.entity(parent).add_children(&[square, diamond]);
     }
+}
+
+/// A sector's diamond whose picture's top left corner stands at `corner` of its parent, filled
+/// with `fill` (an image or a colour): a square turned by 45° within a box squeezed to half its
+/// height, a pixel wider so that the neighbours' diamonds leave no seam between their smoothed
+/// edges; the box, to add to the parent.
+fn on_diamond(commands: &mut Commands, corner: Vec2, fill: impl Bundle) -> Entity {
+    let side = (DIAMOND.x + SEAM) / std::f32::consts::SQRT_2;
+    let squeezed = commands
+        .spawn((
+            crate::bar::placed(
+                corner - Vec2::new(0.0, DIAMOND.x / 2.0 - DIAMOND.y / 2.0),
+                Vec2::splat(DIAMOND.x),
+            ),
+            UiTransform::from_scale(Vec2::new(1.0, DIAMOND.y / DIAMOND.x)),
+            Pickable::IGNORE,
+        ))
+        .id();
+    let turned = commands
+        .spawn((
+            crate::bar::placed(Vec2::splat((DIAMOND.x - side) / 2.0), Vec2::splat(side)),
+            UiTransform::from_rotation(Rot2::radians(std::f32::consts::FRAC_PI_4)),
+            fill,
+            Pickable::IGNORE,
+        ))
+        .id();
+    commands.entity(squeezed).add_child(turned);
+    squeezed
 }
 
 /// A sector's fog (`0x638F30`): black where its bitmap's bit is clear, opaque, or where `opaque`
@@ -199,39 +241,23 @@ const HALF_FOG: u8 = 8 * 17;
 
 /// Spawns the fog over the ground about the iso plane's point `point` as the children of
 /// `parent`, whose top left corner stands at `origin` of the screen: each sector's fog texture on
-/// its diamond, a square turned by 45° within a box squeezed to half its height; opaque where
-/// `opaque` (the lens's call forcing it, or `EXPLOREMAP`, `0x638F30`), else at half.
+/// its diamond ([`on_diamond`]); opaque where `opaque` (the lens's call forcing it, or
+/// `EXPLOREMAP`, `0x638F30`), else at half; none over a hidden sector where `hides` names the
+/// dungeons whose hidden sectors the lens strikes from its list (the world map's, #3479).
 pub fn spawn_fog(
     commands: &mut Commands,
     parent: Entity,
     (explored, images): (&Explored, &mut Assets<Image>),
     (point, origin): (Vec2, Vec2),
-    opaque: bool,
+    (opaque, hides): (bool, Option<&crate::daynight::Dungeons>),
 ) {
-    // A pixel wider, so that the neighbours' diamonds leave no seam between their smoothed edges.
-    let side = (DIAMOND.x + SEAM) / std::f32::consts::SQRT_2;
     for (sector, corner) in ground(point) {
+        if hides.is_some_and(|dungeons| dungeons.hides(sector)) {
+            continue;
+        }
         let image = images.add(fog(explored, sector, opaque));
-        let squeezed = commands
-            .spawn((
-                crate::bar::placed(
-                    corner - origin - Vec2::new(0.0, DIAMOND.x / 2.0 - DIAMOND.y / 2.0),
-                    Vec2::splat(DIAMOND.x),
-                ),
-                UiTransform::from_scale(Vec2::new(1.0, DIAMOND.y / DIAMOND.x)),
-                Pickable::IGNORE,
-            ))
-            .id();
-        let turned = commands
-            .spawn((
-                crate::bar::placed(Vec2::splat((DIAMOND.x - side) / 2.0), Vec2::splat(side)),
-                UiTransform::from_rotation(Rot2::radians(std::f32::consts::FRAC_PI_4)),
-                ImageNode::new(image),
-                Pickable::IGNORE,
-            ))
-            .id();
-        commands.entity(squeezed).add_child(turned);
-        commands.entity(parent).add_child(squeezed);
+        let diamond = on_diamond(commands, corner - origin, ImageNode::new(image));
+        commands.entity(parent).add_child(diamond);
     }
 }
 
@@ -242,6 +268,19 @@ mod tests {
     /// The Seraphim's first quest's picture (measured): its point's iso coordinates (32312,
     /// 138587) in the original's units, its view of (556, 204) 256 × 256 the part at (1200, 488)
     /// of the sectors' pictures laid side by side from x − y = 7 and x + y = 85, to the pixel.
+    #[test]
+    fn the_lens_draws_its_columns_from_the_left_each_from_the_top() {
+        let point = Vec2::new(32_312.0, 138_587.0);
+        let order: Vec<(i32, i32)> = in_order(point).into_iter().map(|(at, _)| at).collect();
+        assert_eq!(order.len(), 25);
+        let keys: Vec<(i32, i32)> = order.iter().map(|&(x, y)| (x - y, x + y)).collect();
+        assert!(keys.windows(2).all(|pair| pair[0] < pair[1]));
+        // Each column's pictures lie one under the other, the next column's beside them.
+        let (_, first) = in_order(point)[0];
+        let (_, second) = in_order(point)[1];
+        assert!(second.x >= first.x);
+    }
+
     #[test]
     fn the_lens_lays_the_pictures_about_its_point_at_the_screens_middle() {
         let point = Vec2::new(32_312.0, 138_587.0);

@@ -656,6 +656,7 @@ fn show_lens(
     mut views: Placed<LensView, LensPlane>,
     mut planes: Placed<LensPlane, LensView>,
     (live, seek): (Option<NonSend<crate::scripts::Live>>, crate::compass::Seek),
+    dungeons: Option<Res<crate::daynight::Dungeons>>,
 ) {
     if lens.alpha <= 0.0 {
         for (view, _) in &views {
@@ -705,12 +706,15 @@ fn show_lens(
                 ))
                 .id();
             commands.entity(view).add_child(plane);
+            // The world map's lens hides the hidden sectors, black, and strikes them from its list,
+            // their fog and their quests' icons left out (`0x6CA81A`, #3479).
+            let hides = dungeons.as_deref();
             crate::minimap::spawn(
                 &mut commands,
                 plane,
                 (&minimaps, &assets),
                 (point, Vec2::ZERO),
-                1.0,
+                (1.0, hides),
             );
             // The world map's lens forces its fog opaque, whatever `EXPLOREMAP` says (its call's
             // eighth argument, 1; `0x6CA84F`).
@@ -719,14 +723,14 @@ fn show_lens(
                 plane,
                 (&land, &mut pictures),
                 (point, Vec2::ZERO),
-                true,
+                (true, hides),
             );
             if let Some(live) = live.as_deref() {
                 quests_in_lens(
                     &mut commands,
                     plane,
                     (&images, &assets, texts.as_deref()),
-                    (live, &seek),
+                    (live, &seek, hides),
                     point,
                 );
                 places_in_lens(
@@ -838,12 +842,18 @@ pub(crate) fn places_in_lens(
 
 /// The quests' icons and titles in the lens about the iso plane's point `point`, at their
 /// compasses' cells (`0x497620`): each icon at its own size in its colour, its title beside it in
-/// the font 2 over grey, white for a quest that runs and grey for one ended.
+/// the font 2 over grey, white for a quest that runs and grey for one ended; none in a hidden
+/// sector where `hides` names the dungeons whose hidden sectors the lens strikes from its list
+/// (the world map's, #3479).
 pub(crate) fn quests_in_lens(
     commands: &mut Commands,
     plane: Entity,
     (images, assets, texts): (&UiImages, &AssetServer, Option<&Texts>),
-    (live, seek): (&crate::scripts::Live, &crate::compass::Seek),
+    (live, seek, hides): (
+        &crate::scripts::Live,
+        &crate::compass::Seek,
+        Option<&crate::daynight::Dungeons>,
+    ),
     point: Vec2,
 ) {
     let quests = live.quests();
@@ -854,7 +864,12 @@ pub(crate) fn quests_in_lens(
         else {
             continue;
         };
-        let middle = crate::paths::centre(crate::paths::cell_of(at.x, at.y));
+        let cell = crate::paths::cell_of(at.x, at.y);
+        let sector = (cell.0.div_euclid(64), cell.1.div_euclid(64));
+        if hides.is_some_and(|dungeons| dungeons.hides(sector)) {
+            continue;
+        }
+        let middle = crate::paths::centre(cell);
         let screen = (crate::minimap::iso(middle) - point) / 12.0 + bar::SCREEN / 2.0;
         let (image, colour) = icon(entry);
         let size = images.size(image);
