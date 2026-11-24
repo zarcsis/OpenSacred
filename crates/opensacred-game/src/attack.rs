@@ -301,10 +301,11 @@ fn engage(
         MessageWriter<crate::sfx::Blow>,
         MessageWriter<crate::sfx::Gunfire>,
     ),
-    (difficulty, arts, the_hero): (
+    (difficulty, arts, the_hero, under): (
         Option<Res<crate::game::Difficulty>>,
         Option<Res<crate::arts::HeroArts>>,
         Option<Res<crate::hero::Hero>>,
+        Res<crate::under_cursor::UnderCursor>,
     ),
 ) {
     let Some(clips) = clips else {
@@ -380,7 +381,7 @@ fn engage(
         let bindable = target
             .and_then(|(_, _, mind, _)| mind)
             .is_some_and(|mind| minds::bindable(mind.ranged, mind.creature, mind.spell));
-        let target = target.map(|(at, ..)| at.translation());
+        let mut target = target.map(|(at, ..)| at.translation());
         let here = transform.translation;
         let Some((mut player, mut transitions)) =
             clips.player.and_then(|player| players.get_mut(player).ok())
@@ -486,6 +487,28 @@ fn engage(
                 attack.phase = Phase::Deciding;
                 continue;
             }
+            // With the button held, the foe alive under the cursor, another than its target,
+            // becomes the target of the shot that would go on, so that it shoots on at it
+            // (`cMouse +0x6C`, `0x549000`, `0x4DF142`–`0x4DF16D`; seen, #3578).
+            let left = (striking.length - active.seek_time()).max(0.0) / active.speed().max(0.001);
+            if ranged
+                && ticked
+                && striking.struck > 0
+                && attack.held
+                && minds::held_shot_goes_on(left)
+                && let Some((foe, at)) = under
+                    .0
+                    .filter(|&foe| Some(foe) != attack.target && foe != hero)
+                    .and_then(|foe| {
+                        let (at, health, mind, _) = targets.get(foe).ok()?;
+                        (health.current > 0 && mind.is_some_and(|mind| mind.hostile()))
+                            .then(|| (foe, at.translation()))
+                    })
+            {
+                debug!("attack: the hero's held shot turns to {foe} under the cursor");
+                attack.target = Some(foe);
+                target = Some(at);
+            }
             // Its shot, the button held and its target alive, or its flag set whatever both, no
             // art's arrow and its bolts' effect still on it, goes on: at the first tick with less
             // than 0.1 s of its clip left, the clip plays again an eighth in at its attack speed
@@ -500,9 +523,7 @@ fn engage(
                 && (attack.goes_on || (attack.held && target.is_some()))
                 && !attack.ends
                 && (striking.bolt.is_none() || bolt.is_some())
-                && minds::held_shot_goes_on(
-                    (striking.length - active.seek_time()).max(0.0) / active.speed().max(0.001),
-                )
+                && minds::held_shot_goes_on(left)
             {
                 let whole = striking.bolt == Some(Bolt::Railgun) || gun;
                 let played = if whole {
