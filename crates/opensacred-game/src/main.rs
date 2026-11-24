@@ -17,6 +17,7 @@ mod art_sounds;
 mod arts;
 mod atmosphere;
 mod attack;
+mod backbreaker;
 mod backpack;
 mod banishing_runes;
 mod bar;
@@ -536,6 +537,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         atmosphere::AtmospherePlugin,
         attack::AttackPlugin,
+        backbreaker::BackbreakerPlugin,
         backpack::BackpackPlugin,
         banishing_runes::BanishingRunesPlugin,
         bar::BarPlugin,

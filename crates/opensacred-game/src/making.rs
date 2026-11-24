@@ -1290,15 +1290,17 @@ fn make(
             } else {
                 held_factor(arts::factor(record, level), action.halved)
             };
-            // The backbreaker takes its target up and holds it (`0x4FF0B0`).
+            // The backbreaker takes its target up, at his neck, and holds it (`0x4FF0B0`,
+            // `backbreaker`).
             if style == Style::Backbreaker
-                && let Ok((_, _, _, health)) = creatures.get(making.target)
+                && let Ok((_, at, _, health)) = creatures.get(making.target)
             {
                 let seconds = arts::backbreaker_hold(experience.level, health.level);
                 let mut held = commands.entity(making.target);
                 held.remove::<(crate::npcs::Walk, crate::npcs::Strikes)>();
                 held.entry::<Mind>()
                     .and_modify(move |mut mind| mind.stunned(seconds));
+                crate::backbreaker::take_up(&mut commands, making.target, hero, at.rotation());
             }
             // A smite strikes at its own point of its clip, the hurled blades throw at theirs.
             if style == Style::Smite {
@@ -1793,8 +1795,10 @@ fn make(
                 end(&mut commands);
             }
             Style::Backbreaker => {
-                // At its point it lets its target go with its strike; the target stays held by a
-                // roll, else its timer comes back within 0.5 s (`0x4FF0B0`).
+                // At its point it lets its target go with its strike, thrown from his right hand
+                // along the line from him to where it was taken up (`0x5014C7`–`0x501769`,
+                // `backbreaker`); the target stays held by a roll, else its timer comes back
+                // within 0.5 s (`0x4FF0B0`).
                 let point = playing.points.first().copied().unwrap_or(0.5);
                 if !due(point, done) {
                     if finished {
@@ -1805,6 +1809,38 @@ fn make(
                 if let Ok((_, _, _, health)) = creatures.get(playing.target)
                     && health.current > 0
                 {
+                    let speed = arts
+                        .tables
+                        .weapon_arts
+                        .iter()
+                        .find(|a| a.id == making.art)
+                        .map_or(0.0, |record| {
+                            arts::backbreaker_throw(
+                                record,
+                                playing.level,
+                                experience.level,
+                                health.level,
+                            )
+                        });
+                    let hand = bone(
+                        hero,
+                        &crate::backbreaker::LET_GO_AT,
+                        &children,
+                        (&bones, &worn),
+                    )
+                    .unwrap_or(here);
+                    let level = ways.get(playing.target).ok().and_then(|way| way.level);
+                    let ground = heights.standing(hand.x, hand.z, level).unwrap_or(here.y);
+                    let along = (playing.point - here).xz().normalize_or_zero() * speed;
+                    let flight = arts::Flight {
+                        height: crate::backbreaker::model_height(hand.y, ground),
+                        ..arts::Flight::new(along.into(), arts::BACKBREAKER_RISE)
+                    };
+                    info!(
+                        "making: {} throws {} at {speed:.0}",
+                        making.art, playing.target
+                    );
+                    crate::backbreaker::throw(&mut commands, playing.target, hand, flight);
                     hits.write(hit(playing.target, &playing));
                     sparks.write(Spark {
                         art: making.art,
@@ -3538,19 +3574,13 @@ fn knock(
         if let Some(mut flight) = knock.throw {
             // A thrown creature flies its flight; a cell it may not enter stops it, the ground
             // ends its flight (`0x44DFE0`).
-            let [dx, dz] = flight.step(time.delta_secs());
-            let to = transform.translation + Vec3::new(dx, 0.0, dz);
-            if heights.walkable_on(crate::paths::cell_of(to.x, to.z), way.level) {
-                transform.translation.x = to.x;
-                transform.translation.z = to.z;
-            } else {
-                flight.velocity = [0.0, 0.0];
-            }
-            let ground = heights
-                .standing(transform.translation.x, transform.translation.z, way.level)
-                .unwrap_or(transform.translation.y);
-            transform.translation.y = ground
-                + crate::iso::height(flight.height.max(0.0) * crate::iso::PIXELS_PER_MODEL_HEIGHT);
+            let ground = crate::backbreaker::fly(
+                &mut transform,
+                &mut flight,
+                &heights,
+                way.level,
+                time.delta_secs(),
+            );
             // The first creature it meets, alive, not big, not flying, nearer than the two
             // sizes: struck by its thrower, his ordinary strike, which lands without a roll as his
             // art has ended (`0x56B130`), thrown on along its way, held 2 s; it keeps 0.9 of its
