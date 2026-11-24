@@ -77,13 +77,69 @@ The world map's lens draws the minimap about a point of the iso plane; the quest
 
 - The scale: a twelfth of the iso plane (`0x891070`), a cell 4 × 2 pixels; the point stands at the screen's middle (512, 384), whatever view the call clips to (**measured**: the book's picture matches the pictures laid so, to the pixel).
 - The ground: the 25 sectors within three steps (|dx| + |dy| ≤ 3) of the point's sector, each its picture `MINIMAP<x><y>` (`texture.pak`, three digits each), 256 × 256, its corner at ((x − y) · 256 − 256, (x + y) · 128) of the lens's plane (**measured**); a sector without its picture black.
-- The sectors' looks (read 2026-11-22 for #3418, **confirmed** by code): the 25 sectors are found by the cells 64 apart about the point's sector (`0x634970`), and each is drawn by one of two ways.
-  - A sector not in memory, or hidden (`0x6238C0`, docs/re/interface.md, "The markers (`sdk_MARKER_RESOLVE`, `0x4A5980`)") where the call's flag for it is set, is a square of black at the call's alpha (its last argument, 255 for the map and the book).
-    The world map's lens sets that flag (`0x6CA81A`), the quest book's picture does not (`0x6B26E6`), so the book shows a dungeon's sector by its picture where the map's lens shows it black; the overview passes a register (`0x6C6D04`), its value not read.
-  - A sector in memory is its picture drawn as one strip of six vertices, the square's four corners and the middles of its left and right edges (128 down), each white at the call's alpha.
-    Each of the sector's seven links that is empty (its `+0x04`, `+0x08`, `+0x10`, `+0x14`, `+0x18`, `+0x1C` and `+0x20`) sets a bit of an outcode and turns one to three of those vertices black at the same alpha, and a switch over the whole outcode turns more of them black for some of its combinations.
-    So a picture fades to black across its square toward each side or corner whose sector the links lack.
-  - Which neighbour each link names, and so which vertices fade for which missing neighbour, is not read (**hypothesis**: the links name the sector's neighbours in memory, empty at the world's edges and where a neighbour is not loaded, so that the lens's outer sectors may fade at their outer sides in play); not seen in the running original.
+- The sectors' looks (read 2026-11-22 for #3418 and 2026-11-23 for #3479 in the code, its disassembly and its jump tables, not yet seen in the running original, so a **hypothesis** wherever the data does not bear it out, as marked): the 25 sectors are found by the cells 64 apart about the point's sector (`0x634970`), through the table of the grid's places that `cWorld::precalcSectorLookup` (`0x638730`) fills as the world loads, and drawn a column of one x − y at a time, from the point's x − y less 3 to its x − y plus 3, each column from the top down, each sector by one of two ways.
+  - Every record of `sectors.keyx` becomes a sector as the world loads (`0x638160`), and they are kept until a game's load makes them all again (`0x63B580`), whatever the sector cache reads of their cells (docs/02 §5.1); so the lookup finds no sector only at a place of the grid that no record takes, or off the grid.
+  - A place without a sector, or a hidden sector (`0x6238C0`, docs/re/interface.md, "The markers (`sdk_MARKER_RESOLVE`, `0x4A5980`)") where the call's flag for it is set, is drawn black at the call's alpha (its last argument, 255 for the map and the book, raised to 96 where it is lower), with no texture (`0x6CDADA`): first the square of its picture, then the diamond of its own place, from the square's left middle through its top right and bottom right corners to the point 256 right of its right middle.
+    The next column's pictures are drawn after it, over that diamond's right half.
+    A hidden sector is struck from the list before it is drawn, so the fog after the ground and the quests' icons of the listed sectors (`0x497620`: the log's entries whose compass's cell lies in one of them) leave it out too.
+    The world map's lens sets that flag (`0x6CA81A`); the quest book's picture (`0x6B26E6`) and the overview (`0x6C6D04`, a register that its draw clears at `0x6C6C91`) do not, so only the world map's lens shows the hidden sectors, the dungeons' but those of the two blocks, black, the book's picture and the overview their pictures.
+  - A sector is its picture (`0x622DA0`: `MINIMAP` with its x and y in three digits each, loaded at its first draw and kept at its `+0x178`, its `+0x30` bit `0x4000` set where there is none) drawn as one triangle strip of six vertices (`0x6CD6B5`): the square's top left, top right, left middle, right middle, bottom left and bottom right in that order, each at the same point of the texture, so that the strip splits the upper half from the top right to the left middle and the lower half from the right middle to the bottom left.
+    Each vertex is white at the call's alpha, or black at it where the links below say; the colours blend across each triangle (**hypothesis**: Direct3D's default Gouraud shading, its state not read), so that the picture darkens toward each black vertex.
+
+**The picture's square and its sector.**
+A picture's square is not its sector's diamond (**confirmed** on the pictures): the sector's diamond of 512 × 256 has its left corner at the square's left middle, its top and bottom corners at the square's top right and bottom right corners and its middle at the square's right middle, where the lens lays the fog's diamond; so the square shows the sector's left half, above it the lower right quarter of the sector (x − 1, y), whose middle is the square's top left, and below it the upper right quarter of (x, y + 1), whose middle is the square's bottom left.
+On the masters' 6,046 pictures (2026-11-23), the top left triangle is black (its mean below 8 of 255) in 757 of the 818 pictures whose (x − 1, y) has no sector and the bottom left one in all 827 whose (x, y + 1) has none, against a mean of 63 where those sectors are.
+So the six vertices lie on these sectors: the top left is the middle of (x − 1, y); the top right the corner of (x, y), (x − 1, y), (x − 1, y − 1) and (x, y − 1); the left middle the corner of (x, y), (x − 1, y), (x − 1, y + 1) and (x, y + 1); the right middle the middle of (x, y); the bottom left the middle of (x, y + 1); the bottom right the corner of (x, y), (x, y + 1), (x + 1, y + 1) and (x + 1, y).
+
+**The links.**
+A sector's `+0x04` to `+0x20` are its eight neighbours' sector ids, the eight `u16` from its record's `+0x2C` (docs/02 §5.1), which the loaders copy (`0x638160`, and `0x637D30` for a `sectors.key`) and nothing else writes (the constructor `0x623720` clears them; a sector's part of a save, `0x623240`, holds none of them).
+On the file each names the neighbour of the table below and is 0 exactly where the grid has no sector there (**confirmed** on all 8 × 6,050 words, 2026-11-23); so a link is empty only toward a place of the grid without a sector, never toward a sector, read into memory or not, a dungeon's or not.
+The lens reads seven of them (`0x6CD327`–`0x6CD3C2`), each empty one setting a bit of the sector's outcode (as the client's debug line names it) and turning black the vertices that lie on the missing sector:
+
+| Link | Neighbour | Its square by the sector's | Bit | Black |
+|---|---|---|---|---|
+| `+0x04` | (x − 1, y − 1) | above | `0x01` | top right |
+| `+0x08` | (x, y − 1) | the next column right, half up | `0x40` | top right |
+| `+0x0C` | (x + 1, y − 1) | two columns right | — | not read: its diamond touches no vertex of the square |
+| `+0x10` | (x + 1, y) | the next column right, half down | `0x20` | bottom right |
+| `+0x14` | (x + 1, y + 1) | below | `0x10` | bottom right |
+| `+0x18` | (x, y + 1) | the next column left, half down | `0x08` | left middle, bottom left, bottom right |
+| `+0x1C` | (x − 1, y + 1) | two columns left | `0x04` | left middle |
+| `+0x20` | (x − 1, y) | the next column left, half up | `0x02` | top left, top right, left middle |
+
+**The outcode's switch.**
+Then a switch over the whole outcode (`0x6CD3E1`: its index table at `0x6CFEF0`, its jump table at `0x6CFEC4`) turns more vertices black for 18 of its values; any other value adds nothing.
+
+| Outcode | Its missing neighbours | Black beyond the links' | All black |
+|---|---|---|---|
+| `0x01` | above | top left | top left, top right |
+| `0x07` | above, up left, two left | none | top left, top right, left middle |
+| `0x10` | below | bottom left | bottom left, bottom right |
+| `0x20` | down right | right middle | right middle, bottom right |
+| `0x21` | above, down right | top left, right middle | top left, top right, right middle, bottom right |
+| `0x30` | below, down right | right middle, bottom left | right middle, bottom left, bottom right |
+| `0x38` | down left, below, down right | right middle | the lower four |
+| `0x3C` | two left, down left, below, down right | right middle | the lower four |
+| `0x40` | up right | right middle | top right, right middle |
+| `0x41` | above, up right | top left, right middle | top left, top right, right middle |
+| `0x43` | above, up left, up right | right middle | the upper four |
+| `0x47` | above, up left, two left, up right | right middle | the upper four |
+| `0x60` | down right, up right | right middle | top right, right middle, bottom right |
+| `0x61` | above, down right, up right | top left, right middle | top left, top right, right middle, bottom right |
+| `0x63` | above, up left, down right, up right | right middle | all but the bottom left |
+| `0x70` | below, down right, up right | right middle, bottom left | top right, right middle, bottom left, bottom right |
+| `0x71` | above, below, down right, up right | top left, right middle, bottom left | all but the left middle |
+| `0x73` | above, up left, below, down right, up right | right middle, bottom left | all six |
+
+The upper four are the top left, the top right, the left middle and the right middle, the lower four the left middle, the right middle, the bottom left and the bottom right; "up left" is (x − 1, y), "down left" (x, y + 1), "up right" (x, y − 1), "down right" (x + 1, y) and "two left" (x − 1, y + 1).
+So the right middle, the sector's own middle, turns black only by the switch, and stays white in another combination with a missing neighbour on the right (16 values of 33 sectors on the file, such as `0x2C` and `0x7F`); a picture with no empty link is white all over.
+On the file 2,546 sectors have an empty link among the seven, in 53 values of the outcode, 1,814 of them in the 17 of the switch's values that occur (`0x73` does not).
+
+**The fades in play.**
+The links follow the grid, not what the sector cache reads, so the pictures fade only where the grid lacks a neighbour (**confirmed** on the file for the links, the look a **hypothesis** until seen): along the outer ring of the continent and of the few small islands of sectors that are no dungeon's, 691 of the 3,622 such sectors; around the four holes of the grid inside it, 49 places within x 11 to 18 and y 30 to 43, 35 within x 55 to 66 and y 37 to 46, 15 within x 46 to 52 and y 47 to 51, and the place (54, 46); and around every dungeon's island, 1,855 of the 2,428 dungeon sectors.
+The places beyond them are black, as are the hidden sectors' places in the world map's lens, toward which their neighbours do not fade, their links being whole.
+About the start (50, 39) no picture of the 25 fades, the nearest sector with an empty link being (56, 39), six steps away at the hole east of it; the lens about 1,913 of the 3,622 sectors that are no dungeon's shows a faded picture, and about 1,430 of them a black place.
+So in a game the overview fades the pictures within about four sectors of the coast, of the holes or, inside a dungeon, of its island's edge, the quest book's pictures likewise about their places, and the world map's lens likewise about the pointer, with the dungeons black.
 
 ## Sounds and keys
 
