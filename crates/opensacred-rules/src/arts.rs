@@ -2378,14 +2378,15 @@ pub fn backbreaker_factor(level: u32) -> f32 {
 }
 
 /// Whether the backbreaker's target of the level `target` stays held once let go, by a roll
-/// `roll` of 0 to 99 (`0x4FF0B0`): below `100·L/M`, its level in play `L` and `M` the target's,
-/// times 0.769 for a boss; else its timer comes back within [`LET_GO`].
+/// `roll` of 0 to 99 (`0x4FF0B0`): at most `100·L/M`, its level in play `L` and `M` the target's,
+/// times 0.769 for a boss, only a roll above it letting it go (`0x50182A`, #3625); else its timer
+/// comes back within [`LET_GO`].
 pub fn backbreaker_holds(level: u32, target: u32, boss: bool, roll: u32) -> bool {
     let mut chance = 100.0 * f64::from(level) / f64::from(target.max(1));
     if boss {
         chance *= 0.769;
     }
-    f64::from(roll) < chance
+    f64::from(roll) <= chance
 }
 pub const LET_GO: f32 = 0.5;
 

@@ -8628,6 +8628,12 @@ pub fn walk(
             }
             continue;
         }
+        // Held, its moving action takes no step until its timer fires, its walk ordered standing
+        // (`0x4F479E`; docs/re/ai.md, "A held creature", #3622); a flyer's flight, a swoop's
+        // among them, goes on (**hypothesis**: the swoop flies not by the moving action).
+        if mind.is_some_and(|mind| mind.thinks.held()) && !walk.flies() {
+            continue;
+        }
         let mut here = transform.translation;
         let cell = paths::cell_of(here.x, here.z);
         if walk.level.is_none() && !heights.walkable(cell) {

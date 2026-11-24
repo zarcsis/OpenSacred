@@ -1008,7 +1008,9 @@ fn the_backbreaker_holds_its_target_and_lets_it_go_at_its_point() {
     assert!((backbreaker_factor(3) - 1.3).abs() < 1e-6);
     // `100·L/M`: always on one of its level or below, a boss's times 0.769.
     assert!(backbreaker_holds(1, 1, false, 99));
-    assert!(!backbreaker_holds(1, 4, false, 25));
+    // A roll equal to `100·L/M` keeps it held, only one above lets it go (#3625).
+    assert!(backbreaker_holds(1, 4, false, 25));
+    assert!(!backbreaker_holds(1, 4, false, 26));
     assert!(backbreaker_holds(1, 4, false, 24));
     assert!(!backbreaker_holds(1, 1, true, 77));
     assert_eq!(made_from(80, 70.0), Some((80.0, 10.0)));
