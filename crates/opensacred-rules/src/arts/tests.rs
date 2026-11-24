@@ -2477,6 +2477,12 @@ fn the_dwarfs_gun_rundum_shoots_its_target_then_the_gathered() {
 }
 
 #[test]
+fn the_jumps_and_the_seraphims_bolts_spare_their_maker() {
+    assert!([1003, 1010, 1017, 1018, 1019].into_iter().all(spares));
+    assert!(!spares(1015) && !spares(1032) && !spares(1085) && !spares(1020));
+}
+
+#[test]
 fn the_daemons_forms_are_his_own_alone() {
     assert!(forms(FORM) && forms(1097) && forms(1100));
     assert!(!forms(1095) && !forms(1096) && !forms(1101) && !forms(1015));

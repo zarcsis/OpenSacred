@@ -283,11 +283,12 @@ pub(crate) fn resolve(
     ),
     mut dice: ResMut<Dice>,
     mut experience: ResMut<Experience>,
-    (rules, mut last_foe, mut tally, mut records): (
+    (rules, mut last_foe, mut tally, mut records, spared): (
         Res<Rules>,
         Option<ResMut<crate::statistics::LastFoe>>,
         Option<ResMut<crate::statistics::Tally>>,
         Option<ResMut<crate::statistics::Kills>>,
+        Query<&crate::making::Making, With<crate::making::Playing>>,
     ),
     (hero_arts, effects, (clock, dungeons), mut lusts): (
         Option<Res<crate::arts::HeroArts>>,
@@ -406,6 +407,18 @@ pub(crate) fn resolve(
             continue;
         };
         if health.current == 0 {
+            continue;
+        }
+        // A maker of a jump, of the Seraphim's 1018 or 1019 or of the backbreaker under way holds
+        // the mark that a strike passes by (`0x56B130`, `+0x200` bit `0x10`; #3126).
+        if spared
+            .get(hit.target)
+            .is_ok_and(|making| opensacred_rules::arts::spares(making.art))
+        {
+            debug!(
+                "fight: {} hits {}, which its art spares",
+                hit.attacker, hit.target
+            );
             continue;
         }
         let side = match (hero, hero_hit) {
