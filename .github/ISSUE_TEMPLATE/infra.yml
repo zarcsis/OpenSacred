@@ -1,6 +1,6 @@
 name: Infrastructure
 description: CI, the Claude Code hooks, the repository settings or the process.
-labels: [infra]
+labels: [infra, triage]
 body:
   - type: textarea
     id: what

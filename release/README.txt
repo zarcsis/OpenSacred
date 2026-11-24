@@ -23,6 +23,13 @@ The settings, the keys and the saves are in %APPDATA%\OpenSacred (settings.toml,
 saves), the logs in %LOCALAPPDATA%\OpenSacred\logs. To remove OpenSacred, delete this folder and
 %LOCALAPPDATA%\OpenSacred, and with the settings and the saves %APPDATA%\OpenSacred.
 
+Problems and questions
+----------------------
+
+Report a problem with the Bug form at https://github.com/zarcsis/OpenSacred/issues, with the
+newest log of %LOCALAPPDATA%\OpenSacred\logs attached; ask at
+https://github.com/zarcsis/OpenSacred/discussions. CONTRIBUTING.md on GitHub tells more.
+
 What is in the archive
 ----------------------
 

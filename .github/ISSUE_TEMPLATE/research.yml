@@ -1,6 +1,6 @@
 name: Research
 description: A question about a format or the original's behavior.
-labels: [research]
+labels: [research, triage]
 body:
   - type: textarea
     id: question
@@ -23,5 +23,5 @@ body:
     attributes:
       label: Rules
       options:
-        - label: This issue has no game files, converted assets, game texts or decompiler output; a frame only of its problem, cropped to it, as an attachment (docs/08 §3).
+        - label: This issue has no game files, converted assets, game texts or decompiler output; screenshots and videos of the game in play only as attachments (docs/08 §3).
           required: true

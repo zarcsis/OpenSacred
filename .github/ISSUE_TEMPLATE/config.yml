@@ -1,2 +1,9 @@
 # Every issue starts from a form of its type, which sets its label (docs/03 §3.6).
 blank_issues_enabled: false
+contact_links:
+  - name: Questions, ideas and impressions
+    url: https://github.com/zarcsis/OpenSacred/discussions
+    about: Ask, suggest and talk in Discussions; issues are for problems and planned work.
+  - name: How to contribute
+    url: https://github.com/zarcsis/OpenSacred/blob/main/CONTRIBUTING.md
+    about: How a problem is reported, what the project cannot accept, and how a pull request is made.

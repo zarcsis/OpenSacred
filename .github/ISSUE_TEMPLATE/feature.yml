@@ -1,6 +1,6 @@
 name: Feature
 description: New behavior, usually a milestone's next step (PLAN.md §9.2).
-labels: [feature]
+labels: [feature, triage]
 body:
   - type: textarea
     id: what
@@ -24,5 +24,5 @@ body:
     attributes:
       label: Rules
       options:
-        - label: This issue has no game files, converted assets or game texts; a frame only of its problem, cropped to it, as an attachment (docs/08 §3).
+        - label: This issue has no game files, converted assets or game texts; screenshots and videos of the game in play only as attachments (docs/08 §3).
           required: true
