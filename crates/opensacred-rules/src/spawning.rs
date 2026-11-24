@@ -639,6 +639,107 @@ pub fn own_items(
     }
 }
 
+/// The motion slots that the general maker asks of a creature's model (`0x47F8E0`,
+/// `0x4117B0`): the first attacks of the classes 12 (the crossbow's), 1, 2, 3, 5, 6, 7 (the
+/// bow's) and 8 (docs/re/spawning.md, "The general maker").
+pub const GENERAL_CROSSBOW: u16 = 0x8B;
+pub const GENERAL_ONE_HANDED: u16 = 0x54;
+pub const GENERAL_TWO_HANDED: u16 = 0x59;
+pub const GENERAL_STAFF: u16 = 0x5E;
+pub const GENERAL_CLASS_5: u16 = 0x68;
+pub const GENERAL_CLASS_6: u16 = 0x6D;
+pub const GENERAL_BOW: u16 = 0x72;
+pub const GENERAL_TWO_WEAPONS: u16 = 0x77;
+
+/// The weapon kinds that the general maker chooses: the crossbows, the bows, 1, 2, 3, 5, and two
+/// weapons (8).
+pub const KIND_CROSSBOW: u8 = 12;
+pub const KIND_TWO_WEAPONS: u8 = 8;
+
+/// The types whose name holds `ELVE` (the types' catalogue, `0x43CED0`), whose model's bow the
+/// general maker takes first at an odd draw.
+pub const NAMED_ELVES: [u32; 12] = [4, 5, 105, 108, 133, 134, 319, 320, 321, 326, 327, 693];
+
+/// The weapon kind that the general maker chooses for a creature of the type `creature` whose
+/// type no rule names, its model of the slots that `has` answers (`0x47F8E0` from `0x47FD20`;
+/// docs/re/spawning.md, "The general maker"), each draw taken only where its slot asks it, the
+/// first that holds winning: a crossbow at a `% 7` of 2; a bow at an odd draw for an elf, then at
+/// a `% 7` of 2; the kind 1 at a `% 5` of 2; else with the two-handed slot the kind 2 at a `% 5`
+/// of 2, else the kind 1 at a `% 3` of 2 where the one-handed slot is; the two weapons, the staff
+/// or the kind 5 each at an odd draw; else none.
+pub fn general_kind(creature: u32, has: impl Fn(u16) -> bool, dice: &mut impl Dice) -> Option<u8> {
+    if has(GENERAL_CROSSBOW) && dice.below(7) == 2 {
+        return Some(KIND_CROSSBOW);
+    }
+    if has(GENERAL_BOW) {
+        if NAMED_ELVES.contains(&creature) && dice.below(2) == 1 {
+            return Some(BOW);
+        }
+        if dice.below(7) == 2 {
+            return Some(BOW);
+        }
+    }
+    if has(GENERAL_ONE_HANDED) && dice.below(5) == 2 {
+        return Some(BLADE);
+    }
+    if has(GENERAL_TWO_HANDED) {
+        if dice.below(5) == 2 {
+            return Some(2);
+        }
+        if dice.below(3) == 2 && has(GENERAL_ONE_HANDED) {
+            return Some(BLADE);
+        }
+    }
+    if has(GENERAL_TWO_WEAPONS) && dice.below(2) == 1 {
+        return Some(KIND_TWO_WEAPONS);
+    }
+    if has(GENERAL_STAFF) && dice.below(2) == 1 {
+        return Some(3);
+    }
+    if has(GENERAL_CLASS_5) && dice.below(2) == 1 {
+        return Some(5);
+    }
+    if has(GENERAL_CLASS_6) && dice.below(2) == 1 {
+        return Some(5);
+    }
+    None
+}
+
+/// Whether the general maker gives a weapon of the kind 1 a shield too: where `rand() & 3` is 1
+/// (`0x5C7FA0` of the category 13); its other way, the level below the call's other level and an
+/// odd draw, is not read (`param_6`) and not taken.
+pub fn general_shield(dice: &mut impl Dice) -> bool {
+    dice.below(4) == 1
+}
+
+/// A type's own list of worn pieces: its types, its pieces' first range and a second one.
+type WornList = (&'static [u32], (u32, u32), Option<(u32, u32)>);
+
+/// The worn pieces of the types' own lists that the general maker draws among (`rand() % 21`, the
+/// rest of the 21 none): the thieves', the bandits', the elves', the ogres' and the goblins'.
+const GENERAL_WORN: [WornList; 6] = [
+    (&[259, 304, 305, 306], (3810, 3825), None),
+    (&[260, 307, 308], (3826, 3836), None),
+    (&[4, 319, 320, 321], (3754, 3761), Some((3160, 3164))),
+    (&[38], (3785, 3792), None),
+    (&[39, 40], (3776, 3784), None),
+    (&[76, 118, 127, 128, 129], (3089, 3094), None),
+];
+
+/// The worn piece that the general maker gives a creature of the type `creature`, by a draw of
+/// `rand() % 21` among its type's own list's pieces, none past them, and none for a type of no
+/// list (no draw taken).
+pub fn general_worn(creature: u32, dice: &mut impl Dice) -> Option<u32> {
+    let (_, (a, b), more) = GENERAL_WORN
+        .iter()
+        .find(|(types, ..)| types.contains(&creature))?;
+    let pieces: Vec<u32> = (*a..=*b)
+        .chain(more.iter().flat_map(|&(c, d)| c..=d))
+        .collect();
+    let roll = usize::try_from(dice.below(21)).ok()?;
+    pieces.get(roll).copied()
+}
+
 /// The kind of the weapon that an item of a `CreateNPC` record asks for in its place, an item of
 /// the weapon kind `kind` held by a model of the shots `shots`, at each of the two steps of
 /// `sdk_CREATENPC` (`0x484C44`, `0x484C93`; #1217): first a crossbow or a musket that the model
@@ -744,6 +845,58 @@ impl Dice for Script {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_general_maker_draws_a_kind_by_its_models_slots() {
+        let all = |_: u16| true;
+        let only = |slots: &'static [u16]| move |slot: u16| slots.contains(&slot);
+        let kind = |creature, has: &dyn Fn(u16) -> bool, values: Vec<u32>| {
+            let mut dice = Script::new(values);
+            let kind = general_kind(creature, has, &mut dice);
+            (kind, dice.taken())
+        };
+        // A crossbow at a % 7 of 2.
+        assert_eq!(kind(1, &all, vec![2]), (Some(12), 1));
+        // An elf's bow at an odd draw, another's at a % 7 of 2.
+        assert_eq!(kind(320, &all, vec![0, 1]), (Some(7), 2));
+        assert_eq!(kind(320, &all, vec![0, 0, 2]), (Some(7), 3));
+        assert_eq!(kind(1, &all, vec![0, 2]), (Some(7), 2));
+        // The kind 1, then the two-handed slot's 2 or 1.
+        assert_eq!(kind(1, &all, vec![0, 0, 2]), (Some(1), 3));
+        assert_eq!(kind(1, &all, vec![0, 0, 0, 2]), (Some(2), 4));
+        assert_eq!(kind(1, &all, vec![0, 0, 0, 0, 2]), (Some(1), 5));
+        let two_handed = only(&[GENERAL_TWO_HANDED]);
+        assert_eq!(kind(1, &two_handed, vec![0, 2]), (None, 2));
+        // The two weapons, the staff and the kind 5 at odd draws.
+        assert_eq!(kind(1, &all, vec![0, 0, 0, 0, 0, 1]), (Some(8), 6));
+        assert_eq!(kind(1, &all, vec![0, 0, 0, 0, 0, 0, 1]), (Some(3), 7));
+        assert_eq!(kind(1, &all, vec![0, 0, 0, 0, 0, 0, 0, 1]), (Some(5), 8));
+        assert_eq!(kind(1, &all, vec![0, 0, 0, 0, 0, 0, 0, 0, 1]), (Some(5), 9));
+        assert_eq!(kind(1, &all, vec![0; 9]), (None, 9));
+        // A slot that is not there takes no draw.
+        assert_eq!(kind(1, &only(&[GENERAL_CLASS_6]), vec![1]), (Some(5), 1));
+        assert_eq!(kind(1, &only(&[GENERAL_STAFF]), vec![1]), (Some(3), 1));
+        assert_eq!(kind(1, &only(&[GENERAL_CLASS_5]), vec![1]), (Some(5), 1));
+        assert_eq!(
+            kind(1, &only(&[GENERAL_TWO_WEAPONS]), vec![1]),
+            (Some(8), 1)
+        );
+        assert_eq!(kind(1, &only(&[GENERAL_ONE_HANDED]), vec![2]), (Some(1), 1));
+        assert_eq!(kind(1, &only(&[GENERAL_BOW]), vec![2]), (Some(7), 1));
+        assert_eq!(kind(1, &|_| false, vec![]), (None, 0));
+        // A shield at a draw & 3 of 1.
+        assert!(general_shield(&mut Script::new(vec![1])));
+        assert!(!general_shield(&mut Script::new(vec![2])));
+        // A worn piece of its type's list, none past it, none for another type.
+        assert_eq!(general_worn(305, &mut Script::new(vec![15])), Some(3825));
+        assert_eq!(general_worn(305, &mut Script::new(vec![16])), None);
+        assert_eq!(general_worn(319, &mut Script::new(vec![8])), Some(3160));
+        assert_eq!(general_worn(319, &mut Script::new(vec![12])), Some(3164));
+        assert_eq!(general_worn(129, &mut Script::new(vec![0])), Some(3089));
+        let mut none = Script::new(vec![0]);
+        assert_eq!(general_worn(313, &mut none), None);
+        assert_eq!(none.taken(), 0);
+    }
 
     #[test]
     fn a_script_answers_each_value_modulo_its_bound_and_counts_them() {
