@@ -3073,7 +3073,8 @@ fn region_talks(records: &[&Record]) -> HashMap<u32, String> {
 /// docs/re/netscript.md, "`SetGroupState`"): its group, whether it removes its living members
 /// (`0x51`), and else the flags word of its operand-less tags ([`ways::state_word`]), its
 /// hostility, whether it gives a dialogue (an index above 0 by its `0x09`'s name; none, or a
-/// `0x0A`, takes the members' away), its death's and sight functions and its level.
+/// `0x0A`, takes the members' away), its death's and sight functions, its level, the key of a
+/// member of no name of its own and the rising again of its `0x6B` (#3148).
 #[derive(Clone, Debug, Default, PartialEq)]
 struct GroupState {
     group: Option<u32>,
@@ -3086,6 +3087,13 @@ struct GroupState {
     death: Option<String>,
     sight: Option<String>,
     level: u32,
+    /// Its `0x01`'s number above 0: the key (`+0x3C`) of a member that bears no name of its own,
+    /// its `sdk_REFKEY` its type's (`0x49F0F7`–`0x49F10E`): the name its label and its talk's
+    /// window show ([`Called`]).
+    key: Option<u32>,
+    /// Its `0x6B`: the `+0x2B7` bit 8 given ([`RisesAgain`]) by a number other than 0, taken by
+    /// 0, left by none.
+    rises: Option<bool>,
 }
 
 impl GroupState {
@@ -3100,6 +3108,20 @@ impl GroupState {
             group: script_group(ops),
             word: ways::state_word(markers),
             level: level_tag(ops),
+            key: ops
+                .iter()
+                .find_map(|o| match (o.tag, &o.value) {
+                    (0x01, Value::I32(v)) => u32::try_from(*v).ok(),
+                    (0x01, Value::U16(v)) => Some(u32::from(*v)),
+                    (0x01, Value::U8(v)) => Some(u32::from(*v)),
+                    _ => None,
+                })
+                .filter(|&key| key > 0),
+            rises: if rises(ops) {
+                Some(true)
+            } else {
+                listed(ops).then_some(false)
+            },
             ..Self::default()
         };
         for op in ops {
@@ -3149,6 +3171,15 @@ impl GroupState {
         }
         if let Some(death) = &self.death {
             placement.on_death.set(death);
+        }
+        if let Some(key) = self.key
+            && placement.name.is_none()
+            && placement.called.is_none()
+        {
+            placement.called = Some(key);
+        }
+        if let Some(rises) = self.rises {
+            placement.rises = rises;
         }
     }
 
@@ -11816,6 +11847,7 @@ pub(crate) fn script_records(
             Option<&mut fight::Health>,
             Option<&Talk>,
             Option<&mut buildings::Layered>,
+            Option<&Called>,
         ),
         (Without<Dies>, Without<hero::Body>),
     >,
@@ -11829,7 +11861,7 @@ pub(crate) fn script_records(
         ResMut<ScriptAttacks>,
         ResMut<crate::creature_casts::PendingCasts>,
     ),
-    (dying, mut particles, traders, objects, indexed, giving): (
+    (dying, mut particles, traders, objects, indexed, giving, buried): (
         Query<
             (
                 Entity,
@@ -11853,6 +11885,7 @@ pub(crate) fn script_records(
             Option<ResMut<crate::pickup::Pack>>,
             MessageWriter<crate::pickup::Taken>,
         ),
+        Query<(Entity, &Stashed), With<Dies>>,
     ),
 ) {
     let (experience, difficulty, items, mut pack, mut taken) = giving;
@@ -12070,7 +12103,7 @@ pub(crate) fn script_records(
                 envision(commands.entity(entity), corpse.creature);
             }
         }
-        for (entity, _, on_death, mut transform, mut mind, way, _, talk, _) in creatures
+        for (entity, _, on_death, mut transform, mut mind, way, _, talk, ..) in creatures
             .iter_mut()
             .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == name))
         {
@@ -12174,7 +12207,7 @@ pub(crate) fn script_records(
                 crate::pickup::take_named(world, &name);
             });
         }
-        for (entity, named, on_death, _, mind, way, health, ..) in &mut creatures {
+        for (entity, named, on_death, _, mind, way, health, _, _, called) in &mut creatures {
             let member = match &change {
                 Regrouped::Group(state) => {
                     mind.as_ref().is_some_and(|mind| mind.group == state.group)
@@ -12198,6 +12231,23 @@ pub(crate) fn script_records(
                     let mut functions = on_death.as_ref().map(|d| d.0.clone()).unwrap_or_default();
                     state.apply_to(&mut mind, way.map(|way| way.into_inner()), &mut functions);
                     talk_to(&mut commands, entity, state.talk.clone());
+                    // Its key where it bears no name of its own, and its rising again
+                    // (`0x49F0F7`, `0x6B`; #3148).
+                    if let Some(key) = state.key
+                        && named.is_none()
+                        && called.is_none()
+                    {
+                        commands.entity(entity).insert(Called(key));
+                    }
+                    match state.rises {
+                        Some(true) => {
+                            commands.entity(entity).insert(RisesAgain);
+                        }
+                        Some(false) => {
+                            commands.entity(entity).remove::<RisesAgain>();
+                        }
+                        None => {}
+                    }
                     // Its level, 1000 a boss (#2894).
                     if state.level > 0 {
                         let tag = state.level;
@@ -12227,6 +12277,20 @@ pub(crate) fn script_records(
                         });
                     }
                     commands.entity(entity).despawn();
+                }
+            }
+        }
+        // A member dead already rises in the soul's sparks of its figure too, its body kept
+        // (`0x49ED51`, #3148): its group its mind's, kept aside as it died.
+        if let Regrouped::Group(state) = &change
+            && state.removes
+            && state.group.is_some()
+        {
+            for (dead, stashed) in &buried {
+                if stashed.mind.group == state.group {
+                    commands.queue(move |world: &mut bevy::prelude::World| {
+                        crate::group_looks::vanish(world, dead);
+                    });
                 }
             }
         }
@@ -12664,7 +12728,7 @@ pub(crate) fn script_records(
             continue;
         }
         let mut in_world = false;
-        for (entity, _, _, mut transform, mind, way, _, _, layered) in creatures
+        for (entity, _, _, mut transform, mind, way, _, _, layered, _) in creatures
             .iter_mut()
             .filter(|(_, named, ..)| named.is_some_and(|named| named.0 == moved.name))
         {
@@ -15667,6 +15731,51 @@ mod tests {
             whither(&[op(0x0C, Value::I32x3([1, 2, 0]))], 0x04, &named),
             None
         );
+    }
+
+    #[test]
+    fn a_set_group_state_names_its_nameless_members_and_lets_them_rise() {
+        let op = |tag, value| Operand { tag, value };
+        // A key and the rising again given, as `RegionEnter`'s and quest 6001's records do.
+        let state = GroupState::of(
+            &[
+                op(GROUP, Value::I32(5003)),
+                op(0x01, Value::I32(17_190)),
+                op(RISES, Value::I32(1)),
+            ],
+            &[],
+        );
+        assert_eq!((state.key, state.rises), (Some(17_190), Some(true)));
+        let mut nameless = Placement::default();
+        state.apply(&mut nameless);
+        assert_eq!(nameless.called, Some(17_190));
+        assert!(nameless.rises);
+        // A member of a name of its own keeps it.
+        let mut named = Placement {
+            name: Some("schmied".into()),
+            ..Placement::default()
+        };
+        state.apply(&mut named);
+        assert_eq!(named.called, None);
+        let mut called = Placement {
+            called: Some(5),
+            ..Placement::default()
+        };
+        state.apply(&mut called);
+        assert_eq!(called.called, Some(5));
+        // A `0x6B` of 0 takes the rising away; none leaves it.
+        let takes = GroupState::of(
+            &[op(GROUP, Value::I32(6001)), op(RISES, Value::I32(0))],
+            &[],
+        );
+        assert_eq!((takes.key, takes.rises), (None, Some(false)));
+        takes.apply(&mut nameless);
+        assert!(!nameless.rises);
+        let leaves = GroupState::of(&[op(GROUP, Value::I32(6001))], &[]);
+        assert_eq!(leaves.rises, None);
+        nameless.rises = true;
+        leaves.apply(&mut nameless);
+        assert!(nameless.rises);
     }
 
     #[test]
