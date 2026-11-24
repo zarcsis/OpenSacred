@@ -13,15 +13,18 @@
 //! The hero's shot of a special arrow ([`Special`], the Wood Elf's 1004, 1006, 1007 and 1008)
 //! looses the art's own arrows, whose hits are the art's strikes, the spider arrow leaving its
 //! spiders with no strike and the blades homing on their foes for a time (docs/re/arts.md, "The
-//! Wood Elf's", #756); its `Rundum`, `Hardhit` and `Attacke` with a bow loose theirs (#2238,
+//! Wood Elf's", #756), the explosive arrow and the blades leaving their trails every 40 of their
+//! way (`lay_trail`, #3131); its `Rundum`, `Hardhit` and `Attacke` with a bow loose theirs (#2238,
 //! #2275), and a shooter with the multi-shot as many arrows as its value, fanned. A hero with the
 //! effect of deflection may turn an arrow aside (`0x561090`), and the plain arrow, the `Rundum`'s
-//! and the `Attacke`'s pass through a ghost (#2276).
+//! and the `Attacke`'s pass through a ghost (#2276). The explosive arrow and the homing blades
+//! leave a trail of green glows, a piece every 40 of their way (`0x5BB7FA`–`0x5BBA6B`, #3131).
 
 use bevy::prelude::*;
 use opensacred_rules::arrows::{self, Point};
 pub use opensacred_rules::arrows::{ARROW, HARD_ARROW, MULTI_ARROW, ZEAL_ARROW, size};
 use opensacred_rules::minds::{self, Spot};
+use opensacred_rules::particles::{ARROW_TRAIL_EVERY, ARROW_TRAIL_HALF};
 
 use crate::crowd::InTheWay;
 use crate::fight::{self, Health};
@@ -97,6 +100,27 @@ pub(crate) struct Arrow {
     special: Option<Special>,
     homing: Option<Homing>,
     wait: f32,
+    /// The trail it leaves, the explosive arrow's and the homing blades' (#3131).
+    trail: Option<Trail>,
+}
+
+/// An arrow's trail (`0x5BB7FA`–`0x5BBA6B`): the length of its way since its last piece
+/// (`+0x24C`), and the explosive arrow's own point that each piece moves on (`+0x250`; at its
+/// place as it is shot, **hypothesis**), none for a blade, whose pieces lie where it is.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Trail {
+    way: f32,
+    point: Option<Vec3>,
+}
+
+/// The trails' dice (`rand()`).
+#[derive(Resource)]
+struct TrailDice(opensacred_rules::spawning::Rng);
+
+impl Default for TrailDice {
+    fn default() -> Self {
+        Self(crate::seed::dice(0x807))
+    }
 }
 
 /// The dice of the arrows' deflection (`0x561090`'s `rand`).
@@ -118,6 +142,50 @@ const BURNING_ARROW_RATE: f32 = 0.4;
 /// The explosive arrow and the club arrow, whose hits show their sights (#3129).
 const EXPLOSIVE: u16 = 1004;
 const CLUB: u16 = 1007;
+/// The homing blades, whose arrows leave a trail as the explosive arrow's do (#3131).
+const BLADES: u16 = 1008;
+
+/// Lays an arrow's trail along its step from `before` to `after` (`0x5BB7FA`–`0x5BBA6B`): its way
+/// takes the step's length, and where it passes [`ARROW_TRAIL_EVERY`] it takes that off and lays a
+/// piece (`opensacred_rules::particles::arrow_trail`, 807 by the event `0x26`) along the arrow's
+/// direction, spanning [`ARROW_TRAIL_HALF`] to either side: the explosive arrow's at its own point,
+/// moved on that far each time, as many as its way passed, an even line; a blade's where it is,
+/// one a frame at most.
+fn lay_trail(
+    commands: &mut Commands,
+    trail: &mut Trail,
+    (before, after): (Vec3, Vec3),
+    dice: &mut opensacred_rules::spawning::Rng,
+) {
+    let step = after - before;
+    let direction = step.normalize_or_zero();
+    trail.way += step.length();
+    let span = crate::bolt_looks::models(direction * ARROW_TRAIL_HALF);
+    let ends = (span.map(|v| -v), span);
+    let mut lay = |at: Vec3| {
+        crate::puffs::spawn(
+            commands,
+            opensacred_rules::particles::arrow_trail(ends, dice),
+            at,
+            None,
+        );
+    };
+    match trail.point.as_mut() {
+        Some(point) => {
+            while trail.way > ARROW_TRAIL_EVERY {
+                trail.way -= ARROW_TRAIL_EVERY;
+                *point += direction * ARROW_TRAIL_EVERY;
+                lay(*point);
+            }
+        }
+        None => {
+            if trail.way > ARROW_TRAIL_EVERY {
+                trail.way -= ARROW_TRAIL_EVERY;
+                lay(after);
+            }
+        }
+    }
+}
 
 /// The rules' point of world point `at`.
 fn point(at: Vec3) -> Point {
@@ -332,6 +400,17 @@ fn loose(
                     special: shot.special,
                     homing,
                     wait: 0.0,
+                    trail: match shot.special.map(|special| special.art) {
+                        Some(EXPLOSIVE) => Some(Trail {
+                            way: 0.0,
+                            point: Some(from),
+                        }),
+                        Some(BLADES) => Some(Trail {
+                            way: 0.0,
+                            point: None,
+                        }),
+                        _ => None,
+                    },
                 },
                 DespawnOnExit(AppState::InGame),
             ));
@@ -399,9 +478,10 @@ fn fly(
         MessageWriter<crate::bolts::Pops>,
         MessageWriter<crate::shields::Flash>,
     ),
-    (mut sparks, mut sights): (
+    (mut sparks, mut sights, mut trail_dice): (
         MessageWriter<crate::hit_sparks::Spark>,
         MessageWriter<crate::arrow_sights::Sight>,
+        ResMut<TrailDice>,
     ),
 ) {
     let dt = time.delta_secs();
@@ -456,7 +536,16 @@ fn fly(
             commands.entity(entity).despawn();
             continue;
         };
+        let before = transform.translation;
         transform.translation = world(arrow.flight.at());
+        if let Some(trail) = arrow.trail.as_mut() {
+            lay_trail(
+                &mut commands,
+                trail,
+                (before, transform.translation),
+                &mut trail_dice.0,
+            );
+        }
         // A bubble on its way bursts, the arrow flying on (`0x5BBCD0`, #2128).
         let on_way = bubbles.iter().map(|(bubble, at)| {
             let reach = opensacred_rules::spells::BUBBLE_COURSE.2;
@@ -767,6 +856,7 @@ pub struct ArrowsPlugin;
 impl Plugin for ArrowsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Dice(crate::seed::dice(3)))
+            .init_resource::<TrailDice>()
             .add_message::<Loose>()
             .add_systems(
                 Update,
@@ -781,6 +871,60 @@ impl Plugin for ArrowsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Lays a trail along the steps `steps` from the origin along +x: the places of its pieces,
+    /// one list a step.
+    fn laid(mut trail: Trail, steps: &[f32]) -> Vec<Vec<Vec3>> {
+        let mut world = World::new();
+        let mut dice = crate::seed::dice(1);
+        let mut at = Vec3::ZERO;
+        let mut places = Vec::new();
+        for &step in steps {
+            let mut queue = bevy::ecs::world::CommandQueue::default();
+            {
+                let mut commands = Commands::new(&mut queue, &world);
+                lay_trail(
+                    &mut commands,
+                    &mut trail,
+                    (at, at + Vec3::X * step),
+                    &mut dice,
+                );
+            }
+            queue.apply(&mut world);
+            at += Vec3::X * step;
+            let mut pieces: Vec<Vec3> = world
+                .query_filtered::<&Transform, With<crate::puffs::Unmade>>()
+                .iter(&world)
+                .map(|transform| transform.translation)
+                .collect();
+            pieces.sort_by(|a, b| a.x.total_cmp(&b.x));
+            let earlier: usize = places.iter().map(Vec::len).sum();
+            places.push(pieces.split_off(earlier));
+        }
+        places
+    }
+
+    #[test]
+    fn an_explosive_arrow_lays_its_trail_every_40_and_a_blade_one_a_frame_at_most() {
+        // The explosive arrow's own point moves on 40 a piece, as many as its way passed.
+        let explosive = Trail {
+            way: 0.0,
+            point: Some(Vec3::ZERO),
+        };
+        let pieces = laid(explosive, &[100.0, 30.0, 10.0]);
+        assert_eq!(pieces[0], [Vec3::X * 40.0, Vec3::X * 80.0]);
+        assert_eq!(pieces[1], [Vec3::X * 120.0]);
+        assert!(pieces[2].is_empty());
+        // A blade's lies where it is, one a frame, its way kept for the next.
+        let blade = Trail {
+            way: 0.0,
+            point: None,
+        };
+        let pieces = laid(blade, &[100.0, 0.0, 0.0]);
+        assert_eq!(pieces[0], [Vec3::X * 100.0]);
+        assert_eq!(pieces[1], [Vec3::X * 100.0]);
+        assert!(pieces[2].is_empty());
+    }
 
     #[test]
     fn an_arrow_hits_the_hero_or_a_creature_hostile_to_its_shooter() {

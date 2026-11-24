@@ -5,9 +5,8 @@
 //! spider arrow 1006's ten puffs of pale green smoke about the struck creature's left thigh,
 //! placed there once, rising away within 1.3 s (`opensacred_rules::particles::spider_smoke`, the
 //! object 855 by the FX event `0x4F`, drawn by `puffs`). Both are added and untinted by the
-//! night. The explosive arrow's sparks are `hit_sparks`'.
-//!
-//! Not followed: the trails of 1004's arrow and of 1008's blades (#3131).
+//! night. The explosive arrow's sparks are `hit_sparks`', the trails of 1004's arrow and of 1008's
+//! blades `arrows`' (#3131).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
