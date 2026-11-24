@@ -2110,6 +2110,9 @@ fn make(
                         "making: {} throws {} at {speed:.0}, held {hold:.1} s",
                         making.art, playing.target
                     );
+                    // Its burning light for its hold's whole seconds (the FX event `0x2B`'s `[1]`,
+                    // #3142).
+                    crate::holding_sights::burn(&mut commands, playing.target, hold);
                     commands
                         .entity(playing.target)
                         .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
@@ -3657,6 +3660,8 @@ fn knock(
                         throw: Some(arts::bowled(flight.velocity, to_it)),
                         unheld: false,
                     });
+                // Its burning light for its hold's 2 s (the blows' object 816, #3142).
+                crate::holding_sights::burn(&mut commands, other, arts::BOWL_HOLD);
                 flight.velocity = flight.velocity.map(|v| v * arts::BOWL_KEEPS);
             }
             if flight.landed() {
