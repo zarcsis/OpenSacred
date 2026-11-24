@@ -9881,6 +9881,12 @@ impl ForceOfHell {
         }
     }
 
+    /// A spark's trail at the top detail, its draw passing its one layer as the trail's
+    /// (`0x7C4000` at `DETAILLEVEL` 2, `0x761B00`): the bats' ([`spark_trail`]).
+    pub fn trail(spark: &Particle) -> Vec<([f32; 3], f32)> {
+        spark_trail(spark, &Self::layer())
+    }
+
     /// Its block: a spark of the size 0.65 every 0.01 s, of the velocity up to 20 along each axis,
     /// falling at 60 ± 10.
     fn block() -> Block {
@@ -23360,6 +23366,34 @@ mod tests {
         for _ in 0..100 {
             assert!((3.0..=4.0).contains(&ForceOfHell::bead_half(&mut dice)));
         }
+        // A spark's trail is the bats' of its layer, its dots shrinking from 0.62 by 0.03: a
+        // spark 0.05 s old leaves five.
+        let spark = Particle {
+            place: [0.0, 0.0, 50.0],
+            velocity: [10.0, 0.0, 0.0],
+            buoyancy: 60.0,
+            size: 0.65,
+            life: 240.0,
+            angle: 0.0,
+            spin: 0.0,
+            layer: 0,
+            frame: 0,
+            colour: [1.0; 3],
+        };
+        let trail = ForceOfHell::trail(&spark);
+        assert_eq!(
+            trail,
+            spark_trail(
+                &spark,
+                &Layer {
+                    life: -300.0,
+                    ..Layer::default()
+                }
+            )
+        );
+        assert_eq!(trail.len(), 5);
+        assert!((trail[0].1 - 0.63).abs() < 1e-6 && (trail[4].1 - 0.51).abs() < 1e-6);
+        assert!((trail[0].0[0] + 0.1).abs() < 1e-5);
     }
 
     #[test]
