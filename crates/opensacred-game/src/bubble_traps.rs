@@ -6,7 +6,8 @@
 //! green sonar ring spreading on the ground under it (906), both added and untinted
 //! (`opensacred_rules::particles::{BubbleTrap, SonarRing}`).
 //! The bubble lights the world on the ground under it by 100, by 150 once burst, and its ring by
-//! 200 (`daynight::Light`, #3153; docs/re/effects.md, "Lights").
+//! 200 (`daynight::Light`, #3153; docs/re/effects.md, "Lights"). Its bush casts its shadow on the
+//! ground under it as it flies, shifted by half its height (`shadows::Plane`, `0x79817A`, #3162).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::gltf::Gltf;
@@ -113,9 +114,16 @@ struct Sonar {
 }
 
 /// Gives each new bubble its look (`0x797B30`, `0x798380`): its bush and its glows' mesh.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, grouped"
+)]
 fn show(
     mut commands: Commands,
-    bolts: Query<(Entity, &Bubble, &Transform), Added<Bubble>>,
+    (bolts, heights): (
+        Query<(Entity, &Bubble, &Transform), Added<Bubble>>,
+        Res<Heights>,
+    ),
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
@@ -129,6 +137,9 @@ fn show(
                 model_looks::scene(&assets, model),
                 bush_transform(at, along, 0.0),
                 model_looks::Ordered::default(),
+                // Its shadow on the ground under it (`0x406FF0`).
+                crate::shadows::Casts,
+                crate::shadows::Plane(ground_of(&heights, at)),
                 DespawnOnExit(AppState::InGame),
             ));
             // The hero's bush in its texture, another caster's in its own (`0x401BD0`).
@@ -173,6 +184,14 @@ fn show(
             playing: false,
         });
     }
+}
+
+/// The ground's height under `at`, where its bush's shadow falls (`0x5A9A6D`), else a bolt's
+/// height under it.
+fn ground_of(heights: &Heights, at: Vec3) -> f32 {
+    heights
+        .at(at.x, at.z)
+        .unwrap_or(at.y - crate::bolts::HEIGHT)
 }
 
 /// A bush's transform at `at` (`0x798030`): along `along`, at twice its size times `scale`, at
@@ -239,11 +258,12 @@ fn fly(
         Query<&Transform, (With<Bubble>, Without<Shown>)>,
         Query<&mut Transform, (Without<Bubble>, Without<Shown>, Without<Light>)>,
     ),
-    (mut lamps, children, bones, worn): (
+    (mut lamps, children, bones, worn, mut planes): (
         Query<(&mut Transform, &mut Light), (Without<Bubble>, Without<Shown>)>,
         Query<&Children>,
         Query<(&Name, &GlobalTransform)>,
         crate::making::Worn,
+        Query<&mut crate::shadows::Plane>,
     ),
     (looks, mut dice, mut meshes, orders): (
         Res<Looks>,
@@ -284,9 +304,7 @@ fn fly(
                             look.place
                         );
                         look.look.burst(models(from), &mut dice.0);
-                        let ground = heights
-                            .at(look.place.x, look.place.z)
-                            .unwrap_or(look.place.y - crate::bolts::HEIGHT);
+                        let ground = ground_of(&heights, look.place);
                         sonar(
                             &mut commands,
                             Vec3::new(look.place.x, ground + GROUND_LIFT, look.place.z),
@@ -305,6 +323,9 @@ fn fly(
             if look.look.drawn() {
                 if let Ok(mut transform) = bushes.get_mut(model) {
                     *transform = bush_transform(look.place, look.along, look.look.scale);
+                    if let Ok(mut plane) = planes.get_mut(model) {
+                        plane.0 = ground_of(&heights, look.place);
+                    }
                 }
             } else {
                 commands.entity(model).despawn();
