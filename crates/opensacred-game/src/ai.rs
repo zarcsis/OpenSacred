@@ -157,12 +157,19 @@ impl Mind {
         goes
     }
 
-    /// A creature struck turns on its attacker, the hero where `attacker` is none
-    /// (`minds::Mind::turns_on`, #3470); whether it does.
-    pub fn turns_on(&mut self, attacker: Option<Entity>, busy: bool, striking: bool) -> bool {
+    /// A creature struck turns on its attacker, the hero where `attacker` is none, unless it is
+    /// held or `flying` in a throw's flight (`minds::Mind::turns_on`, #3470, #3622); whether it
+    /// does.
+    pub fn turns_on(
+        &mut self,
+        attacker: Option<Entity>,
+        busy: bool,
+        striking: bool,
+        flying: bool,
+    ) -> bool {
         let turns = self
             .thinks
-            .turns_on(busy || self.opening.is_some(), striking);
+            .turns_on(busy || self.opening.is_some(), striking, flying);
         if turns {
             self.foe = attacker;
         }
@@ -255,8 +262,9 @@ const TURNS_STRIKERS: u16 = 0x80;
 /// to the hero or the hero's follower, no horse ridden and alive (the event 5's handler's tail,
 /// `0x535A72`–`0x535C45`; docs/re/ai.md, "Foes among the creatures", #3470, #3590), a follower
 /// by a creature alone, as the hero is no foe of its own: it takes the AI's
-/// state 4 or 8 against it, unless a script's order waits for it, it casts or makes a weapon art,
-/// or its own strike or shot plays and the attacker's mark has no bit `0x80`. A Fetzer that it
+/// state 4 or 8 against it, unless it is held or in a throw's flight (#3622), a script's order
+/// waits for it, it casts or makes a weapon art, or its own strike or shot plays and the
+/// attacker's mark has no bit `0x80`. A Fetzer that it
 /// turns so from another state while it chooses takes its phase, `0x21B` by a roll of 0 of 3,
 /// else `0x217` (`0x535C4B`–`0x535C7F`, #3499); one that fights already keeps its choosing.
 #[expect(
@@ -278,6 +286,10 @@ fn turn_on_attackers(
             ),
             Has<crate::npcs::Strikes>,
             Option<&crate::followers::Follower>,
+            (
+                Option<&crate::making::Knocked>,
+                Has<crate::backbreaker::Flung>,
+            ),
         ),
         (Without<crate::npcs::Dies>, Without<crate::riding::Ridden>),
     >,
@@ -295,7 +307,7 @@ fn turn_on_attackers(
                 Err(_) => continue,
             }
         };
-        let Ok((mut mind, (casting, ordered, makes, queue), striking, follower)) =
+        let Ok((mut mind, (casting, ordered, makes, queue), striking, follower, (knocked, flung))) =
             minds.get_mut(hit.target)
         else {
             continue;
@@ -317,7 +329,9 @@ fn turn_on_attackers(
             .is_some_and(|(_, mark)| mark & TURNS_STRIKERS != 0);
         let foe = (!by_hero).then_some(hit.attacker);
         let calm = !mind.thinks.fighting();
-        if mind.turns_on(foe, busy, striking && !breaks) {
+        // In a throw's flight: the Dwarf's 1083's or the backbreaker's (`+0x14` bit `0x100000`).
+        let flying = flung || knocked.is_some_and(|knock| knock.throw.is_some());
+        if mind.turns_on(foe, busy, striking && !breaks, flying) {
             debug!(
                 "ai: {} turns on {}, which struck it",
                 hit.target, hit.attacker

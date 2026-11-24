@@ -1160,14 +1160,16 @@ impl Mind {
 
     /// Struck by an attacker hostile to it, a creature hostile to the local hero or that hero's
     /// follower turns on it (the event 5's handler's tail, `0x535A72`–`0x535C45`; docs/re/ai.md,
-    /// "Foes among the creatures", #3470): it takes the flags' bit 0, and, neither `busy` (a
-    /// script's order queued, a cast, its weapon arts' action, a door's way) nor playing its own
-    /// strike or shot (`striking`, which only an attacker of a mark of the bit `0x80` breaks), it
-    /// takes the AI's state 4, or 8 with a ranged weapon, deciding, its attacker its target, as it
-    /// does in that state already. Whether it takes its attacker.
-    pub fn turns_on(&mut self, busy: bool, striking: bool) -> bool {
+    /// "Foes among the creatures", #3470): it takes the flags' bit 0, and, neither held
+    /// (`0x535B5C`) nor in a throw's flight (`flying`, `+0x14` bit `0x100000`, `0x535B4F`;
+    /// docs/re/ai.md, "A held creature", #3622), neither `busy` (a script's order queued, a cast,
+    /// its weapon arts' action, a door's way) nor playing its own strike or shot (`striking`,
+    /// which only an attacker of a mark of the bit `0x80` breaks), it takes the AI's state 4, or 8
+    /// with a ranged weapon, deciding, its attacker its target, as it does in that state already;
+    /// the hit leaves its hold as it is. Whether it takes its attacker.
+    pub fn turns_on(&mut self, busy: bool, striking: bool, flying: bool) -> bool {
         self.flags |= 0x1;
-        if busy || striking {
+        if self.held || flying || busy || striking {
             return false;
         }
         self.fighting = true;
@@ -1629,7 +1631,8 @@ impl Mind {
     /// Held by the Gladiator's bare-handed `Attacke` (the slot 210, `0x502711`–`0x502772`;
     /// docs/re/arts.md, "The arts' clips", #3429): the knock-back's hold (`+0x200` bit
     /// `0x40000`), its timer set to fire no sooner than `seconds` on, without ending what it
-    /// does; so held it thinks nothing until its timer fires.
+    /// does; so held, a creature that fights decides and strikes a foe within its band, but takes
+    /// no step until its timer fires (docs/re/ai.md, "A held creature", #3622).
     pub fn held_at_least(&mut self, seconds: f32) {
         self.held = true;
         self.clock = self.clock.min(self.period - seconds);
@@ -5324,15 +5327,27 @@ mod tests {
         // A dormant goblin of no bit 0 struck: it takes the bit and the state 4, deciding (#3470).
         let mut goblin = Mind::new(at(0.0, 0.0), 0x4000, (false, false), None, SPEEDS, (76, 2));
         assert!(!goblin.fighting);
-        assert!(goblin.turns_on(false, false));
+        assert!(goblin.turns_on(false, false, false));
         assert!(goblin.fighting && goblin.deciding && !goblin.active);
         assert_eq!(goblin.flags & 0x1, 0x1);
-        // Busy or in its own strike, it keeps what it does, the bit taken all the same.
-        for (busy, striking) in [(true, false), (false, true)] {
+        // Busy, in its own strike or in a throw's flight, it keeps what it does, the bit taken all
+        // the same.
+        for (busy, striking, flying) in [
+            (true, false, false),
+            (false, true, false),
+            (false, false, true),
+        ] {
             let mut other = Mind::new(at(0.0, 0.0), 0x4000, (false, false), None, SPEEDS, (76, 2));
-            assert!(!other.turns_on(busy, striking));
+            assert!(!other.turns_on(busy, striking, flying));
             assert!(!other.fighting && other.flags & 0x1 == 0x1);
         }
+        // Held, it waits for its timer, its hold as it was (#3622).
+        let mut stunned = Mind::new(at(0.0, 0.0), 0x4000, (false, false), None, SPEEDS, (76, 2));
+        stunned.stunned(5.0);
+        let clock = stunned.clock;
+        assert!(!stunned.turns_on(false, false, false));
+        assert!(!stunned.fighting && stunned.held() && stunned.flags & 0x1 == 0x1);
+        assert_eq!(stunned.clock, clock);
     }
 
     #[test]
