@@ -725,6 +725,14 @@ const SPARES: [u16; 5] = [1003, 1010, 1017, 1018, 1019];
 pub fn spares(art: u16) -> bool {
     SPARES.contains(&art)
 }
+
+/// Whether `art` is one of the Daemon's forms, 1094 and 1097 to 1100, which the launch's test
+/// passes for a maker of the type 9 (`0x51D840`) and which change his own form alone, never a
+/// friend's (docs/re/arts.md, "The special weapon arts", #3124).
+pub fn forms(art: u16) -> bool {
+    art == FORM || (1097..=1100).contains(&art)
+}
+
 /// The effect that strikes the Daemon whose form ends where he may not stand, keyed by
 /// [`DAEMON_FORM`] (`0x5881A0`): 55.
 pub const DROWNS: u32 = 55;
