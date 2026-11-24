@@ -18834,6 +18834,14 @@ mod tests {
                 .iter()
                 .any(|puff| puff.place[2].abs() > 20.0)
         );
+        // Turned at random and moving a little, each its own way.
+        assert!(smoke.particles.iter().any(|puff| puff.angle > 1.0));
+        assert!(
+            smoke
+                .particles
+                .iter()
+                .any(|puff| puff.velocity.iter().any(|v| v.abs() > 1.0))
+        );
         assert_eq!(
             smoke.ramp.0[255],
             [127.0 / 255.0, 195.0 / 255.0, 127.0 / 255.0, 1.0]
