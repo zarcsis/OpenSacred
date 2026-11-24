@@ -12145,18 +12145,14 @@ pub fn laser_impact(dice: &mut impl Dice) -> Burst {
     let block = Block {
         buoyancy: spread(100.0, 40.0),
         size: spread(4.0, 0.0),
-        angle: spread(std::f32::consts::PI, std::f32::consts::PI),
         velocity: spread([0.0, 0.0, 50.0], [80.0, 80.0, 40.0]),
         offset: spread([0.0; 3], [5.0; 3]),
         ..Block::default()
     };
     let byte = |c: f32| c / 255.0;
+    // Not turned (the draw's flags `0x19`): the block's angle, π ± π, is drawn by nothing.
     let particles = (0..LASER_IMPACT_COUNT)
-        .map(|_| Particle {
-            // Not turned (the draw's flags `0x19`).
-            angle: 0.0,
-            ..born(&block, 0, dice)
-        })
+        .map(|_| born(&block, 0, dice))
         .collect();
     Burst {
         texture: LASER_IMPACT_TEXTURE,
@@ -18994,6 +18990,12 @@ mod tests {
                 .particles
                 .iter()
                 .any(|spark| spark.velocity[0].abs() > 10.0)
+        );
+        assert!(
+            impact
+                .particles
+                .iter()
+                .any(|spark| spark.place[0].abs() > 1.0)
         );
         assert_eq!(
             impact.ramp.0[255],
