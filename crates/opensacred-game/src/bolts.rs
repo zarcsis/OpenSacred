@@ -697,6 +697,7 @@ fn fly(
                         ward: true,
                         hurled: false,
                         object: true,
+                        mount: false,
                     });
                 }
             }
@@ -836,6 +837,7 @@ fn fly(
                 ward: warded(course.look),
                 hurled: false,
                 object: true,
+                mount: false,
             });
         }
         match course.strikes {

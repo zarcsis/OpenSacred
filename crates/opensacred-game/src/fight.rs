@@ -60,6 +60,11 @@ pub struct Hit {
     /// category 12: it plays no sound at its target and calls no line of the struck one
     /// (`0x5320D2`, `0x532745`; docs/re/sound.md, "The weapons", #3471).
     pub object: bool,
+    /// Whether it is the strike of the horse that its attacker rides, its trample's (`0x597B3C`):
+    /// a kill of it is the horse's, its experience worked out at the horse's level, which the
+    /// horse and its rider each take (docs/re/fight.md, "The mount's and the rider's share",
+    /// #3586).
+    pub mount: bool,
 }
 
 /// A strike from nobody, an attacker's id of 0: a fire smoke's or a bursting geyser's (`fx`,
@@ -363,6 +368,16 @@ pub(crate) fn resolve(
             .get(hit.attacker)
             .ok()
             .map(|(health, ..)| (health.current, health.most));
+        // The level of the horse whose strike it is, its trample's, which its kill's experience
+        // is worked out at (`0x597B3C`, `0x57D860`; #3586).
+        let mount_level = hit
+            .mount
+            .then(|| {
+                let (.., (_, _, _, _, seat)) = attackers.get(hit.attacker).ok()?;
+                let horse = seat.and_then(crate::riding::Seat::ridden)?;
+                targets.get(horse).ok().map(|(health, ..)| health.level)
+            })
+            .flatten();
         let (
             Ok((attacker, hero, mind, from, (ranked, follower, holding, caster_arms, saddle))),
             Ok((
@@ -1304,6 +1319,14 @@ pub(crate) fn resolve(
                 heros_follower.map_or([0.0; 6], |(combat, ..)| combat.0.attributes)
             };
             let bonus = items_experience(holding_of, attributes_of) + potions::mentored(&killer);
+            // A kill of the horse's trample is the horse's: of the horse's level and of no
+            // bonus of the hero's, the horse and its rider each taking it (docs/re/fight.md,
+            // "The mount's and the rider's share", #3586).
+            let (bonus, sets) = if mount_level.is_some() {
+                (0.0, 0.0)
+            } else {
+                (bonus, sets)
+            };
             let worth = worth
                 .filter(|_| (hero || heros_follower.is_some()) && !raised)
                 .map(|worth| (*worth, rank.copied(), (bonus, sets)));
@@ -1312,7 +1335,7 @@ pub(crate) fn resolve(
                 (&mut dice, &mut experience, &rules),
                 (hit.target, (by_creature, heros_follower.is_some()), rises),
                 &health,
-                worth,
+                (worth, mount_level),
             );
         }
     }
@@ -1545,6 +1568,10 @@ fn whole_damage(damage: u32, factor: f32) -> u32 {
     (f64::from(damage) * f64::from(factor)).max(0.0) as u32
 }
 
+/// What a kill is worth to its earner: the victim's worth, its rank, and the earner's bonus and
+/// its sets' share ([`fell`]).
+type KillWorth = (Worth, Option<Ranked>, (f32, f32));
+
 /// Fells `target`, at `health`: it dies, one of its two dying clips at random, and where the
 /// hero killed it, of `worth`, its rank and the hero's bonuses (`potions::mentored`, its sets'),
 /// the hero earns its experience (the event 9, `0x57D860`), twice for a boss and 1.5 times for a
@@ -1553,7 +1580,8 @@ fn whole_damage(damage: u32, factor: f32) -> u32 {
 /// follower (`by_follower`, #2804), and its killer earns its experience through the [`Kill`]
 /// that [`resolve`] sends (`npcs::earn`, #690). An undead that `rises` gives nothing (`undead`,
 /// #1199), and a skeleton warrior that rises falls as the body of the type it changes into
-/// (`undead::change`, #1260).
+/// (`undead::change`, #1260). A kill of the horse that the hero rides (its trample's) is worked
+/// out at the horse's level, `mount` (#3586).
 fn fell(
     commands: &mut Commands,
     (dice, experience, rules): (&mut Dice, &mut Experience, &Rules),
@@ -1563,7 +1591,7 @@ fn fell(
         Option<crate::undead::Rises>,
     ),
     health: &Health,
-    worth: Option<(Worth, Option<Ranked>, (f32, f32))>,
+    (worth, mount): (Option<KillWorth>, Option<u32>),
 ) -> u32 {
     let choice = dice.0.below(2);
     let mut dies = if by_creature {
@@ -1575,7 +1603,7 @@ fn fell(
     dies.rises = rises.is_some();
     commands.entity(target).insert(dies);
     let Some(rises) = rises else {
-        let earned = earn(experience, rules, target, health, worth);
+        let earned = earn(experience, rules, (target, mount), health, worth);
         // Its mount takes the same, whole, where it rides (`0x5319B1`–`0x531A37`, #3393).
         if earned > 0 {
             commands.queue(move |world: &mut World| crate::npcs::mount_earns(world, earned));
@@ -1594,18 +1622,20 @@ fn fell(
 }
 
 /// The experience the hero earns of `target`, at `health`, of `worth`, its rank and the hero's
-/// bonus ([`fell`]).
+/// bonus ([`fell`]): of the victim's level and the hero's, or the level `mount` of the horse
+/// whose kill it is.
 fn earn(
     experience: &mut Experience,
     rules: &Rules,
-    target: Entity,
+    (target, mount): (Entity, Option<u32>),
     health: &Health,
-    worth: Option<(Worth, Option<Ranked>, (f32, f32))>,
+    worth: Option<KillWorth>,
 ) -> u32 {
     let Some((worth, rank, bonus)) = worth else {
         return 0;
     };
-    let earned = experience_with(worth.0, health.level, experience.level, rules, bonus);
+    let killer = mount.unwrap_or(experience.level);
+    let earned = experience_with(worth.0, health.level, killer, rules, bonus);
     let earned = rank.unwrap_or_default().0.earned(earned);
     let grew = experience.add(u64::from(earned), rules);
     info!(
@@ -1779,7 +1809,7 @@ impl<'a> Slayer<'a> {
             (dice, experience, rules),
             (entity, (false, false), rises),
             health,
-            worth,
+            (worth, None),
         );
         if let Some(tally) = tally {
             tally.killed();
@@ -2594,6 +2624,7 @@ mod tests {
                     ward: false,
                     hurled: false,
                     object: false,
+                    mount: false,
                 });
             }
         }
@@ -2660,6 +2691,7 @@ mod tests {
                 ward: false,
                 hurled: false,
                 object,
+                mount: false,
             });
             app.update();
             let world = app.world();
@@ -2746,6 +2778,7 @@ mod tests {
             ward: false,
             hurled: false,
             object: false,
+            mount: false,
         });
         app.update();
         let current = |entity| app.world().get::<Health>(entity).unwrap().current;
@@ -2810,6 +2843,7 @@ mod tests {
             ward: false,
             hurled,
             object: false,
+            mount: false,
         });
         app.update();
         1_000 - app.world().get::<Health>(target).unwrap().current
@@ -2900,11 +2934,103 @@ mod tests {
             ward: false,
             hurled: false,
             object: false,
+            mount: false,
         });
         app.update();
         assert_eq!(app.world().get::<Health>(victim).unwrap().current, 0);
         assert!(app.world().resource::<Experience>().points > before);
         assert!(app.world().resource::<Messages<Kill>>().is_empty());
+    }
+
+    #[test]
+    fn a_trample_kill_is_worked_out_at_the_horses_level() {
+        let combat = Combat(opensacred_rules::fight::Combat {
+            attack: 200.0,
+            defence: 10.0,
+            damage: [[0.0; 2]; 4],
+            resistance: [0.0; 4],
+            damping: [0; 4],
+            speed: 140.0,
+            pace: 130.0,
+            multipliers: [1.0; 4],
+            resistance_factors: [1.0; 4],
+            spells: [1.0; 4],
+            cast: opensacred_rules::fight::CAST_SPEED,
+            attributes: [0.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
+        });
+        // The hero's earning of a kill by its strike of the horse's trample or its own.
+        let earned = |mount: bool| {
+            let mut app = App::new();
+            app.add_plugins(MinimalPlugins)
+                .add_message::<Hit>()
+                .add_message::<Kill>()
+                .add_message::<Struck>()
+                .add_message::<crate::voices::Speak>()
+                .add_message::<crate::sfx::Blow>()
+                .add_message::<crate::remarks::Remark>()
+                .add_message::<crate::drops::PileFromHit>()
+                .add_message::<crate::sfx::Play>()
+                .insert_resource(Dice(Rng::of(0, 0, 0)))
+                .init_resource::<Experience>()
+                .init_resource::<Rules>()
+                .add_systems(Update, resolve);
+            let world = app.world_mut();
+            let health = |current, level| Health {
+                current,
+                most: 1_000,
+                level,
+            };
+            let horse = world
+                .spawn((combat, health(500, 30), GlobalTransform::default()))
+                .id();
+            let hero = world
+                .spawn((
+                    combat,
+                    health(500, 1),
+                    Body::standing(),
+                    crate::riding::Seat::Riding {
+                        horse,
+                        speeds: [1.0; 2],
+                        offset: Vec3::ZERO,
+                    },
+                    GlobalTransform::default(),
+                ))
+                .id();
+            let victim = world
+                .spawn((
+                    combat,
+                    health(10, 1),
+                    Worth([100, 10]),
+                    GlobalTransform::default(),
+                ))
+                .id();
+            let before = world.resource::<Experience>().points;
+            world.write_message(Hit {
+                attacker: hero,
+                target: victim,
+                share: 1.0,
+                ranged: false,
+                art: None,
+                fixed: Some([100.0, 0.0, 0.0, 0.0]),
+                sure: true,
+                poison: false,
+                ward: false,
+                hurled: false,
+                object: false,
+                mount,
+            });
+            app.update();
+            assert_eq!(app.world().get::<Health>(victim).unwrap().current, 0);
+            app.world().resource::<Experience>().points - before
+        };
+        let rules = Rules::default();
+        let hero_level = Experience::default().level;
+        let at = |level| u64::from(experience_with([100, 10], 1, level, &rules, (0.0, 0.0)));
+        assert_eq!(earned(true), at(30));
+        assert_eq!(earned(false), at(hero_level));
+        assert_ne!(at(30), at(hero_level));
     }
 
     /// What a creature of a poison's resistance of 50 lost to a strike of 8 poison, a poison's own
@@ -2970,6 +3096,7 @@ mod tests {
             ward: false,
             hurled: false,
             object: false,
+            mount: false,
         });
         app.update();
         1_000 - app.world().get::<Health>(target).unwrap().current
@@ -3065,6 +3192,7 @@ mod tests {
             ward: false,
             hurled: false,
             object: false,
+            mount: false,
         });
         app.update();
         1_000 - app.world().get::<Health>(goblin).unwrap().current
@@ -3201,6 +3329,7 @@ mod tests {
                 ward,
                 hurled: false,
                 object: false,
+                mount: false,
             });
         }
         app.update();

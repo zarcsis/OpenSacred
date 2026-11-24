@@ -592,6 +592,7 @@ fn act(
                     ward: true,
                     hurled: false,
                     object: true,
+                    mount: false,
                 });
                 crate::lightning_strikes::strike(&mut commands, place, false);
             }
@@ -1047,6 +1048,7 @@ fn act(
                         ward: true,
                         hurled: false,
                         object: false,
+                        mount: false,
                     });
                 }
             }
@@ -1382,6 +1384,7 @@ fn burn(
                     ward: false,
                     hurled: false,
                     object: true,
+                    mount: false,
                 });
                 flame.cooldown = 1.0;
             }
@@ -1559,6 +1562,7 @@ fn throw(
                     ward: true,
                     hurled: false,
                     object: true,
+                    mount: false,
                 });
             }
         }
@@ -1598,6 +1602,7 @@ fn throw(
                     ward: true,
                     hurled: false,
                     object: true,
+                    mount: false,
                 });
                 continue;
             }
@@ -1737,6 +1742,7 @@ fn home(
                 ward: false,
                 hurled: false,
                 object: true,
+                mount: false,
             });
         }
         bursts.write(crate::homing_fires::Bursts {

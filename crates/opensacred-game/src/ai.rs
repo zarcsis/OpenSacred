@@ -1516,6 +1516,7 @@ fn pursue(
                     ward: false,
                     hurled: false,
                     object: false,
+                    mount: false,
                 });
             }
             Pursues::Flees(to) => {
@@ -1614,6 +1615,7 @@ fn pursue(
                         ward: false,
                         hurled: false,
                         object: false,
+                        mount: false,
                     });
                     world.write_message(crate::hit_sparks::Spark {
                         art: crate::trample::TRAMPLE_SPARKS,
@@ -3412,6 +3414,7 @@ mod tests {
             ward: false,
             hurled: false,
             object: false,
+            mount: false,
         });
         app.update();
         let mind = app.world().get::<Mind>(goblin).unwrap();
@@ -3557,6 +3560,7 @@ mod tests {
             ward: false,
             hurled: false,
             object: false,
+            mount: false,
         });
         app.update();
         // The fellow comes at the hero; the archer, of no group, keeps its foe.
@@ -3610,6 +3614,7 @@ mod tests {
             ward: false,
             hurled: false,
             object: false,
+            mount: false,
         });
         app.update();
         // The event goes on to the rider, which fights the skeleton's foe; the horse fights not.

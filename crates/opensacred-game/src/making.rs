@@ -1387,6 +1387,7 @@ fn make(
             ward: false,
             hurled: false,
             object: false,
+            mount: false,
             attacker: hero,
             target,
             share: playing.factor,
@@ -2337,6 +2338,7 @@ fn make(
                                 ward: false,
                                 hurled: false,
                                 object: false,
+                                mount: false,
                             });
                             if !mind.big && knocks_back(&mut dice.0, playing.level, mind) {
                                 commands
@@ -3348,6 +3350,7 @@ fn blades(
                 ward: false,
                 hurled: false,
                 object: false,
+                mount: false,
                 attacker: hero,
                 target: entity,
                 share: playing.factor,
@@ -3543,6 +3546,7 @@ fn knock(
                     ward: false,
                     hurled: false,
                     object: false,
+                    mount: false,
                 });
                 commands
                     .entity(other)

@@ -270,6 +270,7 @@ fn fly(
                 ward: false,
                 hurled: true,
                 object: false,
+                mount: false,
             });
         }
         if struck.is_none() && share < 1.0 {

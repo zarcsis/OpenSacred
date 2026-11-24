@@ -184,6 +184,7 @@ fn drown(
                 ward: false,
                 hurled: false,
                 object: false,
+                mount: false,
             });
         }
     }
