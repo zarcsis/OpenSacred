@@ -142,7 +142,7 @@ A player's run is `opensacred-convert install` (#1497), which the packaged game 
 5. **Observations of the running original.**
    Where the oracle cannot reach (a rule spread over threads and frames, the engine's timing, the creatures' choices, what the screen shows), the running original is observed.
    Until 2026-10-21 that needed the maintainer at the game (#227); since 2026-10-22 the driver of #448 lets Claude Code do it itself: `tools/original/` runs the user's own `Sacred.exe` under Frida in the background, reads its state, sends its keys and clicks, runs commands, traces its functions and takes its frames (docs/03 §3.8).
-   Its frames, logs and traces stay on the developer's machine; the results go into the issues and `docs/re/` as prose, and a frame of a problem, cropped to it, into its issue as an attachment (docs/08 §3).
+   Its frames, logs and traces stay on the developer's machine; the results go into the issues and `docs/re/` as prose, and the frames and recordings of a problem into its issue as attachments (docs/08 §3).
 6. **Rust, written independently, then improved where that is worth it.**
    `opensacred-rules` implements the behavior from the description and passes the vectors.
    A departure from the original is then a choice, made on one of the grounds of §1.1 and recorded in the decision log (`docs/decisions/`).
@@ -439,7 +439,7 @@ This is not legal advice.
 * The repository and CI hold no game bytes: no game files, no `Sacred.exe`, no converted assets, HD packs, memory dumps, decompiler output or game texts.
   Tests that need the game run locally on the developer's installation, `OriginalGame/` (git-ignored) or the GOG one that the registry names (#1556); CI runs only the tests that need no game files.
 * Converted output is generated locally from the user's own copy and is never published.
-  The same rules apply to issues and pull requests, which carry only the frames of a problem, cropped to it, as their attachments (docs/08 §3, #1222).
+  The same rules apply to issues, pull requests and discussions, whose frames and recordings of the game in play are attachments, never in git (docs/08 §3, #1222, #3654).
 * OpenSacred is not affiliated with the rights holder; Sacred is a trademark of THQ Nordic GmbH.
   The name and its use: docs/08 §6, "Name and trademark".
 

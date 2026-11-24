@@ -1,6 +1,6 @@
 name: Dependency upgrade
 description: A newer incompatible release of a direct dependency or of Rust.
-labels: [deps]
+labels: [deps, triage]
 body:
   - type: input
     id: versions

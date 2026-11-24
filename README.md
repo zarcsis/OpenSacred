@@ -33,6 +33,14 @@ The game has the saves, the trade, the smith and the character's sheet; whether 
 
 Each release on the [Releases](https://github.com/zarcsis/OpenSacred/releases) page carries `OpenSacred-vX.Y.Z-windows-x64.7z`: unpack it into a folder of its own and run `opensacred-game.exe`. At its first start the game finds your GOG or Steam installation of Sacred Gold 2.28 (English), or asks for its folder, and makes its assets from it once, which takes some minutes and 11 GB of free disk space for its time; they stay in `%LOCALAPPDATA%\OpenSacred\assets`. The archive holds no file of the game; its `README.txt` says the rest.
 
+Before you play:
+
+- it is a version before 1.0: both campaigns play through to their ends in driven runs, the maintainer's own play-through is still ahead, and you will meet bugs; [report them](CONTRIBUTING.md);
+- it takes Sacred Gold 2.28 in English, GOG's or Steam's: the converter refuses other languages and versions;
+- it runs on Windows 11 x64; Linux and the gamepad come after version 1.0;
+- the original's saves are not loaded, and there is no multiplayer before version 1.0;
+- where it departs from the original on purpose is listed in [docs/decisions/](docs/decisions/).
+
 ## Requirements
 
 - **The game:** your own copy of Sacred Gold 2.28 (English) from GOG or Steam. The converter checks it against the embedded SHA-256 manifests ([docs/manifest-gog-2.28.txt](docs/manifest-gog-2.28.txt), and [docs/manifest-steam-2.28.txt](docs/manifest-steam-2.28.txt) for the four files in which the Steam release differs); other builds are not supported. The development tools (the oracle, the original's driver) take the GOG release alone.
@@ -115,7 +123,7 @@ The full index is in [PLAN.md](PLAN.md), §14.
 
 ## Contributing
 
-Work goes through [issues](https://github.com/zarcsis/OpenSacred/issues) and pull requests. Open an issue from the form of its type (bug, feature, research, dependency, infrastructure, documentation), branch from `main`, and open a pull request from the template; it is merged once the checks (Linux, Windows, cargo deny, Mutants) are green and the maintainer has looked at it; a change to `opensacred-rules`, `opensacred-data` or `opensacred-formats` kills the mutants of its lines with tests. CI has no game files, so run the tests on your own installation (`cargo nextest run --workspace --run-ignored all`) before opening it. The process is described in [docs/03-toolchain.md](docs/03-toolchain.md), §3.6.
+Before version 1.0, reports of what goes wrong in play help most; questions and ideas go to [Discussions](https://github.com/zarcsis/OpenSacred/discussions). [CONTRIBUTING.md](CONTRIBUTING.md) tells how to report a problem, what the project cannot accept, and how a pull request is made and merged; everyone follows the [Code of Conduct](CODE_OF_CONDUCT.md). The maintainer's own process, in which Claude Code sessions work through the issues, is described in [docs/03-toolchain.md](docs/03-toolchain.md), §3.6.
 
 ## License
 

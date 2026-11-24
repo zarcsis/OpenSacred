@@ -11,7 +11,7 @@
   The Steam build wraps `Sacred.exe` in Steam's DRM, which encrypts its code: the converter reads only its data sections, which the DRM leaves as they are, and decrypts nothing (docs/01 §1, #1484).
 * What reaches the repository, issues and pull requests: our own code (MIT OR Apache-2.0) and facts about the formats and the behavior, in our own words.
   Never: game files, converted assets, decompiler output, game texts (§3).
-  Issues and pull requests also carry frames of a problem, cropped to it, as their attachments, never in the repository's git (§3).
+  Frames and recordings of the game in play are published apart from the repository's git: in videos and posts about the project, and as attachments of issues, pull requests and discussions (§3).
 * Sacred is a trademark of its owner; OpenSacred is not affiliated with THQ Nordic, Ascaron or GOG (§6).
 
 ## 1. Disclaimer
@@ -34,13 +34,13 @@ The text of the Directive: https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=C
 
 ## 3. What the project publishes and what it never does
 
-The same rules hold for the repository, issues, pull requests, discussions and their attachments, but for one kind of attachment: the frames of a problem (below).
+The same rules hold for the repository, issues, pull requests, discussions and their attachments, but for the frames and recordings of the game in play (below).
 
 | Published | Never published |
 |---|---|
 | Our own code under MIT OR Apache-2.0 | Any file of the game, in any form: executables, archives, models, textures, sounds, movies, saves |
 | Facts about the formats (docs/02) and descriptions of the original's behavior in our own words (docs/re/) | Converted assets, atlases, glTF models, HD packs; screenshots or recordings of converted assets in the repository |
-| Frames of a problem, of the game or of the original, cropped to it, as attachments of its issue or pull request (below) | Recordings with sound, and frames or sequences that show the assets for their own sake, anywhere |
+| Frames and recordings of the game in play, of OpenSacred or of the original, with their sound, made from one's own copy: in videos and posts about the project, and as attachments of an issue, a pull request or a discussion (below; the maintainer's choice on #3654) | Frames or recordings in the repository's git or in a release; an asset shown for its own sake, apart from play: a movie or a music track put up whole, the art or the sounds taken out of the game |
 | Addresses, offsets, identifiers, counts and hashes needed to read the data or to check a reader | Decompiler output (pseudo-C, listings) or code translated from it; memory dumps |
 | Facts of the original's behavior that its code keeps and its data files do not, written as the converter's constants, numbers alone beside the names of the files, the models and the balance's keys they go by: which voice, portrait or idle noise each creature type takes (#714, #1489), what a boss of some types adds to its death's drops (#2269), the scales that the load gives 24 models (#2578) and the changes that it makes to the records of its items table (#1136, #2579). Each is checked against the user's own copy by a test on the game files, the items' changes against the load that the oracle runs in its emulator (#2865) (the maintainer's choices on #1484 and #2846) | The game's own data sections, tables or resources copied whole |
 | Words of the project's own that the converter puts in place of the game's texts' defects, named by the strings' ids and the original words' hashes (docs/02 §8, #403) | Another release's or a mod's wording of those texts |
@@ -51,14 +51,17 @@ The same rules hold for the repository, issues, pull requests, discussions and t
 
 How the original's rules get into the engine: the original is studied (running it, reading its data, decompiling the parts that are needed) only to understand a format or a rule; the rule is described in prose in `docs/re/`; it is implemented independently in Rust; and the implementation is checked by tests written from the description and by observations of the running original (#227; from #448 on, made by Claude Code too), and against values recorded from the user's own executable by the oracle (PLAN.md §6.1, #363).
 The oracle runs the original's machine code in an emulator: our code in it only sets the inputs and reads the outputs, and its vectors are written outside the repository, never committed.
-The driver of the original (#448) runs the user's own copy and observes it (Art. 5(3)): its agent hooks functions in the running process alone, carries only addresses, offsets and the original's names, changes nothing of the original on disk, and its frames, logs and traces stay on the developer's machine, but for a frame of a problem attached to its issue or pull request (below).
+The driver of the original (#448) runs the user's own copy and observes it (Art. 5(3)): its agent hooks functions in the running process alone, carries only addresses, offsets and the original's names, changes nothing of the original on disk, and its frames, logs and traces stay on the developer's machine, but for the frames and recordings of a problem attached to its issue or pull request (below).
 Anything made locally while studying the original (Ghidra projects, notes with decompiled code, experiments) stays local and is never committed.
 
-The frames of a problem (#1222): an issue whose problem shows on the screen carries a frame of it, and a pull request that changes what the screen shows carries its frames before and after (CLAUDE.md, "Issues and pull requests").
-Each is the part of a frame of `opensacred-game`, or of the original beside it where the comparison tells, that shows the problem, cropped to it.
-It is GitHub's attachment of the issue, the pull request or a comment (`gh issue create`, `gh issue comment`, `gh pr create` or `gh pr comment` with `--attach`), stored by GitHub apart from the repository: it is never committed, nor kept in the repository's git in any branch.
-A frame shows the game's art, which is protected; a part of one that shows a fault of our own program, or the original's behavior beside it, quotes the game for the description of the problem (Directive 2001/29/EC, Art. 5(3)(d): a quotation for criticism or review, of a work lawfully made available, to the extent the purpose needs), as the reports of other engines' projects commonly do, and it carries none of the game's files.
-The risk is low (**estimate**), and it stays apart from the repository: a complaint names the attachment, which is then deleted, and finds nothing of the game in the repository's history.
+The frames and recordings of the game in play (#1222, #3654): an issue whose problem shows on the screen or in the sound carries a frame or a recording of it, and a pull request that changes what the screen shows carries its frames before and after (CLAUDE.md, "Issues and pull requests").
+The project's own are cropped to the problem, and a recording is as short as the problem needs, so that they show it; a report from outside the project may show more.
+Each is GitHub's attachment of the issue, the pull request, the discussion or a comment (`gh issue create`, `gh issue comment`, `gh pr create` or `gh pr comment` with `--attach`), stored by GitHub apart from the repository: it is never committed, nor kept in the repository's git in any branch.
+Videos and posts about the project (a gameplay video, a post on a forum) show OpenSacred in play the same way, made from the maintainer's own copy, outside the repository and its releases.
+They show the game's art and sound, which are protected, as a game is shown in play from a lawfully owned copy: as the videos of the original and of its mods commonly do, and as other engines' projects show theirs; they carry none of the game's files.
+A frame or a recording of a fault of our own program, or of the original's behavior beside it, is also a quotation for criticism or review (Directive 2001/29/EC, Art. 5(3)(d): of a work lawfully made available, to the extent the purpose needs).
+Until 2026-11-24 only frames of a problem, cropped to it, were published, and recordings with sound never (#1222); the maintainer widened it to the game in play (#3654).
+The risk is low (**estimate**), and it stays apart from the repository: a complaint names the attachment or the video, which is then deleted, and finds nothing of the game in the repository's history.
 
 ## 4. Repository and CI
 
@@ -119,4 +122,4 @@ A constant table or formula taken from an MIT project carries the project's noti
 | 10 | Maintainer burnout | medium | high | an early vertical slice; short milestones; visible progress | milestones drag on |
 | 11 | HD pack size | high | low | selective upscaling; separate packs | tens of GB on disk |
 | 12 | `sound.pak` in an unexpected format | retired 2026-10-16 | — | the format is confirmed by `snd_ls.py` (docs/02, §10.2) | — |
-| 13 | Game content gets into the repository (a test fixture, an issue attachment, converter output) | low | high | no game bytes in the repository or CI; tests on synthetic data or on the user's local installation; the same rules for issues and pull requests, whose frames of a problem are cropped attachments, never in git (§3; PLAN.md §11) | a game file, a converted asset or a screenshot in a diff; a game file, a converted asset, a recording with sound or a frame of no problem in an issue or a pull request |
+| 13 | Game content gets into the repository (a test fixture, an issue attachment, converter output) | low | high | no game bytes in the repository or CI; tests on synthetic data or on the user's local installation; the same rules for issues, pull requests and discussions, whose frames and recordings are attachments, never in git (§3; PLAN.md §11) | a game file, a converted asset or a screenshot in a diff; a game file or a converted asset in an issue, a pull request or a discussion; a frame or a recording in git or a release |

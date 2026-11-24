@@ -1,12 +1,12 @@
 name: Bug
 description: The game, the converter or the tools do something wrong.
-labels: [bug]
+labels: [bug, triage]
 body:
   - type: textarea
     id: what
     attributes:
       label: What happens
-      description: What OpenSacred does, and what you expected instead; where it shows on the screen, a frame of it, cropped to it (and the original's beside it where that tells).
+      description: What OpenSacred does, and what you expected instead; where it shows on the screen or in the sound, a screenshot or a short video of it (PNG, JPEG, MP4, MOV or WebM), and the original's beside it where that tells.
     validations:
       required: true
   - type: textarea
@@ -25,13 +25,18 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: The version (`opensacred-game --version` or `opensacred-convert --version`), the OS, the GPU.
+      description: The version (the release's name, or `opensacred-game --version`), Windows, the GPU, and whether Sacred Gold is GOG's or Steam's.
     validations:
       required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Attach the newest file of `%LOCALAPPDATA%\OpenSacred\logs` (look it over for anything private first), or paste the lines about the problem; a save that shows it, zipped, from `%APPDATA%\OpenSacred\saves`, helps too.
   - type: checkboxes
     id: rules
     attributes:
       label: Rules
       options:
-        - label: This issue has no game files, converted assets or game texts; a frame only of its problem, cropped to it, as an attachment (docs/08 §3).
+        - label: This issue has no game files, converted assets or game texts; screenshots and videos of the game in play only as attachments (docs/08 §3).
           required: true
