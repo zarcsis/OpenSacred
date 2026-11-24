@@ -539,10 +539,11 @@ fn call_bat(
 pub(crate) const RAISED: u32 = opensacred_rules::undead::RAISED_DEAD;
 
 /// Raises the dead creature `corpse` as `master`'s follower (the Vampiress's awakening 1034,
-/// `0x511088`): a creature of its type of `level` where it lies, hired, of the flags' bit
-/// `0x2000000`, given the effect 29 for `seconds`, at whose going it dies (`effects::LIFETIME`);
-/// its value, its most health over the art's factor, is read by nothing (**hypothesis**). One
-/// that a raised dead creature's kill raises has no time (`0x52F4CD`).
+/// `0x511088`): the corpse itself stands where it lies at `level`, hired, its mark cleared to its
+/// `0xF000` bits, of the flags' bit `0x2000000`, given the effect 29 for `seconds`, at whose
+/// going it dies (`effects::LIFETIME`); its value, its most health over the art's factor, is read
+/// by nothing (**hypothesis**). One that a raised dead creature's kill raises has no time
+/// (`0x52F4CD`).
 pub fn raise(
     commands: &mut Commands,
     master: Entity,
@@ -592,8 +593,14 @@ fn chain(
     }
 }
 
-/// Raises a dead creature ([`raise`]): the corpse goes and a creature of its type stands there.
+/// Raises a dead creature ([`raise`]): the corpse itself where its mind was kept aside as it
+/// died ([`stand_up`]); else, a body put back without it, the corpse goes and a creature of its
+/// type of the common rank stands there.
 fn raise_dead(world: &mut World, master: Entity, corpse: Entity, level: u32, seconds: Option<f32>) {
+    if let Some(stashed) = world.get::<Stashed>(corpse).cloned() {
+        stand_up(world, (master, corpse), stashed, level, seconds);
+        return;
+    }
     let (Some(at), Some(dead)) = (
         world.get::<Transform>(corpse).map(|at| at.translation),
         world.get::<crate::npcs::Corpse>(corpse).copied(),
@@ -651,6 +658,48 @@ fn raise_dead(world: &mut World, master: Entity, corpse: Entity, level: u32, sec
             raised.insert(effects);
         }
     }
+}
+
+/// The corpse itself rises as `master`'s follower (`sdk_HIRE(target, 0, 1)` at `0x5110E1`, read for
+/// #3140): its mind and place in the way back from what it kept aside, out of its fight, its mark
+/// cleared to its `0xF000` bits ([`Mind::raised`]); its level set to `level` exactly, a boss
+/// common, a champion still one, its type's arms, items and look its own still
+/// (`npcs::raised_level`); hired with no entry in the column, of the flags' bit `0x2000000`, and
+/// the effect 29 for `seconds` where given.
+fn stand_up(
+    world: &mut World,
+    (master, corpse): (Entity, Entity),
+    stashed: Stashed,
+    level: u32,
+    seconds: Option<f32>,
+) {
+    let mut mind = stashed.mind;
+    mind.rises();
+    mind.raised();
+    world
+        .entity_mut(corpse)
+        .remove::<(Dies, crate::npcs::Corpse, Stashed)>()
+        .insert((mind, stashed.way));
+    crate::npcs::raised_level(world, corpse, level.clamp(1, MOST_LEVEL));
+    hire(world, corpse, master, false);
+    let Ok(mut raised) = world.get_entity_mut(corpse) else {
+        return;
+    };
+    if let Some(mut mind) = raised.get_mut::<Mind>() {
+        mind.flags |= RAISED;
+    }
+    if let Some(seconds) = seconds {
+        let lifetime = opensacred_rules::fight::Effect::new(crate::effects::LIFETIME, 0.0);
+        match raised.get_mut::<crate::effects::Effects>() {
+            Some(mut effects) => effects.add(lifetime, seconds),
+            None => {
+                let mut effects = crate::effects::Effects::default();
+                effects.add(lifetime, seconds);
+                raised.insert(effects);
+            }
+        }
+    }
+    info!("followers: {corpse} rises itself at level {level} for {seconds:?} s");
 }
 
 /// Makes `count` spiders of `level` about `target`, the spider arrow's (1006, `0x5BB010`): no
