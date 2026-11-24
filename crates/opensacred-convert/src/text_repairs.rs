@@ -107,8 +107,8 @@ pub struct Added {
 /// a script (docs/re/spawning.md, "The waters' crabs and fish"), where the scripts give every
 /// creature of the other such types that they make a name of its own. Then the label of set 22's
 /// potions in the list of the sets, which no string tells (#1823), set 58's line there, whose key
-/// names no string (#2559), and the label of the wild animals trapped as they flee (#2606).
-pub const ADDED: [Added; 9] = [
+/// names no string (#2559).
+pub const ADDED: [Added; 8] = [
     // `fisc_01.grn`: three small fish and a middle-sized one.
     Added {
         name: "164",
@@ -155,13 +155,6 @@ pub const ADDED: [Added; 9] = [
     Added {
         name: "UI_SET_FLUCHT",
         text: "Strikes down a wounded foe that would flee",
-    },
-    // The label of the items' effect 855 and set 41's terror, which hold the wild animals that
-    // flee and may cage them, where the original's text 1150 speaks of flying opponents
-    // (`opensacred_rules::fight::caging_chance`; the maintainer's choice of 2026-11-11, #2606).
-    Added {
-        name: opensacred_data::text::TRAP_FLEEING,
-        text: "Chance to trap fleeing animals",
     },
 ];
 

@@ -306,23 +306,12 @@ fn the_readers_of_the_counts_take_their_shares() {
     // Six pieces of set 23 leave small fires at the steps, five do not.
     assert!(stats(&wearing(23, 6), Difficulty::Bronze, false).fiery_steps());
     assert!(!stats(&wearing(23, 5), Difficulty::Bronze, false).fiery_steps());
-    // Set 41's terror at 4: ⌊20·D⌋ per cent, none at 3.
+    // Set 41's swooping flyers' terror at 4 tells no line: no foe of a single player's hero
+    // swoops (#3596).
     assert_eq!(
-        stats(&wearing(41, 4), Difficulty::Bronze, false).terror(),
-        20
+        told(41, &wearing(41, 4), Difficulty::Bronze, false).len(),
+        told(41, &wearing(41, 3), Difficulty::Bronze, false).len()
     );
-    assert_eq!(
-        stats(&wearing(41, 4), Difficulty::Niobium, false).terror(),
-        46
-    );
-    assert_eq!(
-        stats(&wearing(41, 3), Difficulty::Niobium, false).terror(),
-        0
-    );
-    assert!(matches!(
-        told(41, &wearing(41, 4), Difficulty::Bronze, false)[..],
-        [.., Told::Terror(per_cent)] if close(per_cent, 2000.0 / 101.0)
-    ));
     // The magic defence: set 41 at 5 adds 15·D, set 44 at 3 10·D, each that holds.
     assert!(close(
         stats(&wearing(41, 5), Difficulty::Gold, false).magic_defence(2.0),
