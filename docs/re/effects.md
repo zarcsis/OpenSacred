@@ -770,7 +770,9 @@ Read 2026-11-20 for #2922 in Ghidra (**confirmed** by code unless marked); the w
 
 `opensacred-game` draws them since #2922 (`weapon_effects`, `opensacred_rules::weapon_effects`): each model put on (`npcs::Piece`) takes its effect by its type, the bonus's glow on a weapon in hand of the bone `stdfx_bone01` whose own record's or socketed items' bonuses give a style, each following its bones, added and untinted by the night, just behind its holder in the order.
 **Seen** in the game: the whips of quest 6001's ice elves (type 140) trailing blue-violet as they fight.
-Not followed yet: the bonus's glow on a model worn rather than held (the wings of the bone `stdfx_bone01`), which `cWeapon3D` gives where its bonuses do (#3174).
+The wings worn make no glow 776 (read and **seen** 2026-11-23 for #3174, #3601): an item worn in the slot 17 is a `cArmor3D`, whose switch (`0x5B9E10`, its argument on) makes the streaks (`0x3C`) of a type that `0x4282F0` admits and nothing else; `cWeapon3D`'s switch, which alone asks the bonus's style (`0x5CEA50`, called at `0x5CDD64` only), serves the weapons in hand.
+In the running original (the driver of #448, the Seraphim at 3283,2533, the driver's `wear` of 4010, 4018 and 4092 into the slot 17): a probe after the style's call (`0x5CDD69`) and the glow's start (`0x76B5F0`) were never reached, and the streaks' start (`0x788120`) ran seven times for 4010 and for 4092 and not for 4018 (`SeraWings04`, which has no streak bones); the frames show the blue streaks of the wings 2 and none on the wings 4.
+So `opensacred-game`, which gives the glow to a weapon in hand alone (#2922), does as the original.
 Not followed: the whip's first frames, which the original draws from its points about the world's origin until they settle (docs/decisions/drawing.md, "Whip's streaks from the whip at once"); the wings, the sword and the glow are not seen in the game, which has no way yet to put an item on its hero but its inventory's.
 
 ### In `opensacred-game`
@@ -1094,6 +1096,7 @@ Read 2026-11-04 for #1092 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` draws it since #1092 (`icebergs`, `opensacred_rules::particles::Iceberg`): each object that `spells` makes gets a look of its own at its place, its strike facing the camera and its glow, then its burst of sparks and its iceberg, untinted by the night but for the iceberg, its light of 150.
 **Seen** 2026-11-04 beside the original's frames at the Mage's start by day: white strikes of light flickering down at the objects' places, then white icebergs standing there over a glow, alike in size and place.
+**Seen** 2026-11-23 in the running original for #3169 (#3601; the Mage of level 1 at her start, 3292,2508, at 12:00, 35 of the level 1 by `arts make` on herself, six frames 0.5 s apart): four icebergs about her, tall white spires lit near white on their faces toward the upper left and pale blue-grey in their folds, with white sparks about their feet; the frames are kept for the comparison.
 Not followed: its strike over all else (its depth test off, #3156).
 
 ## The chain lightning
@@ -2681,6 +2684,7 @@ Read 2026-11-07 for #1092 in Ghidra and by scans of the executable (**confirmed*
 
 `opensacred-game` draws it since #1092 (`dwarf_burrows`, `opensacred_rules::particles::Burrow`): over the caster for its seconds, its four phases' models each made at the start and shown by its phase, the lit pass laid under his model by its alpha (`models::Pass::UnderBlended`, new) and the added one added under it (`Pass::Under`), their textures repeated both ways (`fx::wrapped_texture`), the glow just behind his model (`fx::Orders`, #2178); untinted.
 Not followed: the specular (#3169).
+**Seen** 2026-11-23 in the running original for #3169 (#3601; the driver of #448, the Dwarf of level 1 at his start, 3470,2779, the clock held at 12:00, 57 of the level 1 by `arts make` on himself, six frames 0.7 s apart): a pale blue translucent dome of large flat facets about him, turning, its facets toward the upper left bright, near white at their brightest, the others grey-blue and nearly clear, so that the highlights move from facet to facet as it turns; the frames are kept for the comparison.
 **Seen** 2026-11-07 in the game (not beside the original): the Dwarf of level 1 under a translucent faceted dome of pale blue and violet, built down over him as he leaps, a blue glow at his feet.
 
 ## The Dwarf's berserk
@@ -3262,6 +3266,7 @@ The last burnings of the 856 (`cParticleSystem_generic`, its virtual table `0x89
   **Seen** 2026-11-22 in the running original (#3443), the Gladiator's game of `extquest1`, `extquest2` and `trigger2_2` by the stairs at 3787,337: a save, then its load through the saves' window, and the gold arrow stood over the stairs as before, the load's log rebuilding two systems of the type 856, the two arrows, among the others of the particles' part.
   The game's save keeps each arrow's place and colour since #3456 (`beacons`, `saves`), and its load sets them again in place of those that its start made.
   Not followed: the arrow's specular highlights (its gold is duller than the original's, #3169).
+  **Seen** 2026-11-23 for #3169 (#3601; the driver of #448, the Gladiator's new game, `extquest1`, `extquest2` and `trigger2_2` run, the hero at 3787,337 at 12:00, three frames): the arrow a saturated yellow gold, the face turned toward the light an even bright yellow and its edges and the facets toward the upper left a lighter, near-white yellow, the faces turned away a deeper ochre, the thin gold ring about it; the frames are kept for the comparison.
 The butterflies fly (`butterflies`, #1073): as a sector of the butterflies' weather entries comes in, ten swarms an entry, each at a walkable cell of the sector at random (a place that `0x638CD0` admits; **estimate**: 40 tries), one in 31 with a glow; a swarm of 3 to 6 wanders at 20 to 40 units of the models a second and turns back where it may not go, its butterflies fluttering about the point 50 units above it, drawn by day as `BUTTERFLY01`'s 8 × 8 wing beats in their own colours at the alpha of their life, and as fireflies by the night's level, by the same billboards as the fires.
 Seen 2026-10-27 in 54,42: small coloured specks by noon; by night clusters of three to six yellow dots, which add to the frame after its night's colouring as the original's do, the butterflies' system drawn by the camera of what the night leaves untinted (#1191).
 
