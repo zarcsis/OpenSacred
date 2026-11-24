@@ -12215,6 +12215,10 @@ pub const DRAIN_BEAM: u8 = 2;
 /// The zhadum's (1165, `0x5B2263`; docs/re/effects.md, "The zhadum").
 pub const ZHADUM_BEAM: u8 = 5;
 
+/// Each laser segment's light (`0x7A5327`, its start's alone): the world lit by 80 at its start,
+/// whole until it ends.
+pub const LASER_LIGHT: f32 = 80.0;
+
 /// A laser segment's quad: its four corners in its own frame and their texture's points.
 pub type LaserQuad = ([[f32; 3]; 4], [[f32; 2]; 4]);
 
@@ -15067,6 +15071,16 @@ pub const BUBBLE_GLOW_TEXTURE: &str = "PARTICLE_GLOW03";
 pub const SONAR_TEXTURE: &str = "FX_SONAREFFECT";
 const BUBBLE_GLOWS: usize = 75;
 
+/// The bush's bone at which its burst's glows start (`0x797B30` loads it, `0x797D80` takes its
+/// place as its clip has it).
+pub const BUBBLE_BONE: &str = "Bone01";
+
+/// The bubble's light while it flies (`0x798380`) and once burst (`0x797D80`), and its sonar
+/// ring's (`0x7985D0`).
+pub const BUBBLE_LIGHT: f32 = 100.0;
+pub const BUBBLE_BURST_LIGHT: f32 = 150.0;
+pub const SONAR_LIGHT: f32 = 200.0;
+
 /// The bubble's stages (`+0x20B1`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum BubbleStage {
@@ -15105,6 +15119,16 @@ impl BubbleTrap {
     /// Whether its bush shows, not burst and not shrunk away.
     pub fn drawn(&self) -> bool {
         self.stage != BubbleStage::Burst && self.scale > 0.0
+    }
+
+    /// Its light's radius (`+0x9C`): [`BUBBLE_LIGHT`] from its start, [`BUBBLE_BURST_LIGHT`]
+    /// once burst, while it lasts.
+    pub fn light(&self) -> f32 {
+        if self.stage == BubbleStage::Burst {
+            BUBBLE_BURST_LIGHT
+        } else {
+            BUBBLE_LIGHT
+        }
     }
 
     /// The glows' ramp (`+0x20B4`): each entry `i` green, `(⌊i/2⌋, i, ⌊i/2⌋)` in 255ths, its alpha
@@ -22123,8 +22147,11 @@ mod tests {
         let mut dice = Rng::of(14, 14, 847);
         let mut popped = BubbleTrap::new(7.35);
         popped.update(1.0);
+        // It lights the world by 100 while it flies, by 150 once burst.
+        assert_eq!(popped.light(), 100.0);
         popped.burst([0.0, 0.0, 60.0], &mut dice);
         assert!(!popped.drawn() && popped.system.particles.len() == 75);
+        assert_eq!(popped.light(), 150.0);
         for _ in 0..18 {
             popped.update(0.1);
         }
