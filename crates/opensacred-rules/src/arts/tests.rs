@@ -2505,4 +2505,10 @@ fn the_backbreaker_throws_its_target_by_the_levels() {
         ..record.clone()
     };
     assert_eq!(backbreaker_throw(&by_maker, 1, 5, 1), 850.0);
+    // The target's level by its own factor.
+    let by_target = WeaponArt {
+        value_58: [0.0, 2.0],
+        ..record.clone()
+    };
+    assert_eq!(backbreaker_throw(&by_target, 10, 1, 4), 1_220.0);
 }
