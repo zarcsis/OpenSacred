@@ -542,6 +542,12 @@ const RUNS_IN: u32 = 7;
 const FLEES_WITHIN: f32 = 199.0;
 const FLEES_FOR: f32 = 700.0;
 const FLEES_ONE_IN: u32 = 8;
+/// The flight's order to a struck creature (`0x539F60(0)`, [`runs_off`]): how far beyond its
+/// place it runs along the line from its target, the distances from its target between which it
+/// runs so, and how far about itself along each axis it runs otherwise.
+const RUNS_OFF_FOR: f32 = 700.0;
+const RUNS_OFF_ALONG: (f32, f32) = (10.0, 1_000.0);
+const RUNS_OFF_ABOUT: i32 = 400;
 const LEASH: f32 = 2_500.0;
 const LEASH_FAR: f32 = 5_000.0;
 const LEASH_LEVELS: u32 = 3;
@@ -1156,6 +1162,33 @@ impl Mind {
         self.deciding = true;
         self.active = false;
         true
+    }
+
+    /// Whether, struck, it runs off from its target ([`runs_off`]) rather than turning on its
+    /// attacker (the event 5's tail, `0x535A72`–`0x535AAD` and `0x535DDA`–`0x535DE8`): neither
+    /// hostile to the local hero nor her follower (`follows_hero`), with no horse of its own
+    /// ([`Self::rides`], the link `+0x570`), at every blow, a hit or a miss, whatever it does; and
+    /// fighting a living target (`fights_living`), for the melee state stops at once, before it
+    /// takes a step, a horse (`horse`), a creature of the animals' side ([`ANIMALS`],
+    /// `0x4E043D`) and one with no living target (`0x4E0300` at `0x4E4C6D`), so that those stand
+    /// (docs/re/ai.md, "Foes among the creatures", "What the order comes to", #3591).
+    pub fn runs_off_struck(&self, follows_hero: bool, horse: bool, fights_living: bool) -> bool {
+        !self.hostile()
+            && !follows_hero
+            && self.rides.is_none()
+            && !horse
+            && self.side != ANIMALS
+            && self.fighting
+            && fights_living
+    }
+
+    /// Ordered off from its target, struck ([`Self::runs_off_struck`]): its fight's flight, the
+    /// AI's state 4 in its sub-state 3, its target kept and its place about it and its step back
+    /// forgotten, so that its run goes on until it ends and its fight then takes it back to its
+    /// target ([`Self::pursue`]).
+    pub fn ordered_off(&mut self) {
+        self.placing = None;
+        self.stepped = false;
     }
 
     /// Struck by an attacker hostile to it, a creature hostile to the local hero or that hero's
@@ -3909,6 +3942,19 @@ fn flees((current, most): (u32, u32), distance: f32, mind: &Mind, makes: bool, r
         && !mind.fled
         && !makes
         && roll == 0
+}
+
+/// Where a struck creature at `here` runs off to from its target at `from` (the flight's order
+/// `0x539F60(0)`, [`Mind::runs_off_struck`]; docs/re/ai.md, "Foes among the creatures"): 700
+/// beyond its place along the line from its target where it stands 10 to 1,000 off, else a point
+/// within 400 of itself along each axis (`rand() % 801 − 400`).
+pub fn runs_off(here: Spot, from: Spot, rng: &mut impl Dice) -> Spot {
+    let away = here - from;
+    if (RUNS_OFF_ALONG.0..=RUNS_OFF_ALONG.1).contains(&away.length()) {
+        here + away.unit() * RUNS_OFF_FOR
+    } else {
+        about(here, RUNS_OFF_ABOUT, rng)
+    }
 }
 
 /// A point within `within` of `at` along each axis, at random.
@@ -6914,6 +6960,113 @@ mod tests {
         assert!(!flees(health(10), 150.0, &fled, false, 0));
         let hero_like = Mind::new(Spot::default(), 0x1, (true, false), None, SPEEDS, (7, 1));
         assert!(!flees(health(10), 150.0, &hero_like, false, 0));
+    }
+
+    #[test]
+    fn a_struck_guard_that_fights_a_living_foe_runs_off_and_the_others_stand() {
+        let mut guard = on_guard();
+        assert!(!guard.hostile());
+        // Out of a fight it stands, and fighting none that lives too.
+        assert!(!guard.runs_off_struck(false, false, true));
+        guard.fighting = true;
+        assert!(guard.runs_off_struck(false, false, true));
+        assert!(!guard.runs_off_struck(false, false, false));
+        // The hero's follower, a horse, one riding a horse of its own and an animal stand.
+        assert!(!guard.runs_off_struck(true, false, true));
+        assert!(!guard.runs_off_struck(false, true, true));
+        let riding = Mind {
+            rides: Some(false),
+            ..guard.clone()
+        };
+        assert!(!riding.runs_off_struck(false, false, true));
+        let animal = Mind {
+            side: ANIMALS,
+            ..guard.clone()
+        };
+        assert!(!animal.hostile() && !animal.runs_off_struck(false, false, true));
+        // One hostile to the hero turns on its attacker instead.
+        let mut goblin = Mind::new(Spot::default(), 0x1, (true, false), None, SPEEDS, (76, 2));
+        goblin.fighting = true;
+        assert!(goblin.hostile() && !goblin.runs_off_struck(false, false, true));
+    }
+
+    #[test]
+    fn a_struck_creature_runs_off_700_from_its_target_or_about_itself() {
+        let mut none = crate::spawning::Script::new(Vec::new());
+        // From 10 to 1,000 off its target, 700 beyond its place along the line from it.
+        assert_eq!(
+            runs_off(at(110.0, 50.0), at(100.0, 50.0), &mut none),
+            at(810.0, 50.0)
+        );
+        assert_eq!(
+            runs_off(at(0.0, -1_000.0), at(0.0, 0.0), &mut none),
+            at(0.0, -1_700.0)
+        );
+        // Nearer or farther, a point within 400 of itself along each axis.
+        let mut rolls = crate::spawning::Script::new(vec![0, 800, 400, 0]);
+        assert_eq!(
+            runs_off(at(9.0, 0.0), at(0.0, 0.0), &mut rolls),
+            at(-391.0, 400.0)
+        );
+        assert_eq!(
+            runs_off(at(1_001.0, 0.0), at(0.0, 0.0), &mut rolls),
+            at(1_001.0, -400.0)
+        );
+    }
+
+    #[test]
+    fn a_creature_ordered_off_runs_on_until_its_run_ends_and_then_comes_on() {
+        let sight = Pursuit {
+            hero_size: SIZE,
+            outdoors: true,
+            strikes_down: false,
+            here: at(0.0, 0.0),
+            hero: at(300.0, 0.0),
+            walk: Some(Walking {
+                target: at(-700.0, 0.0),
+                comes_on: false,
+                runs: true,
+            }),
+            striking: false,
+            health: None,
+            target_makes: false,
+            listed: None,
+            targeted: false,
+        };
+        let mut guard = on_guard();
+        guard.fighting = true;
+        // Taking its place about its target, or stepped back, its fight would steer it at its
+        // target at once; ordered off, its run goes on.
+        for (placing, stepped) in [(Some(true), false), (None, true)] {
+            let mut mind = Mind {
+                placing,
+                stepped,
+                ..guard.clone()
+            };
+            let mut rolls = crate::spawning::Script::new(vec![1; 4]);
+            assert!(matches!(
+                mind.pursue(&sight, || true, &mut rolls),
+                Some(Pursues::ComesOn { .. })
+            ));
+            let mut mind = Mind {
+                placing,
+                stepped,
+                ..guard.clone()
+            };
+            mind.ordered_off();
+            let mut rolls = crate::spawning::Script::new(vec![1; 4]);
+            assert_eq!(mind.pursue(&sight, || true, &mut rolls), None);
+        }
+        // Its run over, it comes on at its target again.
+        let ended = Pursuit {
+            walk: None,
+            ..sight
+        };
+        let mut rolls = crate::spawning::Script::new(vec![1; 4]);
+        assert!(matches!(
+            guard.pursue(&ended, || true, &mut rolls),
+            Some(Pursues::ComesOn { .. })
+        ));
     }
 
     #[test]

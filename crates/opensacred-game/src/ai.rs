@@ -349,6 +349,75 @@ fn turn_on_attackers(
     }
 }
 
+/// Sends off each struck creature neither hostile to the hero nor her follower that fights a
+/// living creature, at every blow, a hit or a miss, whatever it does: its own strike in play cut
+/// off, it runs 700 beyond its place away from its own target, its fight's flight, and its fight
+/// takes it back once its run ends ([`pursue`]; the event 5's tail, `0x535DDA`–`0x535DE8`, and
+/// the flight's order `0x539F60(0)`; docs/re/ai.md, "Foes among the creatures", "What the order
+/// comes to", #3591). A horse, an animal and one with no living target stand, as the original's
+/// melee state stops them at once (`opensacred_rules::minds::Mind::runs_off_struck`); one in a
+/// throw's flight takes its throw first.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn run_off(
+    mut commands: Commands,
+    mut hits: MessageReader<crate::fight::Hit>,
+    mut rolls: ResMut<Minds>,
+    heroes: Query<(), With<Body>>,
+    mut minds: Query<
+        (
+            &mut Mind,
+            &Transform,
+            &InTheWay,
+            Option<&crate::followers::Follower>,
+            Has<crate::riding::Horse>,
+            (
+                Option<&crate::making::Knocked>,
+                Has<crate::backbreaker::Flung>,
+            ),
+        ),
+        (Without<crate::npcs::Dies>, Without<crate::riding::Ridden>),
+    >,
+    foes: Query<(&Transform, &crate::fight::Health), Without<crate::npcs::Dies>>,
+) {
+    for hit in hits.read() {
+        if hit.attacker == hit.target {
+            continue;
+        }
+        let Ok((mut mind, at, way, follower, horse, (knocked, flung))) = minds.get_mut(hit.target)
+        else {
+            continue;
+        };
+        if flung || knocked.is_some_and(|knock| knock.throw.is_some()) {
+            continue;
+        }
+        let follows_hero = follower.is_some_and(|follower| heroes.contains(follower.master));
+        let foe = mind
+            .foe()
+            .and_then(|foe| foes.get(foe).ok())
+            .filter(|(_, health)| health.current > 0);
+        if !mind.runs_off_struck(follows_hero, horse, foe.is_some()) {
+            continue;
+        }
+        let Some((from, _)) = foe else {
+            continue;
+        };
+        let here = at.translation;
+        let to = minds::runs_off(spot(here), spot(from.translation), &mut rolls.rng);
+        debug!(
+            "ai: {} is struck and runs off from its target to {:.0},{:.0}",
+            hit.target, to.x, to.y
+        );
+        mind.ordered_off();
+        commands
+            .entity(hit.target)
+            .remove::<Strikes>()
+            .insert(Walk::run(point(to, here.y), way.level, mind.run));
+    }
+}
+
 /// Fells each swooping flyer that a blow of some damage struck aloft, by a roll of 0 to 100 below
 /// `⌊100·d/(h + d)⌋` of the blow's damage `d` and its health left `h` (the event 5's handler's
 /// tail, `0x535C89`–`0x535D89`; docs/re/ai.md, "Foes among the creatures", #3589): it is held 3
@@ -3493,7 +3562,9 @@ impl Plugin for AiPlugin {
             )
             .add_systems(
                 Update,
-                (alarm, turn_on_attackers).in_set(Step::Crowd).before(think),
+                (alarm, turn_on_attackers, run_off)
+                    .in_set(Step::Crowd)
+                    .before(think),
             )
             .add_systems(Update, swoop_falls.in_set(Step::Crowd).before(think))
             .add_systems(Update, face_shooed.in_set(Step::Crowd).after(behave));
@@ -3545,6 +3616,78 @@ mod tests {
         // Its whole health in one blow: a chance of 100 in 101.
         assert!(clip(swooping));
         assert!(!clip(landed) && !clip(missed));
+    }
+
+    #[test]
+    fn a_struck_guard_runs_off_from_the_living_foe_it_fights_and_the_others_stand() {
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<crate::fight::Hit>()
+            .init_resource::<Minds>()
+            .add_systems(Update, run_off);
+        let health = |current| crate::fight::Health {
+            current,
+            most: 100,
+            level: 1,
+        };
+        let world = app.world_mut();
+        let goblin = world
+            .spawn((Transform::from_xyz(100.0, 0.0, 0.0), health(50)))
+            .id();
+        let dead = world
+            .spawn((Transform::from_xyz(100.0, 0.0, 0.0), health(0)))
+            .id();
+        // A guard of the side 7, a friend of the heroes, fighting `foe` where it is given.
+        let guard = |world: &mut World, foe: Option<Entity>, horse: bool| {
+            let mut mind = Mind::new(
+                Vec3::ZERO,
+                0x4000,
+                (false, true),
+                None,
+                [70.0, 180.0],
+                (689, 14),
+            );
+            mind.side = 7;
+            if let Some(foe) = foe {
+                assert!(mind.send_at(foe));
+            }
+            let mut guard = world.spawn((mind, Transform::default(), InTheWay::of(0, 0, None)));
+            if horse {
+                guard.insert(crate::riding::Horse { class: 1 });
+            }
+            guard.id()
+        };
+        let fights = guard(world, Some(goblin), false);
+        let fights_the_dead = guard(world, Some(dead), false);
+        let calm = guard(world, None, false);
+        let horse = guard(world, Some(goblin), true);
+        for target in [fights, fights_the_dead, calm, horse] {
+            assert!(!app.world().get::<Mind>(target).unwrap().hostile());
+            app.world_mut().write_message(crate::fight::Hit {
+                attacker: goblin,
+                target,
+                share: 1.0,
+                ranged: false,
+                art: None,
+                fixed: None,
+                sure: false,
+                poison: false,
+                ward: false,
+                hurled: false,
+                object: false,
+                mount: false,
+            });
+        }
+        app.update();
+        // It runs 700 beyond its place away from its target, its fight and its target kept.
+        let walk = app.world().get::<Walk>(fights).unwrap();
+        assert!(walk.runs());
+        assert!((walk.target() - Vec3::new(-700.0, 0.0, 0.0)).length() < 1e-3);
+        let mind = app.world().get::<Mind>(fights).unwrap();
+        assert!(mind.fighting() && mind.foe() == Some(goblin));
+        for stands in [fights_the_dead, calm, horse] {
+            assert!(app.world().get::<Walk>(stands).is_none());
+        }
     }
 
     #[test]
