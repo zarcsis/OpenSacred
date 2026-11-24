@@ -650,6 +650,7 @@ fn fly(
             ward: false,
             hurled: false,
             object: false,
+            mount: false,
             attacker: arrow.shooter,
             target: on,
             share: arrow.share,

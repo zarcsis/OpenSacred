@@ -13546,6 +13546,7 @@ fn strike(
                     ward: false,
                     hurled: false,
                     object: false,
+                    mount: false,
                     attacker: entity,
                     target: strikes.target,
                     share: npc.hits.share,
@@ -13808,7 +13809,7 @@ pub(crate) fn mount_earns(world: &mut bevy::prelude::World, amount: u32) {
         .iter(world)
         .next()
         .and_then(crate::riding::Seat::ridden);
-    let Some(horse) = horse else {
+    let Some(horse) = horse.filter(|_| world.contains_resource::<Npcs>()) else {
         return;
     };
     world.resource_scope(|world, npcs: bevy::prelude::Mut<Npcs>| {

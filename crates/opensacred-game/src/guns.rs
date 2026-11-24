@@ -111,6 +111,7 @@ fn explode(
                     ward: true,
                     hurled: false,
                     object: false,
+                    mount: false,
                 });
             }
         }
