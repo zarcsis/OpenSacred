@@ -1819,7 +1819,7 @@ fn make(
                         commands
                             .entity(playing.target)
                             .entry::<Mind>()
-                            .and_modify(|mut mind| mind.stunned(arts::LET_GO));
+                            .and_modify(|mut mind| mind.let_go(arts::LET_GO));
                     }
                 }
                 end(&mut commands);

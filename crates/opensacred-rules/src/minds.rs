@@ -1635,6 +1635,14 @@ impl Mind {
         self.clock = self.clock.min(self.period - seconds);
     }
 
+    /// Let go by the Gladiator's backbreaker 1010 where the roll keeps it held no more
+    /// (`0x4FF0B0`; docs/re/arts.md, "The Gladiator's", #3621): held still, its timer comes back
+    /// to fire within `seconds`, a hold due sooner kept, with no least time of a stun.
+    pub fn let_go(&mut self, seconds: f32) {
+        self.held = true;
+        self.clock = self.clock.max(self.period - seconds);
+    }
+
     /// Stunned where it stands by the Gladiator's jump (`0x4FF0B0` at `0x500973`): it leaves its
     /// fight and stands (`0x54E6D0`), and is held as a knocked creature is ([`Self::knocked`])
     /// for `seconds`, at least [`STUNNED`].
@@ -8080,6 +8088,28 @@ mod tests {
             later.think(&senses(0.1, false), |_| true, || false, &mut rng);
         }
         assert!(later.held());
+        // The backbreaker's let-go brings a stun's 5 s back to 0.5 s (#3621).
+        let mut thrown = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
+        thrown.stunned(5.0);
+        thrown.think(&senses(0.1, false), |_| true, || false, &mut rng);
+        thrown.let_go(0.5);
+        for _ in 0..4 {
+            thrown.think(&senses(0.1, false), |_| true, || false, &mut rng);
+        }
+        assert!(thrown.held());
+        thrown.think(&senses(0.11, false), |_| true, || false, &mut rng);
+        assert!(!thrown.held());
+        // A hold due sooner than 0.5 s keeps its own.
+        let mut sooner = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
+        sooner.stunned(2.0);
+        for _ in 0..18 {
+            sooner.think(&senses(0.1, false), |_| true, || false, &mut rng);
+        }
+        sooner.let_go(0.5);
+        sooner.think(&senses(0.11, false), |_| true, || false, &mut rng);
+        assert!(sooner.held());
+        sooner.think(&senses(0.11, false), |_| true, || false, &mut rng);
+        assert!(!sooner.held());
     }
 
     #[test]
