@@ -10740,6 +10740,15 @@ impl ScriptClip {
         Self::new(slot, 1)
     }
 
+    /// A clip of `slot` once at the rate `rate`, whatever its attack speed: a knocked creature's
+    /// hit clip at three times it (`0x593770`; `making`, #3141).
+    pub(crate) fn hit(slot: u16, rate: f32) -> Self {
+        Self {
+            rate: Some(rate),
+            ..Self::new(slot, 1)
+        }
+    }
+
     /// The fall of a creature that a horse tramples, once at the rate 1.0 (`0x5941A0` at
     /// `0x5975C9`; `trample`, #2302).
     pub(crate) fn fall(slot: u16) -> Self {
@@ -12958,9 +12967,10 @@ pub fn name_of_creature<'a>(
         .or_else(|| texts.named(&creature.to_string()))
 }
 
-/// What a dead creature that may rise again ([`RisesAgain`]) or that the scripts name, which a
-/// `SetHP` or its queue may lift ([`lift`], #2477), laid down as it died, which its rising takes
-/// up again: its mind and its place in the way, and how long it has lain, in seconds.
+/// What a dead creature laid down as it died, which whatever lifts or raises it takes up again: a
+/// `SetHP` or a queue of the scripts ([`lift`], #2477), its own rising again ([`RisesAgain`]),
+/// the Vampiress's awakening (`followers::raise`, #3140): its mind and its place in the way, and
+/// how long it has lain, in seconds.
 #[derive(Component, Clone, Debug)]
 pub struct Stashed {
     pub mind: ai::Mind,
@@ -12970,8 +12980,8 @@ pub struct Stashed {
 
 /// Lays each dying NPC down: its dying clip once, its walk, its strike, its mind and its place in
 /// the way gone, what it was kept ([`Corpse`]), its death's stamp put back where it dies beside a
-/// soulcatcher ([`crate::bodies::PutBack`]), and its mind and place kept aside where it may rise
-/// again or the scripts name it ([`Stashed`]).
+/// soulcatcher ([`crate::bodies::PutBack`]), and its mind and place kept aside for whatever lifts
+/// or raises it ([`Stashed`]).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -12983,7 +12993,6 @@ pub(crate) fn die(
         &Npc,
         &mut Dies,
         (Option<&ai::Mind>, Option<&crowd::InTheWay>),
-        (Has<RisesAgain>, Has<ScriptName>),
         (Option<&Transform>, Option<&arrows::Size>),
     )>,
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
@@ -12995,7 +13004,7 @@ pub(crate) fn die(
     ),
 ) {
     let detail = crate::settings::detail(settings.as_deref());
-    for (entity, npc, mut dies, (mind, way), (rises, named), (at, size)) in &mut dying {
+    for (entity, npc, mut dies, (mind, way), (at, size)) in &mut dying {
         if dies.played {
             continue;
         }
@@ -13029,15 +13038,14 @@ pub(crate) fn die(
                 );
                 commands.entity(entity).insert(crate::bodies::PutBack(back));
             }
-            // One that may rise or that the scripts name, whose `SetHP` or queue may lift it
-            // (#2459, #2477).
-            if rises || named {
-                commands.entity(entity).insert(Stashed {
-                    mind: mind.clone(),
-                    way: *way,
-                    lain: dies.lain,
-                });
-            }
+            // Kept aside for whatever lifts or raises it: a `SetHP` or a queue of the scripts
+            // (#2477), its own rising again (#2459), the Vampiress's awakening, which raises the
+            // corpse itself (#3140).
+            commands.entity(entity).insert(Stashed {
+                mind: mind.clone(),
+                way: *way,
+                lain: dies.lain,
+            });
         }
         commands
             .entity(entity)
@@ -13929,6 +13937,47 @@ pub(crate) fn level_follower(
             "npcs: the follower {entity}, a {creature} of level {from}, set to {grade} by the \
              hero's {hero}"
         );
+    });
+}
+
+/// Sets the level of the creature `entity` that the Vampiress's awakening raises to `grade`
+/// exactly (`0x564D60(…, 1, 1)` at `0x511088`; docs/re/arts.md, "The Vampiress's", #3140): a
+/// boss common, the hire's mask taking its bit (`+0x1F4` `0x80000`), a champion still one (its
+/// `+0x2B8` bit `0x40` untouched); its values made anew at it as the level's setter makes them,
+/// its health filled, its items as they are.
+pub(crate) fn raised_level(world: &mut bevy::prelude::World, entity: Entity, grade: u32) {
+    world.resource_scope(|world, npcs: bevy::prelude::Mut<Npcs>| {
+        let rules = &npcs.fight;
+        let mut creatures = world.query::<(
+            (&mut ai::Mind, &mut fight::Health, &mut fight::Combat),
+            (&Arms, &mut Npc),
+            (Option<&mut fight::Ranked>, Option<&crate::effects::Effects>),
+        )>();
+        let Ok(((mut mind, mut health, mut combat), (arms, mut npc), (ranked, effects))) =
+            creatures.get_mut(world, entity)
+        else {
+            return;
+        };
+        let mut rank = ranked
+            .as_deref()
+            .map_or(fight::Rank::Common, |ranked| ranked.0);
+        if rank == fight::Rank::Boss {
+            rank = fight::Rank::Common;
+            if let Some(mut ranked) = ranked {
+                ranked.0 = rank;
+            }
+        }
+        let regenerates = relevel(
+            grade,
+            rank,
+            (&mut *mind, &mut *health, &mut *combat, &mut *npc),
+            arms,
+            rules,
+            &effects
+                .map(crate::effects::Effects::list)
+                .unwrap_or_default(),
+        );
+        world.entity_mut(entity).insert(regenerates);
     });
 }
 

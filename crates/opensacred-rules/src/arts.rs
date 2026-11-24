@@ -1758,6 +1758,21 @@ fn whole_units(value: f64) -> i64 {
         .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i64
 }
 
+/// A knocked creature's first hit clip (`HIT_A`), its slot, and how fast it plays at a knock: at
+/// three times the rate (`0x593770`, read for #3141, **seen**: over the clip in play).
+pub const HIT_CLIP: u16 = 175;
+pub const HIT_CLIP_RATE: f32 = 3.0;
+/// A creature's dying clip, which one that a thrown creature bowls over plays (`0x44DFE0`'s
+/// blows).
+pub const BOWLED_CLIP: u16 = 173;
+
+/// Whether a knock of the strength `strength` (`+0x24D`) plays its creature's hit clip: above 10
+/// (`0x4FF0B0`'s kicks, the roar 1014, the cannon 1087 and the blast 1091; docs/re/arts.md, "The
+/// kicks", #3141).
+pub fn knock_plays_hit_clip(strength: f32) -> bool {
+    strength > 10.0
+}
+
 /// How fast a knocked-back creature slides away from its kicker, in units a second, and the most
 /// of a frame's time that one step takes (`0x594D12`: `0x890D5C`, `0x8907E4`).
 pub const KNOCKBACK_SPEED: f32 = 400.0;

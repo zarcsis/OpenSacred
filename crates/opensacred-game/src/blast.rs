@@ -147,6 +147,8 @@ fn spread(
                 });
             }
             if crate::making::knocks_back(&mut dice.0, blasting.art_level, mind) {
+                // Its hit clip `0xAF` at three times the rate (#3141).
+                crate::making::hit_clip(&mut commands, target, blasting.blast.strength);
                 commands
                     .entity(target)
                     .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()

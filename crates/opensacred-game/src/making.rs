@@ -2056,6 +2056,8 @@ fn make(
                                 by: hero,
                                 on: entity,
                             });
+                            // Its hit clip, roared at, knocked or not (`0x593770`, #3141).
+                            hit_clip(&mut commands, entity, left);
                             if knocks_back(&mut dice.0, playing.level, mind) {
                                 commands
                                     .entity(entity)
@@ -2113,17 +2115,21 @@ fn make(
                     // Its burning light for its hold's whole seconds (the FX event `0x2B`'s `[1]`,
                     // #3142).
                     crate::holding_sights::burn(&mut commands, playing.target, hold);
+                    // Its hit clip at the rate 1.0 (`0x5182F3`, seen, #3141).
                     commands
                         .entity(playing.target)
                         .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
-                        .insert(Knocked {
-                            by: hero,
-                            from: here,
-                            left: 0.0,
-                            held: hold,
-                            throw: Some(arts::Flight::new(along.into(), arts::THROW_RISE)),
-                            unheld: false,
-                        });
+                        .insert((
+                            Knocked {
+                                by: hero,
+                                from: here,
+                                left: 0.0,
+                                held: hold,
+                                throw: Some(arts::Flight::new(along.into(), arts::THROW_RISE)),
+                                unheld: false,
+                            },
+                            crate::npcs::ScriptClip::fall(arts::HIT_CLIP),
+                        ));
                     hits.write(fight::Hit {
                         share: arts::hurl_factor(record, playing.level),
                         ..hit(playing.target, &playing)
@@ -2439,6 +2445,7 @@ fn make(
                                 mount: false,
                             });
                             if !mind.big && knocks_back(&mut dice.0, playing.level, mind) {
+                                hit_clip(&mut commands, entity, arts::CANNON_KNOCK);
                                 commands
                                     .entity(entity)
                                     .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
@@ -3094,6 +3101,7 @@ fn make(
                                 arts::knockback(record, playing.level, mind.level)
                             })
                         {
+                            hit_clip(&mut commands, playing.target, to_f32(left));
                             commands
                                 .entity(playing.target)
                                 .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
@@ -3584,6 +3592,19 @@ pub struct Knocked {
 /// A creature's flags word's bit of a boss (`+0x1F4` bit `0x80000`).
 const BOSS: u32 = 0x80000;
 
+/// Plays the hit clip of the creature `entity` that a knock of `strength` reaches, its slot 175 at
+/// three times the rate, where the strength is above 10 (`0x593770`;
+/// `opensacred_rules::arts::knock_plays_hit_clip`, #3141): the kicks', the roar's, the cannon's
+/// and the blast's.
+pub(crate) fn hit_clip(commands: &mut Commands, entity: Entity, strength: f32) {
+    if arts::knock_plays_hit_clip(strength) {
+        commands.entity(entity).insert(crate::npcs::ScriptClip::hit(
+            arts::HIT_CLIP,
+            arts::HIT_CLIP_RATE,
+        ));
+    }
+}
+
 /// Slides each knocked-back creature away from its kicker at every frame (`0x594D12`): a step of
 /// `arts::KNOCKBACK_SPEED` times the frame's time, at most `arts::KNOCKBACK_STEP` of it, taken
 /// from what is left; the step moves it where it may stand on its level, else it stays; with
@@ -3649,17 +3670,21 @@ fn knock(
                     object: false,
                     mount: false,
                 });
+                // Its dying clip at the rate 1.0 (`0x44DFE0`'s blows, #3141).
                 commands
                     .entity(other)
                     .remove::<(crate::npcs::Walk, crate::npcs::Strikes)>()
-                    .insert(Knocked {
-                        by: knock.by,
-                        from: knock.from,
-                        left: 0.0,
-                        held: arts::BOWL_HOLD,
-                        throw: Some(arts::bowled(flight.velocity, to_it)),
-                        unheld: false,
-                    });
+                    .insert((
+                        Knocked {
+                            by: knock.by,
+                            from: knock.from,
+                            left: 0.0,
+                            held: arts::BOWL_HOLD,
+                            throw: Some(arts::bowled(flight.velocity, to_it)),
+                            unheld: false,
+                        },
+                        crate::npcs::ScriptClip::fall(arts::BOWLED_CLIP),
+                    ));
                 // Its burning light for its hold's 2 s (the blows' object 816, #3142).
                 crate::holding_sights::burn(&mut commands, other, arts::BOWL_HOLD);
                 flight.velocity = flight.velocity.map(|v| v * arts::BOWL_KEEPS);
@@ -3787,6 +3812,22 @@ impl Plugin for MakingPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_knock_above_10_plays_the_hit_clip_and_a_weaker_none() {
+        let mut world = World::new();
+        let strong = world.spawn_empty().id();
+        let weak = world.spawn_empty().id();
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        {
+            let mut commands = Commands::new(&mut queue, &world);
+            hit_clip(&mut commands, strong, 1_000.0);
+            hit_clip(&mut commands, weak, 10.0);
+        }
+        queue.apply(&mut world);
+        assert!(world.get::<crate::npcs::ScriptClip>(strong).is_some());
+        assert!(world.get::<crate::npcs::ScriptClip>(weak).is_none());
+    }
 
     #[test]
     fn a_rundum_looks_about_the_right_blade_then_the_left_one() {

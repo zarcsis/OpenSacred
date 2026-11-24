@@ -1723,6 +1723,13 @@ impl Mind {
         self.phase.unwrap_or_else(|| casts::mark(self.creature))
     }
 
+    /// Raised by the Vampiress's awakening 1034, its mark is cleared to its `0xF000` bits
+    /// (`0x511088`), so that it makes none of its type's specials (`0x4D4E50`, docs/re/ai.md,
+    /// "The creatures' spells"; docs/re/arts.md, "The Vampiress's", #3140).
+    pub fn raised(&mut self) {
+        self.phase = Some(self.mark() & 0xF000);
+    }
+
     /// The Vampiress's distracting bat takes the mark `0x80` as her art 1036 makes it, the other
     /// bits but `0xF000` cleared (`(mark & 0xF080) | 0x80`, `0x5116A0`), so that it swoops
     /// ([`Self::swoops`], #3589).
@@ -5327,6 +5334,20 @@ mod tests {
         let mut goblin = Mind::new(at(0.0, 0.0), 0x1, (true, false), None, SPEEDS, (76, 2));
         assert!(goblin.sent_at());
         assert_eq!(goblin.cast(&sight(270.0), &cast, || true, &mut rolls), None);
+    }
+
+    #[test]
+    fn a_raised_creature_keeps_of_its_mark_the_0xf000_bits_alone() {
+        let mut raised = Mind::new(at(0.0, 0.0), 0x1, (false, false), None, SPEEDS, (76, 2));
+        raised.phase = Some(0x9284);
+        raised.raised();
+        assert_eq!(raised.mark(), 0x9000);
+        assert!(!raised.swoops());
+        // A mark of none of those bits is cleared whole.
+        let mut plain = Mind::new(at(0.0, 0.0), 0x1, (false, false), None, SPEEDS, (76, 2));
+        plain.phase = Some(0x0284);
+        plain.raised();
+        assert_eq!(plain.mark(), 0);
     }
 
     #[test]
