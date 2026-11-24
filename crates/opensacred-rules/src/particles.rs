@@ -18884,13 +18884,25 @@ mod tests {
         // Spread over its whole way, both halves.
         assert!(trail.particles.iter().any(|glow| glow.place[0] < -8.0));
         assert!(trail.particles.iter().any(|glow| glow.place[0] > 8.0));
-        // Each its own shade.
+        // Each its own shade, and scattered about the line.
         assert!(
             trail
                 .particles
                 .windows(2)
                 .any(|pair| pair[0].colour != pair[1].colour)
         );
+        assert!(
+            trail
+                .particles
+                .iter()
+                .any(|glow| glow.place[1].abs() > 0.5 || glow.place[2].abs() > 0.5)
+        );
+        // Between its own two points, wherever they lie.
+        let ahead = arrow_trail(([0.0, 10.0, 0.0], [40.0, 10.0, 0.0]), &mut dice);
+        for glow in &ahead.particles {
+            assert!((-3.0..=43.0).contains(&glow.place[0]), "{:?}", glow.place);
+            assert!((7.0..=13.0).contains(&glow.place[1]), "{:?}", glow.place);
+        }
     }
 
     #[test]
