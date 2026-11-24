@@ -854,6 +854,35 @@ pub fn on_horseback(flags: u8, bow: bool) -> bool {
     }
 }
 
+/// How fast an art's clip from the saddle plays ([`saddle_clip`]): at the rider's attack speed
+/// over 100 (`0x584FE0`), or at the rate 1.0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SaddleRate {
+    Attack,
+    One,
+}
+
+/// The clip that the art `art` plays from the saddle in place of its own, where the executor's
+/// flag of a rider (`+0x14` bit 2 and a mount at `+0x1EC`) gives it one, and its rate
+/// (docs/re/arts.md, "The Gladiator's", "The Dark Elf's", "The Vampiress's" and "The Daemon's",
+/// #3134): the Gladiator's roar and heroism 1014 and 1015 the slot 169 (`0x502C2F`, `0x502C5A`)
+/// at their rate 1.0; the Dark Elf's arts of the launch types 0 and 5, 1044 to 1053, the
+/// rider's 194 at his attack speed (`0x509DE7`'s cases, `0x50A0B8`); the Vampiress's wolves 1026
+/// and 1027 the slot 199 at her attack speed (`0x513C6D`), her awakening 1034 199 at the rate
+/// 1.0 of its clip on foot (**hypothesis**: its rate mounted not read); the Daemon's forms 1097 to
+/// 1100 the rider's 197 at the rate 1.0 (`0x51BEF5` and its like). A `Hardhit` plays the
+/// rider's attack of its class, the spells their riding slots ([`crate::spells::riding_slot`]).
+pub fn saddle_clip(art: u16) -> Option<(u16, SaddleRate)> {
+    Some(match art {
+        1014 | 1015 => (169, SaddleRate::One),
+        1044..=1053 => (194, SaddleRate::Attack),
+        1026 | 1027 => (199, SaddleRate::Attack),
+        1034 => (199, SaddleRate::One),
+        1097..=1100 => (197, SaddleRate::One),
+        _ => return None,
+    })
+}
+
 /// How the art `art` strikes: a spell that the game makes its cast ([`Style::Cast`], of its
 /// clip's slot), each special art its own style, and the classes' own `Rundum`, `Hardhit`,
 /// `Attacke` and `Kick`, which `0x581D40` finds for the generic 1000, 1001, 1002 and 1009 (the
