@@ -9089,6 +9089,10 @@ pub const BLOOD_BONES: [&str; 5] = [
 /// The parts that a making rolls among.
 pub const BLOOD_PARTS: u32 = 6;
 
+/// How many of the bones' table's first names a fountain of the part 100, a strike's open
+/// wound's, rolls among (`rand() % 45`, `0x4E8C80`): `__Root` to `Bip01 R UpperArm` (`0x8E7200`).
+pub const HIT_BLOOD_BONES: u32 = 45;
+
 /// The types that bleed no blood whatever their class and gib set (`0x4281F0`), the dragons
 /// among them.
 const BLOODLESS: [u32; 23] = [

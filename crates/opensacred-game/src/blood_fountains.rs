@@ -1,6 +1,8 @@
 //! The blood fountains (908, `FX_BLOODFONTAIN`, #1964; docs/re/effects.md, "The blood
 //! fountain"): under `[gameplay] violence`, the original's `VIOLENCE`, a creature that bleeds
-//! spurts blood from one of five bones in one death of ten, with `BLEEDING01` or `02` at it
+//! spurts blood from one of five bones in one death of ten, and a creature that a strike's open
+//! wound's roll holds for spurts it from one of the bones' table's first 45 (the part 100,
+//! [`spurt_at_hit`], #3159), with `BLEEDING01` or `02` at it
 //! (`opensacred_rules::particles::BloodFountain`). Its drops are drawn as the fires' billboards
 //! (`fx`), laid over the frame by their alpha, turned, and tinted by the night as the light at
 //! them tints them; they stay in the world while the fountain keeps to its bone.
@@ -44,6 +46,23 @@ impl Default for Dice {
 /// which its body's puddle lies (`bodies`, #2516).
 #[derive(Component, Clone, Copy, Debug)]
 pub(crate) struct Bled(pub(crate) &'static str);
+
+/// The fountains of the part 100 that a strike's open wounds' rolls call at `creature`
+/// (`fight::wound`), to start with the violence on ([`spurt_hits`]).
+#[derive(Component)]
+struct HitSpurts {
+    creature: Entity,
+    count: u8,
+}
+
+/// Asks `count` fountains of the part 100 at `creature`, which a strike's open wounds' rolls
+/// call (`0x4E87E0(100, 1)`, docs/re/effects.md, "The blood fountain").
+pub(crate) fn spurt_at_hit(commands: &mut Commands, creature: Entity, count: u8) {
+    commands.spawn((
+        HitSpurts { creature, count },
+        DespawnOnExit(AppState::InGame),
+    ));
+}
 
 /// The drops' material, made at the first fountain; none where the texture is missing.
 #[derive(Resource, Default)]
@@ -176,6 +195,88 @@ fn spurt(
     }
 }
 
+/// Starts the fountains of the part 100 that the strikes call, with the violence on
+/// (`0x4E8C54`–`0x4E8CFA`): each at the creature's place, at a bone of the bones' table's first 45
+/// rolled anew (`rand() % 45`), in its gib set's colour, with no test of who bleeds; none once the
+/// creature's head has spurted ([`Bled`] of the head, `+0xB0` bit `0x20`), and none where its
+/// model lacks the bone rolled (**hypothesis**: the original's lies off the screen there).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, grouped"
+)]
+fn spurt_hits(
+    mut commands: Commands,
+    asked: Query<(Entity, &HitSpurts)>,
+    settings: Option<Res<Settings>>,
+    (gibs, hero): (Option<Res<Gibs>>, Option<Res<crate::hero::Hero>>),
+    creatures: Query<(
+        &GlobalTransform,
+        Option<&crate::ai::Mind>,
+        Has<crate::hero::Body>,
+        Option<&Bled>,
+    )>,
+    (children, bones, worn): (
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
+    (mut dice, mut sounds, mut meshes): (ResMut<Dice>, MessageWriter<Play>, ResMut<Assets<Mesh>>),
+) {
+    let violence = settings.is_some_and(|settings| settings.gameplay.violence);
+    for (marker, &HitSpurts { creature, count }) in &asked {
+        commands.entity(marker).despawn();
+        if !violence {
+            continue;
+        }
+        let Ok((at, mind, is_hero, bled)) = creatures.get(creature) else {
+            continue;
+        };
+        if bled.is_some_and(|bled| bled.0 == particles::BLOOD_BONES[0]) {
+            continue;
+        }
+        let kind = match (mind, is_hero) {
+            (_, true) => hero.as_deref().map_or(0, |hero| hero.creature),
+            (Some(mind), false) => mind.creature,
+            (None, false) => continue,
+        };
+        let set = gibs.as_ref().map_or(0, |gibs| gibs.of(kind));
+        for _ in 0..count {
+            let roll = dice.0.below(particles::HIT_BLOOD_BONES);
+            let Some(names) = usize::try_from(roll)
+                .ok()
+                .and_then(|index| crate::beams::BONES.get(index..=index))
+            else {
+                continue;
+            };
+            let Some(bone) =
+                crate::making::bone_entity(creature, names, &children, (&bones, &worn))
+            else {
+                continue;
+            };
+            debug!(
+                "blood fountains: {creature} spurts at a hit from its {}",
+                names[0]
+            );
+            commands.spawn((
+                Fountain {
+                    fountain: BloodFountain::new(set),
+                    bone,
+                    last: None,
+                    mesh: meshes.add(empty()),
+                },
+                Transform::from_translation(at.translation()),
+                Visibility::default(),
+                DespawnOnExit(AppState::InGame),
+            ));
+            sounds.write(Play {
+                sound: Of::Id(particles::blood_sound(&mut dice.0)),
+                at: Some(creature),
+                rate: (0.4, Roll::Share(0.2)),
+            });
+        }
+    }
+}
+
 /// Gives each new fountain the drops' material, in the world's camera, which the night tints.
 fn make(
     mut commands: Commands,
@@ -269,7 +370,7 @@ fn run(
     }
 }
 
-/// The blood fountains of the creatures' deaths.
+/// The blood fountains of the creatures' deaths and of the strikes' open wounds.
 pub struct BloodFountainsPlugin;
 
 impl Plugin for BloodFountainsPlugin {
@@ -279,7 +380,7 @@ impl Plugin for BloodFountainsPlugin {
             .add_systems(Startup, read)
             .add_systems(
                 Update,
-                (spurt, make, run)
+                (spurt, spurt_hits, make, run)
                     .chain()
                     .in_set(Playing)
                     .in_set(Unpaused)

@@ -1423,7 +1423,8 @@ Read 2026-11-04 for #1964 in Ghidra (**confirmed** by code unless marked otherwi
 
 `opensacred-game` makes it since #1964 (`blood_fountains`, `opensacred_rules::particles::{BloodFountain, bleeds}`) under `[gameplay] violence`, off by default as the installation's `VIOLENCE` (docs/10 §3): a creature that dies, the hero among them since #3401 (of its type, so that the heroes' types 1 to 7 bleed none), but the hero's followers and those of a dialogue, bleeds by its class, its gib set (`Item::gib_set`) and its type, in one case of ten at the bone of a part that its death rolls rather than its making (the same odds, as a creature that bleeds dies once), with its sound, its drops dying on the ground where it fell.
 **Seen** 2026-11-05 in the game with the violence on: a few of the wolves 588 killed by the console spurted, a jet of red drops from the head or a limb that fell to the ground beside the corpse.
-Not followed (#3159): the 30 of `+0x2B8` bit 1 and the sets' fountains at a hit (the part 100); the drops on the ground (903) follow since #2773 ("The blood splashes" below).
+Since #3159 a strike's open wounds' rolls spurt too (`opensacred_rules::fight::Wounding`, `blood_fountains::spurt_at_hit`): each roll of the attacker's sets that holds, and the items' roll that wounds, starts a fountain of the part 100 at a bone of the table's first 45 rolled anew, with no test of who bleeds, none once the head has spurted, none where the model lacks the bone.
+Not followed: the 30 of `+0x2B8` bit 1 (#3665: which strikes carry a record's kind other than 0 is not read); the drops on the ground (903) follow since #2773 ("The blood splashes" below).
 
 ## The big demons' death
 

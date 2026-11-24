@@ -5465,19 +5465,28 @@ pub fn wound_chance(c: f32, d: f32) -> f32 {
     to_f32(wound_bound(c, d) + 1) / 101.0
 }
 
-/// The open wound that a strike gives the creature it struck, which lives on, the seconds it
-/// lasts where it gives one (`0x534FB8`–`0x535261`, the struck one's handler of the strike;
-/// docs/re/sets.md, M15; #1727). In turn, each roll drawn whatever came before:
+/// What a strike's rolls of the open wounds give the creature it struck ([`open_wound`]): the
+/// seconds of its wound where one is given, and how many blood fountains of the part 100 they
+/// call (`0x4E87E0(100, 1)`; docs/re/effects.md, "The blood fountain").
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Wounding {
+    pub seconds: Option<f32>,
+    pub fountains: u8,
+}
+
+/// The open wound that a strike gives the creature it struck, which lives on
+/// (`0x534FB8`–`0x535261`, the struck one's handler of the strike; docs/re/sets.md, M15; #1727),
+/// and the blood fountains its rolls call. In turn, each roll drawn whatever came before:
 ///
 /// - by the hero (`by_hero`) with the struck one's own items' effect 857 summed (`items`) above
-///   0, `R(0, 100)` below the sum wounds it for 10 s;
+///   0, `R(0, 100)` below the sum wounds it for 10 s, with a fountain, where it bleeds not yet;
 /// - for each block of the attacker's sets reached (`sets`, [`set_bonuses::Stats::open_wounds`]),
-///   `R(0, 100)` at most `⌊c·d⌋` wounds it for `10·d` s;
+///   `R(0, 100)` at most `⌊c·d⌋` calls a fountain whether it bleeds or not, and wounds it for
+///   `10·d` s where it bleeds not yet;
 ///
-/// none where it bleeds already (`wounded`) or where an earlier roll wounded it. The wound is the
+/// "Bleeds" where it did before (`wounded`) or an earlier roll wounded it. The wound is the
 /// effect 23 of the value `⌊x/10⌋`, `x` the strike's whole damage, 0 for a miss
-/// ([`wound_value`]). The blood fountain of each roll that holds (`0x4E87E0(100, 1)`) is not
-/// followed.
+/// ([`wound_value`]).
 ///
 /// [`set_bonuses::Stats::open_wounds`]: crate::set_bonuses::Stats::open_wounds
 pub fn open_wound(
@@ -5485,21 +5494,25 @@ pub fn open_wound(
     (sets, d): ([Option<f32>; 2], f32),
     wounded: bool,
     dice: &mut impl Dice,
-) -> Option<f32> {
-    let mut given = None;
+) -> Wounding {
+    let mut given = Wounding::default();
     let mut bleeds = wounded;
     if by_hero && items > 0.0 {
         let roll = dice.below(101);
         if f64::from(roll) < f64::from(items) && !bleeds {
-            given = Some(ITEMS_WOUND_SECONDS);
+            given.seconds = Some(ITEMS_WOUND_SECONDS);
+            given.fountains += 1;
             bleeds = true;
         }
     }
     for c in sets.into_iter().flatten() {
         let roll = dice.below(101);
-        if roll <= wound_bound(c, d) && !bleeds {
-            given = Some(stored(f64::from(d) * 10.0));
-            bleeds = true;
+        if roll <= wound_bound(c, d) {
+            given.fountains += 1;
+            if !bleeds {
+                given.seconds = Some(stored(f64::from(d) * 10.0));
+                bleeds = true;
+            }
         }
     }
     given
@@ -9759,11 +9772,14 @@ mod tests {
         // The items' 857 of 20: a roll of 19 wounds for 10 s, of 20 not.
         assert_eq!(
             open_wound((20.0, true), ([None; 2], 1.0), false, &mut Rolls(vec![19])),
-            Some(10.0)
+            Wounding {
+                seconds: Some(10.0),
+                fountains: 1
+            }
         );
         assert_eq!(
             open_wound((20.0, true), ([None; 2], 1.0), false, &mut Rolls(vec![20])),
-            None
+            Wounding::default()
         );
         // Not the hero's strike: no roll of the items.
         assert_eq!(
@@ -9773,10 +9789,11 @@ mod tests {
                 false,
                 &mut Rolls(Vec::new())
             ),
-            None
+            Wounding::default()
         );
-        // Set 31's block on silver: ⌊13.4⌋ = 13, a roll of 13 wounds for 13.4 s; then set 40's
-        // block rolls as well, but wounds no more.
+        // Set 31's block on silver: ⌊13.4⌋ = 13, a roll of 13 wounds for 13.4 s with a fountain;
+        // then set 40's block rolls as well, ⌊8.04⌋ = 8, and 0 calls a second fountain but
+        // wounds no more.
         let mut dice = Rolls(vec![13, 0]);
         let wound = open_wound(
             (0.0, true),
@@ -9784,9 +9801,25 @@ mod tests {
             false,
             &mut dice,
         );
-        assert!(wound.is_some_and(|seconds| (seconds - 13.4).abs() < 1e-4));
+        assert!(
+            wound
+                .seconds
+                .is_some_and(|seconds| (seconds - 13.4).abs() < 1e-4)
+        );
+        assert_eq!(wound.fountains, 2);
         assert!(dice.0.is_empty());
-        // Bleeding already: the rolls drawn, no wound.
+        // A set's roll of 14 above 13 holds not: no fountain.
+        assert_eq!(
+            open_wound(
+                (0.0, true),
+                ([Some(10.0), None], 1.34),
+                false,
+                &mut Rolls(vec![14])
+            ),
+            Wounding::default()
+        );
+        // Bleeding already: the rolls drawn, no wound; the items' roll calls no fountain, the
+        // set's calls one.
         assert_eq!(
             open_wound(
                 (20.0, true),
@@ -9794,7 +9827,10 @@ mod tests {
                 true,
                 &mut Rolls(vec![0, 0])
             ),
-            None
+            Wounding {
+                seconds: None,
+                fountains: 1
+            }
         );
         assert!((wound_chance(10.0, 1.0) - 11.0 / 101.0).abs() < 1e-6);
         assert!((wound_chance(6.0, 2.34) - 15.0 / 101.0).abs() < 1e-6);
