@@ -12,7 +12,7 @@
 //! breath's place in the original's order of drawing, each fire's flames at the fire's place
 //! (`fx::Orders::at`, #2220). The breath's flames and smoke drift with the renderer's wind, which
 //! its layers take at each frame while it flies and keep once it stops (`daynight::Clock::wind`,
-//! #3154).
+//! #3154), drawn as one mesh in their particles' slots' order (`fx::mixed_material`, #3661).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -28,7 +28,7 @@ use crate::burns::Burns;
 use crate::crowd::InTheWay;
 use crate::fight::Health;
 use crate::frame::{Playing, Step};
-use crate::fx::{Effect, Orders, Quads, empty, layer_quads, particle_material, particle_texture};
+use crate::fx::{Effect, Orders, Quads, drawn_quads, empty, mixes, particle_texture};
 use crate::game::{AppState, Data};
 use crate::hero::Body;
 use crate::npcs::Dies;
@@ -131,7 +131,9 @@ impl Default for Looks {
     }
 }
 
-/// Makes the looks' materials.
+/// Makes the looks' materials: the breath's flames and smoke as one mesh in their particles'
+/// slots' order (`fx::mixed_material`, `0x761B00`), none apart for its smoke, its glow and the
+/// wall's flames added whole.
 fn make_looks(
     data: Option<&Data>,
     assets: &AssetServer,
@@ -140,20 +142,22 @@ fn make_looks(
     let breath = walloffire();
     let wall = walloffire_line();
     [
-        (breath.texture, Some(AlphaMode::Add)),
-        (breath.texture, Some(AlphaMode::Blend)),
-        (particles::WALLOFFIRE_GLOW_TEXTURE, None),
-        (wall.texture, None),
+        Some((breath.texture, true)),
+        None,
+        Some((particles::WALLOFFIRE_GLOW_TEXTURE, false)),
+        Some((wall.texture, false)),
     ]
-    .map(|(texture, mode)| {
+    .map(|part| {
+        let (texture, mixed) = part?;
         let image = data.and_then(|data| particle_texture(&data.0.assets, assets, texture));
         if image.is_none() {
             warn!("breath: no texture {texture}; its part is not drawn");
         }
         image.map(|image| {
-            materials.add(match mode {
-                Some(mode) => particle_material(image, mode),
-                None => crate::fx::whole_material(image),
+            materials.add(if mixed {
+                crate::fx::mixed_material(image)
+            } else {
+                crate::fx::whole_material(image)
             })
         })
     })
@@ -356,9 +360,9 @@ fn glow(
         }
         // The particles lie in the world, in the models' frame: the look stands at its origin.
         let order = orders.at(look.place);
-        for (layer, handle) in look.parts.iter().take(2).enumerate() {
+        let drawn = drawn_quads(fire, &look.system, if mixes(fire) { 1 } else { 2 });
+        for (mut quads, handle) in drawn.into_iter().zip(&look.parts) {
             if let Some(mut mesh) = meshes.get_mut(handle) {
-                let mut quads = layer_quads(fire, &look.system, layer);
                 quads.in_order(order, Vec3::ZERO);
                 quads.into_mesh(&mut mesh);
             }

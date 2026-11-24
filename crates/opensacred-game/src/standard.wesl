@@ -6,7 +6,8 @@
 // the cursor (`LIT_BY_SLOT`, `hover`); its other passes lay its effect under its texels
 // (`EFFECT`, `HOLOGRAM`) or draw it in the water form's look or a vision's (`WATER`, `VISION`).
 // A particle's colour (`fx::Effect`, `PARTICLES`) is encoded before its alpha premultiplies an
-// added one; one of list 4 (`LIST_4`, `fx::over_all`) takes the samples over which no model's
+// added one, and a system's added and laid layers drawn as one mesh are premultiplied each by its
+// own (`MIXED`); one of list 4 (`LIST_4`, `fx::over_all`) takes the samples over which no model's
 // texel lies nearer than its true point. A model drawn apart from the world by a camera of its own, whose frame takes linear
 // light (`model_effects::ApartMaterial`, `LINEAR`), keeps its colour linear, its effect laid
 // under it in sRGB values all the same.
@@ -195,6 +196,14 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
     out.color = vec4<f32>(out.color.rgb, 1.0);
 }
     out.color = main_pass_post_lighting_processing(pbr_input, encode(out.color));
+@if(MIXED) {
+    // A system's added and laid layers in one mesh, in their particles' slots' order, as the
+    // original switches the blend at each change of layer (`0x761B00`, `fx::mixed_material`),
+    // premultiplied: a particle's colour times its alpha, an added one's (its alpha negative)
+    // taking nothing of the frame away, a laid one's covering it by its alpha.
+    let alpha = abs(out.color.a);
+    out.color = vec4<f32>(out.color.rgb * alpha, select(alpha, 0.0, out.color.a < 0.0));
+}
 }
 @else {
 @if(LINEAR) {
