@@ -1518,7 +1518,8 @@ fn burn(
 /// Gives `target`, which lives through a strike of `attacker` of the whole damage `damage`, the
 /// open wound that the rolls of `items`, `sets` and `wounded` give
 /// (`opensacred_rules::fight::open_wound`; #1727, M15): the effect 23 of the value `⌊damage/10⌋`
-/// from the attacker, unless it bleeds by then.
+/// from the attacker, unless it bleeds by then; and the blood fountains of the part 100 that its
+/// rolls call (`blood_fountains::spurt_at_hit`, #3159).
 #[expect(
     clippy::type_complexity,
     reason = "the rolls' inputs as `open_wound` takes them"
@@ -1530,7 +1531,11 @@ fn wound(
     (items, sets, wounded): ((f32, bool), ([Option<f32>; 2], f32), bool),
     dice: &mut Rng,
 ) {
-    let Some(seconds) = opensacred_rules::fight::open_wound(items, sets, wounded, dice) else {
+    let wounding = opensacred_rules::fight::open_wound(items, sets, wounded, dice);
+    if wounding.fountains > 0 {
+        crate::blood_fountains::spurt_at_hit(commands, target, wounding.fountains);
+    }
+    let Some(seconds) = wounding.seconds else {
         return;
     };
     let value = opensacred_rules::fight::wound_value(damage);
