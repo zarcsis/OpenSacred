@@ -10740,6 +10740,15 @@ impl ScriptClip {
         Self::new(slot, 1)
     }
 
+    /// A clip of `slot` once at the rate `rate`, whatever its attack speed: a knocked creature's
+    /// hit clip at three times it (`0x593770`; `making`, #3141).
+    pub(crate) fn hit(slot: u16, rate: f32) -> Self {
+        Self {
+            rate: Some(rate),
+            ..Self::new(slot, 1)
+        }
+    }
+
     /// The fall of a creature that a horse tramples, once at the rate 1.0 (`0x5941A0` at
     /// `0x5975C9`; `trample`, #2302).
     pub(crate) fn fall(slot: u16) -> Self {
