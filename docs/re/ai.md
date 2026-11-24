@@ -373,6 +373,7 @@ A creature is held while its `+0x200` has the bit `0x40000`, which its timer's f
   A creature that fights as it is held, the `Attacke`'s target or one that the event `0x100` sends at a foe, fights on within its band and takes no step of its moving action until its timer fires (a bat felled from its swoop and sent so swooped again while held, "Foes among the creatures": **hypothesis**, the swoop's flight not the moving action's).
 
 `opensacred-game` follows it since #3622: `minds::Mind::turns_on` turns no held creature and none in a throw's flight (the Dwarf's 1083's, `making::Knocked`, and the backbreaker's, `backbreaker::Flung`), the bit 0 taken and the hold left as it is; and `npcs::walk` takes no step of a held creature's walk, a flyer's flight excepted (the swoop's, **hypothesis** above), so that a held creature that fights decides and strikes a foe within its band (`ai::pursue`) and follows none until its timer fires.
+Its timer runs while a script's clip plays on it (`opensacred_rules::minds::Mind::run_timer`, `ai::think`, #3628), as the creatures' update runs it whatever the AI does, so that the backbreaker's target, which plays its hit and dying clips through its hold, takes up its fight as its hold ends: seen in the game 5.05 and 5.07 s after the take-up, where it was 6.9 s before.
 
 ## The guards' mode on a hostile creature
 
