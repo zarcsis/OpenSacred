@@ -8028,6 +8028,50 @@ mod tests {
     }
 
     #[test]
+    fn a_timer_fires_after_its_period_less_its_jitter_and_counts_for_the_timed_and_the_held() {
+        let mut rng = Rng::of(50, 40, 8);
+        // A hostile creature woken by `CreateNPC` (the period 2.5 s), its clock at 0: run 2.55 s,
+        // its timer fires, wakes it and keeps 0.05 s less the jitter `0.1·r − 1.5`.
+        let mut timed = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
+        timed.clock = 0.0;
+        timed.awake = false;
+        let mut same = rng.clone();
+        let jitter = f32::from(u16::try_from(same.below(31)).unwrap_or(0)) * 0.1;
+        assert!(jitter > 0.0 && (jitter - JITTER).abs() > 0.05, "{jitter}");
+        timed.run_timer(2.55, false, &mut rng);
+        assert!(timed.awake);
+        assert!(
+            (timed.clock - (0.05 - (jitter - JITTER))).abs() < 1e-4,
+            "{}",
+            timed.clock
+        );
+        // Not yet at its period, it sleeps on.
+        let mut early = Mind::new(Spot::default(), 0x1, (false, true), None, SPEEDS, (76, 8));
+        early.clock = 0.0;
+        early.awake = false;
+        early.run_timer(2.4, false, &mut rng);
+        assert!(!early.awake);
+        // A creature of none of the timed flags counts no time but held, and its hold ends by it.
+        let mut untimed = Mind::new(
+            Spot::default(),
+            0x4000,
+            (false, false),
+            None,
+            SPEEDS,
+            (76, 8),
+        );
+        untimed.clock = 0.0;
+        untimed.awake = false;
+        untimed.run_timer(30.0, false, &mut rng);
+        assert!(!untimed.awake && untimed.clock == 0.0);
+        untimed.stunned(3.0);
+        untimed.run_timer(2.9, false, &mut rng);
+        assert!(untimed.held());
+        untimed.run_timer(0.2, false, &mut rng);
+        assert!(!untimed.held() && untimed.awake);
+    }
+
+    #[test]
     fn a_knocked_creature_is_held_until_its_timer_fires_with_its_slide_over() {
         let mut rng = Rng::of(50, 40, 8);
         let senses = |dt, sliding| Senses {
