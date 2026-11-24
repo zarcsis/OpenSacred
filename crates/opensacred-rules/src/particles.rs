@@ -12126,6 +12126,62 @@ pub fn skull_turn([x, y]: [f32; 2]) -> f32 {
     (-y).atan2(x) + std::f32::consts::FRAC_PI_2
 }
 
+/// The eye lasers' impact's texture, its sparks, its light in the world and its Direct3D
+/// light's colour, the priority 2 (909, `0x7A6510`; docs/re/effects.md, "The systems' Direct3D
+/// lights").
+pub const LASER_IMPACT_TEXTURE: &str = "PARTICLE_SPARK06";
+const LASER_IMPACT_COUNT: usize = 50;
+pub const LASER_IMPACT_LIGHT: f32 = 200.0;
+pub const LASER_IMPACT_D3D: [f32; 3] = [1.0, 0.8, 0.2];
+
+/// The eye lasers' impact where a beam reaches its target (909, `FX_LASERBEAM_IMPACT`,
+/// `cParticleSystem_laserbeam_impact`, its start `0x7A68A0`, its run `0x7A65F0`, its draw
+/// `0x7A6660`; docs/re/effects.md, "The eye lasers' impact (909)", #3152): fifty sparks at once
+/// within 5 of its place, of the size 4 shrinking by 7 a second (gone within 0.57 s), flying
+/// (0, 0, 50) ± (80, 80, 40) and falling at the buoyancy 100 ± 40, from a pale yellow
+/// (199, 199, 39) to an orange (159, 99, 19) over 200 entries and to black, added whole and not
+/// turned, untinted, lighting the world by 200.
+pub fn laser_impact(dice: &mut impl Dice) -> Burst {
+    let block = Block {
+        buoyancy: spread(100.0, 40.0),
+        size: spread(4.0, 0.0),
+        angle: spread(std::f32::consts::PI, std::f32::consts::PI),
+        velocity: spread([0.0, 0.0, 50.0], [80.0, 80.0, 40.0]),
+        offset: spread([0.0; 3], [5.0; 3]),
+        ..Block::default()
+    };
+    let byte = |c: f32| c / 255.0;
+    let particles = (0..LASER_IMPACT_COUNT)
+        .map(|_| Particle {
+            // Not turned (the draw's flags `0x19`).
+            angle: 0.0,
+            ..born(&block, 0, dice)
+        })
+        .collect();
+    Burst {
+        texture: LASER_IMPACT_TEXTURE,
+        grid: 1,
+        blend: Blend::Whole,
+        layer: Layer {
+            life: -350.0,
+            size: -7.0,
+            ..Layer::default()
+        },
+        ramp: Ramp::new(
+            [byte(199.0), byte(199.0), byte(39.0), 1.0],
+            &[
+                ([byte(159.0), byte(99.0), byte(19.0), 1.0], 200),
+                ([0.0, 0.0, 0.0, 1.0], 56),
+            ],
+        ),
+        particles,
+        ground: None,
+        light: LASER_IMPACT_LIGHT,
+        tinted: false,
+        stream: None,
+    }
+}
+
 /// The laser beams' variants that their callers lay (`0x604030`'s flags byte): the Vampiress's
 /// bite's, the hellfire's and the eye lasers', the drains'.
 pub const BITE_BEAM: u8 = 0;
@@ -17205,6 +17261,9 @@ pub const DEMON_DEATH_TEXTURE: &str = "FX_GHOST2";
 pub const DEMON_DEATH_GLOW: &str = "PARTICLE_GLOW03";
 const DEMON_DEATH_SLICES: u8 = 15;
 pub const DEMON_DEATH_GLOW_COLOUR: [f32; 4] = [40.0 / 255.0, 40.0 / 255.0, 56.0 / 255.0, 1.0];
+/// Its Direct3D light's colour, the priority 2, while it lives (919's constructor; docs/re/
+/// effects.md, "The systems' Direct3D lights", #3152).
+pub const DEMON_DEATH_D3D: [f32; 3] = [0.8, 0.8, 1.0];
 /// How long it holds from its start, and its light's radius at its whole growth.
 const DEMON_DEATH_HOLDS: f32 = 15.0;
 const DEMON_DEATH_LIGHT: f32 = 200.0;
@@ -18903,6 +18962,47 @@ mod tests {
             assert!((-3.0..=43.0).contains(&glow.place[0]), "{:?}", glow.place);
             assert!((7.0..=13.0).contains(&glow.place[1]), "{:?}", glow.place);
         }
+    }
+
+    #[test]
+    fn the_eye_lasers_impact_bursts_fifty_yellow_sparks_that_fall_away() {
+        let mut dice = Rng::of(7, 8, 7);
+        let impact = laser_impact(&mut dice);
+        assert_eq!(impact.particles.len(), 50);
+        assert_eq!(
+            (impact.blend, impact.light, impact.tinted),
+            (Blend::Whole, 200.0, false)
+        );
+        assert_eq!((impact.layer.life, impact.layer.size), (-350.0, -7.0));
+        for spark in &impact.particles {
+            assert_eq!((spark.size, spark.angle), (4.0, 0.0));
+            assert!(spark.place.iter().all(|p| p.abs() <= 5.0));
+            assert!(
+                (60.0..=140.0).contains(&spark.buoyancy),
+                "{}",
+                spark.buoyancy
+            );
+            assert!(
+                (10.0..=90.0).contains(&spark.velocity[2]),
+                "{:?}",
+                spark.velocity
+            );
+            assert!(spark.velocity[0].abs() <= 80.0 && spark.velocity[1].abs() <= 80.0);
+        }
+        assert!(
+            impact
+                .particles
+                .iter()
+                .any(|spark| spark.velocity[0].abs() > 10.0)
+        );
+        assert_eq!(
+            impact.ramp.0[255],
+            [199.0 / 255.0, 199.0 / 255.0, 39.0 / 255.0, 1.0]
+        );
+        // Toward black at the death, the last key's first entry its own.
+        assert!(impact.ramp.0[0][..3].iter().all(|&c| c < 0.02));
+        let orange = impact.ramp.0[255 - 200];
+        assert!((orange[0] - 159.0 / 255.0).abs() < 0.02, "{orange:?}");
     }
 
     #[test]

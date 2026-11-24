@@ -1050,6 +1050,11 @@ fn act(
                         object: false,
                         mount: false,
                     });
+                    // Its impact at the target, the object 909 (`0x7A68A0`, #3152).
+                    let on = cast.target;
+                    commands.queue(move |world: &mut World| {
+                        world.write_message(crate::laser_impacts::Impact { on });
+                    });
                 }
             }
             casts::DEMON_FIRE => {
