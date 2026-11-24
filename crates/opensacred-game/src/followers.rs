@@ -662,7 +662,7 @@ fn raise_dead(world: &mut World, master: Entity, corpse: Entity, level: u32, sec
 
 /// The corpse itself rises as `master`'s follower (`sdk_HIRE(target, 0, 1)` at `0x5110E1`, read for
 /// #3140): its mind and place in the way back from what it kept aside, out of its fight, its mark
-/// cleared to its `0xF000` bits ([`Mind::raised`]); its level set to `level` exactly, a boss
+/// cleared to its `0xF000` bits (`opensacred_rules::minds::Mind::raised`); its level set to `level` exactly, a boss
 /// common, a champion still one, its type's arms, items and look its own still
 /// (`npcs::raised_level`); hired with no entry in the column, of the flags' bit `0x2000000`, and
 /// the effect 29 for `seconds` where given.
