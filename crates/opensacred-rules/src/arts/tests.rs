@@ -2475,3 +2475,9 @@ fn the_dwarfs_gun_rundum_shoots_its_target_then_the_gathered() {
     assert_eq!(gun_rundum_shot(4, Some(9), &[1, 2, 3]), None);
     assert_eq!(gun_rundum_shot(0, None, &gathered), None);
 }
+
+#[test]
+fn the_jumps_and_the_seraphims_bolts_spare_their_maker() {
+    assert!([1003, 1010, 1017, 1018, 1019].into_iter().all(spares));
+    assert!(!spares(1015) && !spares(1032) && !spares(1085) && !spares(1020));
+}
