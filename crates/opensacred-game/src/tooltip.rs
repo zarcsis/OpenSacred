@@ -276,6 +276,16 @@ impl Weighing<'_, '_> {
                     .and_then(|hurled| hurled.item.values.as_ref())
                     .map(|values| values.hurled_damage(combat.attributes, None)),
             },
+            night_times: self
+                .holding
+                .iter()
+                .next()
+                .map_or(1.0, |holding| holding.0.sets.night_form_times()),
+            flight_times: self
+                .holding
+                .iter()
+                .next()
+                .map_or(1.0, |holding| holding.0.sets.flight_times()),
         };
         let text = |name: &str| texts.and_then(|texts| texts.named(name)).map(str::to_owned);
         let id = |id: u32| texts.and_then(|texts| texts.id(id)).map(str::to_owned);

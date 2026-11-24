@@ -1514,11 +1514,11 @@ pub struct Boon {
 /// - the Daemon's 1094 (`0x5192E0`): as it starts, the effects keyed by 1094, 1097 to 1100 and
 ///   [`DAEMON_FORM`] off and the effect 50 for 10 s keyed by 1094 (`0x51BBC5`); below 0.3 the
 ///   effect 50 keyed by 1094, and the effects 2 of `b` and 52 (the attack speed and the pace) of
-///   `(L·[+0x64] + [+0x60]) / 100` keyed by [`DAEMON_FORM`], each for `a` seconds at most 180
-///   (times `1 + 0.4·f` for a Daemon of `+0x4F0` bit `0x8000`, not followed);
+///   `(L·[+0x64] + [+0x60]) / 100` keyed by [`DAEMON_FORM`], each for `a` seconds at most 180,
+///   times `flight` (set 59's, `crate::set_bonuses::Stats::flight_times`, `0x519A5E`, #3136);
 ///
 /// none for another.
-pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
+pub fn boon(record: &WeaponArt, level: u32, flight: f32) -> Option<Boon> {
     let l = f64::from(level);
     let by_level = |[base, step]: [f32; 2]| narrow(l.mul_add(f64::from(step), f64::from(base)));
     let whole = |[base, step]: [i32; 2]| l.mul_add(f64::from(step), f64::from(base));
@@ -1532,7 +1532,7 @@ pub fn boon(record: &WeaponArt, level: u32) -> Option<Boon> {
     };
     if record.id == 1094 {
         let art = u32::from(record.id);
-        let seconds = a.min(180.0);
+        let seconds = a.min(180.0) * flight;
         let quickens = narrow(whole(record.value_60) * 0.01);
         return Some(Boon {
             point: 0.7,
@@ -2341,11 +2341,13 @@ pub const CHANGELING_RATE: f32 = 0.7;
 
 /// How long the night's form of the changeling `record` at the level in play `level` lasts
 /// (`0x50E6C0`, `0x51CC20`): `[+0x50] + [+0x54]·L` seconds, 24 + 6·L, doubled but by day (`day`,
-/// `0x41BA60`, from 05:20 to 20:20).
-pub fn changeling_seconds(record: &WeaponArt, level: u32, day: bool) -> f32 {
+/// `0x41BA60`, from 05:20 to 20:20), and `times` as long by set 42
+/// (`crate::set_bonuses::Stats::night_form_times`, `0x5128D6`, #3136).
+pub fn changeling_seconds(record: &WeaponArt, level: u32, day: bool, times: f32) -> f32 {
     let [base, step] = record.factor.map(f64::from);
     let seconds = narrow(f64::from(level).mul_add(step, base));
-    if day { seconds } else { 2.0 * seconds }
+    let seconds = if day { seconds } else { 2.0 * seconds };
+    seconds * times
 }
 
 /// What is left of its clip, as a part of it, below which the backbreaker lets its target go: 0.7

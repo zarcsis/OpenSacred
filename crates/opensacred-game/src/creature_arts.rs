@@ -122,7 +122,7 @@ fn start(
         let boon = match style {
             Style::Boon | Style::Bolts => {
                 let Some(boon) = record
-                    .and_then(|record| arts::boon(record, level))
+                    .and_then(|record| arts::boon(record, level, 1.0))
                     .filter(|b| {
                         b.clears.is_empty() && b.starts.is_empty() && b.replaces.is_empty()
                     })
