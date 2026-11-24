@@ -42,11 +42,15 @@ const HAND_HEIGHT: f32 = 80.0;
 
 /// A shot's arrow leaving its shooter's hand toward its target (`cEventArrow`, the event 9,
 /// `0x4EB700`), which the shot's clip sends at its fraction (`npcs::Strikes`), and the combat art
-/// it is a shot of, if any.
+/// it is a shot of, if any; or toward a point on the ground, `at`, a shot whose target names no
+/// creature (a hero's after a Ctrl click on the ground, docs/re/fight.md, "The shots' chain",
+/// #3577), its arrow flying level from the hand along the line to the point, its `target`
+/// [`Entity::PLACEHOLDER`].
 #[derive(Message, Clone, Copy, Debug, PartialEq)]
 pub struct Loose {
     pub shooter: Entity,
     pub target: Entity,
+    pub at: Option<Vec3>,
     pub special: Option<Special>,
 }
 
@@ -178,7 +182,7 @@ fn loose(
         return;
     };
     for shot in shots.read() {
-        let (Ok(shooter), Ok(target)) = (places.get(shot.shooter), places.get(shot.target)) else {
+        let Ok(shooter) = places.get(shot.shooter) else {
             continue;
         };
         let bone = |root: Entity, name: &str| {
@@ -186,7 +190,18 @@ fn loose(
         };
         let from =
             bone(shot.shooter, HAND).unwrap_or(shooter.translation() + Vec3::Y * HAND_HEIGHT);
-        let toward = bone(shot.target, NECK).unwrap_or(target.translation());
+        // Its target's neck, else its place; or a point's, level with the hand.
+        let target = match shot.at {
+            Some(at) => at.with_y(from.y),
+            None => match places.get(shot.target) {
+                Ok(target) => target.translation(),
+                Err(_) => continue,
+            },
+        };
+        let toward = match shot.at {
+            Some(_) => target,
+            None => bone(shot.target, NECK).unwrap_or(target),
+        };
         let first = arrows::Arrow::new(point(from), point(toward));
         let level = ways.get(shot.shooter).ok().and_then(|way| way.level);
         let art = shot.special.map(|special| special.art);
@@ -260,7 +275,7 @@ fn loose(
             (Some(seconds), _) => (
                 arrows::Arrow::homing(point(from), point(toward), seconds),
                 Some(Homing {
-                    aim: toward.y - target.translation().y,
+                    aim: toward.y - target.y,
                     wait: 0.0,
                 }),
             ),

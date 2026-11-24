@@ -4600,6 +4600,22 @@ pub fn held_shot_chain(chain: f32) -> f32 {
     }
 }
 
+/// The most to which a Ctrl click on the ground in mid-shot raises the hero's chain: the state
+/// 8's decision, finding the shot playing, raises it by 0.1 while it is below this (`0x4DC51A`;
+/// docs/re/fight.md, "The shots' chain"; seen, #3568, #3577).
+pub const GROUND_SHOT_CHAIN: f32 = 1.7;
+
+/// The chain after a Ctrl click on the ground in mid-shot raises `chain`: 0.1 more while it is
+/// below [`GROUND_SHOT_CHAIN`], in single precision, so that 1.6000001 rises to 1.7000001, which
+/// is not below it (`0x4DC51A`; seen, #3568).
+pub fn ground_shot_chain(chain: f32) -> f32 {
+    if chain < GROUND_SHOT_CHAIN {
+        chain + 0.1
+    } else {
+        chain
+    }
+}
+
 /// Where in its clip of `length` seconds the hero's shot that goes on plays again: an eighth in,
 /// its end seven eighths of its length on, so that its arrow leaves `(a − 1/8)·L` after; from its
 /// start for a shot of the effect 17 or of a gun, `whole` (`0x4DFC8D`, docs/re/fight.md, "The
@@ -7368,6 +7384,22 @@ mod tests {
         assert!(attack_ends(true, false, true, true));
         assert!(attack_ends(false, true, true, true));
         assert!(attack_ends(false, false, false, true));
+    }
+
+    #[test]
+    fn a_ctrl_click_on_the_ground_raises_the_chain_to_1_7() {
+        // As seen: 1.5000001 to 1.6000001, then 1.7000001, which stays.
+        let mut chain = 1.500_000_1;
+        chain = ground_shot_chain(chain);
+        assert!((chain - 1.6).abs() < 1e-5 && chain < GROUND_SHOT_CHAIN);
+        chain = ground_shot_chain(chain);
+        assert!((chain - 1.7).abs() < 1e-5 && chain >= GROUND_SHOT_CHAIN);
+        assert_eq!(ground_shot_chain(chain), chain);
+        assert_eq!(ground_shot_chain(GROUND_SHOT_CHAIN), GROUND_SHOT_CHAIN);
+        // From the strikes' 1.0 it rises too.
+        assert!((ground_shot_chain(1.0) - 1.1).abs() < 1e-6);
+        // The held going on's raise leaves a chain above 1.5 as it is.
+        assert_eq!(held_shot_chain(chain), chain);
     }
 
     #[test]

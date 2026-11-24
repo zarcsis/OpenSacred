@@ -32,7 +32,9 @@ pub struct Aim(pub bool);
 /// at once, where it stands, once; whether it ends with its strike, the player having sent the
 /// hero elsewhere; whether the button that sent it is still held; whether a click still asks
 /// for a strike that has not begun; whether its first strike spoke its `ATTACK` line; where its
-/// AI stands; and the combat art it is a shot of (a special arrow), if any.
+/// AI stands; the combat art it is a shot of (a special arrow), if any; and whether its shot goes
+/// on once whatever the button and its target, the flag `+0x18C` that a Ctrl click on the ground
+/// in mid-shot sets (`0x4DC51A`, `0x4DF109`; #3577).
 #[derive(Component)]
 pub struct Attack {
     target: Option<Entity>,
@@ -44,6 +46,7 @@ pub struct Attack {
     spoke: bool,
     phase: Phase,
     special: Option<crate::arrows::Special>,
+    goes_on: bool,
 }
 
 /// Where the hero's attack stands in the AI's state 4 (`0x4E0300`), which steps at the world's
@@ -80,6 +83,7 @@ impl Attack {
             spoke: false,
             phase: Phase::Ordered,
             special: None,
+            goes_on: false,
         }
     }
 
@@ -201,6 +205,7 @@ pub(crate) fn aim(
             spoke: false,
             phase: Phase::Ordered,
             special: None,
+            goes_on: false,
         };
         match (aim.0, attack) {
             // A click on the same target goes on with its attack, which spoke at its first
@@ -424,12 +429,14 @@ fn engage(
                 } else if ranged {
                     // Its shot leaves at the clip's first hit, an arrow from its left hand toward
                     // its target (`0x4DD90E`, `0x4EB700`), which the arrows fly and hit, with its
-                    // bow's sound as a creature's (`0x4DCB80`, #1475).
-                    if let (Some(entity), 1) = (attack.target, striking.struck) {
+                    // bow's sound as a creature's (`0x4DCB80`, #1475); one of a Ctrl click on the
+                    // ground toward the click's point, which names no creature (seen, #3577).
+                    if striking.struck == 1 {
                         blows.write(crate::sfx::Blow::Shot { shooter: hero });
                         shots.write(crate::arrows::Loose {
                             shooter: hero,
-                            target: entity,
+                            target: attack.target.unwrap_or(Entity::PLACEHOLDER),
+                            at: attack.target.is_none().then_some(attack.point),
                             special: attack.special,
                         });
                     }
@@ -456,19 +463,42 @@ fn engage(
                     });
                 }
             }
-            // Its shot, the button held, its target alive, no art's arrow and its bolts' effect
-            // still on it, goes on: at the first tick with less than 0.1 s of its clip left, the
-            // clip plays again an eighth in at its attack speed times its chain as it was, the
-            // chain raised by 0.1 up to 1.5, and looses anew; a shot of the effect 17 or of a gun
-            // from its start at the speed it had (`0x4DFC8D`, `0x4DF306`; seen, #3563, #3568). A
-            // click while it plays goes on with nothing: its own shot follows the shot's end.
+            // A Ctrl click on the ground in mid-shot with a ranged weapon in hand: at the tick
+            // after it the decision finds the shot playing, raises the chain by 0.1 up to 1.7 and
+            // sets the flag by which the shot goes on once, at the click's point (the state 8,
+            // `0x52EEEC`–`0x52EF16`, `0x4DC51A`; seen, #3568, #3577).
+            if ticked
+                && attack.phase == Phase::Ordered
+                && attack.at_once
+                && attack.target.is_none()
+                && striking.bolt.is_none()
+                && holding.is_some_and(|holding| holding.0.ranged)
+            {
+                let raised = minds::ground_shot_chain(kept);
+                match chain.as_mut() {
+                    Some(chain) => chain.0 = raised,
+                    None => {
+                        commands.entity(hero).insert(ShotChain(raised));
+                    }
+                }
+                debug!("attack: a Ctrl click on the ground raises the hero's chain to {raised:.1}");
+                attack.goes_on = true;
+                attack.phase = Phase::Deciding;
+                continue;
+            }
+            // Its shot, the button held and its target alive, or its flag set whatever both, no
+            // art's arrow and its bolts' effect still on it, goes on: at the first tick with less
+            // than 0.1 s of its clip left, the clip plays again an eighth in at its attack speed
+            // times its chain as it was, the chain raised by 0.1 up to 1.5, the flag cleared, and
+            // looses anew; a shot of the effect 17 or of a gun from its start at the speed it had
+            // (`0x4DFC8D`, `0x4DF306`, `0x4DF109`; seen, #3563, #3568). A plain click while it
+            // plays goes on with nothing: its own shot follows the shot's end.
             if ranged
                 && ticked
                 && striking.struck > 0
                 && attack.special.is_none()
-                && attack.held
+                && (attack.goes_on || (attack.held && target.is_some()))
                 && !attack.ends
-                && target.is_some()
                 && (striking.bolt.is_none() || bolt.is_some())
                 && minds::held_shot_goes_on(
                     (striking.length - active.seek_time()).max(0.0) / active.speed().max(0.001),
@@ -493,6 +523,7 @@ fn engage(
                     }
                 }
                 debug!("attack: the hero's shot goes on at {played:.3}, its chain {raised:.1}");
+                attack.goes_on = false;
                 striking.struck = 0;
                 if striking.bolt.is_none() {
                     fires.write(crate::sfx::Gunfire { shooter: hero });
@@ -658,10 +689,10 @@ fn engage(
         attack.phase = Phase::Deciding;
         // The attack's first strike speaks (`0x4E52D1`, the action's sub-state 0); the strikes it
         // chains do not (#711). A strike in the air swings there, once, by its attack speed
-        // (`0x4E52B7`, #3346).
+        // (`0x4E52B7`, #3346); a shot at a point sounds as its arrow leaves, as any shot's.
         if !attack.spoke {
             attack.spoke = true;
-            if attack.target.is_none() {
+            if attack.target.is_none() && !ranged {
                 blows.write(crate::sfx::Blow::Swing {
                     striker: hero,
                     air: Some(attack_speed * 100.0),

@@ -13514,6 +13514,7 @@ fn strike(
                 shots.write(arrows::Loose {
                     shooter: entity,
                     target: strikes.target,
+                    at: None,
                     special: None,
                 });
             }
