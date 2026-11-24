@@ -2,9 +2,11 @@
 //! bubble"): each bubble bolt shows its bush, its clip whirling in its loop, grown to twice its
 //! size in a third of a second, turned along its flight, lit, in the hero's texture or another
 //! caster's; it shrinks away over its last half second, or where a cell stops it; an arrow that
-//! bursts it leaves green glows drifting where it was and a green sonar ring spreading on the
-//! ground under it (906), both added and untinted (`opensacred_rules::particles::{BubbleTrap,
-//! SonarRing}`).
+//! bursts it leaves green glows drifting from its bush's bone `Bone01` as its clip has it and a
+//! green sonar ring spreading on the ground under it (906), both added and untinted
+//! (`opensacred_rules::particles::{BubbleTrap, SonarRing}`).
+//! The bubble lights the world on the ground under it by 100, by 150 once burst, and its ring by
+//! 200 (`daynight::Light`, #3153; docs/re/effects.md, "Lights").
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::gltf::Gltf;
@@ -13,6 +15,7 @@ use opensacred_rules::particles::{self, BubbleTrap, SonarRing};
 
 use crate::bolt_looks::{models, world};
 use crate::bolts::{Bubble, Pops};
+use crate::daynight::Light;
 use crate::frame::{Playing, Unpaused};
 use crate::fx::{Effect, Quads, empty, particle_texture, texture_path, whole_material};
 use crate::game::{AppState, Data};
@@ -86,13 +89,14 @@ impl Looks {
 }
 
 /// A bubble's look, which outlives its bolt while its glows live: its bolt while it flies, its
-/// system, its bush, its place, its direction in the world, whether an arrow burst it, its
-/// glows' mesh, and whether its clip plays.
+/// system, its bush, its light, its place, its direction in the world, whether an arrow burst
+/// it, its glows' mesh, and whether its clip plays.
 #[derive(Component)]
 struct Shown {
     bolt: Option<Entity>,
     look: BubbleTrap,
     model: Option<Entity>,
+    lamp: Entity,
     place: Vec3,
     along: Vec3,
     popped: bool,
@@ -134,11 +138,20 @@ fn show(
             made.id()
         });
         let mesh = meshes.add(empty());
+        // Its light on the ground at the height 0 under it (`0x5AA26E`), a child of its look,
+        // whose place is the world's origin.
+        let lamp = commands
+            .spawn((
+                Transform::from_translation(at.with_y(0.0)),
+                Light(particles::BUBBLE_LIGHT),
+            ))
+            .id();
         let mut shown = commands.spawn((
             Transform::IDENTITY,
             Visibility::default(),
             DespawnOnExit(AppState::InGame),
         ));
+        shown.add_child(lamp);
         if let Some(material) = looks.glows.clone() {
             shown.with_child((
                 Mesh3d(mesh.clone()),
@@ -152,6 +165,7 @@ fn show(
             bolt: Some(bolt),
             look: BubbleTrap::new(bubble.seconds),
             model,
+            lamp,
             place: at,
             along,
             popped: false,
@@ -210,15 +224,27 @@ fn play(
 }
 
 /// Runs each bubble's look a frame on (`0x797D80`, `0x798030`): its bush along its bolt's way,
-/// its growth and its shrinking, its burst where an arrow bursts it, with its sonar ring, and
-/// its end.
+/// its growth and its shrinking, its burst where an arrow bursts it, its glows from its bush's
+/// bone, with its sonar ring, its light under it, and its end.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, grouped"
+)]
 fn fly(
     mut commands: Commands,
     (time, heights): (Res<Time>, Res<Heights>),
     mut pops: MessageReader<Pops>,
     mut shown: Query<(Entity, &mut Shown)>,
-    bolts: Query<&Transform, (With<Bubble>, Without<Shown>)>,
-    mut bushes: Query<&mut Transform, (Without<Bubble>, Without<Shown>)>,
+    (bolts, mut bushes): (
+        Query<&Transform, (With<Bubble>, Without<Shown>)>,
+        Query<&mut Transform, (Without<Bubble>, Without<Shown>, Without<Light>)>,
+    ),
+    (mut lamps, children, bones, worn): (
+        Query<(&mut Transform, &mut Light), (Without<Bubble>, Without<Shown>)>,
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
     (looks, mut dice, mut meshes, orders): (
         Res<Looks>,
         ResMut<Dice>,
@@ -240,9 +266,24 @@ fn fly(
             _ => {
                 if let Some(bolt) = look.bolt.take() {
                     if look.popped {
-                        // An arrow burst it (`+0x74` bit 8): its glows and its sonar ring 906.
-                        debug!("bubbles: {bolt} bursts at {}", look.place);
-                        look.look.burst(models(look.place), &mut dice.0);
+                        // An arrow burst it (`+0x74` bit 8): its glows from its bush's bone as its
+                        // clip has it, else from its place, and its sonar ring 906.
+                        let from = look
+                            .model
+                            .and_then(|model| {
+                                crate::making::bone(
+                                    model,
+                                    &[particles::BUBBLE_BONE],
+                                    &children,
+                                    (&bones, &worn),
+                                )
+                            })
+                            .unwrap_or(look.place);
+                        debug!(
+                            "bubbles: {bolt} bursts at {}, its glows from {from}",
+                            look.place
+                        );
+                        look.look.burst(models(from), &mut dice.0);
                         let ground = heights
                             .at(look.place.x, look.place.z)
                             .unwrap_or(look.place.y - crate::bolts::HEIGHT);
@@ -273,6 +314,10 @@ fn fly(
         if look.look.done() {
             commands.entity(entity).despawn();
             continue;
+        }
+        if let Ok((mut transform, mut light)) = lamps.get_mut(look.lamp) {
+            transform.translation = look.place.with_y(0.0);
+            light.0 = look.look.light();
         }
         let mut quads = Quads::default();
         for glow in &look.look.system.particles {
@@ -309,6 +354,11 @@ fn sonar(
         Transform::IDENTITY,
         Visibility::default(),
         DespawnOnExit(AppState::InGame),
+    ));
+    // Its light of 200 on the ground at the height 0 under it, while it lasts.
+    ring.with_child((
+        Transform::from_translation(centre.with_y(0.0)),
+        Light(particles::SONAR_LIGHT),
     ));
     // Unlit and untinted, added whole (`0x763530`).
     if let Some(material) = material {

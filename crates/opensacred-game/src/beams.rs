@@ -15,12 +15,12 @@
 //! its spine to a bone of its target's at random (`creature_arts`, #2567), which goes on past a
 //! cell that does not pass ([`THROUGH`], #2819); the zhadum one of the variant 5 at the creature
 //! it kills and on (`zhadums`, #2920), of two sets of quads whose textures flow along it.
-//!
-//! Not followed: the segments' lights of 80.
+//! Each segment lights the world by 80 on the ground at its start until it ends
+//! (`daynight::Light`, `0x7A5327`, #3153; docs/re/effects.md, "Lights").
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
-use opensacred_rules::particles::{LaserSegment, laser_axes};
+use opensacred_rules::particles::{LASER_LIGHT, LaserSegment, laser_axes};
 use opensacred_rules::ways;
 
 use crate::bolt_looks::{models, world};
@@ -276,6 +276,12 @@ fn place(
                 Transform::from_translation(start),
                 Visibility::default(),
                 DespawnOnExit(AppState::InGame),
+            ));
+            // Its light on the ground at the height 0 under its start, whatever its height
+            // (`0x5AA26E`), going with it.
+            segment.with_child((
+                Transform::from_xyz(0.0, -start.y, 0.0),
+                crate::daynight::Light(LASER_LIGHT),
             ));
             let sets = [
                 (material.clone(), Some(mesh)),
