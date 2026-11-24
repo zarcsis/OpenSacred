@@ -21941,11 +21941,13 @@ mod tests {
         let mean_x = |wind: [f32; 3], burst: bool| {
             let mut dice = Rng::of(5, 5, 910);
             let mut fire = HomingFlames::new(HomingKind::Demon);
-            fire.wind = wind;
+            // Burst, the wind blows after the burst alone, on its layer of then.
+            fire.wind = if burst { [0.0; 3] } else { wind };
             for _ in 0..30 {
                 fire.update(1.0 / 60.0, ([0.0; 3], [0.0; 3]), &mut dice);
             }
             if burst {
+                fire.wind = wind;
                 fire.burst([0.0; 3], &mut Ends(false));
                 fire.system.particles.retain(|p| p.buoyancy < 0.0);
                 for _ in 0..10 {
