@@ -274,6 +274,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/knockouts.rs`: The butterflies over a head
 - `crates/opensacred-game/src/labels.rs`: The labels while Alt is held
 - `crates/opensacred-game/src/laser_fences.rs`: The scripts' fences of lightning
+- `crates/opensacred-game/src/laser_impacts.rs`: The eye lasers' impact (909, `FX_LASERBEAM_IMPACT`, #3152; docs/re/effects.md, "The eye lasers' impact
 - `crates/opensacred-game/src/lava_bursts.rs`: The lava bursts
 - `crates/opensacred-game/src/layer.wesl`: A band of the interface
 - `crates/opensacred-game/src/lens_creatures.rs`: The creatures in the lens of the world map and of the overview

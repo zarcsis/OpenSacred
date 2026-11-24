@@ -279,7 +279,7 @@ fn vanish(
         // A big demon's death in its puddle's place, with the violence on or off (`0x53FC5C`).
         if lies.demon {
             lies.demon = false;
-            crate::demon_deaths::spawn(&mut commands, at.translation());
+            crate::demon_deaths::spawn(&mut commands, entity, at.translation());
         }
         // A medium spider's goes at its first tick of lying, as it is (`0x54045E`).
         if lies.spider {

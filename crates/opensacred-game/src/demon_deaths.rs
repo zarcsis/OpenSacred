@@ -9,7 +9,8 @@
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
 use opensacred_rules::particles::{
-    DEMON_DEATH_GLOW, DEMON_DEATH_GLOW_COLOUR, DEMON_DEATH_RAYS, DEMON_DEATH_TEXTURE, DemonDeath,
+    DEMON_DEATH_D3D, DEMON_DEATH_GLOW, DEMON_DEATH_GLOW_COLOUR, DEMON_DEATH_RAYS,
+    DEMON_DEATH_TEXTURE, DemonDeath,
 };
 
 use crate::bolt_looks::world;
@@ -19,20 +20,27 @@ use crate::game::{AppState, Data};
 use crate::spawning::Rng;
 use crate::{daynight, iso};
 
-/// A big demon's death to make at its place ([`make`]).
+/// A big demon's death to make at its body's head ([`make`]).
 #[derive(Component)]
-pub(crate) struct Unmade;
+pub(crate) struct Unmade {
+    body: Entity,
+}
 
-/// Makes a big demon's death at the place `at` of its body (`0x53FE31`, the object 919 by the FX
-/// event `0x7F`).
-pub(crate) fn spawn(commands: &mut Commands, at: Vec3) {
+/// Makes a big demon's death at its body `body` (`0x53FE31`, the object 919 by the FX event
+/// `0x7F`), at the place `at` where it lies until [`make`] finds the head's bone.
+pub(crate) fn spawn(commands: &mut Commands, body: Entity, at: Vec3) {
     commands.spawn((
-        Unmade,
+        Unmade { body },
         Transform::from_translation(at),
         Visibility::default(),
         DespawnOnExit(AppState::InGame),
     ));
 }
+
+/// The head's bone (20), at which it stands (`0x5A55A1`).
+const HEAD: [&str; 1] = ["Bip01 Head"];
+/// The priority of its Direct3D light.
+const PRIORITY: u8 = 2;
 
 /// A death that shows: its system, its glows' and its rays' meshes, and its light.
 #[derive(Component)]
@@ -58,10 +66,18 @@ impl Default for Dice {
     }
 }
 
-/// Gives each new death its system (`0x7A9D30`), its meshes and materials and its light.
+/// Gives each new death its system (`0x7A9D30`), its meshes and materials and its lights: placed
+/// once at the lying demon's `Bip01 Head`, else where it lies, upright (the event `0x7F`'s case
+/// `0x5A55A1`, the flags `0x40`, #3152); its light in the world's table and its Direct3D light of
+/// (0.8, 0.8, 1), the priority 2, on the models about it (`fx_lights`).
 fn make(
     mut commands: Commands,
-    unmade: Query<Entity, With<Unmade>>,
+    mut unmade: Query<(Entity, &Unmade, &mut Transform)>,
+    (children, bones, worn): (
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
     (data, assets, mut looks, mut dice): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -70,7 +86,10 @@ fn make(
     ),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for entity in &unmade {
+    for (entity, unmade, mut transform) in &mut unmade {
+        if let Some(head) = crate::making::bone(unmade.body, &HEAD, &children, (&bones, &worn)) {
+            transform.translation = head;
+        }
         let materials = looks
             .0
             .get_or_insert_with(|| {
@@ -102,6 +121,7 @@ fn make(
         let light = commands
             .spawn((daynight::Light(0.0), Transform::IDENTITY, ChildOf(entity)))
             .id();
+        commands.spawn(crate::fx_lights::child(DEMON_DEATH_D3D, PRIORITY, entity));
         debug!("demon deaths: {entity} starts");
         commands.entity(entity).remove::<Unmade>().insert(Shown {
             death: DemonDeath::new(&mut dice.0),

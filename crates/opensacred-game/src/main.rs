@@ -162,6 +162,7 @@ mod knock_down;
 mod knockouts;
 mod labels;
 mod laser_fences;
+mod laser_impacts;
 mod lava_bursts;
 mod lens_creatures;
 mod level_sparks;
@@ -702,6 +703,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .add_plugins((
         labels::LabelsPlugin,
         laser_fences::LaserFencesPlugin,
+        laser_impacts::LaserImpactsPlugin,
         lava_bursts::LavaBurstsPlugin,
         level_sparks::LevelSparksPlugin,
         light_blades::LightBladesPlugin,
