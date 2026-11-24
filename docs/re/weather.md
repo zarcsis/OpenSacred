@@ -21,6 +21,10 @@ The weather lives in the renderer (docs/re/daynight.md), a singleton of `0x12E6C
 - The snow: 3,000 flakes at `+0x4B4` (a position and a size of 2 to 10 each), their count now `+0x9154` and wanted `+0x9158`.
 - The quake `+0x9DB8` and the jolt `+0x9DBC`, and the offsets of the screen they make, `+0x9DC0` and `+0x9DC4`.
 - `+0x9E0C`: the hero in a dungeon; `0x625290` sets it at each frame that the hero's sector is a dungeon (docs/re/daynight.md), and `0x418FB0` writes it too (**hypothesis**: it clears it at each frame).
+- The wind, `+0x68` … `+0x70` and its length `+0x74` (read 2026-11-23 for #3154, **confirmed** by code): at each frame the update (`0x41A4F0`) writes `+0x68 = cos θ`, `+0x6C = sin θ` and `+0x74 = 2·|m/1439 − 0.5| + 0.2`, `θ = 0.0043641417·m`, `m` the calendar's minutes of the day (its hour times 60 plus its minute); `+0x70` keeps the set-up's 0 (`0x417F00`, which sets (1, 0, 0) and 0.2), no other code storing into the four (a scan of the calls of `0x417E70`).
+  So `k = +0x74` is 1.2 at midnight and 0.2 at noon, and the vector turns once a day in the ground's plane of the models' frame: (1.2, 0, 0) at midnight, (0, 0.7, 0) at 6:00, (−0.2, 0, 0) at noon, (0, −0.7, 0) at 18:00.
+  Its readers: the rain's slant and the snow's drift below, which take `k·cos θ` alone, and the particle systems that copy the whole vector times `k` into their layers' wind (docs/re/effects.md, "The update"); the models' shadows do not (their lean is fixed, docs/re/drawing.md, "The models' shadows").
+  How strongly the drift shows by day and by night is not seen.
 
 The renderer's handler of the events whose kind (the virtual `+8`) is `0x24` is `0x419A70`; its update of a frame is `0x41A4F0` and its drawing `0x4190D0`, both from `cEngine_renderThreadRun`.
 
@@ -67,7 +71,7 @@ The levels move by steps of about three a second (an accumulator `0xAA4548` grow
 
 ## What is drawn and heard
 
-- **The rain**: lines without a texture (`WEATHER_RAIN01.TGA` is the shadows' texture, docs/re/drawing.md), each frame every drop at random on the screen, 5 to 20 pixels long, slanted by `L · [+0x74] · [+0x68]`, where `+0x68` is the cosine of the time of day (a turn in 1,440 minutes) and `+0x74` is `2 · |t/1439 − 0.5| + 0.2` (**hypothesis**: the shadows' vector, docs/re/drawing.md), each coloured by the light where it falls (`0x41B510`).
+- **The rain**: lines without a texture (`WEATHER_RAIN01.TGA` is the shadows' texture, docs/re/drawing.md), each frame every drop at random on the screen, 5 to 20 pixels long, slanted by `L · [+0x74] · [+0x68]`, where `+0x68` is the cosine of the time of day (a turn in 1,440 minutes) and `+0x74` is `2 · |t/1439 − 0.5| + 0.2` (the wind of "The weather's state" above, no shadows' vector), each coloured by the light where it falls (`0x41B510`).
   A drop is a strip of two vertices, its top of the alpha 0 and its bottom of 255 (`0x00FFFFFF` and `0xFFFFFFFF` as `0x417F00` sets them up, the light's colour put in at each frame), so that it fades in from its top; it is blended by its alpha (`SRCALPHA`, `INVSRCALPHA`), under the interface.
   Its sound is a loop of the profile 101, the sample 205 `SOUND_FX_RAIN01`, at the volume of the drops' count over 3,000, stopped when the count reaches 0.
   It plays in a dungeon and at `DETAILLEVEL` 0 too, where no drop is drawn: the weather's update starts it and sets its volume as the count moves (`0x41A6EB` to `0x41A782`) and tests neither, where the draw (`0x4191AE`) leaves a dungeon out and the rain at `DETAILLEVEL` 0 (read 2026-11-21 for #2844, **confirmed** by code).
