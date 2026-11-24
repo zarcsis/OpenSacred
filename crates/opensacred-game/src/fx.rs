@@ -28,9 +28,11 @@
 //! #2017) and its makers, the quads of a mesh ([`Quads`]), the particles' textures, and the depth
 //! of a system's place in the original's order of drawing ([`Orders`], [`InOrder`], #2178).
 //!
-//! Left out: the wind that the smoke class writes into its layers (`+0x68` of the renderer, a
-//! **hypothesis**), and the small fire's variant 1. The other classes are their own modules', the
-//! small fire's variant 0 `lava_bursts`'s and the torches' flames `torches`'s.
+//! The smoke class's layers take the renderer's wind at each frame (`0x76E2D0`,
+//! `daynight::Clock::wind`, #3154), which carries its rising flames and smokes against it.
+//!
+//! Left out: the small fire's variant 1. The other classes are their own modules', the small
+//! fire's variant 0 `lava_bursts`'s and the torches' flames `torches`'s.
 
 use std::sync::Arc;
 
@@ -1772,11 +1774,11 @@ const GEYSER_SOUNDS: [u32; 2] = [211, 212];
 #[derive(Resource, Default)]
 struct GeyserLatch(bool);
 
-/// Runs each fire's particles a frame on, and lays its layers' quads out facing the camera; a
-/// geyser runs its clock first, its burst's sound at it, one of two at a rate of 0.9 to 1.1 of the
-/// sample's.
+/// Runs each fire's particles a frame on, carried by the renderer's wind (`0x76E2D0`), and lays
+/// its layers' quads out facing the camera; a geyser runs its clock first, its burst's sound at
+/// it, one of two at a rate of 0.9 to 1.1 of the sample's.
 fn burn(
-    time: Res<Time>,
+    (time, clock): (Res<Time>, Option<Res<crate::daynight::Clock>>),
     mut fires: Query<(
         Entity,
         &mut Burning,
@@ -1788,6 +1790,9 @@ fn burn(
     orders: Orders,
 ) {
     let dt = time.delta_secs().min(0.1);
+    let wind = clock
+        .as_deref()
+        .map_or([0.0; 3], crate::daynight::Clock::wind);
     for (entity, mut burning, at, layered) in &mut fires {
         // At its object's place in the order, after its cell's statics and under what a row
         // nearer draws (#2188); on an upper storey's floor, no further back than its plane
@@ -1818,7 +1823,8 @@ fn burn(
             }
             None => fire,
         };
-        system.update(dt, &fire.layers);
+        let blown: Vec<_> = fire.layers.iter().map(|layer| layer.blown(wind)).collect();
+        system.update(dt, &blown);
         system.emit(&fire.blocks, &fire.layers, fire.count, dice);
         for (layer, handle) in layers.iter().enumerate() {
             let Some(mut mesh) = meshes.get_mut(handle) else {

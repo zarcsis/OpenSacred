@@ -1,7 +1,8 @@
 //! The Wood Elf's plants' healing's sight (42, 851, `cParticleSystem_naturehealing`; #1092;
 //! docs/re/effects.md, "The Wood Elf's sights"): for 3 s a cloud of tiny butterflies of every
 //! colour flutters up from about the bearer's feet and stays in the world where each was born,
-//! each fading over a second and a half with a faint grey glow; untinted by the night
+//! each fading over a second and a half with a faint grey glow, drifting with the renderer's wind
+//! of the minute it starts (`daynight::Clock::wind`, #3154); untinted by the night
 //! (`opensacred_rules::particles::NatureHealing`).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
@@ -58,7 +59,10 @@ pub(crate) fn show(commands: &mut Commands, bearer: Entity) {
 /// Gives each new sight its meshes and its materials (`0x79BE50`, `0x79C1D0`).
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    (unmade, clock): (
+        Query<(Entity, &Unmade)>,
+        Option<Res<crate::daynight::Clock>>,
+    ),
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
@@ -92,7 +96,12 @@ fn make(
                 bearer,
                 before: None,
                 order: None,
-                look: NatureHealing::default(),
+                look: NatureHealing {
+                    wind: clock
+                        .as_deref()
+                        .map_or([0.0; 3], crate::daynight::Clock::wind),
+                    ..NatureHealing::default()
+                },
                 parts: parts.clone(),
             },
             Transform::IDENTITY,

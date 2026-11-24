@@ -112,6 +112,26 @@ pub struct Layer {
     pub pull: f32,
 }
 
+impl Layer {
+    /// The layer with `wind` for its own, as the classes that copy the renderer's wind into their
+    /// layers' (`+0x10` … `+0x18`) have it.
+    pub fn blown(self, wind: [f32; 3]) -> Self {
+        Self { wind, ..self }
+    }
+}
+
+/// The renderer's wind at the minute `minute` of the day, in the models' frame (`0x41A4F0`
+/// writes it at each frame, `+0x68` … `+0x74`; docs/re/effects.md, "The update"):
+/// `(cos θ, sin θ, 0)` times its length `k`, `θ = 0.0043641417·m` and
+/// `k = 2·|m/1439 − 0.5| + 0.2`, so that it turns once a day in the ground's plane, 1.2 long at
+/// midnight and 0.2 at noon.
+pub fn renderer_wind(minute: u16) -> [f32; 3] {
+    let m = f32::from(minute);
+    let theta = 0.004_364_141_7 * m;
+    let k = 2.0 * (m / 1439.0 - 0.5).abs() + 0.2;
+    [k * theta.cos(), k * theta.sin(), 0.0]
+}
+
 /// A value and its spread, which adds a uniform `[−spread, spread]`.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Spread<T> {
@@ -1503,9 +1523,9 @@ impl BodyEnd {
 ///   0.664) or a pale green (0.625, 0.684, 0.625) from an alpha of 0.5 to none,
 ///   `PARTICLE_SMOKE03` of the grid laid over the frame by its alpha (the flags `0x10C`).
 ///
-/// The wind that the dusts take from the renderer (`+0x24B8`) is left out, as the smoke class's
-/// is.
-pub fn body_end(end: BodyEnd, points: &[[f32; 3]], dice: &mut impl Dice) -> Burst {
+/// The dusts keep in their layer the renderer's `wind` of the minute they start in (`+0x24B8`,
+/// copied once at the start; [`renderer_wind`]); the sparks and the smoke take none.
+pub fn body_end(end: BodyEnd, points: &[[f32; 3]], wind: [f32; 3], dice: &mut impl Dice) -> Burst {
     let block = end.block();
     let particles = points
         .iter()
@@ -1569,6 +1589,10 @@ pub fn body_end(end: BodyEnd, points: &[[f32; 3]], dice: &mut impl Dice) -> Burs
                 [0.625, 0.684, 0.625]
             }),
         ),
+    };
+    let layer = match end {
+        BodyEnd::Dust | BodyEnd::Stone => layer.blown(wind),
+        BodyEnd::Sparks | BodyEnd::Smoke => layer,
     };
     Burst {
         texture,
@@ -6602,17 +6626,22 @@ const NATURE_HEALING_EMITS: f32 = 3.0;
 /// bearer's root, within 12 of it, left in the world, rising (the buoyancy −35 ± 10, the
 /// velocity (0, 0, 15) ± (15, 15, 5)), of the half side 3, of a colour of its own at random
 /// about the grey 128, living 1.457 s, beating its wings through its 64 frames once and fading
-/// by its life; each with a faint grey glow. The renderer's wind is not followed.
+/// by its life; each with a faint grey glow; its layer keeps the renderer's wind of the minute it
+/// starts in ([`Self::wind`], `0x79C1D0`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct NatureHealing {
     pub system: System,
+    /// The renderer's wind as it started ([`renderer_wind`]), which its start copies into its
+    /// layer once.
+    pub wind: [f32; 3],
 }
 
 impl NatureHealing {
-    /// Its layer: the life rate −175.
-    fn layers() -> [Layer; 1] {
+    /// Its layer: the life rate −175, and its wind.
+    fn layers(&self) -> [Layer; 1] {
         [Layer {
             life: -175.0,
+            wind: self.wind,
             ..Layer::default()
         }]
     }
@@ -6620,7 +6649,7 @@ impl NatureHealing {
     /// A run of `dt` seconds, its bearer's root gone from `from` to `to` in the models' frame: its
     /// butterflies aged, and for its first 3 s new ones along the way.
     pub fn update(&mut self, dt: f32, (from, to): ([f32; 3], [f32; 3]), dice: &mut impl Dice) {
-        let layers = Self::layers();
+        let layers = self.layers();
         let grey = 128.0 / 255.0;
         let block = Block {
             buoyancy: spread(-35.0, 10.0),
@@ -16525,6 +16554,9 @@ pub struct HomingFlames {
     kind: HomingKind,
     out: bool,
     burst: bool,
+    /// The renderer's wind, which its run copies into both its layers at each frame
+    /// ([`renderer_wind`]).
+    pub wind: [f32; 3],
 }
 
 impl HomingFlames {
@@ -16535,6 +16567,7 @@ impl HomingFlames {
             kind,
             out: false,
             burst: false,
+            wind: [0.0; 3],
         }
     }
 
@@ -16545,6 +16578,7 @@ impl HomingFlames {
             return Layer {
                 life: -200.0,
                 size: -15.0,
+                wind: self.wind,
                 ..Layer::default()
             };
         }
@@ -16554,6 +16588,7 @@ impl HomingFlames {
                 HomingKind::Demon => 15.0,
                 HomingKind::Guard => 10.0,
             },
+            wind: self.wind,
             ..Layer::default()
         }
     }
@@ -17553,6 +17588,45 @@ mod tests {
         // 34 and 24 of the ground's screen units in world units.
         assert!((FOOTPRINT_SIDE - 34.0 * (5.0f32 / 8.0).sqrt()).abs() < 1e-3);
         assert!((FOOTPRINT_AHEAD - 24.0 * (5.0f32 / 8.0).sqrt()).abs() < 1e-3);
+    }
+
+    #[test]
+    fn the_renderers_wind_turns_once_a_day_and_carries_a_layers_particles() {
+        let near = |a: [f32; 3], b: [f32; 3]| a.iter().zip(b).all(|(a, b)| (a - b).abs() < 1e-3);
+        // 1.2 along the models' `x` at midnight, 0.7 along `y` at 6:00, 0.2 against `x` at noon
+        // and 0.7 against `y` at 18:00.
+        assert!(near(renderer_wind(0), [1.2, 0.0, 0.0]));
+        assert!(near(renderer_wind(360), [0.0, 0.699_65, 0.0]));
+        assert!(near(renderer_wind(720), [-0.200_7, 0.0, 0.0]));
+        assert!(near(renderer_wind(1080), [0.0, -0.701_04, 0.0]));
+        // At 3:00: θ = 0.78555, k = 2·(0.5 − 180/1439) + 0.2 = 0.94983.
+        assert!(near(renderer_wind(180), [0.671_49, 0.671_80, 0.0]));
+        // A layer blown keeps its rates and takes the wind.
+        let layer = Layer {
+            buoyancy: -35.0,
+            life: -200.0,
+            ..Layer::default()
+        };
+        let blown = layer.blown([1.2, 0.0, 0.0]);
+        assert_eq!(blown.wind, [1.2, 0.0, 0.0]);
+        assert_eq!(blown.blown([0.0; 3]), layer);
+        // A rising smoke (the buoyancy −35) drifts against it: 42 units a second each second.
+        let mut system = System::new(1);
+        system.particles.push(Particle {
+            place: [0.0; 3],
+            velocity: [0.0; 3],
+            buoyancy: -35.0,
+            size: 1.0,
+            life: 255.0,
+            angle: 0.0,
+            spin: 0.0,
+            layer: 0,
+            frame: 0,
+            colour: [1.0; 3],
+        });
+        system.update(1.0, &[blown]);
+        let velocity = system.particles[0].velocity;
+        assert!((velocity[0] + 42.0).abs() < 1e-3 && velocity[1].abs() < 1e-6);
     }
 
     #[test]
@@ -18752,6 +18826,21 @@ mod tests {
             healing.update(0.01, ([0.0; 3], [0.0; 3]), &mut dice);
         }
         assert!(healing.done());
+        // Its butterflies rise against the renderer's wind of its start.
+        let mean_x = |wind: [f32; 3]| {
+            let mut dice = Rng::of(19, 23, 29);
+            let mut healing = NatureHealing {
+                wind,
+                ..NatureHealing::default()
+            };
+            for _ in 0..100 {
+                healing.update(0.01, ([0.0; 3], [0.0; 3]), &mut dice);
+            }
+            let flies = &healing.system.particles;
+            flies.iter().map(|p| p.place[0]).sum::<f32>()
+                / f32::from(u16::try_from(flies.len()).unwrap_or(1))
+        };
+        assert!(mean_x([1.2, 0.0, 0.0]) < mean_x([0.0; 3]) - 1.0);
     }
 
     #[test]
@@ -20818,7 +20907,7 @@ mod tests {
     fn a_vanishing_corpses_dust_leaves_its_points_and_fades() {
         let mut dice = Rng::of(0, 0, 9);
         let points: Vec<[f32; 3]> = (0..200_u8).map(|k| [0.0, 0.0, f32::from(k)]).collect();
-        let burst = body_end(BodyEnd::Dust, &points, &mut dice);
+        let burst = body_end(BodyEnd::Dust, &points, [0.0; 3], &mut dice);
         assert_eq!(burst.particles.len(), 150);
         assert!(
             burst
@@ -20828,7 +20917,11 @@ mod tests {
                 .all(|(p, &at)| p.place == at && p.frame < 4)
         );
         assert!((burst.ramp.at(255.0)[3] - 0.5).abs() < 1e-3);
-        assert!(body_end(BodyEnd::Dust, &[], &mut dice).particles.is_empty());
+        assert!(
+            body_end(BodyEnd::Dust, &[], [0.0; 3], &mut dice)
+                .particles
+                .is_empty()
+        );
         let mut system = System::new(150);
         system.particles = burst.particles;
         for _ in 0..154 {
@@ -20842,10 +20935,13 @@ mod tests {
         let mut dice = Rng::of(0, 0, 9);
         let points = vec![[0.0, 0.0, 10.0]; 600];
         let counts = [BodyEnd::Sparks, BodyEnd::Smoke, BodyEnd::Stone]
-            .map(|end| body_end(end, &points, &mut dice).particles.len());
+            .map(|end| body_end(end, &points, [0.0; 3], &mut dice).particles.len());
         assert_eq!(counts, [500, 250, 150]);
-        // The sparks: blue-white to black, added whole, of a size of 2, rising by −5 ± 5.
-        let sparks = body_end(BodyEnd::Sparks, &points, &mut dice);
+        // The sparks: blue-white to black, added whole, of a size of 2, rising by −5 ± 5; no
+        // wind.
+        let wind = [1.2, 0.0, 0.0];
+        let sparks = body_end(BodyEnd::Sparks, &points, wind, &mut dice);
+        assert_eq!(sparks.layer.wind, [0.0; 3]);
         assert_eq!(
             (sparks.texture, sparks.blend),
             ("PARTICLE_SPARK06", Blend::Whole)
@@ -20858,15 +20954,22 @@ mod tests {
                 .all(|p| p.size == 2.0 && (-10.0..=0.0).contains(&p.buoyancy) && p.frame == 0)
         );
         // The smoke: black at the alpha of its life, laid over, gone at 1.7 s.
-        let smoke = body_end(BodyEnd::Smoke, &points, &mut dice);
+        let smoke = body_end(BodyEnd::Smoke, &points, wind, &mut dice);
+        assert_eq!(smoke.layer.wind, [0.0; 3]);
         assert_eq!(
             (smoke.texture, smoke.blend),
             ("PARTICLE_SMOKE03", Blend::Over)
         );
         assert_eq!(smoke.ramp.at(255.0), [0.0, 0.0, 0.0, 1.0]);
         assert!((smoke.ramp.at(128.0)[3] - 0.5).abs() < 0.01);
-        // The stone's dust: pale green, smaller and slower than the bone's.
-        let stone = body_end(BodyEnd::Stone, &points, &mut dice);
+        // The dusts keep the wind of their start; the stone's pale green, smaller and slower than
+        // the bone's.
+        assert_eq!(
+            body_end(BodyEnd::Dust, &points, wind, &mut dice).layer.wind,
+            wind
+        );
+        let stone = body_end(BodyEnd::Stone, &points, wind, &mut dice);
+        assert_eq!(stone.layer.wind, wind);
         assert!((stone.ramp.at(255.0)[1] - 0.684).abs() < 1e-3);
         assert!(
             stone
@@ -21834,6 +21937,31 @@ mod tests {
         guard.update(0.1, ([0.0; 3], [0.0; 3]), &mut dice);
         assert!(guard.system.particles.iter().all(|p| p.size < 8.0));
         assert_eq!(HomingFlames::ramp().at(250.0)[3], 0.352);
+        // The renderer's wind carries its rising flames against it, before its burst and after.
+        let mean_x = |wind: [f32; 3], burst: bool| {
+            let mut dice = Rng::of(5, 5, 910);
+            let mut fire = HomingFlames::new(HomingKind::Demon);
+            fire.wind = wind;
+            for _ in 0..30 {
+                fire.update(1.0 / 60.0, ([0.0; 3], [0.0; 3]), &mut dice);
+            }
+            if burst {
+                fire.burst([0.0; 3], &mut Ends(false));
+                fire.system.particles.retain(|p| p.buoyancy < 0.0);
+                for _ in 0..10 {
+                    fire.update(1.0 / 60.0, ([0.0; 3], [0.0; 3]), &mut dice);
+                }
+            }
+            let flames = &fire.system.particles;
+            flames.iter().map(|p| p.place[0]).sum::<f32>()
+                / f32::from(u16::try_from(flames.len()).unwrap_or(1))
+        };
+        for burst in [false, true] {
+            assert!(
+                mean_x([1.2, 0.0, 0.0], burst) < mean_x([0.0; 3], burst) - 0.5,
+                "{burst}"
+            );
+        }
     }
 
     #[test]

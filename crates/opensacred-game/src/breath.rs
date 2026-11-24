@@ -10,7 +10,9 @@
 //! burns flames standing on the ground for its 10 s, its light of 200 with it until its last
 //! (`walloffire_line`); all untinted by the night (`iso::UNTINTED`). The breath's look lies at its
 //! breath's place in the original's order of drawing, each fire's flames at the fire's place
-//! (`fx::Orders::at`, #2220).
+//! (`fx::Orders::at`, #2220). The breath's flames and smoke drift with the renderer's wind, which
+//! its layers take at each frame while it flies and keep once it stops (`daynight::Clock::wind`,
+//! #3154).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -94,8 +96,9 @@ struct WallFire {
 const SEED: usize = 0x3EE;
 
 /// A breath's look, which outlives its breath while its flames burn: its breath while it lives,
-/// its flames and smoke, their dice, its place and the place before, its lamp, and its parts'
-/// meshes, the flames', the smoke's and the glow's.
+/// its flames and smoke, their dice, its place and the place before, its lamp, its parts'
+/// meshes, the flames', the smoke's and the glow's, and the renderer's wind its layers took last,
+/// at each frame while it flew (`0x7AE290`'s state 0), kept once it stops.
 #[derive(Component)]
 struct Look {
     breath: Option<Entity>,
@@ -105,6 +108,7 @@ struct Look {
     before: Option<Vec3>,
     lamp: Entity,
     parts: [Handle<Mesh>; 3],
+    wind: [f32; 3],
 }
 
 /// The looks' systems, and their materials, made as the first breath leaves: the breath's flames
@@ -285,6 +289,7 @@ fn show(
             before: None,
             lamp,
             parts,
+            wind: [0.0; 3],
         });
     }
 }
@@ -296,7 +301,7 @@ fn show(
 /// (#2220).
 fn glow(
     mut commands: Commands,
-    time: Res<Time>,
+    (time, clock): (Res<Time>, Option<Res<daynight::Clock>>),
     looks: Res<Looks>,
     mut shown: Query<(Entity, &mut Look)>,
     breaths: Query<(&Breath, &Transform)>,
@@ -318,7 +323,17 @@ fn glow(
             }
             None => false,
         };
-        look.system.update(dt, &fire.layers);
+        if flying {
+            look.wind = clock
+                .as_deref()
+                .map_or([0.0; 3], crate::daynight::Clock::wind);
+        }
+        let layers: Vec<_> = fire
+            .layers
+            .iter()
+            .map(|layer| layer.blown(look.wind))
+            .collect();
+        look.system.update(dt, &layers);
         if flying {
             let before = look.before.unwrap_or(look.place);
             look.system.emit_along(

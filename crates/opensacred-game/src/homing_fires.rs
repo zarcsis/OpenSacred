@@ -2,7 +2,9 @@
 //! big demons' (910) and Anducar's guards' (1164) flames burning at the fire, in its caster's
 //! hand as it charges and left in the world behind it as it flies, added and untinted by the
 //! night (`opensacred_rules::particles::HomingFlames`); at its burst on the hero or at a cell
-//! that stops it, a ball of flames; its flight over, its last flames burn out.
+//! that stops it, a ball of flames; its flight over, its last flames burn out. Its flames drift
+//! with the renderer's wind, which its layers take at each frame (`daynight::Clock::wind`,
+//! #3154).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -104,7 +106,7 @@ fn show(
 /// burst where it bursts, and its end with its last flame.
 fn burn(
     mut commands: Commands,
-    time: Res<Time>,
+    (time, clock): (Res<Time>, Option<Res<crate::daynight::Clock>>),
     mut shown: Query<(Entity, &mut Shown)>,
     fires: Query<&Transform, With<Flames>>,
     mut bursts: MessageReader<Bursts>,
@@ -131,6 +133,9 @@ fn burn(
             }
         }
         let before = look.before.unwrap_or(look.place);
+        look.flames.wind = clock
+            .as_deref()
+            .map_or([0.0; 3], crate::daynight::Clock::wind);
         look.flames
             .update(dt, (models(before), models(look.place)), &mut dice.0);
         look.before = Some(look.place);
