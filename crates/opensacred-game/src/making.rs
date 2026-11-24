@@ -2671,6 +2671,9 @@ fn make(
                                 }
                             });
                             let (radius, factor) = arts::jump_quake(record, playing.level);
+                            // Each hostile in reach struck once, where the original's strikes all
+                            // fall on the art's target (`0x5008BF`; docs/decisions/arts.md,
+                            // "Gladiator's jump strikes each creature in reach once").
                             for &entity in &nearest.hostiles {
                                 let Ok((_, at, mind, health)) = creatures.get(entity) else {
                                     continue;
