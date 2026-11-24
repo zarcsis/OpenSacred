@@ -745,9 +745,40 @@ fn a_kick_strikes_at_its_classs_point_and_may_knock_its_target_back() {
     };
     assert_eq!(fixed(2), Some((148, 1.0)));
     assert_eq!(fixed(1), Some((81, 1.0)));
-    assert_eq!(kick_point(2, 1), 0.6);
-    assert_eq!(kick_point(2, 3), 0.55);
-    assert_eq!(kick_point(1, 2), 0.4);
+    assert_eq!(kick_point(2, 1), Some(0.6));
+    assert_eq!(kick_point(2, 3), Some(0.55));
+    assert_eq!(kick_point(2, 2), Some(0.55));
+    assert_eq!(kick_point(1, 2), Some(0.4));
+    // The other classes' (#3121): the Dark Elf's 144 at 0.35, the Vampiress's 151 at 0.55, the
+    // Wood Elf's and the generic 146, 147 with a weapon of the classes 2 and 3, striking nothing.
+    assert_eq!(fixed(4), Some((144, 1.0)));
+    assert_eq!(fixed(6), Some((151, 1.0)));
+    assert_eq!(fixed(7), Some((151, 1.0)));
+    assert_eq!(fixed(5), Some((146, 1.0)));
+    assert_eq!(fixed(3), Some((146, 1.0)));
+    assert!(matches!(
+        action(5, Style::Kick, 3),
+        Some(ArtAction {
+            clip: ArtClip::Slot(147),
+            ..
+        })
+    ));
+    assert!(matches!(
+        action(3, Style::Kick, 2),
+        Some(ArtAction {
+            clip: ArtClip::Slot(147),
+            ..
+        })
+    ));
+    assert_eq!(fixed(8), None);
+    assert_eq!(kick_point(4, 3), Some(0.35));
+    assert_eq!(kick_point(6, 1), Some(0.55));
+    assert_eq!(kick_point(7, 2), Some(0.55));
+    assert_eq!(kick_point(5, 1), None);
+    assert_eq!(kick_point(3, 2), None);
+    for kick in [1064, 1076, 1041] {
+        assert_eq!(style(kick), Some(Style::Kick), "{kick}");
+    }
     // The Gladiator's 1060 at level 1 on a goblin warrior of level 1: 500 %, always; on one of
     // level 10, 50 %; a boss and a big one less; a dragon (52) never.
     assert_eq!(knockback_chance(1, (76, 1), false, false), 500.0);

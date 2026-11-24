@@ -1090,6 +1090,12 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         (1, Style::Hardhit) => Some(attack),
         (1, Style::Kick) => Some(kick(81)),
         (2, Style::Kick) => Some(kick(148)),
+        // The other classes' kicks (docs/re/arts.md, "The other classes' clips", #3121): the
+        // Dark Elf's 1068 its 144, the Wood Elf's 1064 and the generic 1009 147 with a weapon of
+        // the classes 2 and 3, else 146, the Vampiress's 1076 and 1041 151.
+        (4, Style::Kick) => Some(kick(144)),
+        (3 | 5, Style::Kick) => Some(kick(if matches!(class, 2 | 3) { 147 } else { 146 })),
+        (6 | 7, Style::Kick) => Some(kick(151)),
         (2, Style::Attacke) => Some(slot(match class {
             0 => 210,
             2 => 212,
@@ -1559,15 +1565,21 @@ pub fn quickened(speed: f32, frenzy: f32) -> f32 {
     (speed + frenzy).trunc().min(220.0)
 }
 
-/// The point of its clip at which a kick strikes, of a creature of type `kind` holding what is of
-/// `class`: the Gladiator's (`0x4FF0B0` at `0x5019D6`) once what is left of the clip is less than
-/// 0.4 of it, 0.45 with a weapon of class 2 or 3; the Seraphim's (`0x5038F0` at `0x50408E`) once
-/// it is less than 0.6 (docs/re/arts.md, "The kicks", #650).
-pub fn kick_point(kind: u32, class: u8) -> f32 {
+/// The share of its clip played at which a kick strikes, of a creature of type `kind` holding
+/// what is of `class` (docs/re/arts.md, "The kicks", #650, #3121): the Gladiator's (`0x4FF0B0`
+/// at `0x5019D6`) once what is left of the clip is less than 0.4 of it, 0.45 with a weapon of
+/// class 2 or 3; the Seraphim's (`0x5038F0` at `0x50408E`) less than 0.6; the Dark Elf's 1068
+/// (`0x506770` at `0x507A6A`) less than 0.65; the Vampiress's 1076 and 1041 (`0x50E6C0` at
+/// `0x5125AE`) less than 0.45; none for the Wood Elf's 1064 and the generic 1009, whose executors
+/// hold no case for them after their first run, so that they strike nothing.
+pub fn kick_point(kind: u32, class: u8) -> Option<f32> {
     match (kind, class) {
-        (1, _) => 0.4,
-        (_, 2 | 3) => 0.55,
-        _ => 0.6,
+        (1, _) => Some(0.4),
+        (2, 2 | 3) => Some(0.55),
+        (2, _) => Some(0.6),
+        (4, _) => Some(0.35),
+        (6 | 7, _) => Some(0.55),
+        _ => None,
     }
 }
 
