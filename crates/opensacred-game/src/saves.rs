@@ -40,8 +40,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
 use bevy::prelude::{
-    App, Commands, Entity, IntoScheduleConfigs, NextState, OnEnter, Plugin, Query, Real, Res,
-    ResMut, Resource, Time, Transform, Update, Vec2, Vec3, With, in_state, info, not,
+    App, Commands, Entity, IntoScheduleConfigs, NextState, OnEnter, Plugin, Projection, Query,
+    Real, Res, ResMut, Resource, Time, Transform, Update, Vec2, Vec3, With, in_state, info, not,
     resource_exists, warn,
 };
 use opensacred_rules::arts::Arts;
@@ -104,8 +104,8 @@ use crate::{arts, drops, making};
 /// version 42 a follower's entry in the portraits' column (#3102); the version 43 the hero's
 /// shots' chain (#3568); the version 44 the marks of the items that the scripts put into the
 /// backpack (#3543); the version 45 the hero's knock-downs' marks (#3673); the version 46 whether a
-/// creature's attack's clips are a stand-in (#3314).
-pub const VERSION: u32 = 46;
+/// creature's attack's clips are a stand-in (#3314); the version 47 the camera's zoom (#3740).
+pub const VERSION: u32 = 47;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -168,6 +168,9 @@ pub struct Hero {
     /// Its knock-downs' marks (`fight::KnockMarks`), the stats' `+0x2B7` word that the stream
     /// keeps whole (`0x54B856`, #3673).
     pub marks: u8,
+    /// The camera's zoom, which the original's save keeps as its current view's `+0xB60` in its
+    /// views' part `0x82` and its load gives back (`0x6288F0`, #3740).
+    pub zoom: f32,
 }
 
 /// The scripts as a save keeps them (#1958; the original's quests, `sdk_SAVELOAD_SERIAL`): the
@@ -452,6 +455,14 @@ pub(crate) fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(He
         .get_resource::<Clock>()
         .cloned()
         .with_context(|| resource("clock"))?;
+    let zoom = world
+        .query_filtered::<&Projection, crate::iso::Eye>()
+        .iter(world)
+        .find_map(|projection| match projection {
+            Projection::Orthographic(ortho) => Some(ortho.scale),
+            _ => None,
+        })
+        .unwrap_or(1.0);
     let hero = Hero {
         at,
         floor,
@@ -499,6 +510,7 @@ pub(crate) fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(He
         queue,
         chain,
         marks,
+        zoom,
     };
     let header = Header {
         version: VERSION,
@@ -630,23 +642,11 @@ pub struct Resume(pub Scripts, pub crate::npcs::Creatures);
 pub fn load(world: &mut bevy::prelude::World, name: &str) -> Result<Header> {
     let dir = directory(world.get_resource::<SettingsFile>()).context("no directory for saves")?;
     let (header, hero, scripts, mut kept) = read(&file(&dir, name)?)?;
-    // The game starts in the hero's sector, which [`restore`] puts it back in.
-    let cell = crate::paths::cell_of(hero.at.0, hero.at.1);
-    let side = i32::try_from(opensacred_data::world::SIDE).unwrap_or(64);
-    let sector = |c: i32| u32::try_from(c.div_euclid(side)).unwrap_or(0);
-    let game = NewGame {
-        class: Some(header.class),
-        name: Some(header.hero.clone()),
-        difficulty: Some(header.difficulty),
-        sector: Some((sector(cell.0), sector(cell.1))),
-        tree: header.tree.clone(),
-        ..NewGame::default()
-    };
-    let game = world
+    let shows = world
         .get_resource::<crate::game::Shows>()
         .copied()
-        .unwrap_or_default()
-        .fill(game);
+        .unwrap_or_default();
+    let game = game_of(&header, &hero, shows);
     // Its start shows no window, and the saved game's are left to the player.
     world.remove_resource::<crate::talk::CloseFirst>();
     world.insert_resource(crate::game::Request(game));
@@ -663,6 +663,25 @@ pub fn load(world: &mut bevy::prelude::World, name: &str) -> Result<Header> {
         .set(AppState::Loading);
     info!("saves: loading {}", header.name);
     Ok(header)
+}
+
+/// The game that a load of the save of `header` and `hero` starts: its hero's in the hero's
+/// sector, which [`restore`] puts it back in, at the save's zoom where the run's `--zoom`
+/// (`shows`) names none (#3740).
+fn game_of(header: &Header, hero: &Hero, shows: crate::game::Shows) -> NewGame {
+    let cell = crate::paths::cell_of(hero.at.0, hero.at.1);
+    let side = i32::try_from(opensacred_data::world::SIDE).unwrap_or(64);
+    let sector = |c: i32| u32::try_from(c.div_euclid(side)).unwrap_or(0);
+    let mut game = shows.fill(NewGame {
+        class: Some(header.class),
+        name: Some(header.hero.clone()),
+        difficulty: Some(header.difficulty),
+        sector: Some((sector(cell.0), sector(cell.1))),
+        tree: header.tree.clone(),
+        ..NewGame::default()
+    });
+    game.zoom = game.zoom.or(Some(hero.zoom));
+    game
 }
 
 /// Puts a loaded save's hero back, once its hero stands in place and animates (`hero::Ready`),
@@ -1197,6 +1216,7 @@ pub(crate) mod tests {
             queue: crate::npcs::SavedQueue::default(),
             chain: 1.5,
             marks: crate::fight::KnockMarks::SECOND,
+            zoom: 1.5,
         }
     }
 
@@ -1220,6 +1240,25 @@ pub(crate) mod tests {
             (slots.arts, slots.selected),
             ([Some(1022), None, None, None, None], 1)
         );
+    }
+
+    #[test]
+    fn a_load_starts_at_the_saves_zoom_but_where_the_run_names_one() {
+        let (header, hero) = (header("zoomed", 10), hero());
+        let game = game_of(&header, &hero, crate::game::Shows::default());
+        assert_eq!(game.zoom, Some(1.5));
+        // The hero's sector, of its cell.
+        let cell = crate::paths::cell_of(hero.at.0, hero.at.1);
+        let side = i32::try_from(opensacred_data::world::SIDE).unwrap();
+        let sector = |c: i32| u32::try_from(c.div_euclid(side)).unwrap();
+        assert_eq!(game.sector, Some((sector(cell.0), sector(cell.1))));
+        assert_eq!(game.tree.as_deref(), Some("addon-type_npc_zwerg"));
+        // The run's `--zoom` holds over the save's.
+        let shows = crate::game::Shows::of(&NewGame {
+            zoom: Some(0.5),
+            ..NewGame::default()
+        });
+        assert_eq!(game_of(&header, &hero, shows).zoom, Some(0.5));
     }
 
     /// The scripts of a game in the middle of its quests: a variable, a quest set up, a timer, a
@@ -1310,6 +1349,7 @@ pub(crate) mod tests {
         assert_eq!(read_hero.runes_given, 3);
         assert_eq!(read_hero.chain, 1.5);
         assert_eq!(read_hero.marks, crate::fight::KnockMarks::SECOND);
+        assert_eq!(read_hero.zoom, 1.5);
         assert_eq!(read_hero.quests.quests, 12);
         assert_eq!(read_hero.quests.since_piece, 5);
         assert_eq!(read_hero.home.map(|home| home.cell), Some((3236, 2511)));
@@ -1385,7 +1425,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (46, 0xF637_28D7_0DD7_1E85),
+            (47, 0xC41E_E156_E8BA_DC30),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

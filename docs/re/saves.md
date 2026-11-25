@@ -150,14 +150,12 @@ Since #2288 it keeps whether it is a fill's black rider on its horse (`rides`), 
 Since #2316 a save keeps the hero's own horse's bridle, the item of its slot 0 (`saves::World`'s `bridle`), the saves' version 10; since #2390 the items' names that a carried hero's file keeps, the version 11.
 Since #2472 a save's header keeps the game's script tree where it is not the class's Ancaria tree, an Underworld game's (`saves::Header`'s `tree`), which its load runs again; before, an Underworld game's save loaded Ancaria's tree, the saves' version 12.
 Since #2487 a creature's placement keeps its defending slot, its parry's, the saves' version 13; since #2514 whether its model has a dying clip in the slot 173, the version 14; since #2464 the hero keeps its wins of each difficulty (`saves::Hero`'s `wins`), the version 15; since #2750 a placement keeps the type of its prison, a magic one's or a bubble's, the version 16; `saves::VERSION`, whose comment names each later version's change, holds 46 since #3314.
+Since #3740 a save keeps the camera's zoom (`saves::Hero`'s `zoom`), and its load starts the game at it, where the run's `--zoom` names none, as the original's load gives its view's zoom back; the saves' version 47.
 
 ## What the original keeps that the game does not
 
 Compared 2026-11-25 for #3739 with `opensacred-game`'s save of the version 46 (`saves`: its `Header`, `Hero`, `Scripts` and `World`), by the game's code; each item tells where the original keeps it, how sure that is, and what the game does.
 
-- **The camera's zoom.**
-  The original: the current world view's `+0xB60` in the views' part `0x82`, which its load gives back, a new game's 1 ("What a load puts back"; **confirmed** by code, **seen** after a quick load and after a load in a new run).
-  The game: not kept; a load starts at the zoom that a new game starts at, `--zoom`, else 1 (`game::Zoom`).
 - **The hero's facing.**
   The original: its direction `+0x70` in its record of the objects' part `0x8E` ("A creature's record"; **confirmed** by code, **seen**).
   The game: not kept; the hero stands at its saved place (`saves::Hero`'s `at`) facing as a new game's hero faces.
@@ -186,6 +184,6 @@ Compared 2026-11-25 for #3739 with `opensacred-game`'s save of the version 46 (`
   The original: whether each shows (`0x9C`), each shown or hidden again by the load (**seen**), the inventory's show moving the view by its offset (docs/re/drawing.md, "The view's point").
   The game: not kept; a loaded game shows neither.
 
-Kept by both, each by its own means: the right button's art (the engine's `+0x58`, `+0x5A`; `making::Selected`), the item on the cursor (`0x98`; #2822), the areas pacified and the regions run (`0x99`; `quests::Scripts`), the statistics, the wins, the class's runes given and the quest bits (`0x9B`; `saves::Hero`'s `tally`, `kills`, `history`, `wins`, `runes_given`, and the scripts' variable `HeroQBit`), the sides' relation that the horse theft changes (`0x9A`; the effect 19 on the hero, which the save keeps, `stables`), the explored land (`0x81`; `saves::World`'s `land`), the calendar, the weather, the scripts and the world's creatures and items.
+Kept by both, each by its own means: the camera's zoom (`0x82`; `saves::Hero`'s `zoom`, #3740), the right button's art (the engine's `+0x58`, `+0x5A`; `making::Selected`), the item on the cursor (`0x98`; #2822), the areas pacified and the regions run (`0x99`; `quests::Scripts`), the statistics, the wins, the class's runes given and the quest bits (`0x9B`; `saves::Hero`'s `tally`, `kills`, `history`, `wins`, `runes_given`, and the scripts' variable `HeroQBit`), the sides' relation that the horse theft changes (`0x9A`; the effect 19 on the hero, which the save keeps, `stables`), the explored land (`0x81`; `saves::World`'s `land`), the calendar, the weather, the scripts and the world's creatures and items.
 Not kept by the original and so by neither: the view's offset, which its load sets to (0, 0) ("What a load puts back"), the regions' kills, and the engine's flags word, which its load leaves as it runs.
 The other way, the game keeps what the original's save does not: its `saves::Hero`'s `played`, which the drops read where the original reads the statistics' `+0x570C` (docs/re/items.md, "How many drops, and the bonus"), a counter that no part of the original's save holds, which `0x4246D0` clears as it counts a resurrection, from ten callers (what it counts is a **hypothesis** there, its callers not read).

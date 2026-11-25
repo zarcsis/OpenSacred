@@ -197,7 +197,7 @@ pub struct NewGame {
     #[arg(long, value_parser = parse_position)]
     pub sector: Option<(u32, u32)>,
     /// The camera's zoom at the start, 0.5 to 2 as in the original: 2 shows twice the world (1
-    /// by default; the mouse wheel changes it)
+    /// by default, a loaded save's own; the mouse wheel changes it)
     #[arg(long)]
     pub zoom: Option<f32>,
     /// The hero model, relative to the asset directory
