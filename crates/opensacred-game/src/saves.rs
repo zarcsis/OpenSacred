@@ -114,8 +114,8 @@ use crate::{arts, drops, making};
 /// the part of what lives, the creatures' doings (#3756); the version 54 the creatures' minds
 /// (#3757); the version 55 the respawn's gate's passes and clock (#3786); the version 56 the
 /// creatures' walks and heights aloft (#3758); the version 57 the strikes, the scripts' clips and
-/// the hero's attack mid-way (#3759).
-pub const VERSION: u32 = 57;
+/// the hero's attack mid-way (#3759); the version 58 the arrows and the bolts in flight (#3760).
+pub const VERSION: u32 = 58;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -311,6 +311,38 @@ pub struct World {
 pub struct Live {
     pub refs: Refs,
     pub doings: crate::doings::Doings,
+    pub things: Things,
+}
+
+/// The things in flight as a save keeps them (#3760, the epic #3753): the arrows flying and stuck
+/// (`arrows`) and the bolts (`bolts`), each with its references by their names.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Things {
+    pub arrows: Vec<crate::arrows::SavedArrow>,
+    pub stuck: Vec<crate::arrows::SavedStuck>,
+    pub bolts: Vec<crate::bolts::SavedBolt>,
+}
+
+impl MapEntities for Things {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.arrows.map_entities(mapper);
+        self.stuck.map_entities(mapper);
+        self.bolts.map_entities(mapper);
+    }
+}
+
+/// The things in flight of `world`, their references kept by their names in `refs`.
+fn things_of(world: &mut bevy::prelude::World, refs: &mut Refs) -> Things {
+    let (arrows, stuck) = crate::arrows::saved(world);
+    let bolts = crate::bolts::saved(world);
+    crate::names::mapped(
+        Things {
+            arrows,
+            stuck,
+            bolts,
+        },
+        &mut Saving { world, refs },
+    )
 }
 
 /// The saves' directory: `saves/` beside the settings' file, else in the configuration
@@ -744,7 +776,12 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
     let scripts = scripts(world)?;
     let kept = world_of(world, &mut refs)?;
     let doings = crate::doings::gather(world, &mut refs);
-    let live = Live { refs, doings };
+    let things = things_of(world, &mut refs);
+    let live = Live {
+        refs,
+        doings,
+        things,
+    };
     // The picture last taken (`save_picture`), as the original's save keeps its last capture.
     let picture = world
         .get_resource::<crate::save_picture::Taken>()
@@ -1016,6 +1053,11 @@ fn resume(world: &mut bevy::prelude::World) {
     };
     let (doings, lost) = loaded(world, &live.refs, live.doings);
     let (given, missing) = crate::doings::give(world, doings);
+    // The things in flight, once the creatures they refer to are back.
+    let (things, lost_things) = loaded(world, &live.refs, live.things);
+    let lost = lost + lost_things;
+    crate::arrows::again(world, (things.arrows, things.stuck));
+    crate::bolts::again(world, things.bolts);
     info!(
         "saves: what lives is back after {frames} frames: {given} doings, {missing} creatures \
          missing, {lost} references lost"
@@ -1833,7 +1875,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (57, 0x88E4_F0C7_AFF7_105B),
+            (58, 0xF9EE_40E3_F9E4_F7CB),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
