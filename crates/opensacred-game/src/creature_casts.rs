@@ -1065,6 +1065,7 @@ fn act(
                     caster: None,
                     at: here,
                     level: way.level,
+                    breath: false,
                 });
                 // Its fire charging at its hand, a jolt of the screen and its sound (`0x5274ED`).
                 let mut fire = commands.spawn((
