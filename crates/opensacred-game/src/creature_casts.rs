@@ -494,6 +494,7 @@ fn act(
                 });
             }
             info!("creature_casts: {entity} shoots a railgun's bolt at {toward}");
+            commands.entity(entity).insert(ShotHeld::default());
             continue;
         }
         if cast.spell == casts::DRAGON_FIRE {
@@ -1769,11 +1770,21 @@ fn home(
 /// table).
 const FIRE_HAND: [&str; 1] = ["Bip01 R Finger31"];
 
+/// A medium spider's shot that holds it in its attack (`npcs`' `hold_shots`, #3697): until a world
+/// tick at which its standing clip's loop has less than 0.05 left
+/// (`opensacred_rules::casts::shot_ends`), then the ticks after it that are left.
+#[derive(Component, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ShotHeld(pub(crate) Option<u8>);
+
 /// Ends each cast whose clip has ended (`0x51D150`'s sub-state 4), the creature taking its melee
-/// up again from its start.
+/// up again from its start; a spider's shot once it holds it no more ([`ShotHeld`]).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's query carries its filters"
+)]
 fn end(
     mut commands: Commands,
-    mut ended: Query<(Entity, &Casting, &mut Mind), Without<ScriptClip>>,
+    mut ended: Query<(Entity, &Casting, &mut Mind), (Without<ScriptClip>, Without<ShotHeld>)>,
 ) {
     for (entity, cast, mut mind) in &mut ended {
         if cast.begun {
