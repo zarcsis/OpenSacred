@@ -3939,11 +3939,12 @@ struct SpringKept;
 /// Set 32 at seven pieces keeps its Mage's mana spring going for as long as he wears them
 /// (`+0x1FC` bit 8; `0x57AF1E`, `0x586EAF`; docs/re/sets.md, "Set 32's spring", #3634): as the set
 /// is whole, the spring's sight 835 about him and, where he holds no marker, the marker 40 and the
-/// spring's effect 11 at his level of the spell 31 in play, both keyed by it; then, at every frame,
-/// the marker held at a second and the set's effect 11, the last keyed by the spring, at 10 s, a
-/// cast's before it left to run out; taking a piece off ends the sight, the marker and the set's
-/// effect 11 at once (docs/decisions/arts.md, "Set 32's spring held on its own effect"). The
-/// spring's cast is refused meanwhile, as effects keyed by it hold (`making::may_make`).
+/// spring's effect 11 at his level of the spell 31 in play, both keyed by it, or, where a spring
+/// cast before the set was whole runs, that spring kept going instead, one spring at a time
+/// (docs/decisions/arts.md, "Set 32's spring not doubled by a cast's", #3723); then, at every
+/// frame, the marker held at a second and the spring's effect 11 at 10 s; taking a piece off ends
+/// the sight, the marker and the spring at once. The spring's cast is refused meanwhile, as
+/// effects keyed by it hold (`making::may_make`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -4017,8 +4018,12 @@ fn set_spring(
                 None => &mut given,
             };
             to.add(mark, SPRING_MARK_HELD);
-            for (effect, _) in spring {
-                to.add(effect, SPRING_HELD);
+            // A spring cast before the set is whole is kept going for it, where the original adds
+            // the set's own beside it (#3723).
+            if !to.hold_last(11, KEY, SPRING_HELD) {
+                for (effect, _) in spring {
+                    to.add(effect, SPRING_HELD);
+                }
             }
             if effects.is_none() {
                 commands.entity(entity).insert(given);
@@ -4429,7 +4434,7 @@ mod tests {
     }
 
     #[test]
-    fn set_32_holds_its_own_spring_and_leaves_a_cast_one_to_run_out() {
+    fn set_32_keeps_a_cast_spring_going_rather_than_doubling_it() {
         use bevy::ecs::system::RunSystemOnce;
         use opensacred_rules::set_bonuses::SPRING_FLAG;
         let (mut world, hero) = spring_world(3, SPRING_FLAG);
@@ -4443,16 +4448,12 @@ mod tests {
         );
         world.entity_mut(hero).insert(cast);
         world.run_system_once(set_spring).unwrap();
-        // The set's own held at 10 s, the cast's left to its own end (seen, #3634).
+        // The cast's held at 10 s for the set, no second spring beside it (#3723).
         assert_eq!(
             springs(&world, hero),
-            [
-                (11, 31, 1.2, 80.0),
-                (40, 31, 0.0, 1.0),
-                (11, 31, 0.95, 10.0)
-            ]
+            [(11, 31, 1.2, 10.0), (40, 31, 0.0, 1.0)]
         );
-        // A piece taken off ends the set's own alone.
+        // A piece taken off ends the spring.
         world
             .get_mut::<fight::Holding>(hero)
             .unwrap()
@@ -4460,7 +4461,7 @@ mod tests {
             .sets
             .creature_flags = 0;
         world.run_system_once(set_spring).unwrap();
-        assert_eq!(springs(&world, hero), [(11, 31, 1.2, 80.0)]);
+        assert_eq!(springs(&world, hero), []);
     }
 
     #[test]
