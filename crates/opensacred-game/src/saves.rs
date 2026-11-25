@@ -106,8 +106,9 @@ use crate::{arts, drops, making};
 /// backpack (#3543); the version 45 the hero's knock-downs' marks (#3673); the version 46 whether a
 /// creature's attack's clips are a stand-in (#3314); the version 47 the camera's zoom (#3740); the
 /// version 48 the hero's and the kept creatures' headings (#3744); the version 49 the hero's walk
-/// under way (#3742); the version 50 whether the hero rides its own horse (#3743).
-pub const VERSION: u32 = 50;
+/// under way (#3742); the version 50 whether the hero rides its own horse (#3743); the version 51
+/// the quest book and the inventory shown (#3741).
+pub const VERSION: u32 = 51;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -178,6 +179,17 @@ pub struct Hero {
     pub zoom: f32,
     /// Where it was going, which it goes on to after the load (#3742).
     pub walk: Option<Walk>,
+    /// The windows that showed, which show again after the load (#3741).
+    pub windows: Windows,
+}
+
+/// Whether the quest book and the inventory's windows show, as the original's save keeps them in
+/// its interface's part `0x9C` (the interface manager's `+0xA8` and `+0x84`, `0x75A970`,
+/// `0x75A990`) and its load shows or hides each to match (#3741).
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Windows {
+    pub book: bool,
+    pub inventory: bool,
 }
 
 /// Where the hero was going as a save keeps it (#3742): its target's point and, where a click
@@ -584,6 +596,14 @@ pub(crate) fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(He
         marks,
         zoom,
         walk,
+        windows: Windows {
+            book: world
+                .get_resource::<crate::quest_book::Book>()
+                .is_some_and(|book| book.shown),
+            inventory: world
+                .get_resource::<crate::inventory::Shown>()
+                .is_some_and(|shown| shown.0),
+        },
     };
     let header = Header {
         version: VERSION,
@@ -800,6 +820,15 @@ fn restore(world: &mut bevy::prelude::World) {
     // The walk under way, once it has landed (#3742).
     if let Some(walk) = hero.walk {
         world.insert_resource(WalkOn(walk));
+    }
+    // The windows that showed (#3741).
+    if hero.windows.book
+        && let Some(mut book) = world.get_resource_mut::<crate::quest_book::Book>()
+    {
+        book.show_again();
+    }
+    if hero.windows.inventory {
+        world.insert_resource(crate::inventory::Shown(true));
     }
     info!("saves: the hero is back");
     restore_world(world, *kept, hero.health);
@@ -1380,6 +1409,10 @@ pub(crate) mod tests {
                 to: (1300.0, 0.0, 6800.0),
                 floor: Some(0),
             }),
+            windows: Windows {
+                book: false,
+                inventory: true,
+            },
         }
     }
 
@@ -1535,6 +1568,7 @@ pub(crate) mod tests {
         assert_eq!(read_hero.marks, crate::fight::KnockMarks::SECOND);
         assert_eq!(read_hero.zoom, 1.5);
         assert_eq!(read_hero.walk, hero().walk);
+        assert_eq!(read_hero.windows, hero().windows);
         assert_eq!(read_hero.quests.quests, 12);
         assert_eq!(read_hero.quests.since_piece, 5);
         assert_eq!(read_hero.home.map(|home| home.cell), Some((3236, 2511)));
@@ -1610,7 +1644,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (50, 0xEE79_A9F3_BFB8_0336),
+            (51, 0xE0AF_0387_AF41_378B),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
