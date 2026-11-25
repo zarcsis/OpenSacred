@@ -143,7 +143,7 @@ pub const SPIT_ON: u32 = 2;
 /// the giant spider (55) and the killer crab queen (348) spit ([`SPIT`], #2099), and the fire
 /// ghoul (73) shoots a fireball ([`GHOUL_FIREBALL`], #3262).
 pub fn coming_on(creature: u32) -> Option<u16> {
-    if creature == 75 {
+    if creature == crate::undead::MEDIUM_SPIDER {
         Some(SPIDER_SHOT)
     } else if creature == FIRE_GHOUL {
         Some(GHOUL_FIREBALL)
@@ -183,6 +183,25 @@ pub fn ghoul_fireball_level(level: u32) -> Option<u32> {
 /// (`rand() % 5` below 4) one of `GIANTSPIDER_FOOTSTEPS01`, `02`, `03` and `04`, at a rate's factor
 /// of 0.5.
 pub const SPIDER_SHOT: u16 = 801;
+
+/// How little of its standing clip's loop must be left at a world tick for the medium spider's
+/// shot to end, and the ticks after it before it decides again (the attack action's sub-state 5,
+/// `0x4E55FD`–`0x4E574D`, then the sub-states 10 and 6; docs/re/ai.md, "What paces its shots",
+/// #3697).
+pub const SHOT_ENDS_BELOW: f32 = 0.05;
+pub const SHOT_TICKS_AFTER: u8 = 2;
+
+/// Whether the medium spider's shot ends at a world tick at which `left` of its standing clip's
+/// current loop is left, none where the clip has ended: below [`SHOT_ENDS_BELOW`] (**seen**: shots
+/// in pairs some 0.32 s apart, then 0.85 to 10.5 s, about one in 1.4 s, #3697).
+pub fn shot_ends(left: Option<f32>) -> bool {
+    left.is_none_or(|left| left < SHOT_ENDS_BELOW)
+}
+
+/// The roll `rand() % 3` on which the medium spider of a group shoots [`SPIDER_SHOT`] at a decision
+/// of its melee; one of no group shoots at each (`0x4D4E50`'s mark 4, its branch `0x4D5BD9`;
+/// docs/re/ai.md, "Its melee is its shot", #3697).
+pub const SPIDER_SHOOTS_ON: u32 = 2;
 pub const SPIDER_SHOT_CLIP: u16 = 0x4F;
 pub const SPIDER_SHOT_SOUNDS: [u32; 4] = [1248, 1249, 1242, 1243];
 
@@ -1710,6 +1729,16 @@ mod tests {
         assert!(dragon_casts(800.0, 250.0, 0));
         assert!(!dragon_casts(800.0, 250.0, 1));
         assert!(!dragon_casts(750.0, 250.0, 0));
+    }
+
+    #[test]
+    fn the_spiders_shot_ends_with_less_than_a_twentieth_of_its_loop_left() {
+        assert!(shot_ends(None));
+        assert!(shot_ends(Some(0.0)));
+        assert!(shot_ends(Some(0.049)));
+        assert!(!shot_ends(Some(0.05)));
+        assert!(!shot_ends(Some(0.68)));
+        assert_eq!((SHOT_ENDS_BELOW, SHOT_TICKS_AFTER), (0.05, 2));
     }
 
     #[test]

@@ -1973,6 +1973,15 @@ impl Mind {
             if comes_on && casts::approaches(d, rng.below(101)) {
                 return Some(Pursues::Casts { spell, variant: 0 });
             }
+            // The medium spider shoots at each decision of its melee where it has no group, else
+            // in one of three, and strikes hand to hand at the others (`0x4D4E50`'s mark 4, its
+            // branch `0x4D5BD9`; docs/re/ai.md, "Its melee is its shot", #3697).
+            if !comes_on
+                && self.creature == crate::undead::MEDIUM_SPIDER
+                && (self.group.is_none() || rng.below(3) == casts::SPIDER_SHOOTS_ON)
+            {
+                return Some(Pursues::Casts { spell, variant: 0 });
+            }
             // The giant spider and the crab queen spit at each decision of their melee by a roll
             // `rand() % 3` of 2 whatever the distance, else within their special's band as a dragon
             // breathes, and fight hand to hand otherwise (`0x4D5BB6`, `0x4D5C23`; docs/re/ai.md,
@@ -5552,6 +5561,93 @@ mod tests {
         let mut rolls = Script::new(vec![0]);
         assert_eq!(
             ghoul.cast(&sight(reach + 100.0), &cast, || true, &mut rolls),
+            None
+        );
+    }
+
+    #[test]
+    fn the_medium_spider_shoots_at_each_decision_of_its_melee() {
+        use crate::spawning::Script;
+        let sight = |comes_on: bool| Pursuit {
+            here: at(0.0, 0.0),
+            hero: at(100.0, 0.0),
+            walk: comes_on.then_some(Walking {
+                target: at(100.0, 0.0),
+                comes_on: true,
+                runs: true,
+            }),
+            striking: false,
+            health: None,
+            target_makes: false,
+            listed: None,
+            targeted: false,
+            hero_size: SIZE,
+            outdoors: true,
+            strikes_down: false,
+        };
+        let cast = CastSight {
+            ranged_target: false,
+            now: 0.0,
+            at_hero: true,
+            hero_level: 3,
+            held: false,
+            uncaged: false,
+            elite: false,
+            hostiles: 0,
+            crowded: false,
+            nearest: true,
+            scripted: 0,
+            hero_low: false,
+            followers: 0,
+            friends: (false, false),
+            id: 0,
+            hornets: (0, false),
+            hornet_lives: false,
+            listed: 0,
+            difficulty: Difficulty::Bronze,
+            fetzer: None,
+            stare: None,
+            group_strike: None,
+            armed: false,
+            leap: None,
+        };
+        let shot = Some(Pursues::Casts {
+            spell: casts::SPIDER_SHOT,
+            variant: 0,
+        });
+        let spider = |group| {
+            let mut spider = Mind::new(
+                at(0.0, 0.0),
+                0x1,
+                (true, false),
+                group,
+                SPEEDS,
+                (crate::undead::MEDIUM_SPIDER, 0),
+            );
+            assert!(spider.sent_at());
+            spider
+        };
+        // Of no group, a fill's: at every decision beside its target, whatever the dice.
+        let mut lone = spider(None);
+        for _ in 0..3 {
+            assert_eq!(
+                lone.cast(&sight(false), &cast, || true, &mut Script::new(vec![0])),
+                shot
+            );
+        }
+        // Of a group: in one decision of three, by a roll of 2 of `0..3`.
+        let mut grouped = spider(Some(7));
+        assert_eq!(
+            grouped.cast(&sight(false), &cast, || true, &mut Script::new(vec![2])),
+            shot
+        );
+        assert_eq!(
+            grouped.cast(&sight(false), &cast, || true, &mut Script::new(vec![1])),
+            None
+        );
+        // Coming on, by the approach's roll alone.
+        assert_eq!(
+            lone.cast(&sight(true), &cast, || true, &mut Script::new(vec![50])),
             None
         );
     }
