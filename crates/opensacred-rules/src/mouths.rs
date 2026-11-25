@@ -250,6 +250,25 @@ mod tests {
     }
 
     #[test]
+    fn the_sectors_are_measured_from_their_first_cells_and_below_25000_alone() {
+        let way = |sectors: &[Cell], target| {
+            let mut triggers = Triggers::default();
+            for (n, &(x, y)) in sectors.iter().enumerate() {
+                let name = ["out", "deeper"][n];
+                triggers.set(name, (x * SIDE, y * SIDE, 0), None);
+            }
+            way_in(&triggers, target, leads)
+        };
+        // The first cells (64, 0) and (192, 0), (128, 0) and (640, 0), (0, 64) and (0, 192).
+        assert_eq!(way(&[(1, 0), (3, 0)], (180, 0)), leads("deeper"));
+        assert_eq!(way(&[(2, 0), (10, 0)], (300, 0)), leads("out"));
+        assert_eq!(way(&[(0, 1), (0, 3)], (0, 180)), leads("deeper"));
+        // The sector 390,0's first cell lies 25,000 cells from (−40, 0), 24,999 from (−39, 0).
+        assert_eq!(way(&[(390, 0)], (-40, 0)), None);
+        assert_eq!(way(&[(390, 0)], (-39, 0)), leads("out"));
+    }
+
+    #[test]
     fn quest_61_takes_its_fixed_way_while_the_hero_holds_the_air_and_the_fire() {
         assert_eq!(fixed_way(Some(61), &[AIR, FIRE]), Some(FIXED_WAY));
         assert_eq!(fixed_way(Some(61), &[FIRE, 1, AIR]), Some(FIXED_WAY));
