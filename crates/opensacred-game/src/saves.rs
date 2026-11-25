@@ -39,6 +39,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
+use bevy::ecs::entity::MapEntities;
 use bevy::prelude::{
     App, Commands, Entity, IntoScheduleConfigs, NextState, OnEnter, Plugin, Projection, Query,
     Real, Res, ResMut, Resource, Time, Transform, Update, Vec2, Vec3, With, in_state, info, not,
@@ -61,6 +62,7 @@ use crate::frame::Step;
 use crate::game::{AppState, Class, NewGame};
 use crate::hero::{Arrival, Body};
 use crate::merchant::Wares;
+use crate::names::{Loading, Names, Refs, Saving};
 use crate::pickup::{self, Pack};
 use crate::save_picture::Picture;
 use crate::scripts::{HeroHome, Teleport};
@@ -107,8 +109,9 @@ use crate::{arts, drops, making};
 /// creature's attack's clips are a stand-in (#3314); the version 47 the camera's zoom (#3740); the
 /// version 48 the hero's and the kept creatures' headings (#3744); the version 49 the hero's walk
 /// under way (#3742); the version 50 whether the hero rides its own horse (#3743); the version 51
-/// the quest book and the inventory shown (#3741).
-pub const VERSION: u32 = 51;
+/// the quest book and the inventory shown (#3741); the version 52 the names of the creatures that
+/// the effects' sources are and the serials of the creatures made in play (#3755).
+pub const VERSION: u32 = 52;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -294,6 +297,9 @@ pub struct World {
     pub fences: crate::laser_fences::Saved,
     /// The scripts' gold arrows standing, each one's place and colour (`beacons`, #3456).
     pub arrows: Vec<(Vec3, u32)>,
+    /// The names that the save's references point at (`names::Refs`, #3755): the sources of the
+    /// hero's, the followers' and the horse's effects.
+    pub refs: Refs,
 }
 
 /// The saves' directory: `saves/` beside the settings' file, else in the configuration
@@ -483,7 +489,11 @@ pub fn erase(dir: &Path, stem: &str) -> Result<()> {
 }
 
 /// The hero and the game as they stand, to save as `name`.
-pub(crate) fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(Header, Hero)> {
+pub(crate) fn gather(
+    world: &mut bevy::prelude::World,
+    name: &str,
+    refs: &mut Refs,
+) -> Result<(Header, Hero)> {
     let request = world
         .get_resource::<crate::game::Request>()
         .map(|request| request.0.clone())
@@ -523,7 +533,10 @@ pub(crate) fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(He
         (transform.translation.x, transform.translation.z),
         base.0,
         health.current,
-        effects.cloned().unwrap_or_default(),
+        crate::names::mapped(
+            effects.cloned().unwrap_or_default(),
+            &mut Saving { world, refs },
+        ),
         queue.map(|queue| queue.saved(now)).unwrap_or_default(),
     );
     let resource = |what: &str| format!("no {what} to save");
@@ -643,10 +656,21 @@ fn scripts(world: &bevy::prelude::World) -> Result<Scripts> {
 }
 
 /// The world as it stands, to save.
-fn world_of(world: &mut bevy::prelude::World) -> Result<World> {
+fn world_of(world: &mut bevy::prelude::World, mut refs: Refs) -> Result<World> {
     let creatures = crate::npcs::creatures(world).context("no NPCs to save")?;
+    // The followers' and the horse's effects' sources by their names (#3755).
     let followers = crate::npcs::following(world);
     let horse = crate::npcs::mount_of(world);
+    let (followers, horse) = {
+        let mut saving = Saving {
+            world,
+            refs: &mut refs,
+        };
+        (
+            crate::names::mapped(followers, &mut saving),
+            horse.map(|horse| crate::names::mapped(horse, &mut saving)),
+        )
+    };
     let bridle = crate::riding::bridle_of(world);
     let ridden = horse.is_some() && crate::riding::rides_own(world);
     let drops = drops::laid(world);
@@ -691,6 +715,7 @@ fn world_of(world: &mut bevy::prelude::World) -> Result<World> {
         fields: crate::pill_fields::saved(world),
         fences: crate::laser_fences::saved(world),
         arrows: crate::beacons::saved(world),
+        refs,
     })
 }
 
@@ -704,9 +729,10 @@ pub fn save(world: &mut bevy::prelude::World, name: &str) -> Result<PathBuf> {
 pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) -> Result<PathBuf> {
     let dir = directory(world.get_resource::<SettingsFile>()).context("no directory for saves")?;
     let path = file(&dir, stem)?;
-    let (header, hero) = gather(world, name)?;
+    let mut refs = Refs::default();
+    let (header, hero) = gather(world, name, &mut refs)?;
     let scripts = scripts(world)?;
-    let kept = world_of(world)?;
+    let kept = world_of(world, refs)?;
     // The picture last taken (`save_picture`), as the original's save keeps its last capture.
     let picture = world
         .get_resource::<crate::save_picture::Taken>()
@@ -792,8 +818,14 @@ fn restore(world: &mut bevy::prelude::World) {
         return;
     };
     let hero = *hero;
+    // Its effects' sources, the creatures that bear their names now (#3755).
+    let (mut effects, lost) = loaded(world, &kept.refs, hero.effects.clone());
+    effects.forget_lost();
+    if lost > 0 {
+        info!("saves: {lost} of the hero's effects' sources are not in the world");
+    }
     if let Ok(mut entity) = world.get_entity_mut(entity) {
-        entity.insert((hero.effects.clone(), crate::attack::ShotChain(hero.chain)));
+        entity.insert((effects, crate::attack::ShotChain(hero.chain)));
         if hero.marks == 0 {
             entity.remove::<crate::fight::KnockMarks>();
         } else {
@@ -962,6 +994,20 @@ fn import(world: &mut bevy::prelude::World) {
 /// where it stood, with its bridle (`npcs::mount_again`, `riding::bridle_again`); and the scripts'
 /// traps, put back onto those of their points (`pill_fields::Again`, `laser_fences::Again`); and
 /// their gold arrows, in place of those that the load's start made (`beacons::again`).
+/// `value` with the references that a save keeps by their names in `refs` mapped to the entities
+/// of `world` that bear those names, and the count of those that none bears (`names::Loading`).
+fn loaded<T: MapEntities>(world: &bevy::prelude::World, refs: &Refs, value: T) -> (T, usize) {
+    let empty = Names::default();
+    let names = world.get_resource::<Names>().unwrap_or(&empty);
+    let mut loading = Loading {
+        refs,
+        names,
+        lost: 0,
+    };
+    let value = crate::names::mapped(value, &mut loading);
+    (value, loading.lost)
+}
+
 fn restore_world(world: &mut bevy::prelude::World, kept: World, health: u32) {
     let World {
         creatures: _,
@@ -981,7 +1027,21 @@ fn restore_world(world: &mut bevy::prelude::World, kept: World, health: u32) {
         fields,
         fences,
         arrows,
+        refs,
     } = kept;
+    // The followers' and the horse's effects' sources, the creatures that bear their names now.
+    let (mut followers, lost) = loaded(world, &refs, followers);
+    let (mut horse, lost_too) = loaded(world, &refs, horse);
+    followers
+        .iter_mut()
+        .chain(horse.iter_mut())
+        .for_each(crate::npcs::Following::forget_lost);
+    if lost + lost_too > 0 {
+        info!(
+            "saves: {} of the followers' effects' sources are not in the world",
+            lost + lost_too
+        );
+    }
     world.insert_resource(stash);
     world.insert_resource(Wares(wares));
     world.insert_resource(Land(land));
@@ -1644,7 +1704,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (51, 0xE0AF_0387_AF41_378B),
+            (52, 0x5EF1_A1A7_3955_1765),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

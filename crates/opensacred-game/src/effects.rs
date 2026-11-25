@@ -9,6 +9,7 @@
 //! reads them, else left out. At each tick an NPC's bleeding (23) and a creature's poison (30)
 //! strike their bearer, and an NPC whose time (29) is out dies.
 
+use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use opensacred_rules::fight::{Effect, combat_with, regeneration_with};
 
@@ -19,21 +20,34 @@ use crate::npcs::{self, Arms, Npc};
 
 /// An effect, the seconds it still holds, and the creature that gave it where that counts: a
 /// poison's (the adder's eighth argument, first in the entry's list at `+0x08`).
-#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize, MapEntities)]
 pub struct Timed {
     pub effect: Effect,
     pub left: f32,
-    /// Not saved: an entity names a slot of the running world alone, so that a loaded effect
-    /// has none (docs/decisions/interface.md, "Poison's source not saved"; #2308).
-    #[serde(skip)]
+    /// A save keeps it by its name (`names`, #3755), and a load the creature that bears the name
+    /// then, none where none does ([`Effects::forget_lost`]).
+    #[entities]
+    #[serde(with = "crate::names::optional")]
     pub source: Option<Entity>,
 }
 
 /// A creature's effects, in the order they were added.
-#[derive(Component, Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct Effects(Vec<Timed>);
+#[derive(
+    Component, Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize, MapEntities,
+)]
+pub struct Effects(#[entities] Vec<Timed>);
 
 impl Effects {
+    /// Takes the sources that a load's mapping found no creature for (`names::Loading`) for
+    /// none: their effects go on from nobody, as one of no source.
+    pub fn forget_lost(&mut self) {
+        for timed in &mut self.0 {
+            if timed.source == Some(Entity::PLACEHOLDER) {
+                timed.source = None;
+            }
+        }
+    }
+
     /// Adds `effect` for `seconds` at the list's end.
     pub fn add(&mut self, effect: Effect, seconds: f32) {
         self.0.push(Timed {
@@ -703,7 +717,11 @@ mod tests {
     }
 
     #[test]
-    fn a_saved_poison_keeps_its_dose_but_not_its_source() {
+    fn a_saved_poison_keeps_its_dose_and_its_source_by_its_name() {
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut saved = App::new();
+        saved.add_plugins(NamesPlugin);
+        let spider = saved.world_mut().spawn(Named(Id::Born(4))).id();
         let mut effects = Effects::default();
         let poison = opensacred_rules::fight::Poison {
             whole: 4,
@@ -711,14 +729,49 @@ mod tests {
             seconds: 12.0,
             gathered: 3,
         };
-        assert!(effects.poison(poison, Entity::PLACEHOLDER));
-        assert_eq!(effects.timed()[0].source, Some(Entity::PLACEHOLDER));
-        // An entity names a slot of the running world alone (#2308).
-        let bytes = postcard::to_stdvec(&effects).unwrap();
-        let read: Effects = postcard::from_bytes(&bytes).unwrap();
-        assert_eq!(read.timed()[0].source, None);
-        assert_eq!(read.timed()[0].effect, effects.timed()[0].effect);
-        assert!((read.timed()[0].left - 12.0).abs() < f32::EPSILON);
+        assert!(effects.poison(poison, spider));
+        effects.add(Effect::new(1, 0.5), 30.0);
+        let mut refs = Refs::default();
+        let kept = mapped(
+            effects.clone(),
+            &mut Saving {
+                world: saved.world(),
+                refs: &mut refs,
+            },
+        );
+        let bytes = postcard::to_stdvec(&(&refs, &kept)).unwrap();
+        let (refs, read): (Refs, Effects) = postcard::from_bytes(&bytes).unwrap();
+        // The loaded world's spider, at another slot, gives the poison; where it is not there
+        // yet, nobody.
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..3).map(|_| ()));
+        let again = loaded.world_mut().spawn(Named(Id::Born(4))).id();
+        let names = loaded.world().resource::<Names>();
+        let mut back = mapped(
+            read.clone(),
+            &mut Loading {
+                refs: &refs,
+                names,
+                lost: 0,
+            },
+        );
+        back.forget_lost();
+        assert_eq!(back.timed()[0].source, Some(again));
+        assert_eq!(back.timed()[0].effect, effects.timed()[0].effect);
+        assert!((back.timed()[0].left - 12.0).abs() < f32::EPSILON);
+        assert_eq!(back.timed()[1].source, None);
+        let names = Names::default();
+        let mut lost = mapped(
+            read,
+            &mut Loading {
+                refs: &refs,
+                names: &names,
+                lost: 0,
+            },
+        );
+        lost.forget_lost();
+        assert_eq!(lost.timed()[0].source, None);
     }
 
     #[test]

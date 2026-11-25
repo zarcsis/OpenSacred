@@ -799,6 +799,8 @@ pub fn spawn(
         shadows::Casts,
         Size(hero.size),
     ));
+    // Its name in a save's references (#3755).
+    body.insert(crate::names::Named(crate::names::Id::Hero));
     if let Some(combat) = hero.combat {
         body.insert(combat);
     }
