@@ -4848,6 +4848,7 @@ name = "opensacred-game"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "bcdec_rs",
  "bevy",
  "bevy_kira_audio",
  "clap",

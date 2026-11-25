@@ -16,6 +16,8 @@ packaged = []
 
 [dependencies]
 anyhow.workspace = true
+# The BC7 pictures of the lens's sectors decoded to be faded (`minimap`, #3609).
+bcdec_rs.workspace = true
 bevy.workspace = true
 bevy_kira_audio.workspace = true
 clap.workspace = true
