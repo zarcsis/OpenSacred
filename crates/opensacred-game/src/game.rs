@@ -1123,14 +1123,25 @@ fn setup(mut commands: Commands) {
         brightness: 600.0,
         ..default()
     });
-    // From the upper left of the screen, as the original's sprites are shaded.
     commands.spawn((
         DirectionalLight {
             illuminance: 4_000.0,
             ..default()
         },
-        Transform::IDENTITY.looking_to(Vec3::new(1.0, -1.5, -0.2), Vec3::Y),
+        Transform::IDENTITY.looking_to(world_light(), Vec3::Y),
     ));
+}
+
+/// The way the world's light travels (`cWorldView_ctor`, `0x624825`; docs/re/drawing.md, "The
+/// models' light"): the original's `(1, −1, −3)/√11` in its models' frame, a unit right on the
+/// screen, back from the viewer along the ground and three down, so that it comes from the left,
+/// from the viewer's side and from above. The screen's right is `(1, 0, −1)/√2` in the game's
+/// world and the way toward the viewer along the ground `(1, 0, 1)/√2` (`iso::forward`), so it
+/// travels along `(0, −3, −√2)`.
+fn world_light() -> Vec3 {
+    let right = Vec3::new(1.0, 0.0, -1.0) * std::f32::consts::FRAC_1_SQRT_2;
+    let toward = Vec3::new(1.0, 0.0, 1.0) * std::f32::consts::FRAC_1_SQRT_2;
+    (right - toward - 3.0 * Vec3::Y).normalize()
 }
 
 /// Looks at the hero at the game's zoom.
@@ -1203,6 +1214,25 @@ mod tests {
     struct Line {
         #[command(flatten)]
         game: NewGame,
+    }
+
+    #[test]
+    fn the_worlds_light_comes_from_the_left_the_viewers_side_and_above() {
+        let light = world_light();
+        assert!(
+            (light - Vec3::new(0.0, -3.0, -std::f32::consts::SQRT_2).normalize()).length() < 1e-6
+        );
+        // Toward it: 0.30 to the screen's left, 0.30 toward the viewer along the ground, 0.90 up.
+        let from = -light;
+        let forward = crate::iso::forward();
+        let right = forward.cross(Vec3::Y).normalize();
+        let toward = -Vec3::new(forward.x, 0.0, forward.z).normalize();
+        let eleven = 11.0_f32.sqrt();
+        assert!((from.dot(right) + 1.0 / eleven).abs() < 1e-5);
+        assert!((from.dot(toward) - 1.0 / eleven).abs() < 1e-5);
+        assert!((from.y - 3.0 / eleven).abs() < 1e-5);
+        // On the screen it comes out of it, toward the camera.
+        assert!(from.dot(-forward) > 0.6);
     }
 
     #[test]
