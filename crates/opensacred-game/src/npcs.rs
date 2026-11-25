@@ -13464,6 +13464,43 @@ fn bolt_clip(
     BoltClip::Kept
 }
 
+/// Holds each medium spider in its shot (`creature_casts::ShotHeld`, #3697): at each world tick,
+/// until less than 0.05 of its standing clip's loop is left, or the clip has ended, then two ticks
+/// more (`0x4E55FD`–`0x4E574D`, `opensacred_rules::casts::shot_ends`), after which its cast ends.
+fn hold_shots(
+    mut commands: Commands,
+    tick: Res<WorldTick>,
+    mut held: Query<(Entity, &Npc, &mut crate::creature_casts::ShotHeld)>,
+    players: Query<(&AnimationPlayer, &AnimationTransitions)>,
+    (graphs, clips): (Res<Assets<AnimationGraph>>, Res<Assets<AnimationClip>>),
+) {
+    if tick.seconds.is_none() {
+        return;
+    }
+    for (entity, npc, mut shot) in &mut held {
+        match shot.0 {
+            Some(0) => {
+                commands
+                    .entity(entity)
+                    .remove::<crate::creature_casts::ShotHeld>();
+            }
+            Some(ticks) => shot.0 = Some(ticks - 1),
+            None => {
+                let share = npc
+                    .player
+                    .and_then(|player| players.get(player).ok())
+                    .zip(npc.graph.as_ref())
+                    .and_then(|((player, transitions), graph)| {
+                        loop_share(transitions, player, graph, (&graphs, &clips))
+                    });
+                if opensacred_rules::casts::shot_ends(share.map(|share| 1.0 - share)) {
+                    shot.0 = Some(opensacred_rules::casts::SHOT_TICKS_AFTER - 1);
+                }
+            }
+        }
+    }
+}
+
 /// The share of its loop that an NPC's clip in play has played, its time in its clip over the
 /// clip's length, which a shot that plays no clip reads (`0x4DCB80`, #3562).
 fn loop_share(
@@ -15322,7 +15359,7 @@ impl Plugin for NpcsPlugin {
                     put,
                     swing,
                     instrument,
-                    strike,
+                    (hold_shots, strike).chain(),
                     die,
                     (script_clips, turn_emerged, big_demons_stand).chain(),
                     (stance, paced).chain(),
