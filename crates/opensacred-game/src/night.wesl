@@ -1,6 +1,9 @@
 // The night's darkness (`daynight::Night`): the frame, drawn, multiplied by the colour the
 // original gives the world by night (docs/re/daynight.md), in the sRGB values the frame holds
-// (`srgb::Frame`), as the original multiplies the art's 8-bit values by its vertices' colour.
+// (`srgb::Frame`), as the original multiplies the art's 8-bit values by its vertices' colour; the
+// frame's alpha is the share of a pixel that it darkens, 0 where a lit model took the colour at
+// its place in its light already (`models`, `standard.wesl`'s `LEAVES_NIGHT`, #3693), and the
+// frame comes out whole, which the untinted camera's blit over it needs.
 
 import bevy_core_pipeline::fullscreen_vertex_shader::FullscreenVertexOutput;
 
@@ -42,5 +45,5 @@ fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
     if night.scale.z > 0.5 {
         light = vec3(((base + level / 3.0) * 0.75 + 64.0) / 255.0);
     }
-    return vec4(colour.rgb * light, colour.a);
+    return vec4(colour.rgb * mix(vec3(1.0), light, colour.a), 1.0);
 }

@@ -443,14 +443,14 @@ Read 2026-11-24 for #3669 in Ghidra (**confirmed** by code unless marked otherwi
 
 Since #3692 `opensacred-game` lights every model by the fixed function's sum in the frame's values (`standard.wesl`'s `FIXED_LIGHT`, the main pass of `models::ModelMaterial`): the texel's sRGB value times `min(1, 0.7·s·g + g·max(N·L, 0) + the effects' lights)` in each channel, plus `g·(N·H)³⁰` where the draw turns the specular on (#3169), each channel held at 1.
 - The sun travels along the original's direction since #3675, `(0, −3, −√2)` in the game's world (`game::world_light`), and the normal is the vertices' own, unflipped.
-- `s` is the model's slot's (`models::Anchors`, `hover`): 0.3 for a creature of the category 3 and for the hero, 0.8 for any other model, the pulse under the cursor; `g` is white.
+- `s` is the model's slot's (`models::Anchors`, `hover`): 0.3 for a creature of the category 3 and for the hero, 0.8 for any other model, the pulse under the cursor.
+- `g` is the world's colour at the model's place on the ground since #3693, the night's pass's colour at that place's point of the view (`daynight::Night::colour_at`, `daynight`'s `colour_models`): white by day, the night's ramp, the dungeons' grey.
 - The effects' lights shine from their own places at the fixed function's `1/(1 + 0.000125 d²)`, cut at 200, at most seven (`fx_lights`, `models::Anchors::effect_lights`), and add their highlights where the draw turns the specular on, their specular colour their colour (by the device's rule, not seen).
 - The sum is taken at each pixel from the interpolated normal, where the device lights the vertices (docs/decisions/drawing.md, "Models' light per pixel").
 - The interface's items and the choice's figures, drawn apart from the world (`model_effects::ApartMaterial`), keep Bevy's light; how the original lights them (`0x40F270`) is not read.
-- By night and in a dungeon the night's pass multiplies the drawn model by the colour after its light (docs/decisions/drawing.md, "Night as a pass over the frame"), so that a face lit fully shows at most that colour's share of its texel, and takes the colour of its pixel's place on the screen rather than of the object's place on the ground (#3693).
+- The night's pass leaves a lit model's pixels, which took `g` already (docs/decisions/drawing.md, "Night as a pass over the frame"): the frame's alpha is the share of a pixel that the pass darkens, 0 where a lit model's opaque pass draws, a lit blended pass taking its own share of it away as its colour covers what lies behind, the shadows keeping it (`models`' `lit_opaque` and `lit_blended`, `blended::keep_alpha`, `night.wesl`).
 - **Seen** 2026-11-25 for #3692 at 1024 × 768 by noon, the Seraphim at 3333,2559 at the zoom 0.5 as the original's frame of the shares' measure ("The models' light" above): her legs dark below the knees and lit on the thighs' tops, her boots grey, as the original's, where Bevy's light had shown them near their texels; by night the Mage's fireball lit his side toward it.
-
-Not followed: the colour at the object's place scaling the light before the clamp, by night and in a dungeon (#3693).
+- **Seen** 2026-11-25 for #3693 at 1024 × 768: by night at the Seraphim's start her lit faces near her light took the ramp's colour of her place, and at the Gladiator's start the dungeon's grey, the fires drawn untinted over the pass as before.
 
 ## The models' shadows
 
