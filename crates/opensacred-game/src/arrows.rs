@@ -62,7 +62,7 @@ pub struct Loose {
 /// strike carries (the record's `+0x1C`, `0x5BB010`), for the blades 1008 how long they fly
 /// (`0x5BD2D0`), and how many arrows it looses before the multi-shot (`+0x261`, 1 but for the
 /// `Rundum` and the `Attacke` with a bow).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Special {
     pub art: u16,
     pub level: u32,

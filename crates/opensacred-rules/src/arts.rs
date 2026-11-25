@@ -488,7 +488,7 @@ pub fn second_bolt_due(share: f32) -> bool {
 /// target, flies straight at its speed for its time at most (`0x5A6680`), ends at a cell that may
 /// not be walked on, and hits each hostile creature alive nearer it than the sum of their sizes
 /// (`0x5AB490`) with its damages ([`bolt_damages`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Bolt {
     /// The effect [`RAILGUN`]'s, two a shot: it hits every creature it finds in a frame, once,
     /// and goes (`0x5ABD80` at `0x5AC24D`).

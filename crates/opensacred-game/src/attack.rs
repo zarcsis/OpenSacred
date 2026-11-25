@@ -52,7 +52,7 @@ pub struct Attack {
 /// Where the hero's attack stands in the AI's state 4 (`0x4E0300`), which steps at the world's
 /// ticks alone (#617): the original's hero, sent by a click at a target in its band, took the
 /// state 4 at the click's tick, its sub-state 2 at the next and struck at the one after.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum Phase {
     /// Sent by a click, an order that the next tick takes (`0x60F130`, after the hero's update).
     Ordered,
@@ -112,6 +112,119 @@ pub struct Striking {
     fractions: [f32; 2],
     struck: u8,
     bolt: Option<Bolt>,
+    /// The rate its clip plays at, which a save keeps.
+    rate: f32,
+    /// Whether its clip is to play again from its start, a loaded save's strike's (#3759), as the
+    /// original's load plays the slot in play anew (docs/re/saves.md, "What a load gives back of
+    /// the doings").
+    resume: bool,
+}
+
+/// The hero's attack as a save keeps it (#3759): its target by its name, and where it stands;
+/// the button held is the player's, not kept.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedAttack {
+    #[serde(with = "crate::names::optional")]
+    target: Option<Entity>,
+    point: Vec3,
+    at_once: bool,
+    ends: bool,
+    asked: bool,
+    spoke: bool,
+    phase: Phase,
+    special: Option<crate::arrows::Special>,
+    goes_on: bool,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedAttack {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = self.target.map(|target| mapper.get_mapped(target));
+    }
+}
+
+impl crate::doings::Saves for Attack {
+    type Saved = SavedAttack;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<SavedAttack> {
+        Some(SavedAttack {
+            target: self.target,
+            point: self.point,
+            at_once: self.at_once,
+            ends: self.ends,
+            asked: self.asked,
+            spoke: self.spoke,
+            phase: self.phase,
+            special: self.special,
+            goes_on: self.goes_on,
+        })
+    }
+
+    fn again(saved: SavedAttack, _: &crate::doings::Moment) -> Option<Self> {
+        // One at a creature that is not back ends.
+        let target = match saved.target {
+            Some(target) => Some(crate::names::found(Some(target))?),
+            None => None,
+        };
+        Some(Self {
+            target,
+            point: saved.point,
+            at_once: saved.at_once,
+            ends: saved.ends,
+            held: false,
+            asked: saved.asked,
+            spoke: saved.spoke,
+            phase: saved.phase,
+            special: saved.special,
+            goes_on: saved.goes_on,
+        })
+    }
+}
+
+/// The hero's strike as a save keeps it (#3759): its clip by its node in the hero's graph, which
+/// its model and what it holds make again alike, its rate, and the hits it has sent, so that a
+/// strike saved after its hit hits no more and one saved before hits once.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedStriking {
+    node: u32,
+    length: f32,
+    factor: f32,
+    fractions: [f32; 2],
+    struck: u8,
+    bolt: Option<Bolt>,
+    rate: f32,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedStriking {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+impl crate::doings::Saves for Striking {
+    type Saved = SavedStriking;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<SavedStriking> {
+        Some(SavedStriking {
+            node: u32::try_from(self.node.index()).ok()?,
+            length: self.length,
+            factor: self.factor,
+            fractions: self.fractions,
+            struck: self.struck,
+            bolt: self.bolt,
+            rate: self.rate,
+        })
+    }
+
+    fn again(saved: SavedStriking, _: &crate::doings::Moment) -> Option<Self> {
+        Some(Self {
+            node: AnimationNodeIndex::new(usize::try_from(saved.node).ok()?),
+            length: saved.length,
+            factor: saved.factor,
+            fractions: saved.fractions,
+            struck: saved.struck,
+            bolt: saved.bolt,
+            rate: saved.rate,
+            resume: true,
+        })
+    }
 }
 
 /// The hero's chain `+0x210`, the factor of its shots' rate, which its shot that goes on raises by
@@ -406,6 +519,12 @@ fn engage(
         // or of a click.
         let mut now = false;
         if let Some(mut striking) = striking {
+            // A loaded save's strike plays its clip again from its start (#3759).
+            if std::mem::take(&mut striking.resume) {
+                transitions
+                    .play(&mut player, striking.node, Duration::ZERO)
+                    .set_speed(striking.rate);
+            }
             let Some(active) = player.animation(striking.node) else {
                 commands.entity(hero).remove::<Striking>();
                 continue;
@@ -538,6 +657,7 @@ fn engage(
                     active.seek_to(minds::held_shot_restart(striking.length, whole));
                     active.set_speed(played);
                 }
+                striking.rate = played;
                 let raised = minds::held_shot_chain(kept);
                 match chain.as_mut() {
                     Some(chain) => chain.0 = raised,
@@ -705,9 +825,10 @@ fn engage(
         // Times its motion's own factor, the bows' and the crossbows' of some classes
         // (`0x413610`, #3567).
         let factor = factors.of(clip);
+        let played = speed.0 * rate(bolt) * factor * if bolt.is_some() { 1.0 } else { share };
         transitions
             .play(&mut player, *node, blend)
-            .set_speed(speed.0 * rate(bolt) * factor * if bolt.is_some() { 1.0 } else { share });
+            .set_speed(played);
         attack.asked = false;
         attack.phase = Phase::Deciding;
         // The attack's first strike speaks (`0x4E52D1`, the action's sub-state 0); the strikes it
@@ -737,6 +858,8 @@ fn engage(
             fractions: *fractions,
             struck: 0,
             bolt,
+            rate: played,
+            resume: false,
         });
     }
 }

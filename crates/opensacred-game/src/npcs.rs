@@ -11134,6 +11134,55 @@ impl Until {
 /// A clip that the scripts play on a creature (`PlayAnim`; the standing action's sub-states
 /// `0x65` and `0x66`, `0x544B6A`): its slot, how many times it plays, and its node once it plays.
 /// The creature's idle behaviours leave it be meanwhile (`ai`), and its stance waits (`stance`).
+/// A scripts' clip as a save keeps it (#3759): all but its node, its clip played again from its
+/// start as a load's.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedScriptClip {
+    slot: u16,
+    loops: u32,
+    acts_at: Option<f32>,
+    rate: Option<f32>,
+    parry: bool,
+    hits: Option<Vec<f32>>,
+    half: bool,
+    passed: usize,
+}
+
+impl MapEntities for SavedScriptClip {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+impl crate::doings::Saves for ScriptClip {
+    type Saved = SavedScriptClip;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<SavedScriptClip> {
+        Some(SavedScriptClip {
+            slot: self.slot,
+            loops: self.loops,
+            acts_at: self.acts_at,
+            rate: self.rate,
+            parry: self.parry,
+            hits: self.hits.clone(),
+            half: self.half,
+            passed: self.passed,
+        })
+    }
+
+    fn again(saved: SavedScriptClip, _: &crate::doings::Moment) -> Option<Self> {
+        Some(Self {
+            slot: saved.slot,
+            loops: saved.loops,
+            playing: None,
+            acts_at: saved.acts_at,
+            rate: saved.rate,
+            parry: saved.parry,
+            hits: saved.hits,
+            half: saved.half,
+            passed: saved.passed,
+        })
+    }
+}
+
 #[derive(Component, Debug)]
 pub struct ScriptClip {
     slot: u16,
@@ -11294,8 +11343,24 @@ impl ScriptClip {
 
 /// A creature whose cast's clip has passed the share at which its spell acts, or that has no
 /// clip of its cast's slot and so acts at once (`0x51D150`; `creature_casts`, #1852).
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ClipActs;
+
+impl MapEntities for ClipActs {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+impl crate::doings::Saves for ClipActs {
+    type Saved = ClipActs;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
+}
 
 /// How near its target, along each axis, a creature stands for its queue's walk to end
 /// (`0x59A885`): less than a cell.
@@ -13604,6 +13669,67 @@ pub struct Strikes {
     /// world's ticks since its bolts left.
     begun: bool,
     after: u8,
+    /// Whether it is a loaded save's, its clip played again from its start with the hits it has
+    /// struck (#3759), its start's gunfire not heard again.
+    resumed: bool,
+}
+
+/// An NPC's strike as a save keeps it (#3759): its target by its name, the hits it has struck and
+/// its shot's state; a load plays its clip again from its start, as the original's load plays the
+/// slot in play anew, so that a strike saved before its hit hits once and one saved after it hits
+/// no more (docs/re/saves.md, "What a load gives back of the doings").
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedStrikes {
+    #[serde(with = "crate::names::required")]
+    target: Entity,
+    choice: u32,
+    shot: Option<f32>,
+    bolt: Option<opensacred_rules::arts::Bolt>,
+    fires: Option<opensacred_rules::arts::Bolt>,
+    struck: u8,
+    opens: bool,
+    begun: bool,
+    after: u8,
+}
+
+impl MapEntities for SavedStrikes {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = mapper.get_mapped(self.target);
+    }
+}
+
+impl crate::doings::Saves for Strikes {
+    type Saved = SavedStrikes;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<SavedStrikes> {
+        Some(SavedStrikes {
+            target: self.target,
+            choice: self.choice,
+            shot: self.shot,
+            bolt: self.bolt,
+            fires: self.fires,
+            struck: self.struck,
+            opens: self.opens,
+            begun: self.begun,
+            after: self.after,
+        })
+    }
+
+    fn again(saved: SavedStrikes, _: &crate::doings::Moment) -> Option<Self> {
+        Some(Self {
+            target: crate::names::found(Some(saved.target))?,
+            choice: saved.choice,
+            shot: saved.shot,
+            bolt: saved.bolt,
+            fires: saved.fires,
+            playing: None,
+            struck: saved.struck,
+            opens: saved.opens,
+            begun: saved.begun,
+            after: saved.after,
+            resumed: true,
+        })
+    }
 }
 
 impl Strikes {
@@ -13620,6 +13746,7 @@ impl Strikes {
             opens: false,
             begun: false,
             after: 0,
+            resumed: false,
         }
     }
 
@@ -14002,9 +14129,10 @@ fn strike(
             strikes.playing = Some((node, length.max(0.01), fractions));
             // A shot's clip that starts fires a gun held (`0x4DD1FE`, `0x4DF442`; #1963); one of
             // bolts fires none.
-            if strikes.shot.is_some() && strikes.bolt.is_none() {
+            if strikes.shot.is_some() && strikes.bolt.is_none() && !strikes.resumed {
                 fires.write(crate::sfx::Gunfire { shooter: entity });
             }
+            strikes.resumed = false;
             continue;
         };
         let Some(active) = player.animation(node) else {
@@ -14868,7 +14996,7 @@ impl Arms {
 /// An NPC that changes its weapons (#396; docs/re/fight.md, "The archers"): it puts away what
 /// its hands `away` hold, and takes the items `takes`, each in its hand, with its values where
 /// they are given, else made at its level.
-#[derive(Component, Clone, Debug, PartialEq)]
+#[derive(Component, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Rearms {
     away: Vec<Hand>,
     takes: Vec<(u32, Hand, Option<fight::ItemValues>)>,
@@ -14879,6 +15007,22 @@ pub struct Rearms {
     /// has one (an `EquipNPC`'s, #2756) and its values where they are given, else made at its
     /// level.
     wears: Vec<(u32, u8, Option<Held>, Option<fight::ItemValues>)>,
+}
+
+impl MapEntities for Rearms {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+impl crate::doings::Saves for Rearms {
+    type Saved = Rearms;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(self.clone())
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 impl Rearms {
@@ -15514,10 +15658,26 @@ fn rearm(
 /// A juggler that plays its instrument where it stands (`0x4F29E2`): `instrument` the one it
 /// takes into its right hand when both its hands are empty, of [`INSTRUMENTS`]; `on` whether it
 /// plays on, one of the flag `0x10000000`.
-#[derive(Component)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Plays {
     pub instrument: usize,
     pub on: bool,
+}
+
+impl MapEntities for Plays {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+impl crate::doings::Saves for Plays {
+    type Saved = Plays;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 /// Gives a juggler about to play its instrument, its hands empty, the instrument in its right hand.
@@ -17632,6 +17792,58 @@ mod tests {
         };
         let bytes = postcard::to_stdvec(&summoned).unwrap();
         assert_eq!(postcard::from_bytes::<Made>(&bytes).unwrap(), summoned);
+    }
+
+    #[test]
+    fn a_strike_saved_keeps_its_hits_and_plays_its_clip_again_at_its_target_by_name() {
+        use crate::doings::{Moment, Saves};
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut saved = App::new();
+        saved.add_plugins(NamesPlugin);
+        let hero = saved.world_mut().spawn(Named(Id::Hero)).id();
+        let mut strikes = Strikes::at(hero, 2);
+        strikes.struck = 1;
+        strikes.opens = true;
+        let mut refs = Refs::default();
+        let kept = mapped(
+            strikes.saved(&Moment::default()).unwrap(),
+            &mut Saving {
+                world: saved.world(),
+                refs: &mut refs,
+            },
+        );
+        let bytes = postcard::to_stdvec(&(&refs, &kept)).unwrap();
+        let (refs, kept): (Refs, SavedStrikes) = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..3).map(|_| ()));
+        let hero = loaded.world_mut().spawn(Named(Id::Hero)).id();
+        let names = loaded.world().resource::<Names>();
+        let back = Strikes::again(
+            mapped(
+                kept,
+                &mut Loading {
+                    refs: &refs,
+                    names,
+                    lost: 0,
+                },
+            ),
+            &Moment::default(),
+        )
+        .unwrap();
+        assert_eq!((back.target, back.choice, back.struck), (hero, 2, 1));
+        assert!(back.opens && back.resumed && back.playing.is_none());
+        // Its target not back, the strike ends.
+        let empty = Names::default();
+        let lost = mapped(
+            kept,
+            &mut Loading {
+                refs: &refs,
+                names: &empty,
+                lost: 0,
+            },
+        );
+        assert!(Strikes::again(lost, &Moment::default()).is_none());
     }
 
     #[test]
