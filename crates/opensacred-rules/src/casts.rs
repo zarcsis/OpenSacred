@@ -130,6 +130,13 @@ pub fn approaches(distance: f32, roll: u32) -> bool {
     distance >= APPROACH_FROM && roll % 101 < 5
 }
 
+/// Whether a creature of type `creature` spits at the decisions of its melee too, the giant spider
+/// and the killer crab queen (`0x4D5BB6`, #3706), on a roll `rand() % 3` of [`SPIT_ON`].
+pub fn spits_at_decisions(creature: u32) -> bool {
+    matches!(creature, GIANT_SPIDER | CRAB_QUEEN)
+}
+pub const SPIT_ON: u32 = 2;
+
 /// What a creature of type `creature` makes as it comes on (`0x4E1FC4`, the melee's state 9 at
 /// `0x4E3464`): the medium spider (75, `med_spider.grn`), of the mark 4, shoots the railgun's bolt
 /// at its target ([`SPIDER_SHOT`], #2067), a dragon breathes its fire ([`DRAGON_FIRE`], #1964),

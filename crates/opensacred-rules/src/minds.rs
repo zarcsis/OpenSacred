@@ -1982,6 +1982,19 @@ impl Mind {
             {
                 return Some(Pursues::Casts { spell, variant: 0 });
             }
+            // The giant spider and the crab queen spit at each decision of their melee by a roll
+            // `rand() % 3` of 2 whatever the distance, else within their special's band as a dragon
+            // breathes, and fight hand to hand otherwise (`0x4D5BB6`, `0x4D5C23`; docs/re/ai.md,
+            // "The giant spider's and the crab queen's spit at their decisions", #3706).
+            if !comes_on && casts::spits_at_decisions(self.creature) {
+                if rng.below(3) == casts::SPIT_ON {
+                    return Some(Pursues::Casts { spell, variant: 0 });
+                }
+                let reach = reach_f32(self.size(), sight.hero_size);
+                let special = casts::in_special_band(d, reach)
+                    && casts::mark_4_special(rng.below(3), cast.ranged_target);
+                return special.then_some(Pursues::Casts { spell, variant: 0 });
+            }
             if !dragon && self.creature != casts::FIRE_GHOUL {
                 return None;
             }
@@ -5637,6 +5650,83 @@ mod tests {
             lone.cast(&sight(true), &cast, || true, &mut Script::new(vec![50])),
             None
         );
+    }
+
+    #[test]
+    fn the_giant_spider_and_the_crab_queen_spit_at_their_melee_decisions() {
+        use crate::spawning::Script;
+        let sight = |distance: f32| Pursuit {
+            here: at(0.0, 0.0),
+            hero: at(distance, 0.0),
+            walk: None,
+            striking: false,
+            health: None,
+            target_makes: false,
+            listed: None,
+            targeted: false,
+            hero_size: SIZE,
+            outdoors: true,
+            strikes_down: false,
+        };
+        let cast = |ranged_target| CastSight {
+            ranged_target,
+            now: 0.0,
+            at_hero: true,
+            hero_level: 3,
+            held: false,
+            uncaged: false,
+            elite: false,
+            hostiles: 0,
+            crowded: false,
+            nearest: true,
+            scripted: 0,
+            hero_low: false,
+            followers: 0,
+            friends: (false, false),
+            id: 0,
+            hornets: (0, false),
+            hornet_lives: false,
+            listed: 0,
+            difficulty: Difficulty::Bronze,
+            fetzer: None,
+            stare: None,
+            group_strike: None,
+            armed: false,
+            leap: None,
+        };
+        let spit = Some(Pursues::Casts {
+            spell: casts::SPIT,
+            variant: 0,
+        });
+        for creature in [casts::GIANT_SPIDER, casts::CRAB_QUEEN] {
+            let mut spitter = Mind::new(
+                at(0.0, 0.0),
+                0x1,
+                (true, false),
+                None,
+                SPEEDS,
+                (creature, 0),
+            );
+            assert!(spitter.sent_at());
+            let reach = reach_f32(spitter.size(), SIZE);
+            let mut decide = |distance: f32, ranged, rolls: Vec<u32>| {
+                spitter.cast(
+                    &sight(distance),
+                    &cast(ranged),
+                    || true,
+                    &mut Script::new(rolls),
+                )
+            };
+            // By the roll of 2, at any distance, within its reach too.
+            assert_eq!(decide(1.0, false, vec![2]), spit);
+            // Else within its special's band, in two decisions of three, or at an archer.
+            assert_eq!(decide(reach + 100.0, false, vec![0, 1]), spit);
+            assert_eq!(decide(reach + 100.0, false, vec![0, 0]), None);
+            assert_eq!(decide(reach + 100.0, true, vec![0, 0]), spit);
+            // Else hand to hand: within its reach, or beyond the band.
+            assert_eq!(decide(1.0, false, vec![0, 1]), None);
+            assert_eq!(decide(reach + 500.0, false, vec![0, 1]), None);
+        }
     }
 
     #[test]
