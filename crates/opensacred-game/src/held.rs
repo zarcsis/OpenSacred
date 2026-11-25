@@ -203,17 +203,6 @@ fn show(
             (-3, HELD),
         ),
     ));
-    commands.spawn((
-        View,
-        DirectionalLight {
-            illuminance: backpack::LIGHT,
-            shadow_maps_enabled: false,
-            ..default()
-        },
-        Transform::from_xyz(-0.5, 1.0, 1.0).looking_at(Vec3::ZERO, Vec3::Y),
-        RenderLayers::layer(HELD),
-        DespawnOnExit(AppState::InGame),
-    ));
     let mut entity = commands.spawn((
         Model {
             key: held.key,

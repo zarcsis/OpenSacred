@@ -153,17 +153,6 @@ fn show(
         Scene,
         item_pictures::camera(target, (WindowPixels::Part(size), size), (-3, MODELS)),
     ));
-    commands.spawn((
-        Scene,
-        DirectionalLight {
-            illuminance: backpack::LIGHT,
-            shadow_maps_enabled: false,
-            ..default()
-        },
-        Transform::from_xyz(-0.5, 1.0, 1.0).looking_at(Vec3::ZERO, Vec3::Y),
-        RenderLayers::layer(MODELS),
-        DespawnOnExit(AppState::InGame),
-    ));
 }
 
 /// Where a set's half's model lies in the picture: its slot's corner plus its type's offsets, 8
