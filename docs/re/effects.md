@@ -3064,7 +3064,7 @@ Read 2026-11-06 for #1092 in Ghidra (**confirmed** by code unless marked).
 `opensacred-game` follows it since #1092 (`plant_cages`, `opensacred_rules::particles::PlantCage`): the Wood Elf's cages (`spells`) and a creature's at the hero (`creature_casts`), each vine from its creature's neck to its base, its glow and its light at the base, untinted by the night, every fifth cage of a cast sounding; a creature's cage holds the hero 3 s (`spells::holds`, #2154).
 **Seen** 2026-11-06 beside the original: the Wood Elf's cages about a goblin, green vines from its neck to their glowing bases on the ground, alike in both.
 Since #3166 the first cage of a cast gives the hold as it has grown, 0.667 s on, its creature walking and striking on until then (`plant_cages`); every maker's cages hold so, the set 60's and the crab queen's too.
-Not followed: the swooping flyer's pass's ten, which no foe of a single player's hero makes (#3597); the quirk by which a creature's cage whose event's height is exactly 1.0 takes a hero's look, which only a target at exactly that height meets, practically never.
+Not followed: the swooping flyer's pass's ten (#3597), which the gargoyles, the harpies and the flight lizards of the mark 2 make at a single player's hero who bears 855 (docs/re/ai.md, "The flyers", #3700); the quirk by which a creature's cage whose event's height is exactly 1.0 takes a hero's look, which only a target at exactly that height meets, practically never.
 The killer crab queen's cages follow since #2226 (`spits`, "The creatures' spit") and the set bonus's since #2547 (`attack::engage`).
 
 ## The flesh to stone
