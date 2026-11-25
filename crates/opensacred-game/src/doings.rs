@@ -5,9 +5,9 @@
 //!
 //! A module gives and takes the state of its own components through [`Saves`], and [`Doing`]
 //! lists them, a field each, given back in the order of the mind, the body and the action. It
-//! holds so far the mind (`ai::Mind`, #3757) with its wake and its shooing, the effects, whose
-//! sources go by their names, and the knock-downs' marks; the next sub-issues of #3753 add the
-//! walks and the actions.
+//! holds so far the mind (`ai::Mind`, #3757) with its wake and its shooing, its walk and its
+//! height aloft (#3758), the effects, whose sources go by their names, and the knock-downs'
+//! marks; the next sub-issues of #3753 add the actions.
 //!
 //! The commands `doings` and `unsaved` show each named creature's doing and the components of
 //! the game that neither a save keeps nor a load makes again ([`DERIVED`]).
@@ -94,6 +94,9 @@ pub struct Doing {
     mind: Option<crate::ai::SavedMind>,
     woken: Option<crate::ai::Woken>,
     shoos: Option<crate::ai::Shoos>,
+    /// Its body: where it walks and how (#3758), and its height aloft.
+    walk: Option<crate::npcs::SavedWalk>,
+    aloft: Option<crate::flight::Aloft>,
     /// Its effects, their sources by their names.
     #[entities]
     effects: Option<Effects>,
@@ -108,6 +111,8 @@ impl Doing {
             mind: saved::<crate::ai::Mind>(world, entity, &at),
             woken: saved::<crate::ai::Woken>(world, entity, &at),
             shoos: saved::<crate::ai::Shoos>(world, entity, &at),
+            walk: saved::<crate::npcs::Walk>(world, entity, &at),
+            aloft: saved::<crate::flight::Aloft>(world, entity, &at),
             effects: saved::<Effects>(world, entity, &at),
             marks: saved::<KnockMarks>(world, entity, &at),
         };
@@ -124,6 +129,8 @@ impl Doing {
         put::<crate::ai::Mind>(&mut creature, self.mind, &at);
         put::<crate::ai::Woken>(&mut creature, self.woken, &at);
         put::<crate::ai::Shoos>(&mut creature, self.shoos, &at);
+        put::<crate::npcs::Walk>(&mut creature, self.walk, &at);
+        put::<crate::flight::Aloft>(&mut creature, self.aloft, &at);
         put::<Effects>(&mut creature, self.effects, &at);
         put::<KnockMarks>(&mut creature, self.marks, &at);
     }
@@ -252,6 +259,8 @@ pub const SAVED: &[&str] = &[
     "opensacred_game::ai::Mind",
     "opensacred_game::ai::Woken",
     "opensacred_game::ai::Shoos",
+    "opensacred_game::npcs::Walk",
+    "opensacred_game::flight::Aloft",
     "opensacred_game::effects::Effects",
     "opensacred_game::fight::KnockMarks",
 ];

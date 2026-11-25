@@ -1893,6 +1893,69 @@ pub struct Walk {
     onto: Option<Level>,
 }
 
+/// A walk as a save keeps it (#3758; the original's creature's moving action, `+0x150` to
+/// `+0x1A3`, docs/re/saves.md, "A creature's record"): where it goes, on what level, how, and how
+/// near it stops; its course is found anew from where it stands, as its search runs again as it
+/// moves (`paths::Planned`).
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedWalk {
+    target: Vec3,
+    level: Level,
+    speed: f32,
+    runs: bool,
+    flies: bool,
+    climbed: bool,
+    moved: bool,
+    balked: f32,
+    within: f32,
+    comes_on: bool,
+    idle: bool,
+    onto: Option<Level>,
+}
+
+impl MapEntities for SavedWalk {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+impl crate::doings::Saves for Walk {
+    type Saved = SavedWalk;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<SavedWalk> {
+        Some(SavedWalk {
+            target: self.target,
+            level: self.level,
+            speed: self.speed,
+            runs: self.runs,
+            flies: self.flies,
+            climbed: self.climbed,
+            moved: self.moved,
+            balked: self.balked,
+            within: self.within,
+            comes_on: self.comes_on,
+            idle: self.idle,
+            onto: self.onto,
+        })
+    }
+
+    fn again(saved: SavedWalk, _: &crate::doings::Moment) -> Option<Self> {
+        Some(Self {
+            target: saved.target,
+            level: saved.level,
+            speed: saved.speed,
+            runs: saved.runs,
+            flies: saved.flies,
+            climbed: saved.climbed,
+            moved: saved.moved,
+            balked: saved.balked,
+            within: saved.within,
+            comes_on: saved.comes_on,
+            idle: saved.idle,
+            course: None,
+            onto: saved.onto,
+        })
+    }
+}
+
 /// How long a creature whose walk could not start stands before its walk ends, in seconds.
 const BALKS: f32 = 1.0;
 
@@ -17569,6 +17632,21 @@ mod tests {
         };
         let bytes = postcard::to_stdvec(&summoned).unwrap();
         assert_eq!(postcard::from_bytes::<Made>(&bytes).unwrap(), summoned);
+    }
+
+    #[test]
+    fn a_walk_goes_on_to_its_target_after_a_load_its_course_found_anew() {
+        use crate::doings::{Moment, Saves};
+        let mut walk = Walk::to(Vec3::new(10.0, 0.0, 20.0), Some((50, 39, 2)), 70.0);
+        walk.runs = true;
+        walk.comes_on = true;
+        walk.within = 40.0;
+        walk.onto = Some(None);
+        let saved = walk.saved(&Moment::default()).unwrap();
+        let bytes = postcard::to_stdvec(&saved).unwrap();
+        let back = Walk::again(postcard::from_bytes(&bytes).unwrap(), &Moment::default()).unwrap();
+        assert_eq!(back.saved(&Moment::default()), Some(saved));
+        assert!(back.course.is_none());
     }
 
     #[test]
