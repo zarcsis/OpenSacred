@@ -106,8 +106,8 @@ use crate::{arts, drops, making};
 /// backpack (#3543); the version 45 the hero's knock-downs' marks (#3673); the version 46 whether a
 /// creature's attack's clips are a stand-in (#3314); the version 47 the camera's zoom (#3740); the
 /// version 48 the hero's and the kept creatures' headings (#3744); the version 49 the hero's walk
-/// under way (#3742).
-pub const VERSION: u32 = 49;
+/// under way (#3742); the version 50 whether the hero rides its own horse (#3743).
+pub const VERSION: u32 = 50;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -229,6 +229,14 @@ impl Walk {
 #[derive(Resource)]
 struct WalkOn(Walk);
 
+/// A loaded hero's own horse that it rode at the save, which it mounts again once it has landed,
+/// and its health then, which the horse under it raises the most of (`riding::Saddle`, #3743).
+#[derive(Resource)]
+struct RideOn {
+    horse: Entity,
+    health: u32,
+}
+
 /// The scripts as a save keeps them (#1958; the original's quests, `sdk_SAVELOAD_SERIAL`): the
 /// game's seed (`seed::Game`), whose start makes the saved game's tree and placements again, the
 /// scripts' state, functions done and `rand()`, and what their play changed of the placements.
@@ -252,10 +260,11 @@ pub struct Scripts {
 pub struct World {
     pub creatures: crate::npcs::Creatures,
     pub followers: Vec<crate::npcs::Following>,
-    /// The hero's own horse, unmounted at the load (#2301), and the item of its slot 0, its
-    /// bridle (#2316).
+    /// The hero's own horse (#2301), the item of its slot 0, its bridle (#2316), and whether the
+    /// hero rides it, mounted again once the load's hero has landed (#3743).
     pub horse: Option<crate::npcs::Following>,
     pub bridle: Option<opensacred_rules::drops::Dropped>,
+    pub ridden: bool,
     pub drops: Vec<drops::Laid>,
     pub stash: Chest,
     pub wares: Stock,
@@ -619,6 +628,7 @@ fn world_of(world: &mut bevy::prelude::World) -> Result<World> {
     let followers = crate::npcs::following(world);
     let horse = crate::npcs::mount_of(world);
     let bridle = crate::riding::bridle_of(world);
+    let ridden = horse.is_some() && crate::riding::rides_own(world);
     let drops = drops::laid(world);
     // The weather's timers from the save's time of real time, which a load's run starts anew.
     let now = world
@@ -636,6 +646,7 @@ fn world_of(world: &mut bevy::prelude::World) -> Result<World> {
         followers,
         horse,
         bridle,
+        ridden,
         drops,
         stash: world.get_resource::<Chest>().cloned().unwrap_or_default(),
         wares: world
@@ -791,7 +802,7 @@ fn restore(world: &mut bevy::prelude::World) {
         world.insert_resource(WalkOn(walk));
     }
     info!("saves: the hero is back");
-    restore_world(world, *kept);
+    restore_world(world, *kept, hero.health);
 }
 
 /// Sends a loaded hero on to where it was going ([`Walk`], #3742), once it has landed where the
@@ -812,6 +823,40 @@ fn walk_on(
     body.send_to(to, level);
     commands.remove_resource::<WalkOn>();
     info!("saves: the hero walks on to {to}");
+}
+
+/// Mounts a loaded hero on the own horse it rode at the save ([`RideOn`], #3743), once it has
+/// landed where the load put it back, and once it rides gives it back its health as saved, which
+/// the horse under it raises the most of.
+fn ride_on(world: &mut bevy::prelude::World) {
+    let Some(&RideOn { horse, health }) = world.get_resource::<RideOn>() else {
+        return;
+    };
+    let mut heroes = world.query_filtered::<(
+        Entity,
+        &Body,
+        Option<&crate::riding::Seat>,
+        bevy::prelude::Has<crate::riding::Saddle>,
+    ), With<Body>>();
+    let Some((me, body, seat, saddled)) = heroes.iter(world).next() else {
+        return;
+    };
+    if body.landing() {
+        return;
+    }
+    match seat.copied() {
+        None if world.get_entity(horse).is_ok() => crate::riding::seat_again(world, me, horse),
+        Some(seat) if seat.ridden() == Some(horse) && saddled => {
+            if let Some(mut now) = world.get_mut::<Health>(me) {
+                now.current = health.min(now.most);
+            }
+            world.remove_resource::<RideOn>();
+        }
+        Some(crate::riding::Seat::Mounting { .. }) => {}
+        _ => {
+            world.remove_resource::<RideOn>();
+        }
+    }
 }
 
 /// Puts the character of `hero` on the hero `entity` (#1095, #2552): its values and health at
@@ -888,12 +933,13 @@ fn import(world: &mut bevy::prelude::World) {
 /// where it stood, with its bridle (`npcs::mount_again`, `riding::bridle_again`); and the scripts'
 /// traps, put back onto those of their points (`pill_fields::Again`, `laser_fences::Again`); and
 /// their gold arrows, in place of those that the load's start made (`beacons::again`).
-fn restore_world(world: &mut bevy::prelude::World, kept: World) {
+fn restore_world(world: &mut bevy::prelude::World, kept: World, health: u32) {
     let World {
         creatures: _,
         followers,
         horse,
         bridle,
+        ridden,
         drops: laid,
         stash,
         wares,
@@ -926,8 +972,12 @@ fn restore_world(world: &mut bevy::prelude::World, kept: World) {
     world.insert_resource(drops::Again(laid));
     crate::npcs::follow_again(world, followers);
     if let Some(horse) = horse {
-        crate::npcs::mount_again(world, horse);
+        let made = crate::npcs::mount_again(world, horse);
         crate::riding::bridle_again(world, bridle);
+        // A hero that rode it mounts it again once it has landed, its health as saved.
+        if let (Some(horse), true) = (made, ridden) {
+            world.insert_resource(RideOn { horse, health });
+        }
     }
     crate::stables::stalls_again(world, stalls);
     if let Some(mut states) = world.get_resource_mut::<crate::buildings::Buildings>() {
@@ -1145,6 +1195,7 @@ fn waited(world: &mut bevy::prelude::World) {
 fn forget(mut commands: Commands) {
     commands.remove_resource::<Restore>();
     commands.remove_resource::<WalkOn>();
+    commands.remove_resource::<RideOn>();
     commands.remove_resource::<Resume>();
     commands.remove_resource::<drops::Again>();
 }
@@ -1173,6 +1224,13 @@ impl Plugin for SavesPlugin {
                     .after(restore)
                     .run_if(in_state(AppState::InGame))
                     .run_if(resource_exists::<WalkOn>),
+            )
+            .add_systems(
+                Update,
+                ride_on
+                    .after(restore)
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(resource_exists::<RideOn>),
             )
             .add_systems(
                 Update,
@@ -1552,7 +1610,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (49, 0xC828_7A10_D099_CB7B),
+            (50, 0xEE79_A9F3_BFB8_0336),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
