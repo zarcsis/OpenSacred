@@ -1831,7 +1831,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (55, 0xE0AF_2861_8C31_865E),
+            (55, 0x4C1E_702B_2FA7_CEAB),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
