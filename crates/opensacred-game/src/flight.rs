@@ -18,9 +18,28 @@ use crate::terrain::Heights;
 
 /// A flyer off the ground: its height over it, in the units of the models' height, as the
 /// original's heights are.
-#[derive(Component, Debug, Default, Clone, Copy, PartialEq)]
+#[derive(
+    Component, Debug, Default, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize,
+)]
 pub struct Aloft {
     pub height: f32,
+}
+
+impl bevy::ecs::entity::MapEntities for Aloft {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// A flyer's height aloft, which a save keeps (#3758).
+impl crate::doings::Saves for Aloft {
+    type Saved = Aloft;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 /// World units of a height in the units of the models' height, raised on the screen as the
