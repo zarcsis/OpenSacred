@@ -73,7 +73,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   For a menu, the game must start and end inside one process.
 * States `AppState { Menu, Loading, InGame }`.
   A resource `Request` holds a `NewGame`, what a game starts from: the class and the command line's options that belong to a game (`--sector`, `--hero`, the clips, `--creature`, `--tree`, `--footsteps`, `--walking`, `--target`, `--time`, `--zoom`, `--leave-open`, the hero's `--name` and the `--difficulty`, #1086, and a saved or an exported hero's slot, `--saved` and `--exported`, #2362, #2552), as a `clap::Args` struct that the command `new-game` reuses (§6).
-  The command line's `--zoom`, which says how a game shows, holds for every game of the run: a `new-game` of a script, the console or remote control takes it from a resource `Shows` unless its own line sets it (#831).
+  The command line's `--zoom`, which says how a game shows, holds for every game of the run: a `new-game` of a script, the console or remote control takes it from a resource `Shows` unless its own line sets it (#831), and a load takes it over its save's zoom (#3740).
 * What every game shares (the world's index, the sprites, the tables) is read once; the tables that the start and the loads read (`items`, `weapons`, `creatures`, `motions`, `balance`, `stairs`) are parsed when first asked for and kept in `sectors::Shared` (`tables`, #830).
   `Loading` does the rest on Bevy's async compute pool behind a loading screen, and an error goes to the log and back to the menu.
 * The modules' systems run only in `InGame`: the steps of `frame::Step` take the condition once, and the plugins' `Startup` systems move to `OnEnter(InGame)`.
