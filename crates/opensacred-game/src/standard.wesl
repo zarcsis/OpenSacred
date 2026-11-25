@@ -13,7 +13,9 @@
 // own (`MIXED`); one of list 4 (`LIST_4`, `fx::over_all`) takes the samples over which no model's
 // texel lies nearer than its true point. A model drawn apart from the world by a camera of its own, whose frame takes linear
 // light (`model_effects::ApartMaterial`, `LINEAR`), keeps its colour linear, its effect laid
-// under it in sRGB values all the same.
+// under it in sRGB values all the same; a figure of the choice of the hero is lit by the
+// figures' own two lights in the frame's values (`model_effects::FigureMaterial`,
+// `FIGURE_LIGHT`, #3726).
 //
 // Bevy's own fragment stage (`bevy_pbr::render::pbr`, MIT OR Apache-2.0) but for the encoding,
 // without the meshlets, the decals and the order-independent transparency, which the game does
@@ -63,6 +65,20 @@ const LIST_4_FORWARD: f32 = 1000.0;
 /// world with the reciprocal of the models' scale, then its colour, a colour of 0 shining none.
 @if(FIXED_LIGHT)
 @group(constants::MATERIAL_BIND_GROUP) @binding(109) var<storage, read> effect_lights: array<vec4<f32>>;
+
+/// The choice's figures' two lights (`0x6F1250`; docs/re/drawing.md, "The models drawn apart"):
+/// the directions toward them in the figures' scene, whose `(x, y, z)` is the client's `(x, z, y)`,
+/// the first's `(1, −1, 2)/√6` and the second's `(0, 1, 1)/√2` there; their colours; and the
+/// first's ambient, 0.1 of its colour, times the material's 0.7.
+const FIGURE_FIRST: vec3<f32> = vec3<f32>(0.40824829, 0.81649658, -0.40824829);
+const FIGURE_FIRST_COLOUR: vec3<f32> = vec3<f32>(0.6, 0.9, 1.0);
+const FIGURE_AMBIENT: f32 = 0.07;
+const FIGURE_SECOND: vec3<f32> = vec3<f32>(0.0, 0.70710678, 0.70710678);
+const FIGURE_SECOND_COLOUR: vec3<f32> = vec3<f32>(0.65, 0.8, 1.0);
+/// The share of the second light that a figure takes, in `x`: 1 under the cursor or chosen, else
+/// 0 (`model_effects::TwoLights`).
+@if(FIGURE_LIGHT)
+@group(constants::MATERIAL_BIND_GROUP) @binding(110) var<uniform> figure_second: vec4<f32>;
 
 /// The effect's texture and the glow's under a model's texels, their offsets and the glow's share
 /// of its colour, in `x` (`models::Pass::Effect`, `model_effects`; #1834, #1848); in the effect's
@@ -225,7 +241,20 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
         out.color = vec4<f32>(srgb_to_linear(frame), pbr_input.material.base_color.a);
 }
 @else {
+@if(FIGURE_LIGHT) {
+    // The choice's figures' two lights (`0x6F1B30`, #3726): the first's ambient and diffuse, the
+    // second's diffuse at the figure's share, summed and held at 1 in each channel, times the
+    // texel in the frame's sRGB values, with no specular, as the device lights them.
+        let n = normalize(in.world_normal);
+        let first = FIGURE_FIRST_COLOUR * (FIGURE_AMBIENT + max(dot(n, FIGURE_FIRST), 0.0));
+        let second = FIGURE_SECOND_COLOUR * figure_second.x * max(dot(n, FIGURE_SECOND), 0.0);
+        let texel = linear_to_srgb(pbr_input.material.base_color.rgb);
+        let frame = texel * min(first + second, vec3<f32>(1.0));
+        out.color = vec4<f32>(srgb_to_linear(frame), pbr_input.material.base_color.a);
+}
+@else {
         out.color = apply_pbr_lighting(pbr_input);
+}
 }
     } else {
         out.color = pbr_input.material.base_color;

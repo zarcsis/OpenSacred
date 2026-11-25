@@ -710,7 +710,7 @@ pub(crate) fn layer(
                     unlit: true,
                     ..source
                 };
-                let made = making.over(base, effect)?;
+                let made = making.over(base, effect, false)?;
                 over.insert(id, made.clone());
                 Some(made)
             });

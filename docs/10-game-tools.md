@@ -101,7 +101,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   The rest of a game's systems go on, standing still on the paused time, so that a model that comes in while the game is paused still takes its materials.
 * A game named on the command line (`--class` or another of the game's options but `--zoom`, which only says how it shows, or `--screenshot`, `--record`, `--benchmark`, which need a scene) starts as if `new-game` with those options ran at the start (§6), not by a mechanism of its own.
   The remote protocol can drive the menu too (§8), but a one-shot run, such as a screenshot, a benchmark or a comparison with an older build, then needs no server, client or waiting.
-* Where the menus still depart from the original's screens (the picture's scale, the keyboard's arrows, Enter and Esc, the text, the unlit figures) is two decisions: docs/decisions/interface.md, "Menus' scale and keys" and docs/decisions/interface.md, "The choice of the hero's text and figures".
+* Where the menus still depart from the original's screens (the picture's scale, the keyboard's arrows, Enter and Esc, the text) is two decisions: docs/decisions/interface.md, "Menus' scale and keys" and docs/decisions/interface.md, "The choice of the hero's text".
 
 ## 5. The HUD, the overlay and the log (#168, #170, #169)
 
