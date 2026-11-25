@@ -1654,6 +1654,11 @@ impl Npc {
         self.hits.share
     }
 
+    /// Its attack's first slot, which one of its fidgets plays ([`Self::fidget_slot`]).
+    pub(crate) fn attack_slot(&self) -> u16 {
+        self.names.attack_slot
+    }
+
     /// The slot of the clip that its fidget `fidget` plays (`0x54EA30`, #1364): a fun clip's own,
     /// or its attack's first.
     pub(crate) fn fidget_slot(&self, fidget: minds::Fidget) -> u16 {
@@ -10987,6 +10992,11 @@ impl ScriptClip {
     /// creature's defence doubles against a strike (`0x56B96A`–`0x56B9A5`, #2487).
     pub(crate) fn defends(&self) -> bool {
         DEFENDING.contains(&self.slot)
+    }
+
+    /// The slot it plays.
+    pub(crate) fn slot(&self) -> u16 {
+        self.slot
     }
 
     /// The rate it plays at where not its attack speed's.

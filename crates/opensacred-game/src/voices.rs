@@ -22,12 +22,13 @@
 //! by its side as the original places it (`sfx::placed`, `0x678260`), and at a rate of its
 //! sample's times 0.45 + (`rand() % 10`) / 90 + 0.5, 0.95 to 1.05 (`0x693510`, #1140).
 //!
-//! Between the fights the creatures make their idle noises (#714; docs/re/sound.md, "The idle
-//! noises"), as the sound manager's update does (`0x69B770`) at each world tick: a creature near
-//! the hero that is not hostile to it rolls one in 70, one hostile to it one in 20 while it does
-//! not fight, then its type's noise rolls its own (`tables/idle_noises.ron`) and plays a variant
-//! of its profile's group 0 or one of its run of sound ids, unless the creature speaks or the id
-//! waits; the id then waits the noise's seconds, and the rate's factor adds the noise's own.
+//! The creatures make their idle noises (#714; docs/re/sound.md, "The idle noises"), as the sound
+//! manager's update does (`0x69B770`) at each world tick: a creature near the hero that is not
+//! hostile to it rolls one in 70, one hostile to it one in 20 but while it casts or dies (its
+//! record's state, [`Motions::state`], #3335), then its type's noise rolls its own
+//! (`tables/idle_noises.ron`) and plays a variant of its profile's group, the hostile's by its
+//! state, or one of its run of sound ids, unless the creature speaks or the id waits; the id then
+//! waits the noise's seconds, and the rate's factor adds the noise's own.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -576,17 +577,17 @@ impl Voices {
         (rolls(roll, &mut self.dice) && rolls(noise.roll, &mut self.dice)).then_some(noise)
     }
 
-    /// The idle noise of `creature` at this tick, if the rolls give one: the sound id, its file,
-    /// its wait and what it adds to the rate's factor.
+    /// The idle noise of `creature` at this tick, if the rolls give one, of its profile's group
+    /// `group`: the sound id, its file, its wait and what it adds to the rate's factor.
     fn idle_noise(
         &mut self,
         sfx: &mut Sfx,
-        creature: u32,
-        hostile: bool,
+        (creature, hostile): (u32, bool),
+        group: u8,
     ) -> Option<(u32, String, f32, f32)> {
         let noise = self.idle_roll(creature, hostile)?;
         let (id, file) = match noise.sound {
-            IdleSound::Profile(profile) => sfx.pick(u32::from(profile), IDLE)?,
+            IdleSound::Profile(profile) => sfx.pick(u32::from(profile), group)?,
             IdleSound::Ids { first, count } => {
                 sfx.with_id(u32::from(first) + self.dice.below(u32::from(count)))?
             }
@@ -1094,9 +1095,12 @@ fn rate(roll: f32, higher: f32) -> f32 {
     0.45 + roll / 90.0 + higher + 0.5
 }
 
-/// A creature's motions over its last 16 updates (`0x679040`), by its motion's class: the stand,
-/// the walk, the run and the strike (`MOTION_IDLE` 0, `WALK` 1, `RUN` 2, `ATTACK` 4), and where it
-/// stood at the last.
+/// A creature's record of the sound manager's first list (`+0xDA4 + 0x88·i`), which it holds
+/// while it stands within the records' reach of the hero, 1,200 pixels (`sfx::within_reach`): its
+/// motions over its last 16 updates (`0x679040`), by its motion's class, the stand, the walk, the
+/// run, the defence, the strike and the cast (`MOTION_IDLE` 0, `WALK` 1, `RUN` 2, `DEFEND` 3,
+/// `ATTACK` 4, `CAST` 5), at first the stand's; where it stood at the last, the direction of its last step, and its state
+/// ([`Motions::state`]).
 #[derive(Component, Default)]
 pub(crate) struct Motions {
     classes: [u8; 16],
@@ -1104,21 +1108,126 @@ pub(crate) struct Motions {
     last: Option<Vec3>,
     /// Its move since the last update, along the ground.
     moved: Vec3,
+    /// The direction of its last step along the ground, kept while it stands (`+0x20`, the sound
+    /// event (6, 3) of each step).
+    heading: Vec3,
+    /// Its state (`+0x18`, [`next_state`]), 0 for a new record.
+    state: u8,
 }
 
 /// The motions' classes (`0x679040`).
 const STANDS: u8 = 0;
 const WALKS: u8 = 1;
 const RUNS: u8 = 2;
+const DEFENDS: u8 = 3;
 const STRIKES: u8 = 4;
+const CASTS: u8 = 5;
+
+/// The class of a creature's script clip by its slot (`0x68C04E`–`0x68C465`): a defending clip's
+/// the defence's, its attack's first slot, which an idle fidget plays, the strike's (`0x54EA30`;
+/// seen: a dormant goblin's fidget, #3335), any other's none, the fun idles' and the specials'
+/// among them, so that its shares stay as they stood.
+fn clip_class(clip: &crate::npcs::ScriptClip, attack_slot: Option<u16>) -> Option<u8> {
+    if clip.defends() {
+        Some(DEFENDS)
+    } else if attack_slot == Some(clip.slot()) {
+        Some(STRIKES)
+    } else {
+        None
+    }
+}
+
+/// A record's states (`+0x18`, `0x68BEA0`; docs/re/sound.md, "The states"): at rest, striking,
+/// casting, coming at the hero, following the hero who runs, fleeing from it, and dying.
+const AT_REST: u8 = 0;
+const STRIKING: u8 = 1;
+const CASTING: u8 = 2;
+const COMING: u8 = 3;
+const FOLLOWING: u8 = 4;
+const FLEEING: u8 = 5;
+const DYING: u8 = 6;
+
+/// A record's move against the hero (`+0x1E`, `0x68C6FF`–`0x68C765`): toward it, away from it, or
+/// aside, a record of no step among them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Move {
+    Toward,
+    Away,
+    Aside,
+}
+
+/// How near on each axis a record's step must lie to the line between it and the hero to go
+/// toward it or away from it (`0x68C6FF`).
+const ALONG: f32 = 0.2;
+
+/// The share of the walk or the run above which a record moves, of the stand above which it rests,
+/// of the strike from which it strikes, and of the cast from which it casts, per cent; the hero's
+/// run's share above which the records that come at it follow it instead; how near a record
+/// flees from the hero, in the place's pixels; and its health's per cent below which it dies
+/// (`0x68C773`–`0x68C82F`).
+const MOVES_ABOVE: usize = 50;
+const RESTS_ABOVE: usize = 50;
+const STRIKES_FROM: usize = 31;
+const CASTS_FROM: usize = 2;
+const HERO_RUNS_ABOVE: usize = 70;
+const DIES_BELOW: u64 = 1;
 
 impl Motions {
-    /// Keeps the class of this update and the move from the last.
+    /// Keeps the class of this update and the move from the last ([`Self::step`]).
     fn push(&mut self, class: u8, at: Vec3) {
         self.classes[self.at] = class;
         self.at = (self.at + 1) % self.classes.len();
+        self.step(at);
+    }
+
+    /// Keeps the move from the last update to `at`, and the direction of the move where it moved.
+    fn step(&mut self, at: Vec3) {
         self.moved = self.last.map_or(Vec3::ZERO, |last| (at - last).with_y(0.0));
         self.last = Some(at);
+        if self.moved != Vec3::ZERO {
+            self.heading = self.moved.normalize_or_zero();
+        }
+    }
+
+    /// Keeps this update's class `class` at `at`, none for a slot of no class, then its state
+    /// ([`next_state`]) by its move against the hero at `hero`, the hero's run's share
+    /// `hero_runs` and its `health`.
+    fn keep(
+        &mut self,
+        class: Option<u8>,
+        (at, hero): (Vec3, Vec3),
+        hero_runs: usize,
+        health: &crate::fight::Health,
+    ) {
+        match class {
+            Some(class) => self.push(class, at),
+            None => self.step(at),
+        }
+        let moved = (self.move_against(at, hero), sfx::screen_distance(at, hero));
+        let dies = u64::from(health.current) * 100 < DIES_BELOW * u64::from(health.most);
+        self.state = next_state(self, moved, hero_runs, dies);
+    }
+
+    /// Its state (`+0x18`): what its idle noise plays ([`idle_group`]).
+    pub(crate) fn state(&self) -> u8 {
+        self.state
+    }
+
+    /// The move of the record at `at` against the hero at `hero` (`+0x1E`): its last step's
+    /// direction `d` against the unit vector `u` from the hero to it, by the ground's two axes,
+    /// toward it where `d + u` lies within [`ALONG`] of 0 on both, else away where `d − u` does.
+    fn move_against(&self, at: Vec3, hero: Vec3) -> Move {
+        let u = (at - hero).with_y(0.0).normalize_or_zero();
+        let near = |v: Vec3| v.x.abs() <= ALONG && v.z.abs() <= ALONG;
+        if self.heading == Vec3::ZERO || u == Vec3::ZERO {
+            Move::Aside
+        } else if near(self.heading + u) {
+            Move::Toward
+        } else if near(self.heading - u) {
+            Move::Away
+        } else {
+            Move::Aside
+        }
     }
 
     /// The share of the class `class`, in per cent of the 16 updates.
@@ -1153,6 +1262,59 @@ struct Flight {
     at: usize,
 }
 
+/// The state of a record of `motions` after this update (`0x68C773`–`0x68C82F`; docs/re/sound.md,
+/// "The states"), its move `moved` against the hero, at `distance` of the place's pixels from it,
+/// the hero's run's share `hero_runs`, and whether its health is below 1 % (`+0x2C`): the first
+/// rule that holds of casting where its cast's share is 2 or more (one among the 16); striking
+/// where its strike's is 31 or more; where neither its walk's nor its run's is above 50, at rest
+/// where its stand's is, else as it was; else, with the hero's run 70 or less, coming at it where
+/// it moves toward it and fleeing where it moves away within 500, else as it was; with the hero's
+/// run above 70, following where it moves toward it, else as it was; then dying below 1 %
+/// whatever came before.
+fn next_state(
+    motions: &Motions,
+    (moved, distance): (Move, i32),
+    hero_runs: usize,
+    dies: bool,
+) -> u8 {
+    let state = if motions.share(CASTS) >= CASTS_FROM {
+        CASTING
+    } else if motions.share(STRIKES) >= STRIKES_FROM {
+        STRIKING
+    } else if motions.share(WALKS) <= MOVES_ABOVE && motions.share(RUNS) <= MOVES_ABOVE {
+        if motions.share(STANDS) > RESTS_ABOVE {
+            AT_REST
+        } else {
+            motions.state
+        }
+    } else if hero_runs <= HERO_RUNS_ABOVE {
+        match moved {
+            Move::Toward => COMING,
+            Move::Away if distance < FLEES_WITHIN => FLEEING,
+            _ => motions.state,
+        }
+    } else if moved == Move::Toward {
+        FOLLOWING
+    } else {
+        motions.state
+    };
+    if dies { DYING } else { state }
+}
+
+/// The profile's group of the idle noise of a record in `state` (`0x69B770`): at rest 0, striking
+/// 1 (`ATTACK`), coming at the hero 4 (`FOLLOW`), following the hero who runs 5
+/// (`FOLLOW_HEROFLEE`) and fleeing 6 (`FLEE`); none while it casts or dies.
+fn idle_group(state: u8) -> Option<u8> {
+    match state {
+        AT_REST => Some(IDLE),
+        STRIKING => Some(ATTACK),
+        COMING => Some(4),
+        FOLLOWING => Some(5),
+        FLEEING => Some(6),
+        _ => None,
+    }
+}
+
 /// Whether a creature of `motions` engages in the fight (`0x68BEA0`): a strike's share above 20,
 /// a run's above 30 or a walk's above 50.
 fn engages(motions: &Motions) -> bool {
@@ -1174,8 +1336,10 @@ fn flees(motions: &Motions, at: Vec3, (hero, hero_motions): (Vec3, &Motions)) ->
         && sfx::screen_distance(at, hero) < FLEES_WITHIN
 }
 
-/// The hero sees its foes run (`0x68BEA0`, `FOE_ON_THE_RUN` and `ENEMYFLEES`): at each update the
-/// motions of the creatures hostile to it are kept, the bosses and the champions and those that
+/// The hero sees its foes run (`0x68BEA0`, `FOE_ON_THE_RUN` and `ENEMYFLEES`): at each update, the
+/// world's tick, the records of the creatures hostile to it within the records' reach are kept,
+/// their motions and their states ([`Motions`], [`next_state`]), the bosses and the champions and
+/// those that
 /// engage counted (those nearer than 450 of a level at least the hero's less 2 as engaged); where
 /// more of them flee than 0.6 of the most engaged over the last five updates, more than 20 s
 /// after the hero's last comment, one in five, `rand() % 15` names one of the ten
@@ -1213,7 +1377,13 @@ fn flight(
             &crate::ai::Mind,
             &crate::fight::Health,
             Option<&crate::fight::Ranked>,
-            (Option<&crate::npcs::Walk>, Has<crate::npcs::Strikes>),
+            (
+                Option<&crate::npcs::Walk>,
+                Has<crate::npcs::Strikes>,
+                Has<crate::creature_casts::Casting>,
+                Option<&crate::npcs::ScriptClip>,
+                Option<&crate::npcs::Npc>,
+            ),
             Option<&mut Motions>,
         ),
         (Without<Body>, Without<Dies>),
@@ -1242,26 +1412,46 @@ fn flight(
     };
     state.hero.push(class, hero_at);
     let (mut engaged, mut fleeing) = (0, 0);
-    for (creature, at, mind, of, ranked, (walk, strikes), motions) in &mut creatures {
+    for (creature, at, mind, of, ranked, (walk, strikes, casts, clip, npc), motions) in
+        &mut creatures
+    {
         if !mind.hostile() {
             continue;
         }
         let place = at.translation();
-        let class = match walk {
-            _ if strikes => STRIKES,
-            Some(walk) if walk.runs() => RUNS,
-            Some(_) => WALKS,
-            None => STANDS,
-        };
-        let Some(mut motions) = motions else {
-            if sfx::screen_distance(place, hero_at) < 2 * FLEES_WITHIN {
-                let mut motions = Motions::default();
-                motions.push(class, place);
-                commands.entity(creature).insert(motions);
+        // A record within the reach alone, dropped beyond it and made anew as it comes back
+        // (`0x69CB23`).
+        if !sfx::within_reach(place, Some(hero_at)) {
+            if motions.is_some() {
+                commands.entity(creature).remove::<Motions>();
             }
             continue;
+        }
+        // By the slot in play: the cast's, the strike's, a script clip's own, the walk's, the
+        // run's or the stand's.
+        let class = match (walk, clip) {
+            _ if casts => Some(CASTS),
+            _ if strikes => Some(STRIKES),
+            (_, Some(clip)) => clip_class(clip, npc.map(crate::npcs::Npc::attack_slot)),
+            (Some(walk), None) if walk.runs() => Some(RUNS),
+            (Some(_), None) => Some(WALKS),
+            (None, None) => Some(STANDS),
         };
-        motions.push(class, place);
+        let hero_runs = state.hero.share(RUNS);
+        let Some(mut motions) = motions else {
+            let mut motions = Motions::default();
+            motions.keep(class, (place, hero_at), hero_runs, of);
+            commands.entity(creature).insert(motions);
+            continue;
+        };
+        let was = motions.state;
+        motions.keep(class, (place, hero_at), hero_runs, of);
+        if motions.state != was {
+            debug!(
+                "voices: {creature}'s record goes from the state {was} to {}",
+                motions.state
+            );
+        }
         let marked = ranked.is_some_and(|r| {
             matches!(
                 r.0,
@@ -1511,12 +1701,13 @@ fn play_breath(
     Some(handle)
 }
 
-/// The creatures near the hero make their idle noises at the world's tick: those not hostile to
-/// it in any state, those hostile while they do not fight (the original's state of rest, the
-/// record's `+0xDBC` 0, which `0x68BEA0` keeps from the creature's moves and strikes); the noise
-/// plays as the voices do, at the volume of its place and its own rate.
+/// The creatures near the hero make their idle noises at the world's tick, after their records'
+/// states are kept ([`flight`]): those not hostile to it of their profile's group 0, those hostile
+/// of their state's group, none while they cast or die ([`idle_group`]; a creature of no record
+/// yet at rest); the noise plays as the voices do, at the volume of its place and its own rate.
 #[expect(
     clippy::too_many_arguments,
+    clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments"
 )]
 fn idle(
@@ -1529,6 +1720,7 @@ fn idle(
             &GlobalTransform,
             &crate::ai::Mind,
             Option<&Speaking>,
+            Option<&Motions>,
         ),
         Without<Dies>,
     >,
@@ -1546,7 +1738,7 @@ fn idle(
         return;
     };
     let now = time.elapsed_secs_f64();
-    for (creature, at, mind, speaking) in &creatures {
+    for (creature, at, mind, speaking, record) in &creatures {
         let (near, pan) = sfx::placed_at(at.translation(), Some(listener), *heard);
         let hostile = mind.thinks.hostile();
         // The first list's, the hostile, within the records' reach, silent beyond the hearing;
@@ -1565,11 +1757,16 @@ fn idle(
                 PlaybackState::Playing { .. } | PlaybackState::Queued
             )
         });
-        if speaks || (hostile && mind.thinks.fighting()) {
+        let group = if hostile {
+            idle_group(record.map_or(AT_REST, Motions::state))
+        } else {
+            Some(IDLE)
+        };
+        let Some(group) = group.filter(|_| !speaks) else {
             continue;
-        }
+        };
         let Some((id, file, wait, higher)) =
-            voices.idle_noise(&mut sfx, mind.thinks.creature, hostile)
+            voices.idle_noise(&mut sfx, (mind.thinks.creature, hostile), group)
         else {
             continue;
         };
@@ -1591,8 +1788,8 @@ fn idle(
         ));
         voices.waits.insert(id, now + f64::from(wait));
         debug!(
-            "voices: {creature} makes the idle noise {id}, at {near:.2}, panned {pan:.2}, at a \
-             rate of {rate:.2}"
+            "voices: {creature} makes the idle noise {id} of the group {group}, at {near:.2}, \
+             panned {pan:.2}, at a rate of {rate:.2}"
         );
         commands.entity(creature).insert(Speaking(instance, false));
     }
@@ -1619,14 +1816,16 @@ impl Plugin for VoicesPlugin {
             .init_resource::<NamedLine>()
             .add_systems(bevy::prelude::OnEnter(crate::game::AppState::InGame), names)
             .add_systems(Update, (dies, speak).chain().in_set(Unpaused))
+            .init_resource::<Engaged>()
             .add_systems(
                 Update,
-                idle.after(speak)
+                (flight, idle)
+                    .chain()
+                    .after(speak)
                     .in_set(Unpaused)
                     .run_if(crate::frame::ticked),
             )
-            .init_resource::<Engaged>()
-            .add_systems(Update, (breathe, flight).after(speak).in_set(Unpaused));
+            .add_systems(Update, breathe.after(speak).in_set(Unpaused));
     }
 }
 
@@ -1775,6 +1974,137 @@ mod tests {
         ));
         // A creature that stands does not engage.
         assert!(!engages(&Motions::default()));
+    }
+
+    /// A record of `n` updates of `class` after those of the stand, in the state `state`.
+    fn record(class: u8, n: usize, state: u8) -> Motions {
+        let mut motions = Motions {
+            state,
+            ..Motions::default()
+        };
+        for _ in 0..n {
+            motions.push(class, Vec3::ZERO);
+        }
+        motions
+    }
+
+    #[test]
+    fn a_records_state_follows_its_motions_shares_by_the_first_rule_that_holds() {
+        let near = (Move::Toward, 400);
+        // One cast among the 16 (6 %) casts, before the strike.
+        let mut casting = record(STRIKES, 10, AT_REST);
+        casting.push(CASTS, Vec3::ZERO);
+        assert_eq!(next_state(&casting, near, 0, false), CASTING);
+        // The strike from 31 % (5 of 16); at 25 % (4) at rest, the stand at 75 %.
+        assert_eq!(
+            next_state(&record(STRIKES, 5, AT_REST), near, 0, false),
+            STRIKING
+        );
+        assert_eq!(
+            next_state(&record(STRIKES, 4, STRIKING), near, 0, false),
+            AT_REST
+        );
+        // At rest with the stand above 50 %; at 50 % the state stays.
+        assert_eq!(
+            next_state(&record(WALKS, 7, STRIKING), near, 0, false),
+            AT_REST
+        );
+        assert_eq!(
+            next_state(&record(WALKS, 8, COMING), near, 0, false),
+            COMING
+        );
+        // Walking or running above 50 %: coming at the hero, fleeing from it within 500, aside as
+        // it was; with the hero running above 70 %, following it.
+        let walks = record(WALKS, 9, AT_REST);
+        assert_eq!(next_state(&walks, near, 70, false), COMING);
+        assert_eq!(next_state(&walks, (Move::Away, 499), 70, false), FLEEING);
+        assert_eq!(next_state(&walks, (Move::Away, 500), 70, false), AT_REST);
+        assert_eq!(next_state(&walks, (Move::Aside, 100), 70, false), AT_REST);
+        assert_eq!(
+            next_state(&record(RUNS, 9, AT_REST), near, 75, false),
+            FOLLOWING
+        );
+        assert_eq!(
+            next_state(&record(RUNS, 9, COMING), (Move::Away, 100), 75, false),
+            COMING
+        );
+        // Dying whatever came before.
+        assert_eq!(next_state(&casting, near, 0, true), DYING);
+    }
+
+    #[test]
+    fn a_records_move_is_its_last_steps_against_the_line_to_the_hero() {
+        let hero = Vec3::ZERO;
+        let mut motions = Motions::default();
+        assert_eq!(motions.move_against(Vec3::X * 100.0, hero), Move::Aside);
+        // Walking west toward the hero, then standing: the step's direction is kept.
+        motions.push(WALKS, Vec3::new(110.0, 0.0, 0.0));
+        motions.push(WALKS, Vec3::new(100.0, 0.0, 0.0));
+        assert_eq!(
+            motions.move_against(Vec3::new(100.0, 0.0, 0.0), hero),
+            Move::Toward
+        );
+        motions.push(STANDS, Vec3::new(100.0, 0.0, 0.0));
+        assert_eq!(
+            motions.move_against(Vec3::new(100.0, 0.0, 0.0), hero),
+            Move::Toward
+        );
+        // East, away; a step of 0.3 off the line, aside.
+        motions.push(WALKS, Vec3::new(110.0, 0.0, 0.0));
+        assert_eq!(
+            motions.move_against(Vec3::new(110.0, 0.0, 0.0), hero),
+            Move::Away
+        );
+        motions.push(WALKS, Vec3::new(120.0, 0.0, 3.0));
+        assert_eq!(
+            motions.move_against(Vec3::new(120.0, 0.0, 3.0), hero),
+            Move::Aside
+        );
+        motions.push(WALKS, Vec3::new(130.0, 0.0, 4.0));
+        assert_eq!(
+            motions.move_against(Vec3::new(130.0, 0.0, 4.0), hero),
+            Move::Away
+        );
+    }
+
+    #[test]
+    fn a_hostile_creatures_idle_noise_is_of_its_states_group() {
+        assert_eq!(
+            [
+                AT_REST, STRIKING, CASTING, COMING, FOLLOWING, FLEEING, DYING
+            ]
+            .map(idle_group),
+            [Some(0), Some(1), None, Some(4), Some(5), Some(6), None]
+        );
+        // A new record rests, of the stand's 16 classes, and keeps its state at each update.
+        let health = crate::fight::Health {
+            current: 50,
+            most: 100,
+            level: 1,
+        };
+        let mut motions = Motions::default();
+        assert_eq!(motions.share(STANDS), 100);
+        for x in 0..9 {
+            let at = Vec3::new(300.0 - 10.0 * x as f32, 0.0, 0.0);
+            motions.keep(Some(RUNS), (at, Vec3::ZERO), 0, &health);
+        }
+        assert_eq!(motions.state(), COMING);
+        let dying = crate::fight::Health {
+            current: 0,
+            most: 100,
+            level: 1,
+        };
+        motions.keep(
+            Some(RUNS),
+            (Vec3::new(200.0, 0.0, 0.0), Vec3::ZERO),
+            0,
+            &dying,
+        );
+        assert_eq!(motions.state(), DYING);
+        // A slot of no class pushes nothing: the shares stay.
+        let runs = motions.share(RUNS);
+        motions.keep(None, (Vec3::new(200.0, 0.0, 0.0), Vec3::ZERO), 0, &health);
+        assert_eq!(motions.share(RUNS), runs);
     }
 
     #[test]
