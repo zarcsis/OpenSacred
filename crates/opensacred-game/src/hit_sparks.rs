@@ -261,6 +261,7 @@ mod tests {
                 target,
                 damage: 30,
                 most: 50,
+                shooter: None,
             });
         }
         app.update();
@@ -290,6 +291,7 @@ mod tests {
                 target: on,
                 damage: 60,
                 most: 50,
+                shooter: None,
             });
         }
         app.update();
