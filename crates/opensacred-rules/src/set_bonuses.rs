@@ -220,7 +220,7 @@ pub const TABLE: &[Entry] = &[
     at(32, 3, Skill(16, 6.0)),
     at(32, 4, Skill(18, 6.0)),
     at(32, 5, Multiplier(Damage, &[MAGIC], 0.4)),
-    at(32, 7, CreatureFlag(0x8)),
+    at(32, 7, CreatureFlag(SPRING_FLAG)),
     at(33, 3, Festive),
     at(34, 3, Festive),
     at(35, 3, Festive),
@@ -575,6 +575,29 @@ pub const PIERCES: u32 = 0x1000_0000;
 /// wearer's strikes reach take the effect 38, which the Daemon's breath's fires spare
 /// (`0x56E0A4`; `crate::fight::spared_by_fire`, #3438).
 pub const MARKS_FOR_FIRE: u32 = 0x4;
+/// The creature's flag `+0x1FC` bit 8 (set 32 at 7), by which its Mage keeps the mana's spring
+/// going for as long as he wears the set ([`keeps_spring`]; docs/re/sets.md, "Set 32's spring",
+/// #3634).
+pub const SPRING_FLAG: u32 = 0x8;
+/// The Mage's type, the one whose spring set 32 keeps (`0x57AF1E`).
+const MAGE: u32 = 3;
+/// The spring's spell, by which set 32's effects are keyed, so that its cast is refused while
+/// they hold (`0x51D840`, `0x582B00`).
+pub const SPRING: u32 = 31;
+/// Set 32's marker of the spring it keeps, an effect 40 keyed by [`SPRING`], which adds nothing
+/// to the stats (`0x582D50(40, …, 31)` at `0x57AF53`).
+pub const SPRING_MARK: u32 = 40;
+/// The seconds at which the marker's taker holds it (`0x587378`) and holds the first effect 11,
+/// the spring's (`0x58736A`, `0x57AF9B`), at every second while the set is whole.
+pub const SPRING_MARK_HELD: f32 = 1.0;
+pub const SPRING_HELD: f32 = 10.0;
+
+/// Whether a creature of type `creature`, whose items' sets give it the creature's flags `flags`,
+/// keeps the mana's spring going: a Mage of [`SPRING_FLAG`] (`0x57AF1E`; **seen**: the seventh
+/// piece put on gave the spring with no cast, which held 170 s, #3634).
+pub fn keeps_spring(creature: u32, flags: u32) -> bool {
+    creature == MAGE && flags & SPRING_FLAG != 0
+}
 /// The stats' flag `+0x4F0` bit `0x1000` (set 55 at 8), by which its wearer refuses a knock-back
 /// in two cases of three (`0x55D260`'s query `0x50`; docs/re/sets.md §5, #3437).
 pub const STEADY: u32 = 0x1000;

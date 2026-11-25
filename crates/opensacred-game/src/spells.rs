@@ -3932,6 +3932,121 @@ fn shield(time: Res<Time>, mut commands: Commands, mut shields: Query<(Entity, &
 /// The spells' acts.
 pub struct SpellsPlugin;
 
+/// The hero whose set 32 keeps his spring going, its sight shown about him ([`set_spring`]).
+#[derive(Component)]
+struct SpringKept;
+
+/// Set 32 at seven pieces keeps its Mage's mana spring going for as long as he wears them
+/// (`+0x1FC` bit 8; `0x57AF1E`, `0x586EAF`; docs/re/sets.md, "Set 32's spring", #3634): as the set
+/// is whole, the spring's sight 835 about him and, where he holds no marker, the marker 40 and the
+/// spring's effect 11 at his level of the spell 31 in play, both keyed by it; then, at every frame,
+/// the marker held at a second and the set's effect 11, the last keyed by the spring, at 10 s, a
+/// cast's before it left to run out; taking a piece off ends the sight, the marker and the set's
+/// effect 11 at once (docs/decisions/arts.md, "Set 32's spring held on its own effect"). The
+/// spring's cast is refused meanwhile, as effects keyed by it hold (`making::may_make`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn set_spring(
+    mut commands: Commands,
+    (arts, experience): (Option<Res<crate::arts::HeroArts>>, Res<fight::Experience>),
+    mut heroes: Query<
+        (
+            Entity,
+            &fight::Holding,
+            Option<&mut Effects>,
+            Has<SpringKept>,
+        ),
+        With<Body>,
+    >,
+) {
+    use opensacred_rules::set_bonuses::{
+        SPRING as KEY, SPRING_HELD, SPRING_MARK, SPRING_MARK_HELD, keeps_spring,
+    };
+    let Some(arts) = arts else {
+        return;
+    };
+    for (entity, holding, effects, kept) in &mut heroes {
+        let keeps = keeps_spring(arts.kind, holding.0.sets.creature_flags);
+        let mut effects = effects;
+        let marked = effects
+            .as_deref()
+            .is_some_and(|effects| effects.holds_keyed(SPRING_MARK, KEY));
+        if keeps && !kept {
+            commands.entity(entity).insert(SpringKept);
+            crate::shields::show(
+                &mut commands,
+                crate::shields::Kind::Regen(Regen::Mana),
+                entity,
+                f32::MAX,
+            );
+            if marked {
+                continue;
+            }
+            // A Mage who has not learnt the spell makes it at his items' bonus alone
+            // (**hypothesis**, docs/re/sets.md, "Set 32's spring").
+            let level = arts
+                .arts
+                .level_in_play(
+                    SPRING,
+                    opensacred_rules::arts::Creature {
+                        kind: arts.kind,
+                        level: experience.level,
+                        player: true,
+                    },
+                )
+                .unwrap_or(0);
+            let spring = arts
+                .tables
+                .spells
+                .iter()
+                .find(|s| s.id == SPRING)
+                .map(|record| spells::effects(record, level))
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|(effect, _)| effect.id == 11);
+            info!("spells: set 32 keeps the Mage's spring going at the level {level}");
+            let mark = Effect {
+                art: KEY,
+                ..Effect::new(SPRING_MARK, 0.0)
+            };
+            let mut given = Effects::default();
+            let to = match effects.as_deref_mut() {
+                Some(effects) => effects,
+                None => &mut given,
+            };
+            to.add(mark, SPRING_MARK_HELD);
+            for (effect, _) in spring {
+                to.add(effect, SPRING_HELD);
+            }
+            if effects.is_none() {
+                commands.entity(entity).insert(given);
+            }
+        } else if keeps {
+            if let Some(effects) = effects.as_deref_mut() {
+                effects.hold_last(SPRING_MARK, KEY, SPRING_MARK_HELD);
+                effects.hold_last(11, KEY, SPRING_HELD);
+            }
+        } else if kept || marked {
+            info!("spells: set 32's spring ends with a piece taken off");
+            commands.entity(entity).remove::<SpringKept>();
+            crate::shields::show(
+                &mut commands,
+                crate::shields::Kind::Regen(Regen::Mana),
+                entity,
+                0.0,
+            );
+            if let Some(effects) = effects.as_deref_mut()
+                && marked
+            {
+                effects.remove_last(SPRING_MARK, KEY);
+                effects.remove_last(11, KEY);
+            }
+        }
+    }
+}
+
 impl Plugin for SpellsPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<Acts>()
@@ -3955,7 +4070,7 @@ impl Plugin for SpellsPlugin {
                     skulls,
                     teleport,
                     doom,
-                    fade,
+                    (fade, set_spring),
                 )
                     .chain()
                     .after(Step::Npcs)
@@ -4218,5 +4333,145 @@ mod tests {
         app.update();
         app.update();
         assert!(app.world().resource::<Struck>().0.is_empty());
+    }
+
+    /// A hero of the creature type `kind` wearing what gives the creature's flags `flags`, with
+    /// the spring's record (its effect 11 of `95 + 5·L`, its seconds `70 + 2·L`).
+    fn spring_world(kind: u32, flags: u32) -> (World, Entity) {
+        let mut spring = opensacred_data::tables::Spell {
+            id: SPRING,
+            name: 0,
+            description: 0,
+            short_description: 0,
+            icon: String::new(),
+            sprites: [0; 3],
+            launch: 5,
+            regeneration: [10, 2],
+            effects: [[0, 0]; 13],
+            values: [[0, 0]; 3],
+            caps: [0; 3],
+            element: 0,
+            classes: 4,
+            flags: 0,
+        };
+        spring.effects[11] = [95, 5];
+        spring.values[0] = [70, 2];
+        let mut world = World::new();
+        world.insert_resource(crate::arts::HeroArts {
+            kind,
+            tables: std::sync::Arc::new(opensacred_data::tables::Arts {
+                spells: vec![spring],
+                weapon_arts: Vec::new(),
+            }),
+            ..default()
+        });
+        world.init_resource::<fight::Experience>();
+        let holding = fight::Holding(opensacred_rules::fight::Holds {
+            sets: opensacred_rules::set_bonuses::Stats {
+                creature_flags: flags,
+                ..default()
+            },
+            ..default()
+        });
+        let hero = world.spawn((Body::standing(), holding)).id();
+        (world, hero)
+    }
+
+    fn springs(world: &World, hero: Entity) -> Vec<(u32, u32, f32, f32)> {
+        world.get::<Effects>(hero).map_or_else(Vec::new, |effects| {
+            effects
+                .timed()
+                .iter()
+                .map(|timed| {
+                    (
+                        timed.effect.id,
+                        timed.effect.art,
+                        timed.effect.value,
+                        timed.left,
+                    )
+                })
+                .collect()
+        })
+    }
+
+    #[test]
+    fn set_32_keeps_the_mages_spring_going_until_a_piece_is_taken_off() {
+        use bevy::ecs::system::RunSystemOnce;
+        use opensacred_rules::set_bonuses::SPRING_FLAG;
+        let (mut world, hero) = spring_world(3, SPRING_FLAG);
+        world.run_system_once(set_spring).unwrap();
+        // The marker for a second and the spring at the level 0, the items' bonus alone, held at
+        // 10 s.
+        assert_eq!(
+            springs(&world, hero),
+            [(40, 31, 0.0, 1.0), (11, 31, 0.95, 10.0)]
+        );
+        assert!(world.get::<SpringKept>(hero).is_some());
+        // Held at every frame, given no second time.
+        let mut effects = world.get_mut::<Effects>(hero).unwrap();
+        effects.hold_last(40, 31, 0.2);
+        effects.hold_last(11, 31, 3.0);
+        world.run_system_once(set_spring).unwrap();
+        assert_eq!(
+            springs(&world, hero),
+            [(40, 31, 0.0, 1.0), (11, 31, 0.95, 10.0)]
+        );
+        // A piece taken off ends the marker and the spring at once.
+        world
+            .get_mut::<fight::Holding>(hero)
+            .unwrap()
+            .0
+            .sets
+            .creature_flags = 0;
+        world.run_system_once(set_spring).unwrap();
+        assert_eq!(springs(&world, hero), []);
+        assert!(world.get::<SpringKept>(hero).is_none());
+    }
+
+    #[test]
+    fn set_32_holds_its_own_spring_and_leaves_a_cast_one_to_run_out() {
+        use bevy::ecs::system::RunSystemOnce;
+        use opensacred_rules::set_bonuses::SPRING_FLAG;
+        let (mut world, hero) = spring_world(3, SPRING_FLAG);
+        let mut cast = Effects::default();
+        cast.add(
+            Effect {
+                art: 31,
+                ..Effect::new(11, 1.2)
+            },
+            80.0,
+        );
+        world.entity_mut(hero).insert(cast);
+        world.run_system_once(set_spring).unwrap();
+        // The set's own held at 10 s, the cast's left to its own end (seen, #3634).
+        assert_eq!(
+            springs(&world, hero),
+            [
+                (11, 31, 1.2, 80.0),
+                (40, 31, 0.0, 1.0),
+                (11, 31, 0.95, 10.0)
+            ]
+        );
+        // A piece taken off ends the set's own alone.
+        world
+            .get_mut::<fight::Holding>(hero)
+            .unwrap()
+            .0
+            .sets
+            .creature_flags = 0;
+        world.run_system_once(set_spring).unwrap();
+        assert_eq!(springs(&world, hero), [(11, 31, 1.2, 80.0)]);
+    }
+
+    #[test]
+    fn set_32_keeps_no_spring_for_another_type_nor_for_six_pieces() {
+        use bevy::ecs::system::RunSystemOnce;
+        use opensacred_rules::set_bonuses::SPRING_FLAG;
+        for (kind, flags) in [(1, SPRING_FLAG), (3, 0)] {
+            let (mut world, hero) = spring_world(kind, flags);
+            world.run_system_once(set_spring).unwrap();
+            assert_eq!(springs(&world, hero), []);
+            assert!(world.get::<SpringKept>(hero).is_none());
+        }
     }
 }

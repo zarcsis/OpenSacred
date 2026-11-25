@@ -208,6 +208,36 @@ impl Effects {
         }
     }
 
+    /// The place of the last effect of `id` keyed by `art`, the latest given.
+    fn last_keyed(&self, id: u32, art: u32) -> Option<usize> {
+        self.0
+            .iter()
+            .rposition(|timed| timed.effect.id == id && timed.effect.art == art)
+    }
+
+    /// Whether an effect of `id` keyed by `art` holds.
+    pub fn holds_keyed(&self, id: u32, art: u32) -> bool {
+        self.last_keyed(id, art).is_some()
+    }
+
+    /// The last effect of `id` keyed by `art` held at `seconds` left; whether one holds.
+    pub fn hold_last(&mut self, id: u32, art: u32, seconds: f32) -> bool {
+        match self.last_keyed(id, art) {
+            Some(at) => {
+                self.0[at].left = seconds;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Takes off the last effect of `id` keyed by `art`.
+    pub fn remove_last(&mut self, id: u32, art: u32) {
+        if let Some(at) = self.last_keyed(id, art) {
+            self.0.remove(at);
+        }
+    }
+
     /// Whether an effect of `id` holds.
     pub fn holds(&self, id: u32) -> bool {
         self.0.iter().any(|timed| timed.effect.id == id)
