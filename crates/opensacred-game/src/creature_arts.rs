@@ -45,22 +45,65 @@ const ATTACKE_BEYOND: f32 = 45.0;
 
 /// A creature ordered to make the weapon art `art` at `target` (the AI's state 11), which
 /// [`start`] takes up.
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Ordered {
     pub art: u16,
+    #[serde(with = "crate::names::required")]
     pub target: Entity,
+}
+
+impl bevy::ecs::entity::MapEntities for Ordered {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = mapper.get_mapped(self.target);
+    }
+}
+
+/// A creature's order to make an art, which a save keeps with its target by its name (#3766), a
+/// target that the load finds not none's, as a target gone in play.
+impl crate::doings::Saves for Ordered {
+    type Saved = Ordered;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 /// A creature making a weapon art: its target, its style, its level in play and the factor its
 /// strikes carry, while its clip plays ([`ScriptClip::art`]), and what a boon gives it at its
 /// point ([`ScriptClip::boon`]).
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Makes {
+    #[serde(with = "crate::names::required")]
     target: Entity,
     style: Style,
     level: u32,
     factor: f32,
     boon: Option<(u16, arts::Boon)>,
+}
+
+impl bevy::ecs::entity::MapEntities for Makes {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = mapper.get_mapped(self.target);
+    }
+}
+
+/// A creature's art in course, which a save keeps with its target by its name (#3766), a target
+/// that the load finds not none's, as a target gone in play; its clip, the scripts' clip, plays
+/// anew at a load ([`crate::npcs::SavedScriptClip`]).
+impl crate::doings::Saves for Makes {
+    type Saved = Makes;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(self.clone())
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 /// Starts each order: the class's slot of the art for what the creature holds, played once; an
@@ -398,12 +441,29 @@ const LEAP_CLIP: f32 = 1.22;
 /// it stands to the point as a hero's jump flies (`making::Leap`: a quarter of the clip's time,
 /// `d/12` high at its middle, `0x44DED0`, `0x44DFE0`), where it lands; once less than 0.6 is
 /// left, its art over and its mark `0x210`, whose bow it takes (`0x50B52F`). It strikes nothing.
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Leaps {
     to: Vec3,
     rate: f32,
     /// Once it flies, the seconds until its art is over.
     over: Option<f32>,
+}
+
+impl bevy::ecs::entity::MapEntities for Leaps {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// A creature's leap of an art, which a save keeps (#3766).
+impl crate::doings::Saves for Leaps {
+    type Saved = Leaps;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 impl Leaps {
@@ -493,12 +553,33 @@ fn leaps(
 
 /// A minimummy's volley of daggers at `target` (#2575): the throws left after the one in its hand,
 /// the seconds until it throws that one, and whether a dagger it threw still flies.
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Volley {
+    #[serde(with = "crate::names::required")]
     target: Entity,
     more: u8,
     wait: f32,
     flying: bool,
+}
+
+impl bevy::ecs::entity::MapEntities for Volley {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = mapper.get_mapped(self.target);
+    }
+}
+
+/// A creature's volley in course, which a save keeps with its target by its name (#3766), a
+/// target that the load finds not none's, as a target gone in play.
+impl crate::doings::Saves for Volley {
+    type Saved = Volley;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 impl Volley {
@@ -1073,5 +1154,81 @@ mod tests {
             .insert(crate::effects::Effects::default());
         app.update();
         assert!(!app.world().get::<Mind>(druid).unwrap().ranged);
+    }
+
+    #[test]
+    fn a_creatures_art_saved_strikes_the_creature_of_its_targets_name() {
+        use crate::doings::Doing;
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut saved = App::new();
+        saved.add_plugins(NamesPlugin);
+        let hero = saved.world_mut().spawn(Named(Id::Hero)).id();
+        let gone = saved.world_mut().spawn_empty().id();
+        let boon = arts::Boon {
+            point: 0.65,
+            effects: vec![(opensacred_rules::fight::Effect::new(17, 1.0), 31.0)],
+            clears: Vec::new(),
+            starts: Vec::new(),
+            replaces: vec![3],
+            ends: true,
+        };
+        let makes = Makes {
+            target: hero,
+            style: Style::Bolts,
+            level: 3,
+            factor: 1.5,
+            boon: Some((casts::ICE_DRUIDS_BOLTS, boon)),
+        };
+        let volley = Volley {
+            target: gone,
+            more: 2,
+            wait: 0.4,
+            flying: true,
+        };
+        let druid = saved
+            .world_mut()
+            .spawn((Named(Id::Born(7)), makes.clone(), volley))
+            .id();
+        let mut refs = Refs::default();
+        let doing = mapped(
+            Doing::of(saved.world(), druid).unwrap(),
+            &mut Saving {
+                world: saved.world(),
+                refs: &mut refs,
+            },
+        );
+        let bytes = postcard::to_stdvec(&(&refs, &doing)).unwrap();
+        let (refs, doing): (Refs, Doing) = postcard::from_bytes(&bytes).unwrap();
+        // The loaded world makes the hero at another slot; the unnamed one a save names not.
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..5).map(|_| ()));
+        let again = loaded.world_mut().spawn(Named(Id::Hero)).id();
+        let druid = loaded.world_mut().spawn(Named(Id::Born(7))).id();
+        let doing = mapped(
+            doing,
+            &mut Loading {
+                refs: &refs,
+                names: loaded.world().resource::<Names>(),
+                lost: 0,
+            },
+        );
+        doing.give(loaded.world_mut(), druid);
+        let world = loaded.world();
+        assert_eq!(
+            world.get::<Makes>(druid),
+            Some(&Makes {
+                target: again,
+                ..makes
+            })
+        );
+        // The volley at none, as at a target gone in play.
+        assert_eq!(
+            world.get::<Volley>(druid),
+            Some(&Volley {
+                target: Entity::PLACEHOLDER,
+                ..volley
+            })
+        );
     }
 }

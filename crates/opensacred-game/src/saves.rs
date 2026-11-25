@@ -118,8 +118,8 @@ use crate::{arts, drops, making};
 /// version 59 the sectors' `Enter` creatures as they stood (#3761); the version 60 the bodies
 /// (#3762); the version 61 the hero's orders and the drops' names (#3763); the version 62 the hero's
 /// arts and combo under way (#3764); the version 63 the special arts' states and the blasts
-/// (#3765).
-pub const VERSION: u32 = 63;
+/// (#3765); the version 64 the creatures' casts and arts (#3766).
+pub const VERSION: u32 = 64;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -1891,7 +1891,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (63, 0xA9E9_E8B5_9BEE_1789),
+            (64, 0xED78_90B7_F449_7970),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
