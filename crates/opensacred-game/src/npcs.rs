@@ -1356,6 +1356,10 @@ pub struct Npcs {
     /// A loaded save's queues of the kept creatures, by their placements, which each takes again
     /// as its sector brings it back ([`Creatures`], #2890).
     queues: HashMap<usize, SavedQueue>,
+    /// A loaded save's `Enter` creatures of the sectors that were in the world, by their
+    /// placements: where each stood, or none where it was killed, which each takes at its
+    /// sector's first coming after the load alone ([`entered_again`], #3761).
+    entered: HashMap<usize, Option<Stood>>,
     /// The sectors come in with no creatures kept whose waters' crabs and fish wait for the
     /// sectors about them ([`swimmers`]).
     waters: Vec<(u32, u32)>,
@@ -1461,6 +1465,10 @@ struct Kept {
     /// The world's time since the game began, in seconds, which a pause stands and a save keeps:
     /// the respawn's gate's clock, in place of the original's real clock.
     clock: f64,
+    /// The sectors that were in the world at a save, whose first coming after its load puts back
+    /// what they kept whatever the gate and the region, as their creatures stood in the world
+    /// (#3761), as the original's sectors of the bit `0x800` run no `Enter` at a load.
+    standing: HashSet<(u32, u32)>,
 }
 
 /// The respawn's bounds (`Respawn`, `DungeonRespawn` of the balance): the seconds a sector waits
@@ -1536,6 +1544,9 @@ impl Kept {
         region_of: impl Fn((u32, u32)) -> u16,
     ) -> Entered {
         let back = self.filled.remove(&at).unwrap_or_default();
+        if self.standing.remove(&at) {
+            return Entered { back, fill: false };
+        }
         let Some(region) = filling else {
             return Entered { back, fill: false };
         };
@@ -5346,6 +5357,7 @@ impl Npcs {
             last_enter: None,
             kept: Kept::default(),
             queues: HashMap::new(),
+            entered: HashMap::new(),
             waters: Vec::new(),
             drawn: HashSet::new(),
             riding: 0,
@@ -6191,6 +6203,8 @@ fn place_index(
     let kept = !placement.object && !placement.made.0;
     let again = if kept {
         npcs.kept.again(index)
+    } else if !placement.object {
+        entered_again(&mut npcs.entered, index)
     } else {
         Again::Anew
     };
@@ -7259,10 +7273,16 @@ pub struct Creatures {
     kept: Kept,
     placements: Vec<(usize, Placement)>,
     queues: Vec<(usize, SavedQueue)>,
+    /// The `Enter` creatures of the sectors in the world, by their placements: where each stood,
+    /// or none where it was killed (#3761), as the original's sectors of the bit `0x800` run no
+    /// `Enter` at a load and their creatures come back from the save as they stood (docs/re/
+    /// saves.md, "The file").
+    entered: Vec<(usize, Option<Stood>)>,
 }
 
 /// The creatures as a save keeps them ([`Creatures`]); none without the NPCs.
 pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
+    let entered = entered_of(world);
     let mut standing = world.query_filtered::<(
         &Placed,
         (
@@ -7335,7 +7355,10 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
         gone.push((placed, stood));
     }
     queues.sort_by_key(|&(index, _)| index);
-    let kept = npcs.kept.with_gone(gone);
+    let mut kept = npcs.kept.with_gone(gone);
+    if let Some(streamer) = world.get_resource::<Streamer>() {
+        kept.standing = streamer.sectors().collect();
+    }
     // The placements of those that went living or lying before; a killed one's comes back no
     // more.
     for (&index, went) in &kept.went {
@@ -7349,7 +7372,72 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
         kept,
         placements,
         queues,
+        entered,
     })
+}
+
+/// The `Enter` creatures of the sectors in `world`, by their placements, as a save keeps them
+/// (#3761): where each living one stands, or its body lies that its dialogue holds, and none for
+/// each that is not in the world, killed; a follower goes with the hero.
+fn entered_of(world: &mut bevy::prelude::World) -> Vec<(usize, Option<Stood>)> {
+    let mut made = world.query_filtered::<(
+        &PlacementIndex,
+        (
+            &Transform,
+            Option<&crowd::InTheWay>,
+            Option<&crate::riding::Ridden>,
+            Option<&Corpse>,
+        ),
+        Option<&fight::Health>,
+        (Has<Dies>, Has<Talk>, Has<crate::undead::Marked>),
+    ), (Without<Placed>, Without<crate::followers::Follower>)>();
+    let world = &*world;
+    let (Some(npcs), Some(streamer)) = (
+        world.get_resource::<Npcs>(),
+        world.get_resource::<Streamer>(),
+    ) else {
+        return Vec::new();
+    };
+    let heights = world.get_resource::<Heights>();
+    let standing: HashMap<usize, Option<Stood>> = made
+        .iter(world)
+        .filter(|(index, ..)| {
+            npcs.placements
+                .get(index.0)
+                .is_some_and(|placement| placement.made.0 && !placement.object)
+        })
+        .map(
+            |(index, (at, way, ridden, corpse), health, (dying, held, marked))| {
+                let stood = level_of(way, ridden, corpse)
+                    .and_then(|level| stood_of((at, level), health, (dying, held), heights))
+                    .map(|stood| Stood { marked, ..stood });
+                (index.0, stood)
+            },
+        )
+        .collect();
+    let mut entered: Vec<(usize, Option<Stood>)> = streamer
+        .sectors()
+        .flat_map(|at| npcs.by_sector.get(&at).into_iter().flatten().copied())
+        .filter(|&index| {
+            npcs.placements
+                .get(index)
+                .is_some_and(|placement| placement.made.0 && !placement.object)
+        })
+        .map(|index| (index, standing.get(&index).copied().flatten()))
+        .collect();
+    entered.sort_by_key(|&(index, _)| index);
+    entered.dedup_by_key(|&mut (index, _)| index);
+    entered
+}
+
+/// What becomes of the `Enter` creature of the placement `index` as its sector comes in, a
+/// loaded save's first coming taking where it stood or that it was killed, once (#3761).
+fn entered_again(entered: &mut HashMap<usize, Option<Stood>>, index: usize) -> Again {
+    match entered.remove(&index) {
+        None => Again::Anew,
+        Some(Some(stood)) => Again::AtStood(stood),
+        Some(None) => Again::Not,
+    }
 }
 
 /// A follower of the hero as a save keeps it (#1959): what it is made of, where it stands on which
@@ -9918,6 +10006,7 @@ impl Npcs {
         );
         self.kept = creatures.kept;
         self.queues = creatures.queues.into_iter().collect();
+        self.entered = creatures.entered.into_iter().collect();
         // Each that lives away comes back with the sector of where it stood or is to be made,
         // which a save's play may have left it filed apart from (#2448, #2453), and each body
         // with the sector where it lies: a follower's with none (#2457).
@@ -17571,6 +17660,7 @@ mod tests {
             kept: saved,
             placements: vec![(7, goblin_made)],
             queues: vec![(7, SavedQueue(vec![walk.clone(), waits]))],
+            entered: Vec::new(),
         };
         // Through the save's bytes, as a load puts them back.
         let bytes = postcard::to_stdvec(&creatures).unwrap();
@@ -17847,6 +17937,28 @@ mod tests {
     }
 
     #[test]
+    fn an_enter_creature_comes_back_as_it_stood_or_not_once_after_a_load() {
+        let stood = Stood {
+            cell: (3236, 2511),
+            layer: 0,
+            heading: 45.0,
+            health: fight::Health {
+                current: 12,
+                most: 30,
+                level: 2,
+            },
+            marked: false,
+        };
+        let mut entered: HashMap<usize, Option<Stood>> = [(7, Some(stood)), (8, None)].into();
+        assert_eq!(entered_again(&mut entered, 7), Again::AtStood(stood));
+        assert_eq!(entered_again(&mut entered, 8), Again::Not);
+        assert_eq!(entered_again(&mut entered, 9), Again::Anew);
+        // At its next coming its `Enter` makes it anew.
+        assert_eq!(entered_again(&mut entered, 7), Again::Anew);
+        assert_eq!(entered_again(&mut entered, 8), Again::Anew);
+    }
+
+    #[test]
     fn a_walk_goes_on_to_its_target_after_a_load_its_course_found_anew() {
         use crate::doings::{Moment, Saves};
         let mut walk = Walk::to(Vec3::new(10.0, 0.0, 20.0), Some((50, 39, 2)), 70.0);
@@ -17891,6 +18003,13 @@ mod tests {
         kept.clock = 250.0;
         let back = kept.enter((50, 39), Some(1), 300.0, region_of);
         assert_eq!((back.fill, back.back.len()), (false, 1));
+        // A sector that stood in the world at a save puts back what it kept at its first coming
+        // after the load, whatever the gate and the region, and is as any after.
+        kept.standing.insert((50, 39));
+        kept.gone(&wolf, Some(stood));
+        let first = kept.enter((50, 39), Some(1), 300.0, region_of);
+        assert_eq!((first.fill, first.back.len()), (false, 1));
+        assert!(kept.standing.is_empty());
         // Past the bound it passes: kept a time, its region the last, nothing anew.
         kept.clock = 301.0;
         assert!(!kept.enter((50, 39), Some(1), 300.0, region_of).fill);
