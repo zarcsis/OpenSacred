@@ -50,10 +50,8 @@ pub(crate) const REFUSED_TINT: Color = tinted(0xFF, 0x00, 0x00);
 /// cells' mark `0x40`, `0x5DC430`; `pickup::Pack::give_marked`, #3543): a pale olive yellow over
 /// the item's own, seen over the red of an item the hero cannot use.
 const MARKED_TINT: Color = tinted(0xFF, 0xFF, 0x80);
-/// The render layer of the items' models, and the light their camera gives them (**estimate**).
+/// The render layer of the items' models.
 const ITEMS: usize = 10;
-pub(crate) const AMBIENT: f32 = 600.0;
-pub(crate) const LIGHT: f32 = 3_000.0;
 /// The sockets' icons (`cInventoryEntry_render`): the first of an empty socket's and of a filled
 /// one's, of the kind 1 (bronze), then 2 (silver) and 3 (gold), the kind 4 as 3 (`0x5BE9E0`); how
 /// many of an item's sockets show theirs, and how far over its bottom edge they stand.
@@ -106,8 +104,8 @@ pub(crate) fn cell_in(at: Vec2, (columns, rows): (u8, u8)) -> Option<(u8, u8)> {
     Some((u8::try_from(column).ok()?, u8::try_from(row).ok()?))
 }
 
-/// A model whose parts take its render layer and a copy of their materials that reflects no light
-/// (`layer`): the grid's items and the held one (`held`).
+/// A model whose parts take its render layer and an unlit copy of their materials (`layer`): the
+/// interface's items, the grid's, the worn ones, the held one (`held`) and the others.
 #[derive(Component)]
 pub(crate) struct Matte;
 
@@ -361,7 +359,7 @@ pub(crate) fn lay_icons(
 /// Makes a picture of `size` at the corner of the container `parent`, of the window's pixels
 /// (`scale` of the original's), that a camera of the render layer `layer` draws the items' models
 /// into, a unit of the models a pixel of the original's screen from the picture's top left (the
-/// rows going down), its light with it, both `scene`; its target follows the window's size
+/// rows going down), the camera `scene`; its target follows the window's size
 /// (`item_pictures::WindowPixels`).
 pub(crate) fn spawn_picture<S: Component + Clone>(
     commands: &mut Commands,
@@ -388,17 +386,6 @@ pub(crate) fn spawn_picture<S: Component + Clone>(
             (item_pictures::WindowPixels::Part(size), size),
             (-2, layer),
         ),
-    ));
-    commands.spawn((
-        scene,
-        DirectionalLight {
-            illuminance: LIGHT,
-            shadow_maps_enabled: false,
-            ..default()
-        },
-        Transform::from_xyz(-0.5, 1.0, 1.0).looking_at(Vec3::ZERO, Vec3::Y),
-        RenderLayers::layer(layer),
-        DespawnOnExit(AppState::InGame),
     ));
 }
 
@@ -642,9 +629,10 @@ type Part = (
 );
 
 /// Puts each part of the items' models into their camera's layer as their scenes come in, and
-/// gives it a copy of its material that reflects no light (**estimate**): the original lights an
-/// item by its colour alone, where the ambient light's reflection of 4% would lift its darks to a
-/// grey. The copy tests its texels' alpha as the original's every model (`models::CUTOFF`,
+/// gives it an unlit copy of its material: the original's item draw turns the lighting off but for
+/// an object of a second texture, which no item of a game of one player is known to have, so that
+/// an item shows its texture's colours with no shade (`0x40E9C0` at `0x40EFEC`, `0x40F270`;
+/// docs/re/drawing.md, "The models drawn apart", #3720). The copy tests its texels' alpha as the original's every model (`models::CUTOFF`,
 /// `cGranny::render`), which the converted glTF's opaque material does not (#1679): the
 /// smith's upgrade's round token lies on transparent corners. A part over its type's effect of the
 /// kinds 1 to 4 (`models::Effect`) takes the copy over it instead once its textures are in, as the
@@ -700,7 +688,7 @@ pub(crate) fn layer(
                 copy.clone()
             } else if let Some(source) = materials.get(id).cloned() {
                 let copy = materials.add(StandardMaterial {
-                    reflectance: 0.0,
+                    unlit: true,
                     alpha_mode: AlphaMode::Mask(crate::models::CUTOFF),
                     ..source
                 });
@@ -719,7 +707,7 @@ pub(crate) fn layer(
             let made = over.get(&id).cloned().or_else(|| {
                 let source = materials.get(id)?.clone();
                 let base = StandardMaterial {
-                    reflectance: 0.0,
+                    unlit: true,
                     ..source
                 };
                 let made = making.over(base, effect)?;

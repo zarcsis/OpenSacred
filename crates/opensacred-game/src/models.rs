@@ -583,6 +583,24 @@ pub struct Pulse(pub Handle<Image>);
 #[derive(Component, Clone, Debug)]
 pub struct Bands(pub Handle<StandardMaterial>);
 
+/// A mesh of the kind 9's bands ([`Bands`]) while they show, drawn after the night's pass, which
+/// leaves it as it is, and its own render layers, which it takes again without them: the original
+/// draws the bands unlit and added in one white vertex colour, which no night's light darkens
+/// (`0x406576`, `0x406EDA`; docs/re/drawing.md, "The band by night", #3720).
+#[derive(Component, Clone, Debug)]
+struct AfterNight(Option<RenderLayers>);
+
+impl AfterNight {
+    /// The render layers of its mesh with its bands shown or not.
+    fn layers(&self, shown: bool) -> Option<RenderLayers> {
+        if shown {
+            Some(RenderLayers::layer(iso::UNTINTED))
+        } else {
+            self.0.clone()
+        }
+    }
+}
+
 /// A mesh of a model of an effect ([`Effect`], [`Bands`]) and its two model materials: plain, as
 /// `cGranny::render` draws a flagged type at the options' detail 0, and over its effect, as
 /// `renderComplex` draws it above (`0x44A8C0`), between which [`follow_detail`] chooses as the
@@ -869,6 +887,7 @@ type ModelMesh = (
     Option<&'static Effect>,
     Option<&'static Pulse>,
     Option<&'static Bands>,
+    Option<&'static RenderLayers>,
 );
 
 /// The model materials of the glTF material `material` (`base`) drawn as it is, made once
@@ -977,9 +996,10 @@ pub fn convert(
             continue;
         };
         let mut made_of = Vec::new();
+        let mut banded = Vec::new();
         let mut pulses = Vec::new();
         for entity in children.iter_descendants(model) {
-            let Ok((material, .., effect, pulse, bands)) = meshes.get(entity) else {
+            let Ok((material, .., effect, pulse, bands, _)) = meshes.get(entity) else {
                 continue;
             };
             let Some(base) = standard.get(&material.0) else {
@@ -1062,6 +1082,7 @@ pub fn convert(
                 ) else {
                     continue 'models;
                 };
+                banded.push(entity);
                 Some(added.mesh)
             } else {
                 None
@@ -1089,6 +1110,16 @@ pub fn convert(
                     with.visibility(shown),
                 ),
             );
+        }
+        // The bands draw after the night's pass while they show (#3720).
+        for entity in banded {
+            let after = AfterNight(meshes.get(entity).ok().and_then(|mesh| mesh.8.cloned()));
+            let mut mesh = commands.entity(entity);
+            match after.layers(shown) {
+                Some(layers) => mesh.insert(layers),
+                None => mesh.remove::<RenderLayers>(),
+            };
+            mesh.insert(after);
         }
         for (entity, Made { mesh: own, fringe }, over) in made_of {
             let dressed = over.is_some();
@@ -1133,11 +1164,22 @@ pub fn convert(
 /// of the detail, unless a skin's lies on it (`skins`), which gives the mesh back the one it took
 /// and which this then changes; and the copies of [`WithEffect`] shown or hidden.
 fn follow_detail(
+    mut commands: Commands,
     settings: Option<Res<crate::settings::Settings>>,
     mut meshes: Query<(&Dressed, &mut MeshMaterial3d<ModelMaterial>)>,
     mut copies: Query<(&WithEffect, &mut Visibility)>,
+    banded: Query<(Entity, &AfterNight, Option<&RenderLayers>)>,
 ) {
     let shown = crate::model_effects::shown(settings.as_deref());
+    for (entity, after, layers) in &banded {
+        let wanted = after.layers(shown);
+        if layers != wanted.as_ref() {
+            match wanted {
+                Some(layers) => commands.entity(entity).insert(layers),
+                None => commands.entity(entity).remove::<RenderLayers>(),
+            };
+        }
+    }
     for (dressed, mut material) in &mut meshes {
         // Borrowed mutably only to change it.
         if material.0 == *dressed.material(!shown) {
@@ -1296,6 +1338,18 @@ mod tests {
 
     use super::*;
     use crate::statics::tests::{ORDER, shader_constant};
+
+    #[test]
+    fn the_bands_draw_after_the_night_while_they_show_and_in_their_own_layers_else() {
+        let own = AfterNight(Some(RenderLayers::layer(3)));
+        assert_eq!(own.layers(true), Some(RenderLayers::layer(iso::UNTINTED)));
+        assert_eq!(own.layers(false), Some(RenderLayers::layer(3)));
+        assert_eq!(
+            AfterNight(None).layers(true),
+            Some(RenderLayers::layer(iso::UNTINTED))
+        );
+        assert_eq!(AfterNight(None).layers(false), None);
+    }
 
     #[test]
     fn a_models_gltf_stays_loaded_while_the_model_stands() {

@@ -284,9 +284,8 @@ fn view(size: Vec2) -> (Projection, Transform) {
 }
 
 /// A picture's camera of the order `order` that draws the render layer `layer` into `target`, of
-/// `picture` (`size` in the original's pixels): lit by an ambient light and the directional
-/// light of its layer alone, drawn only after a change ([`DrawnOnChange`]), its target following
-/// the window's size ([`WindowPixels`]).
+/// `picture` (`size` in the original's pixels): its items unlit (`backpack::layer`), drawn only
+/// after a change ([`DrawnOnChange`]), its target following the window's size ([`WindowPixels`]).
 pub(crate) fn camera(
     target: Handle<Image>,
     (picture, size): (WindowPixels, Vec2),
@@ -307,13 +306,8 @@ pub(crate) fn camera(
             Tonemapping::None,
             DebandDither::Disabled,
         ),
-        // Lit by an ambient and a directional light alone: one cluster for the lights (#2664).
+        // No light: one cluster (#2664).
         bevy::light::cluster::ClusterConfig::Single,
-        AmbientLight {
-            color: Color::WHITE,
-            brightness: crate::backpack::AMBIENT,
-            affects_lightmapped_meshes: true,
-        },
         RenderLayers::layer(layer),
         Apart,
         DrawnOnChange::default(),
