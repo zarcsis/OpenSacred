@@ -315,6 +315,7 @@ Read 2026-11-08 for #2288 in the code (**confirmed** where not marked), and seen
 ## Saves, loads and teleports
 
 - The hero's save appends his horse to his own objects after his 19 slots (`0x604C85`–`0x604D06`); his load (`ItemDataMgr::loadHero`, `0x6058A0`) restores it unmounted and linked to him again; where it stands then is not read.
+  That is the hero's file's (docs/02 §9): a game's save keeps both creatures' records, the slot 18 that links them and the engine's controlled object, and its load puts a hero that rode back on his horse (**seen** 2026-11-25 for #3739, after a quick load and after a load in a new run; docs/re/saves.md, "What a load puts back").
 - `sdk_ENGINE_TP` moves a mounted hero's horse instead of him (docs/re/netscript.md); `Teleport` puts a creature onto a dungeon's cell only where neither its `+0x1EC` nor its `+0x570` names a player (`0x4921BE`–`0x49225B`).
 - The script condition `0x40` (`0x4987B0`) counts the hero's horse among his followers.
 
