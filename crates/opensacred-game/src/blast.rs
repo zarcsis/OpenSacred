@@ -37,6 +37,68 @@ pub struct Blasting {
     touched: Vec<Entity>,
 }
 
+/// A blast as a save keeps it (#3765): its caster and the creatures it touched by their names.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedBlasting {
+    #[serde(with = "crate::names::required")]
+    caster: Entity,
+    blast: Blast,
+    level: Level,
+    art_level: u32,
+    at: Vec3,
+    time: f32,
+    radius: f32,
+    #[serde(with = "crate::names::many")]
+    touched: Vec<Entity>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedBlasting {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.caster = mapper.get_mapped(self.caster);
+        for touched in &mut self.touched {
+            *touched = mapper.get_mapped(*touched);
+        }
+    }
+}
+
+/// The blasts spreading, as a save keeps them.
+pub fn saved(world: &mut World) -> Vec<SavedBlasting> {
+    let mut blasts = world.query::<&Blasting>();
+    blasts
+        .iter(world)
+        .map(|blasting| SavedBlasting {
+            caster: blasting.caster,
+            blast: blasting.blast,
+            level: blasting.level,
+            art_level: blasting.art_level,
+            at: blasting.at,
+            time: blasting.time,
+            radius: blasting.radius,
+            touched: blasting.touched.clone(),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's blasts again, spreading on, their references mapped already.
+pub fn again(world: &mut World, blasts: Vec<SavedBlasting>) {
+    for saved in blasts {
+        world.spawn(Blasting {
+            caster: saved.caster,
+            blast: saved.blast,
+            level: saved.level,
+            art_level: saved.art_level,
+            at: saved.at,
+            time: saved.time,
+            radius: saved.radius,
+            touched: saved
+                .touched
+                .into_iter()
+                .filter(|&entity| entity != Entity::PLACEHOLDER)
+                .collect(),
+        });
+    }
+}
+
 impl Blasting {
     /// The blast `blast` of `caster`'s charge of the level in play `art_level` at `at`, on
     /// `level`.

@@ -117,8 +117,9 @@ use crate::{arts, drops, making};
 /// the hero's attack mid-way (#3759); the version 58 the arrows and the bolts in flight (#3760); the
 /// version 59 the sectors' `Enter` creatures as they stood (#3761); the version 60 the bodies
 /// (#3762); the version 61 the hero's orders and the drops' names (#3763); the version 62 the hero's
-/// arts and combo under way (#3764).
-pub const VERSION: u32 = 62;
+/// arts and combo under way (#3764); the version 63 the special arts' states and the blasts
+/// (#3765).
+pub const VERSION: u32 = 63;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -326,6 +327,8 @@ pub struct Things {
     pub arrows: Vec<crate::arrows::SavedArrow>,
     pub stuck: Vec<crate::arrows::SavedStuck>,
     pub bolts: Vec<crate::bolts::SavedBolt>,
+    /// The blasts spreading (#3765).
+    pub blasts: Vec<crate::blast::SavedBlasting>,
 }
 
 impl MapEntities for Things {
@@ -333,6 +336,7 @@ impl MapEntities for Things {
         self.arrows.map_entities(mapper);
         self.stuck.map_entities(mapper);
         self.bolts.map_entities(mapper);
+        self.blasts.map_entities(mapper);
     }
 }
 
@@ -340,11 +344,13 @@ impl MapEntities for Things {
 fn things_of(world: &mut bevy::prelude::World, refs: &mut Refs) -> Things {
     let (arrows, stuck) = crate::arrows::saved(world);
     let bolts = crate::bolts::saved(world);
+    let blasts = crate::blast::saved(world);
     crate::names::mapped(
         Things {
             arrows,
             stuck,
             bolts,
+            blasts,
         },
         &mut Saving { world, refs },
     )
@@ -1067,6 +1073,7 @@ fn resume(world: &mut bevy::prelude::World) {
     let lost = lost + lost_things;
     crate::arrows::again(world, (things.arrows, things.stuck));
     crate::bolts::again(world, things.bolts);
+    crate::blast::again(world, things.blasts);
     info!(
         "saves: what lives is back after {frames} frames: {given} doings, {missing} creatures \
          missing, {lost} references lost"
@@ -1884,7 +1891,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (62, 0x6BAE_555D_8AF3_C42C),
+            (63, 0xA9E9_E8B5_9BEE_1789),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

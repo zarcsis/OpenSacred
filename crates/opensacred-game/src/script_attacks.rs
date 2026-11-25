@@ -31,11 +31,31 @@ const PHASE_SOUND: u32 = 2023;
 /// `PHASEN`; #1831): where to, on which level, whether it goes there with no test of the way
 /// (a cell of negative numbers), and the seconds left until it is there once it casts.
 #[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+// Named apart from the hero's attack's phase, which the saves' layout test traces by name
+// (#2306); postcard writes no names.
+#[serde(rename = "ScriptAttackPhase")]
 pub struct Phase {
     to: Vec3,
     level: Level,
     direct: bool,
     left: Option<f32>,
+}
+
+impl bevy::ecs::entity::MapEntities for Phase {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// A script's attack's phase, which a save keeps (#3765).
+impl crate::doings::Saves for Phase {
+    type Saved = Phase;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 impl Phase {

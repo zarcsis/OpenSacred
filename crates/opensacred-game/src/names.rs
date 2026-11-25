@@ -194,6 +194,40 @@ pub mod many {
     }
 }
 
+/// A trample's creatures to strike, each kept as its entity's bits with its time and its count
+/// (`#[serde(with)]`), as [`required`] reads each.
+pub mod trampled {
+    use bevy::prelude::Entity;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(
+        pending: &[(Entity, f32, u8)],
+        to: S,
+    ) -> Result<S::Ok, S::Error> {
+        pending
+            .iter()
+            .map(|&(entity, time, count)| (entity.to_bits(), time, count))
+            .collect::<Vec<(u64, f32, u8)>>()
+            .serialize(to)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        from: D,
+    ) -> Result<Vec<(Entity, f32, u8)>, D::Error> {
+        let kept = Vec::<(u64, f32, u8)>::deserialize(from)?;
+        Ok(kept
+            .into_iter()
+            .map(|(bits, time, count)| {
+                (
+                    Entity::try_from_bits(bits).unwrap_or(Entity::PLACEHOLDER),
+                    time,
+                    count,
+                )
+            })
+            .collect())
+    }
+}
+
 /// A saved reference that may be none, kept as its entity's bits (`#[serde(with)]`): bits that
 /// name no entity read as [`Entity::PLACEHOLDER`], none's mark, rather than failing the save's
 /// read.

@@ -140,6 +140,16 @@ pub struct Doing {
     knocked: Option<crate::making::Knocked>,
     #[entities]
     combo: Option<crate::combos::ComboRun>,
+    /// The special arts' states (#3765): a hurl, a creature taken up or flung, a trample, a
+    /// script's attack's phase, the glances' counts.
+    hurls: Option<crate::hurled::Hurls>,
+    #[entities]
+    taken_up: Option<crate::backbreaker::TakenUp>,
+    flung: Option<crate::backbreaker::Flung>,
+    #[entities]
+    trampling: Option<crate::trample::Trampling>,
+    phase: Option<crate::script_attacks::Phase>,
+    glances: Option<crate::glance::Counts>,
     /// Its effects, their sources by their names.
     #[entities]
     effects: Option<Effects>,
@@ -178,6 +188,12 @@ impl Doing {
             playing: saved::<crate::making::Playing>(world, entity, &at),
             leap: saved::<crate::making::Leap>(world, entity, &at),
             knocked: saved::<crate::making::Knocked>(world, entity, &at),
+            hurls: saved::<crate::hurled::Hurls>(world, entity, &at),
+            taken_up: saved::<crate::backbreaker::TakenUp>(world, entity, &at),
+            flung: saved::<crate::backbreaker::Flung>(world, entity, &at),
+            trampling: saved::<crate::trample::Trampling>(world, entity, &at),
+            phase: saved::<crate::script_attacks::Phase>(world, entity, &at),
+            glances: saved::<crate::glance::Counts>(world, entity, &at),
             combo: world
                 .get::<crate::hero::Body>(entity)
                 .and_then(|_| world.get_resource::<crate::combos::ComboRun>())
@@ -223,6 +239,12 @@ impl Doing {
         put::<crate::making::Playing>(&mut creature, self.playing, &at);
         put::<crate::making::Leap>(&mut creature, self.leap, &at);
         put::<crate::making::Knocked>(&mut creature, self.knocked, &at);
+        put::<crate::hurled::Hurls>(&mut creature, self.hurls, &at);
+        put::<crate::backbreaker::TakenUp>(&mut creature, self.taken_up, &at);
+        put::<crate::backbreaker::Flung>(&mut creature, self.flung, &at);
+        put::<crate::trample::Trampling>(&mut creature, self.trampling, &at);
+        put::<crate::script_attacks::Phase>(&mut creature, self.phase, &at);
+        put::<crate::glance::Counts>(&mut creature, self.glances, &at);
         let hero = creature.contains::<crate::hero::Body>();
         // The ride itself is the save's world's (#3743): a walk to a horse or a dismount under
         // way goes on, a mount ends at once, seated as a loaded rider is.
@@ -405,6 +427,12 @@ pub const SAVED: &[&str] = &[
     "opensacred_game::making::Playing",
     "opensacred_game::making::Leap",
     "opensacred_game::making::Knocked",
+    "opensacred_game::hurled::Hurls",
+    "opensacred_game::backbreaker::TakenUp",
+    "opensacred_game::backbreaker::Flung",
+    "opensacred_game::trample::Trampling",
+    "opensacred_game::script_attacks::Phase",
+    "opensacred_game::glance::Counts",
     "opensacred_game::effects::Effects",
     "opensacred_game::fight::KnockMarks",
 ];

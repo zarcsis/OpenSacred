@@ -29,17 +29,54 @@ const THROWN: u16 = 173;
 
 /// A creature that the backbreaker has taken up: its taker, and its heading as it was taken up,
 /// which it takes back as it is let go.
-#[derive(Component, Clone, Copy, Debug)]
-struct TakenUp {
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct TakenUp {
+    #[serde(with = "crate::names::required")]
     by: Entity,
     rotation: Quat,
+}
+
+impl bevy::ecs::entity::MapEntities for TakenUp {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.by = mapper.get_mapped(self.by);
+    }
+}
+
+/// A creature taken up, which a save keeps with its taker by its name (#3765).
+impl crate::doings::Saves for TakenUp {
+    type Saved = TakenUp;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 /// A creature that the backbreaker has let go, in its flight: it neither walks nor strikes nor
 /// pursues its foe meanwhile (`ai`, `npcs`), as one thrown by the Dwarf's 1083
 /// (`making::Knocked`).
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Flung(arts::Flight);
+
+impl bevy::ecs::entity::MapEntities for Flung {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// A creature flung in its flight, which a save keeps (#3765).
+impl crate::doings::Saves for Flung {
+    type Saved = Flung;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
+}
 
 /// Takes the creature `target` up into the hands of `by`, its heading `rotation`: it hangs at
 /// his neck, its hit clip playing.

@@ -3147,7 +3147,7 @@ pub const BLAST_GROWS: f32 = 0.75;
 /// `[+0x60]` taken whole (150 + 2·L at most 400), the factor of its strikes,
 /// `[+0x50] + [+0x54]·L` ([`factor`], 1.35 + 0.15·L), and its knockback's strength `[+0x64]`
 /// (20; the FX event `0x92`, `0x51A231`).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Blast {
     pub most: f32,
     pub factor: f32,
