@@ -105,6 +105,131 @@ pub struct Playing {
     last: Option<Entity>,
     level: u32,
     factor: f32,
+    /// Whether its clip is to play again from its start, a loaded save's art's (#3764), as the
+    /// original's load plays the slot in play anew: its hits, shots and regeneration counted on,
+    /// so that none acts twice.
+    resume: bool,
+}
+
+/// The hero's order to make an art as a save keeps it (#3764): its target by its name.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedMaking {
+    art: u16,
+    #[serde(with = "crate::names::required")]
+    target: Entity,
+    point: Option<Vec3>,
+    level: Option<u32>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedMaking {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = mapper.get_mapped(self.target);
+    }
+}
+
+impl crate::doings::Saves for Making {
+    type Saved = SavedMaking;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<SavedMaking> {
+        Some(SavedMaking {
+            art: self.art,
+            target: self.target,
+            point: self.point,
+            level: self.level,
+        })
+    }
+
+    fn again(saved: SavedMaking, _: &crate::doings::Moment) -> Option<Self> {
+        // One at a point needs no creature: its target the hero's own entity's stand-in.
+        let target =
+            crate::names::found(Some(saved.target)).or(saved.point.map(|_| saved.target))?;
+        Some(Self {
+            art: saved.art,
+            target,
+            point: saved.point,
+            level: saved.level,
+        })
+    }
+}
+
+/// An art playing as a save keeps it (#3764): its clip by its node in the hero's graph and its
+/// time, what it has struck, shot, gathered and regenerated, its targets by their names.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedPlaying {
+    style: Style,
+    node: u32,
+    length: f32,
+    seconds: f32,
+    point: Vec3,
+    points: Vec<f32>,
+    struck: usize,
+    fired: usize,
+    #[serde(with = "crate::names::many")]
+    gathered: Vec<Entity>,
+    regenerated: bool,
+    #[serde(with = "crate::names::required")]
+    target: Entity,
+    #[serde(with = "crate::names::optional")]
+    last: Option<Entity>,
+    level: u32,
+    factor: f32,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedPlaying {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = mapper.get_mapped(self.target);
+        self.last = self.last.map(|last| mapper.get_mapped(last));
+        for gathered in &mut self.gathered {
+            *gathered = mapper.get_mapped(*gathered);
+        }
+    }
+}
+
+impl crate::doings::Saves for Playing {
+    type Saved = SavedPlaying;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<SavedPlaying> {
+        Some(SavedPlaying {
+            style: self.style,
+            node: u32::try_from(self.node.index()).ok()?,
+            length: self.length,
+            seconds: self.seconds,
+            point: self.point,
+            points: self.points.clone(),
+            struck: self.struck,
+            fired: self.fired,
+            gathered: self.gathered.clone(),
+            regenerated: self.regenerated,
+            target: self.target,
+            last: self.last,
+            level: self.level,
+            factor: self.factor,
+        })
+    }
+
+    fn again(saved: SavedPlaying, _: &crate::doings::Moment) -> Option<Self> {
+        Some(Self {
+            style: saved.style,
+            node: AnimationNodeIndex::new(usize::try_from(saved.node).ok()?),
+            length: saved.length,
+            seconds: saved.seconds,
+            point: saved.point,
+            points: saved.points,
+            struck: saved.struck,
+            fired: saved.fired,
+            gathered: saved
+                .gathered
+                .into_iter()
+                .filter(|&entity| entity != Entity::PLACEHOLDER)
+                .collect(),
+            regenerated: saved.regenerated,
+            target: saved.target,
+            last: crate::names::found(saved.last),
+            level: saved.level,
+            factor: saved.factor,
+            resume: true,
+        })
+    }
 }
 
 impl Playing {
@@ -901,6 +1026,7 @@ fn make(
                     last: None,
                     level,
                     factor: 1.0,
+                    resume: false,
                 });
                 continue;
             }
@@ -1416,6 +1542,7 @@ fn make(
                 last: None,
                 level,
                 factor,
+                resume: false,
             });
             // The weapons' streaks of the arts that its executor streaks, for its clip (#3454).
             crate::weapon_streaks::lay(
@@ -1426,6 +1553,12 @@ fn make(
             );
             continue;
         };
+        // A loaded save's art plays its clip again from its start (#3764).
+        if std::mem::take(&mut playing.resume) {
+            transitions
+                .play(&mut player, playing.node, Duration::ZERO)
+                .set_speed(playing.length / playing.seconds.max(f32::EPSILON));
+        }
         let Some(active) = player.animation(playing.node) else {
             end(&mut commands);
             continue;
@@ -3502,7 +3635,7 @@ fn blades(
 /// `time` seconds, `flown` of them gone, its height on the arc of `arts::arc` of the height
 /// `peak` at its middle above the ground under it; and whether it `stops` at a cell of its way
 /// that it may not pass (`arts::flight_stops`, by the flier's type).
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Leap {
     pub from: Vec3,
     pub to: Vec3,
@@ -3588,8 +3721,9 @@ pub(crate) fn leap(
 /// `arts::KNOCKBACK_SPEED` until it has gone `left` (`+0x24D`), doing nothing else; its walk
 /// and strike are ended as it is knocked. One thrown (`throw`, the Dwarf's 1083) flies its flight
 /// instead, striking what it meets, and is held as a stunned creature is.
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Knocked {
+    #[serde(with = "crate::names::required")]
     pub by: Entity,
     pub from: Vec3,
     pub left: f32,
@@ -3600,6 +3734,42 @@ pub struct Knocked {
     /// Whether it is held not at all, the cannon's (`opensacred_rules::minds::Mind::knocked_unheld`,
     /// #3430).
     pub unheld: bool,
+}
+
+impl bevy::ecs::entity::MapEntities for Leap {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// A leap of an art in its flight, which a save keeps (#3764).
+impl crate::doings::Saves for Leap {
+    type Saved = Leap;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
+}
+
+impl bevy::ecs::entity::MapEntities for Knocked {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.by = mapper.get_mapped(self.by);
+    }
+}
+
+/// A creature knocked back by an art, which a save keeps with its knocker by its name (#3764).
+impl crate::doings::Saves for Knocked {
+    type Saved = Knocked;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 /// A creature's flags word's bit of a boss (`+0x1F4` bit `0x80000`).
@@ -3823,6 +3993,41 @@ impl Plugin for MakingPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_art_playing_plays_its_clip_again_after_a_load_its_hits_counted_on() {
+        use crate::doings::{Moment, Saves};
+        let mut world = World::new();
+        let (target, gone) = (world.spawn_empty().id(), Entity::PLACEHOLDER);
+        let playing = Playing {
+            style: Style::Hardhit,
+            node: AnimationNodeIndex::new(7),
+            length: 1.2,
+            seconds: 0.8,
+            point: Vec3::ZERO,
+            points: vec![0.4],
+            struck: 1,
+            fired: 0,
+            gathered: vec![target, gone],
+            regenerated: true,
+            target,
+            last: Some(gone),
+            level: 3,
+            factor: 1.0,
+            resume: false,
+        };
+        let saved = playing.saved(&Moment::default()).unwrap();
+        let bytes = postcard::to_stdvec(&saved).unwrap();
+        let back =
+            Playing::again(postcard::from_bytes(&bytes).unwrap(), &Moment::default()).unwrap();
+        assert!(back.resume);
+        assert_eq!(
+            (back.node, back.struck, back.regenerated),
+            (playing.node, 1, true)
+        );
+        assert_eq!((back.gathered.clone(), back.last), (vec![target], None));
+        assert!((back.length / back.seconds - 1.5).abs() < 1e-6);
+    }
 
     #[test]
     fn a_knock_above_10_plays_the_hit_clip_and_a_weaker_none() {

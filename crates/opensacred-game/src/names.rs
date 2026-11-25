@@ -172,6 +172,28 @@ pub mod required {
     }
 }
 
+/// Saved references, kept as their entities' bits (`#[serde(with)]`), as [`required`] reads each.
+pub mod many {
+    use bevy::prelude::Entity;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(entities: &[Entity], to: S) -> Result<S::Ok, S::Error> {
+        entities
+            .iter()
+            .map(|entity| entity.to_bits())
+            .collect::<Vec<u64>>()
+            .serialize(to)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(from: D) -> Result<Vec<Entity>, D::Error> {
+        let bits = Vec::<u64>::deserialize(from)?;
+        Ok(bits
+            .into_iter()
+            .map(|bits| Entity::try_from_bits(bits).unwrap_or(Entity::PLACEHOLDER))
+            .collect())
+    }
+}
+
 /// A saved reference that may be none, kept as its entity's bits (`#[serde(with)]`): bits that
 /// name no entity read as [`Entity::PLACEHOLDER`], none's mark, rather than failing the save's
 /// read.

@@ -129,6 +129,17 @@ pub struct Doing {
     held: Option<crate::hero_held::HeroHeld>,
     downed: Option<crate::fight::Downed>,
     pushed: Option<crate::fight::Pushed>,
+    /// The hero's arts (#3764): its order to make one, the one playing, a leap in its flight, a
+    /// creature knocked back by one, and the combo that runs.
+    #[entities]
+    making: Option<crate::making::SavedMaking>,
+    #[entities]
+    playing: Option<crate::making::SavedPlaying>,
+    leap: Option<crate::making::Leap>,
+    #[entities]
+    knocked: Option<crate::making::Knocked>,
+    #[entities]
+    combo: Option<crate::combos::ComboRun>,
     /// Its effects, their sources by their names.
     #[entities]
     effects: Option<Effects>,
@@ -163,6 +174,15 @@ impl Doing {
             held: saved::<crate::hero_held::HeroHeld>(world, entity, &at),
             downed: saved::<crate::fight::Downed>(world, entity, &at),
             pushed: saved::<crate::fight::Pushed>(world, entity, &at),
+            making: saved::<crate::making::Making>(world, entity, &at),
+            playing: saved::<crate::making::Playing>(world, entity, &at),
+            leap: saved::<crate::making::Leap>(world, entity, &at),
+            knocked: saved::<crate::making::Knocked>(world, entity, &at),
+            combo: world
+                .get::<crate::hero::Body>(entity)
+                .and_then(|_| world.get_resource::<crate::combos::ComboRun>())
+                .copied()
+                .filter(|run| *run != crate::combos::ComboRun::default()),
             effects: saved::<Effects>(world, entity, &at),
             marks: saved::<KnockMarks>(world, entity, &at),
         };
@@ -199,6 +219,11 @@ impl Doing {
         put::<crate::hero_held::HeroHeld>(&mut creature, self.held, &at);
         put::<crate::fight::Downed>(&mut creature, self.downed, &at);
         put::<crate::fight::Pushed>(&mut creature, self.pushed, &at);
+        put::<crate::making::Making>(&mut creature, self.making, &at);
+        put::<crate::making::Playing>(&mut creature, self.playing, &at);
+        put::<crate::making::Leap>(&mut creature, self.leap, &at);
+        put::<crate::making::Knocked>(&mut creature, self.knocked, &at);
+        let hero = creature.contains::<crate::hero::Body>();
         // The ride itself is the save's world's (#3743): a walk to a horse or a dismount under
         // way goes on, a mount ends at once, seated as a loaded rider is.
         let mounting = match self.seat {
@@ -217,6 +242,13 @@ impl Doing {
         put::<KnockMarks>(&mut creature, self.marks, &at);
         if let Some(horse) = mounting {
             crate::riding::seat_again(world, entity, horse);
+        }
+        if hero {
+            world.insert_resource(
+                self.combo
+                    .map(crate::combos::ComboRun::found)
+                    .unwrap_or_default(),
+            );
         }
     }
 }
@@ -369,6 +401,10 @@ pub const SAVED: &[&str] = &[
     "opensacred_game::hero_held::HeroHeld",
     "opensacred_game::fight::Downed",
     "opensacred_game::fight::Pushed",
+    "opensacred_game::making::Making",
+    "opensacred_game::making::Playing",
+    "opensacred_game::making::Leap",
+    "opensacred_game::making::Knocked",
     "opensacred_game::effects::Effects",
     "opensacred_game::fight::KnockMarks",
 ];

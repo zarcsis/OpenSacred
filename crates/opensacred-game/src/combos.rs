@@ -172,10 +172,11 @@ fn regenerate(
 /// A combo that runs: its index, the step it gives next, the creature and the point on the
 /// ground of its order (`0xAD3EA8`), whether a step's order is given and whether its art was seen
 /// playing.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Run {
     pub index: usize,
     pub step: usize,
+    #[serde(with = "crate::names::optional")]
     target: Option<Entity>,
     ground: Vec3,
     given: bool,
@@ -186,10 +187,32 @@ pub struct Run {
 /// mark of a combo whose step an art's use was (`+0x401`, the stats' `+0x59`): while either holds,
 /// the arts' uses go to the combos (`0x562470`), and the mark goes once no combo runs and the hero
 /// stands idle (`0x542C91`).
-#[derive(Resource, Clone, Copy, Debug, Default, PartialEq)]
+#[derive(
+    Resource, Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize,
+)]
 pub struct ComboRun {
     pub running: Option<Run>,
     pub mark: bool,
+}
+
+/// The combo that runs and its mark, which a save keeps with the hero's doing, its target by its
+/// name (#3764): the original's creature's record keeps its step `+0x2B3` and its combo `+0x2B4`.
+impl bevy::ecs::entity::MapEntities for ComboRun {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        if let Some(run) = &mut self.running {
+            run.target = run.target.map(|target| mapper.get_mapped(target));
+        }
+    }
+}
+
+impl ComboRun {
+    /// The combo run of a load, its target found or none (`names::found`).
+    pub(crate) fn found(mut self) -> Self {
+        if let Some(run) = &mut self.running {
+            run.target = crate::names::found(run.target);
+        }
+        self
+    }
 }
 
 impl ComboRun {
