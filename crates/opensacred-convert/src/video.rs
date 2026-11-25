@@ -233,6 +233,36 @@ mod tests {
         assert_eq!(content("act5"), None);
     }
 
+    /// The filters that the release's own FFmpeg is built with (`tools/ffmpeg/build.sh`).
+    fn release_filters() -> Vec<&'static str> {
+        let script = include_str!("../../../tools/ffmpeg/build.sh");
+        let line = script
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("--enable-filter="))
+            .unwrap();
+        line.split(',').collect()
+    }
+
+    #[test]
+    fn the_releases_ffmpeg_holds_every_filter_the_graphs_name() {
+        let filters = release_filters();
+        for stem in ["act1", "introuw", "intro"] {
+            let graph = content(stem).unwrap();
+            for filter in graph.split([';', ',']) {
+                // Its input labels, then its name, then its options and its output labels.
+                let mut named = filter.trim();
+                while let Some(rest) = named.strip_prefix('[') {
+                    named = rest.split_once(']').map_or("", |(_, after)| after);
+                }
+                let name = named.split(['=', '[']).next().unwrap();
+                assert!(
+                    filters.contains(&name),
+                    "{stem}'s {name} is not in tools/ffmpeg/build.sh (#3682)"
+                );
+            }
+        }
+    }
+
     /// The width and the height of a movie's video, by `ffprobe`.
     fn frame_size(file: &Path) -> String {
         let probe = std::process::Command::new("ffprobe")
