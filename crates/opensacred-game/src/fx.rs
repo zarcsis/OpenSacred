@@ -1794,6 +1794,7 @@ fn scorch(
                 hurled: false,
                 object: true,
                 mount: false,
+                marks: false,
             });
             struck = true;
         }

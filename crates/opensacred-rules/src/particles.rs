@@ -9107,10 +9107,17 @@ pub fn bleeds(kind: u32, class: u8, set: u8) -> bool {
 }
 
 /// Whether a creature that bleeds spurts blood as it dies, by a roll of `rand() % 101` on `dice`
-/// below 10 (`0x53F38F`).
-pub fn spurts_at_death(dice: &mut impl Dice) -> bool {
-    dice.below(101) < 10
+/// below 10, or 30 for one `marked`, of the bit 1 of its `+0x2B8`: its second knock-down's mark,
+/// or its death by a strike whose record's kind is not 0, a combat art's (`0x53F38F`–`0x53F3B7`,
+/// `0x532AF5`; docs/re/effects.md, "The bit 1 of `+0x2B8`").
+pub fn spurts_at_death(dice: &mut impl Dice, marked: bool) -> bool {
+    dice.below(101) < if marked { SPURTS_MARKED } else { SPURTS }
 }
+
+/// The threshold of the death's roll of the blood fountain, of 101, and of a marked creature's
+/// (`0x53F38F`–`0x53F3B7`).
+const SPURTS: u32 = 10;
+const SPURTS_MARKED: u32 = 30;
 
 /// The sound of a blood fountain's start, by a roll of `rand()` on `dice` (`0x77BFB3`): each of
 /// [`BLOOD_SOUNDS`] at about even odds.
@@ -21143,6 +21150,20 @@ mod tests {
             fountain.update(0.1, place, ([0.0, 0.0, 1.0], 0.0), &mut dice);
         }
         assert!(fountain.done());
+    }
+
+    #[test]
+    fn a_death_spurts_in_one_case_of_ten_and_a_marked_one_in_three() {
+        struct Roll(u32);
+        impl Dice for Roll {
+            fn below(&mut self, n: u32) -> u32 {
+                assert_eq!(n, 101);
+                self.0
+            }
+        }
+        let spurts = |roll, marked| spurts_at_death(&mut Roll(roll), marked);
+        assert!(spurts(9, false) && !spurts(10, false));
+        assert!(spurts(10, true) && spurts(29, true) && !spurts(30, true));
     }
 
     #[test]

@@ -293,6 +293,7 @@ fn strike(
                 hurled: false,
                 object: false,
                 mount: false,
+                marks: true,
             });
         }
     }
@@ -755,6 +756,7 @@ fn daggers(
                 hurled: true,
                 object: false,
                 mount: false,
+                marks: true,
             });
         } else if share < 1.0 {
             continue;

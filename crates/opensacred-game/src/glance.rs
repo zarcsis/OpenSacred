@@ -106,6 +106,7 @@ fn strike(
                 hurled: false,
                 object: false,
                 mount: false,
+                marks: false,
             });
         }
     }

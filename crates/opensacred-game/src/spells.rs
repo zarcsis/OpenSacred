@@ -405,6 +405,7 @@ fn balls(
                         hurled: false,
                         object: true,
                         mount: false,
+                        marks: false,
                     });
                 }
                 // The bomb trap's blast (`explosions`).
@@ -599,6 +600,7 @@ fn pentagrams(
                 hurled: false,
                 object: true,
                 mount: false,
+                marks: false,
             });
         }
         commands.entity(entity).despawn();
@@ -2296,6 +2298,7 @@ fn act(
                     hurled: false,
                     object: true,
                     mount: false,
+                    marks: false,
                 });
                 crate::lightning_strikes::strike(
                     &mut commands,
@@ -2525,6 +2528,7 @@ fn strike(
                     hurled: false,
                     object: true,
                     mount: false,
+                    marks: false,
                 });
             }
             aura.cooldown = BEAT;
@@ -2558,6 +2562,7 @@ fn strike(
                         hurled: false,
                         object: true,
                         mount: false,
+                        marks: false,
                     });
                 }
                 aura.cooldown = BEAT;
@@ -2619,6 +2624,7 @@ fn strike(
                     hurled: false,
                     object: true,
                     mount: false,
+                    marks: false,
                 });
             }
             if !aura.gives.is_empty() && !given.contains(&(target, aura.key)) {
@@ -2766,6 +2772,7 @@ fn mine(
                 hurled: false,
                 object: true,
                 mount: false,
+                marks: false,
             });
         }
         crate::explosions::blast(&mut commands, at.translation, false);
@@ -3025,6 +3032,7 @@ fn disk(
                         hurled: false,
                         object: true,
                         mount: false,
+                        marks: false,
                     });
                     disk.cooldown = BEAT;
                 }
@@ -3162,6 +3170,7 @@ fn disk(
                 hurled: false,
                 object: true,
                 mount: false,
+                marks: false,
             });
         }
         disk.cooldown = BEAT;
@@ -3287,6 +3296,7 @@ fn meteor(
                 hurled: false,
                 object: true,
                 mount: false,
+                marks: false,
             });
         }
         commands.entity(entity).despawn();
@@ -3428,6 +3438,7 @@ fn chain(
             hurled: false,
             object: true,
             mount: false,
+            marks: false,
         });
         chain.last = target;
         chain.left -= 1;
@@ -3498,6 +3509,7 @@ fn spiral(
                     hurled: false,
                     object: true,
                     mount: false,
+                    marks: false,
                 });
                 struck = true;
             }
@@ -3763,6 +3775,7 @@ pub(crate) fn share_turned(world: &mut World, bearer: Entity, damages: [f32; 4],
             hurled: false,
             object: false,
             mount: false,
+            marks: false,
         });
     }
 }

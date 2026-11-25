@@ -58,6 +58,7 @@ fn burn(
                     hurled: false,
                     object: false,
                     mount: false,
+                    marks: false,
                 });
             }
             !burn.over()

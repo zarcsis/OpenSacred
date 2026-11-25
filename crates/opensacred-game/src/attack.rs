@@ -457,6 +457,7 @@ fn engage(
                         hurled: false,
                         object: false,
                         mount: false,
+                        marks: false,
                         attacker: hero,
                         target: entity,
                         share,

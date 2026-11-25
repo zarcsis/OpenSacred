@@ -278,6 +278,7 @@ fn fly(
                 hurled: true,
                 object: false,
                 mount: false,
+                marks: true,
             });
             // The object 864 at it (`0x44E570`).
             sparks.write(crate::hit_sparks::Spark {

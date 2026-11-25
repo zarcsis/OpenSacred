@@ -144,6 +144,7 @@ fn spread(
                     hurled: false,
                     object: true,
                     mount: false,
+                    marks: true,
                 });
             }
             if crate::making::knocks_back(&mut dice.0, blasting.art_level, mind) {

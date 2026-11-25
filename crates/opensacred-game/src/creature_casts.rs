@@ -593,6 +593,7 @@ fn act(
                     hurled: false,
                     object: true,
                     mount: false,
+                    marks: false,
                 });
                 crate::lightning_strikes::strike(&mut commands, cast.target, place, false);
             }
@@ -1049,6 +1050,7 @@ fn act(
                         hurled: false,
                         object: false,
                         mount: false,
+                        marks: false,
                     });
                     // Its impact at the target, the object 909 (`0x7A68A0`, #3152).
                     let on = cast.target;
@@ -1390,6 +1392,7 @@ fn burn(
                     hurled: false,
                     object: true,
                     mount: false,
+                    marks: false,
                 });
                 flame.cooldown = 1.0;
             }
@@ -1568,6 +1571,7 @@ fn throw(
                     hurled: false,
                     object: true,
                     mount: false,
+                    marks: false,
                 });
             }
         }
@@ -1608,6 +1612,7 @@ fn throw(
                     hurled: false,
                     object: true,
                     mount: false,
+                    marks: false,
                 });
                 continue;
             }
@@ -1748,6 +1753,7 @@ fn home(
                 hurled: false,
                 object: true,
                 mount: false,
+                marks: false,
             });
         }
         bursts.write(crate::homing_fires::Bursts {
