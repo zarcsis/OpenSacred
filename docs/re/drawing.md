@@ -590,7 +590,7 @@ It is a stop, not a clamp: a view already beyond a line (placed there at the sta
 - walking 10 cells down from there and 7 back up, the view followed the hero down and halted on the way back with its top edge 2 pixels below the line, 410 below the sector's middle;
 - at 22,95 the zoom 2 let the view go to the hero, its right edge then 463 beyond the line, and back at zoom 1 it stayed on the hero.
 
-`opensacred-game`'s camera looks at the hero's place at every frame, its height included (`hero::follow`, `iso::view_of`), with no lag, no offset and no stop at the rim, which waits for the maintainer's decision (#3731); the overview takes the camera's point since #3730 (`overview`).
+`opensacred-game`'s camera looks at the hero's place at every frame, its height included (`hero::follow`, `iso::view_of`), with no lag, no offset and no stop at the rim (docs/decisions/drawing.md, "Camera on the hero at the grid's rim" and "Camera without the view's lag and offset"); the overview takes the camera's point since #3730 (`overview`).
 
 ## What the game does with it
 
