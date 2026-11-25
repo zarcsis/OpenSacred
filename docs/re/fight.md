@@ -764,7 +764,8 @@ Since #3637 `opensacred-game` lays it over the clip in play (`hit_clips`) at eac
 - The weight is a node's of the creature's animation graph, which normalises its clips' weights, so that the node takes `w·W/(1 − w)` against the others' `W` in all and the pose is theirs moved by `w` toward the hit clip's.
 - A blow plays none on a creature that casts (`creature_casts::Casting`, from its order to its clip's end), is held by a knock or rides, nor on the hero but standing idle (no walk, attack, strike, defence, art or fall, not on a horse).
 - A clip started after it hides it over 0.25 s, the creatures' clips' blend in, as a later control laid over it rises to 1.
-- Not followed: an NPC walking that a ranged weapon strikes from farther than 300 stops and stands two ticks with no hit clip (seen, above); the second clip of the same frame of the cannon's and the blast's knocks over their strikes' reactions, the game's asks of a frame starting one clip (`hit_clips::HitClipAsked`, as the kicks' one); a second blow during the clip starts it anew, where the original's lays a second control over the first.
+- Since #3708 an NPC walking that a ranged weapon's shot strikes from farther than 300 stops (its walk dropped, `fight::Struck::shooter`, a hit of an arrow or a gun, not a spit's) and plays no hit clip, standing until its next decision; and two clips asked of a creature in one frame, the cannon's and the blast's knocks over their strikes' reactions, are laid as two controls, the pose moved by `1 − (1 − w)²` (`hit_clips::ask_clip`).
+- Not followed: a second blow during the clip starts it anew, where the original's lays a second control over the first; the two ticks of the stop are the AI's next decision's.
 
 ## An NPC's attack, defence and damage
 

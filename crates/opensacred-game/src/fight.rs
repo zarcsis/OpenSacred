@@ -195,12 +195,22 @@ pub struct Points(pub u64);
 
 /// A strike resolved at its target (`0x56B130`, the creature events' handler `0x52E590`'s event
 /// 5): its target, the damage it did, 0 for a miss or a damage resisted whole, and the target's
-/// most health, which the blows' sights take (`blow_sights`: the bleed and the parade).
+/// most health, which the blows' sights take (`blow_sights`: the bleed and the parade); and its
+/// shooter where it is a shot of a ranged weapon, an arrow's or a gun's, whose record carries the
+/// weapon (`0x427ED0`'s kinds 7, 12, 13 and 14), by which a walking creature struck from afar
+/// stops (`hit_clips`, #3708).
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Struck {
     pub target: Entity,
     pub damage: u32,
     pub most: u32,
+    pub shooter: Option<Entity>,
+}
+
+/// The shooter of a hit where it is a shot of a ranged weapon ([`Struck::shooter`]): an arrow's or a
+/// gun's, of no fixed damages, where a spit's carries its own.
+fn shooter(hit: &Hit) -> Option<Entity> {
+    (hit.ranged && hit.fixed.is_none()).then_some(hit.attacker)
 }
 
 /// A creature killed by another that is no hero (#690): the killer, which earns the victim's
@@ -829,6 +839,7 @@ pub(crate) fn resolve(
                 target: hit.target,
                 damage: 0,
                 most: health.most,
+                shooter: shooter(hit),
             });
             wound(
                 &mut commands,
@@ -1240,6 +1251,7 @@ pub(crate) fn resolve(
             target: hit.target,
             damage,
             most: health.most,
+            shooter: shooter(hit),
         });
         // A hit that did damage makes its target speak, unless it falls (`0x532161`, #711), or
         // the hit is an object's (`0x5320D2`, #3471).
@@ -1544,6 +1556,7 @@ fn burn(
             target: burn.target,
             damage,
             most: health.most,
+            shooter: None,
         });
         // A strike from nobody is an FX object's, of the category 12: no line of the struck one
         // (`0x5320D2`, #3471).

@@ -7,9 +7,11 @@
 //! (`opensacred_rules::arts::hit_clip_weight`), the pose moved by it toward the hit clip's, the
 //! clip in play going on beneath it with its time and its hits; a clip started after it hides it
 //! as its blend rises. A blow plays none while the creature casts (`creature_casts::Casting`), is
-//! held by a knock or rides, nor on the hero but standing idle. Not followed: an NPC walking that a
-//! ranged weapon strikes from farther than 300 stops and stands instead (`0x5358E0`–`0x53594E`,
-//! by code, not seen).
+//! held by a knock or rides, nor on the hero but standing idle; an NPC walking that a ranged
+//! weapon's shot strikes from farther than 300 stops instead (`0x5358E0`–`0x53594E`, **seen**,
+//! #3708). Two clips asked of a creature in one frame, the cannon's and the Daemon's blast's
+//! (`0x5178C9`, `0x5B1F6C`), are laid one over the other, the pose moved by `1 − (1 − w)²`
+//! (#3708).
 
 use bevy::prelude::*;
 use opensacred_rules::arts::{HEROES_HIT_CLIP_WEIGHT, HIT_CLIP_RATE, HIT_CLIP_WEIGHT};
@@ -23,9 +25,28 @@ use crate::game::AppState;
 const HIDDEN_OVER: f32 = 0.25;
 
 /// A creature's hit clip asked this frame, with its weight at its start
-/// ([`opensacred_rules::arts::HIT_CLIP_WEIGHT`]).
+/// ([`opensacred_rules::arts::HIT_CLIP_WEIGHT`]) and how many were asked, each a control laid over
+/// the last ([`ask_clip`]).
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
-pub(crate) struct HitClipAsked(pub f32);
+pub(crate) struct HitClipAsked {
+    pub(crate) weight: f32,
+    pub(crate) layers: u8,
+}
+
+/// Asks the hit clip of `creature` from the weight `weight`: a second ask in the same frame lays a
+/// second over it, as each call of `0x593770` adds a control (the cannon's strike, the Daemon's
+/// blast; #3708).
+pub(crate) fn ask_clip(commands: &mut Commands, creature: Entity, weight: f32) {
+    commands
+        .entity(creature)
+        .entry::<HitClipAsked>()
+        .and_modify(|mut asked| asked.layers = asked.layers.saturating_add(1))
+        .or_insert(HitClipAsked { weight, layers: 1 });
+}
+
+/// How far, in the world's units, a ranged weapon's shot strikes a walking NPC from for it to stop
+/// rather than play its hit clip (`0x5358E0`).
+const STOPS_FROM: f32 = 300.0;
 
 /// A hit clip playing over a creature's clip in play: its animation player and node, its weight
 /// at its start, the seconds since its start, the clip in play as it started, and the seconds
@@ -35,6 +56,7 @@ struct Layered {
     player: Entity,
     node: AnimationNodeIndex,
     start: f32,
+    layers: u8,
     seconds: f32,
     over: Option<AnimationNodeIndex>,
     hidden: Option<f32>,
@@ -50,6 +72,12 @@ fn layered_weight(share: f32, others: f32) -> f32 {
     } else {
         share.max(0.0) * others / (1.0 - share)
     }
+}
+
+/// The share of the pose that `layers` controls of the weight `weight` each take, laid one over
+/// the other: `1 − (1 − w)^layers`.
+fn layered_share(weight: f32, layers: u8) -> f32 {
+    1.0 - (1.0 - weight).powi(i32::from(layers.max(1)))
 }
 
 /// What a blow's struck creature is and does, by which it plays its hit clip or not.
@@ -94,7 +122,9 @@ fn ask(
         Has<crate::creature_casts::Casting>,
         Has<crate::npcs::Dies>,
         Option<&crate::hero::Body>,
+        Has<crate::npcs::Walk>,
     )>,
+    places: Query<&GlobalTransform>,
     heroes: Query<
         (
             Has<crate::attack::Attack>,
@@ -108,9 +138,26 @@ fn ask(
     >,
 ) {
     for blow in blows.read() {
-        let Ok((health, mind, casting, dies, body)) = creatures.get(blow.target) else {
+        let Ok((health, mind, casting, dies, body, walks)) = creatures.get(blow.target) else {
             continue;
         };
+        // A walking NPC that a ranged weapon's shot strikes from afar stops and stands, and plays
+        // no hit clip (`0x5358E0`–`0x53594E`; seen: a goblin shot by the Seraphim from 762 to 966
+        // stood two ticks and came on again, #3708).
+        let from_afar = blow.shooter.is_some_and(|shooter| {
+            places
+                .get(shooter)
+                .ok()
+                .zip(places.get(blow.target).ok())
+                .is_some_and(|(shooter, target)| {
+                    (target.translation() - shooter.translation()).xz().length() > STOPS_FROM
+                })
+        });
+        if walks && body.is_none() && from_afar {
+            debug!("hit clips: {} stops, shot from afar", blow.target);
+            commands.entity(blow.target).remove::<crate::npcs::Walk>();
+            continue;
+        }
         let hero = body.map(|body| {
             body.moving().is_none()
                 && heroes.get(blow.target).is_ok_and(
@@ -129,7 +176,7 @@ fn ask(
             heroes_class: hero.is_some() || mind.is_some_and(|mind| mind.class == HEROES_CLASS),
         };
         if let Some(weight) = blow_plays(struck) {
-            commands.entity(blow.target).insert(HitClipAsked(weight));
+            ask_clip(&mut commands, blow.target, weight);
         }
     }
 }
@@ -176,8 +223,9 @@ fn start(
         };
         let rate = speed.0 * HIT_CLIP_RATE * factors.of(&clip);
         debug!(
-            "hit clips: {entity}'s hit clip over its clip in play from the weight {} at the rate {rate}",
-            asked.0
+            "hit clips: {entity}'s hit clip over its clip in play from the weight {} at the rate \
+             {rate}, {} laid",
+            asked.weight, asked.layers
         );
         player
             .start(node)
@@ -188,7 +236,8 @@ fn start(
         commands.entity(entity).insert(Layered {
             player: player_entity,
             node,
-            start: asked.0,
+            start: asked.weight,
+            layers: asked.layers,
             seconds: 0.0,
             over: transitions.get_main_animation(),
             hidden: None,
@@ -231,7 +280,8 @@ fn lay(
             .filter(|&(&node, _)| node != layer.node)
             .map(|(_, active)| active.weight())
             .sum();
-        let share = opensacred_rules::arts::hit_clip_weight(layer.start, layer.seconds) * shown;
+        let one = opensacred_rules::arts::hit_clip_weight(layer.start, layer.seconds);
+        let share = layered_share(one, layer.layers) * shown;
         if let Some(active) = player.animation_mut(layer.node) {
             active.set_weight(layered_weight(share, others));
         }
@@ -269,6 +319,30 @@ mod tests {
         assert!((weight / (1.5 + weight) - 0.1).abs() < 1e-6);
         assert_eq!(layered_weight(0.0, 1.0), 0.0);
         assert_eq!(layered_weight(1.0, 1.0), f32::MAX);
+    }
+
+    #[test]
+    fn two_clips_of_one_frame_move_the_pose_as_two_controls_laid_over_each_other() {
+        assert!((layered_share(0.25, 1) - 0.25).abs() < 1e-6);
+        assert!((layered_share(0.25, 2) - 0.4375).abs() < 1e-6);
+        assert!((layered_share(0.1, 0) - 0.1).abs() < 1e-6);
+        // Two asks in one frame make one request of two layers.
+        let mut world = World::new();
+        let creature = world.spawn_empty().id();
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        {
+            let mut commands = Commands::new(&mut queue, &world);
+            ask_clip(&mut commands, creature, 0.25);
+            ask_clip(&mut commands, creature, 0.25);
+        }
+        queue.apply(&mut world);
+        assert_eq!(
+            world.get::<HitClipAsked>(creature),
+            Some(&HitClipAsked {
+                weight: 0.25,
+                layers: 2
+            })
+        );
     }
 
     #[test]

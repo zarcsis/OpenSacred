@@ -3612,6 +3612,7 @@ mod tests {
                 target,
                 damage,
                 most: 100,
+                shooter: None,
             });
         }
         app.update();

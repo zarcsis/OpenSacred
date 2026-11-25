@@ -3611,9 +3611,7 @@ const BOSS: u32 = 0x80000;
 /// `hit_clips`, #3637): the kicks', the roar's, the cannon's and the blast's.
 pub(crate) fn hit_clip(commands: &mut Commands, entity: Entity, strength: f32) {
     if arts::knock_plays_hit_clip(strength) {
-        commands
-            .entity(entity)
-            .insert(crate::hit_clips::HitClipAsked(arts::HIT_CLIP_WEIGHT));
+        crate::hit_clips::ask_clip(commands, entity, arts::HIT_CLIP_WEIGHT);
     }
 }
 
@@ -3841,7 +3839,10 @@ mod tests {
         // Laid over the clip in play from 0.25 whatever the creature (#3637).
         assert_eq!(
             world.get::<crate::hit_clips::HitClipAsked>(strong),
-            Some(&crate::hit_clips::HitClipAsked(0.25))
+            Some(&crate::hit_clips::HitClipAsked {
+                weight: 0.25,
+                layers: 1
+            })
         );
         assert!(world.get::<crate::hit_clips::HitClipAsked>(weak).is_none());
     }
