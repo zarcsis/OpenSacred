@@ -29,7 +29,8 @@ Implemented in `opensacred-rules` (`inventory`, `equipment`, `sets`, `potions`, 
 - The inventory window lies at (0, 388), 640 × 256 (`+0x24`/`+0x28` its x and y, `+0x2C`/`+0x2E` its width and height); the equipment window at (656, 388), 256 × 256; the statistics window at (656, 0), 256 × 388.
 - Showing the inventory (`0x6C5A50`, its virtual 9) presses `UI_TB_INVENTORY`, hides `UI_WND_QUESTBOOK`, and shows `UI_WND_STATS_CHAR` and `UI_WND_EQUIPMENT`.
 - Hiding it releases `UI_TB_INVENTORY` and hides the merchant's, the blacksmith's, the purchase's, the master's, the chest's, the trade's, the statistics' and the equipment's windows; a cursor that holds an art, a spell or a combo (the cursor's kinds 2 to 4) is emptied, an item on it stays.
-- The equipment window sends the engine's event `0xD` with (100, 40) as it shows and (0, −30) as it hides (`0x6B6690`; **hypothesis**: the camera shifted so that the hero stays in sight beside the windows).
+- The equipment window sends the engine's event `0xD` with (100, 40) as it shows and (0, −30) as it hides (`0x6B6690`, its input, as it finds its shown bit changed): the world view's offset, which the camera's follow doubles (docs/re/drawing.md, "The view's point").
+  **Seen** 2026-11-25 for #3730: with the inventory shown, the view 200 right of the hero and 80 below it, the hero drawn left of and above the screen's middle, clear of the windows; after the hide, the view 60 above the hero, the hero's feet 60 pixels below the screen's middle, until a load of a save set the offset back to (0, 0).
 
 ## 2. The inventory window (`cUI_Inventory3`)
 

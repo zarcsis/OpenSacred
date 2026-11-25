@@ -144,11 +144,18 @@ fn hold(
     }
 }
 
-/// The hero's cell's middle on the iso plane, the camera's point that the lens shows.
+/// The camera's point on the iso plane, which the lens shows (`0x6113C0`, `0x6113D0`;
+/// docs/re/maps.md, "The overview map", #3730): the hero's place, which the camera looks at
+/// (`hero::follow`), raised on the screen by its height.
 fn hero_point(heroes: &Query<&GlobalTransform, With<crate::hero::Body>>) -> Option<Vec2> {
     let at = heroes.iter().next()?.translation();
-    let middle = crate::paths::centre(crate::paths::cell_of(at.x, at.z));
-    Some(crate::minimap::iso(middle))
+    Some(raised(at))
+}
+
+/// The iso plane's point where the world point `at` shows: its ground's point raised by its
+/// height (`0x44D820`).
+fn raised(at: Vec3) -> Vec2 {
+    crate::minimap::iso(at.xz()) - Vec2::Y * crate::iso::pixels_of(at.y)
 }
 
 /// Makes the overview as it shows, lays its lens out again as the hero leaves the sector it was
@@ -480,6 +487,14 @@ impl Plugin for OverviewPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_lens_shows_the_heros_place_raised_by_its_height() {
+        let ground = Vec3::new(3_000.0, 0.0, 2_000.0);
+        assert!((raised(ground) - crate::minimap::iso(ground.xz())).length() < 1e-3);
+        let up = raised(ground + Vec3::Y * 50.0) - raised(ground);
+        assert!(up.x.abs() < 1e-3 && (up.y + crate::iso::pixels_of(50.0)).abs() < 1e-3);
+    }
 
     #[test]
     fn the_grounds_alpha_is_the_transparencys_complement_at_least_96() {

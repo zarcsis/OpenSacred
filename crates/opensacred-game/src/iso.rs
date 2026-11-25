@@ -57,6 +57,12 @@ pub fn height(pixels: f32) -> f32 {
     pixels / (PIXELS_PER_UNIT * PITCH.cos())
 }
 
+/// Screen pixels at zoom 1 by which a height of `height` world units raises a point, [`height`]'s
+/// inverse.
+pub fn pixels_of(height: f32) -> f32 {
+    height * PIXELS_PER_UNIT * PITCH.cos()
+}
+
 /// The direction the camera looks in: toward −X −Z, down at 30°.
 pub fn forward() -> Vec3 {
     let horizontal = PITCH.cos() * FRAC_1_SQRT_2;
@@ -275,6 +281,12 @@ mod tests {
     /// projection of the origin.
     fn screen(point: Vec3) -> Vec2 {
         Vec2::new(point.dot(right()), -point.dot(up())) * PIXELS_PER_UNIT
+    }
+
+    #[test]
+    fn a_heights_pixels_are_its_world_units_inverse() {
+        assert!((pixels_of(height(120.0)) - 120.0).abs() < 1e-3);
+        assert!((screen(Vec3::Y * 10.0).y + pixels_of(10.0)).abs() < 1e-3);
     }
 
     #[test]
