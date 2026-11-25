@@ -410,6 +410,7 @@ fn fly(
                         hurled: false,
                         object: false,
                         mount: false,
+                        marks: false,
                     });
                 }
             }

@@ -752,6 +752,7 @@ fn fly(
             hurled: false,
             object: false,
             mount: false,
+            marks: arrow.special.is_some(),
             attacker: arrow.shooter,
             target: on,
             share: arrow.share,

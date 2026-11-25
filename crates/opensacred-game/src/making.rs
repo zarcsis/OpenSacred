@@ -1440,6 +1440,7 @@ fn make(
             hurled: false,
             object: false,
             mount: false,
+            marks: true,
             attacker: hero,
             target,
             share: playing.factor,
@@ -2443,6 +2444,7 @@ fn make(
                                 hurled: false,
                                 object: false,
                                 mount: false,
+                                marks: false,
                             });
                             if !mind.big && knocks_back(&mut dice.0, playing.level, mind) {
                                 hit_clip(&mut commands, entity, arts::CANNON_KNOCK);
@@ -2728,9 +2730,11 @@ fn make(
                                         .entry::<Mind>()
                                         .and_modify(|mut mind| mind.stunned(arts::CLAW_HOLD));
                                 }
+                                // Its landing's record of the kind 0 (`0x51308A`).
                                 hits.write(fight::Hit {
                                     share: 1.0,
                                     fixed: Some([damage, 0.0, 0.0, 0.0]),
+                                    marks: false,
                                     ..hit(entity, &playing)
                                 });
                             }
@@ -3474,6 +3478,7 @@ fn blades(
                 hurled: false,
                 object: false,
                 mount: false,
+                marks: true,
                 attacker: hero,
                 target: entity,
                 share: playing.factor,
@@ -3677,6 +3682,7 @@ fn knock(
                     hurled: false,
                     object: false,
                     mount: false,
+                    marks: true,
                 });
                 // Its dying clip at the rate 1.0 (`0x44DFE0`'s blows, #3141).
                 commands

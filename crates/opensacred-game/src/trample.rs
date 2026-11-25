@@ -296,6 +296,9 @@ fn pass(
             if amount == 0 {
                 break;
             }
+            // A big one's strike carries the kind 1, the others' knocks 0 (`0x597BD8`,
+            // `0x597B3C`).
+            let stops = horses::stops_trample(foe.big, mind.level, kind.class);
             hits.write(fight::Hit {
                 attacker: hero,
                 target: creature,
@@ -309,11 +312,12 @@ fn pass(
                 hurled: false,
                 object: false,
                 mount: true,
+                marks: stops,
             });
             let most = fight_f32(amount.min(health.current));
             left -= most;
             trampling.pending.push((creature, most, 0));
-            if horses::stops_trample(foe.big, mind.level, kind.class) {
+            if stops {
                 info!("trample: {creature} stops {horse}");
                 body.stop();
                 break;

@@ -99,7 +99,8 @@ fn read(mut commands: Commands, data: Option<Res<Data>>) {
 /// none with a dialogue (`+0x245`), none that follows the hero (its master the local player); the
 /// hero as any creature, of its type, the class 1 and its gib set, so that the heroes' types 1 to
 /// 7 bleed none (`0x4281F0`) and the Dwarf (8) and the Daemon (9) spurt (#3401); in one case of
-/// ten (`0x53F38F`), at the bone of a part of six that its death rolls (`+0x574`, which the
+/// ten (`0x53F38F`), three of ten for one of the second knock-down's mark, which a death by a
+/// combat art's strike gives it (`fight::KnockMarks`, #3673), at the bone of a part of six that its death rolls (`+0x574`, which the
 /// original rolls as it makes the creature), the sixth none. A hero keeps its first fountain's
 /// bone ([`Bled`]), its rise clearing none of `+0xB0`'s bits, so that its later fountains spurt
 /// from it and its later puddles lie under it (`bodies`).
@@ -120,6 +121,7 @@ fn spurt(
                 Has<crate::hero::Body>,
                 Option<&Bled>,
                 Has<crate::fight::Downed>,
+                Option<&crate::fight::KnockMarks>,
             ),
         ),
         (
@@ -138,7 +140,7 @@ fn spurt(
     if !settings.is_some_and(|settings| settings.gameplay.violence) {
         return;
     }
-    for (entity, mind, at, (is_hero, bled, downed)) in &dying {
+    for (entity, mind, at, (is_hero, bled, downed, marks)) in &dying {
         // Dead in its knock-down's fall, it is asked no clip and its fountain is not rolled
         // (`0x53EF2A`, #3465).
         if downed {
@@ -153,7 +155,10 @@ fn spurt(
             (None, false) => continue,
         };
         let set = gibs.as_ref().map_or(0, |gibs| gibs.of(creature));
-        if !particles::bleeds(creature, class, set) || !particles::spurts_at_death(&mut dice.0) {
+        let marked = marks.is_some_and(|marks| marks.second());
+        if !particles::bleeds(creature, class, set)
+            || !particles::spurts_at_death(&mut dice.0, marked)
+        {
             continue;
         }
         // A hero's later fountains spurt from its first's bone.

@@ -1651,6 +1651,7 @@ fn pursue(
                     hurled: false,
                     object: false,
                     mount: false,
+                    marks: true,
                 });
             }
             Pursues::Flees(to) => {
@@ -1750,6 +1751,7 @@ fn pursue(
                         hurled: false,
                         object: false,
                         mount: false,
+                        marks: false,
                     });
                     world.write_message(crate::hit_sparks::Spark {
                         art: crate::trample::TRAMPLE_SPARKS,
@@ -1788,6 +1790,7 @@ fn pursue(
                         hurled: false,
                         object: false,
                         mount: false,
+                        marks: false,
                     });
                 }
                 commands
@@ -3676,6 +3679,7 @@ mod tests {
                 hurled: false,
                 object: false,
                 mount: false,
+                marks: false,
             });
         }
         app.update();
@@ -3731,6 +3735,7 @@ mod tests {
             hurled: false,
             object: false,
             mount: false,
+            marks: false,
         };
         let struck = follower(&mut app, hero);
         let by_the_hero = follower(&mut app, hero);
@@ -3781,6 +3786,7 @@ mod tests {
             hurled: false,
             object: false,
             mount: false,
+            marks: false,
         });
         app.update();
         let mind = app.world().get::<Mind>(goblin).unwrap();
@@ -3927,6 +3933,7 @@ mod tests {
             hurled: false,
             object: false,
             mount: false,
+            marks: false,
         });
         app.update();
         // The fellow comes at the hero; the archer, of no group, keeps its foe.
@@ -3981,6 +3988,7 @@ mod tests {
             hurled: false,
             object: false,
             mount: false,
+            marks: false,
         });
         app.update();
         // The event goes on to the rider, which fights the skeleton's foe; the horse fights not.

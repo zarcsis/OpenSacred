@@ -425,6 +425,7 @@ fn bled(attacker: Entity, target: Entity, damage: u32, own: bool) -> fight::Hit 
         hurled: false,
         object: false,
         mount: false,
+        marks: false,
     }
 }
 
@@ -510,6 +511,7 @@ fn poison(
                 hurled: false,
                 object: false,
                 mount: false,
+                marks: false,
             });
         }
     }
