@@ -110,6 +110,25 @@ pub struct Doing {
     #[entities]
     attack: Option<crate::attack::SavedAttack>,
     striking: Option<crate::attack::SavedStriking>,
+    /// The hero's orders (#3763): to take an item, to collect, to talk, to open a container or a
+    /// door, to search a stash, to mount; held by a script; knocked down or pushed.
+    #[entities]
+    picks: Option<crate::pickup::SavedPicks>,
+    #[entities]
+    collects: Option<crate::pickup::SavedCollects>,
+    #[entities]
+    talking: Option<crate::talk::SavedTalking>,
+    #[entities]
+    opens: Option<crate::containers::SavedOpens>,
+    #[entities]
+    door: Option<crate::doors::SavedOpens>,
+    #[entities]
+    searches: Option<crate::stashes::SavedSearches>,
+    #[entities]
+    seat: Option<crate::riding::SavedSeat>,
+    held: Option<crate::hero_held::HeroHeld>,
+    downed: Option<crate::fight::Downed>,
+    pushed: Option<crate::fight::Pushed>,
     /// Its effects, their sources by their names.
     #[entities]
     effects: Option<Effects>,
@@ -133,6 +152,17 @@ impl Doing {
             rearms: saved::<crate::npcs::Rearms>(world, entity, &at),
             attack: saved::<crate::attack::Attack>(world, entity, &at),
             striking: saved::<crate::attack::Striking>(world, entity, &at),
+            picks: saved::<crate::pickup::Picks>(world, entity, &at)
+                .or_else(|| saved::<crate::pickup::Picking>(world, entity, &at)),
+            collects: saved::<crate::pickup::Collects>(world, entity, &at),
+            talking: saved::<crate::talk::Talking>(world, entity, &at),
+            opens: saved::<crate::containers::Opens>(world, entity, &at),
+            door: saved::<crate::doors::Opens>(world, entity, &at),
+            searches: saved::<crate::stashes::Searches>(world, entity, &at),
+            seat: saved::<crate::riding::Seat>(world, entity, &at),
+            held: saved::<crate::hero_held::HeroHeld>(world, entity, &at),
+            downed: saved::<crate::fight::Downed>(world, entity, &at),
+            pushed: saved::<crate::fight::Pushed>(world, entity, &at),
             effects: saved::<Effects>(world, entity, &at),
             marks: saved::<KnockMarks>(world, entity, &at),
         };
@@ -158,8 +188,36 @@ impl Doing {
         put::<crate::npcs::Rearms>(&mut creature, self.rearms, &at);
         put::<crate::attack::Attack>(&mut creature, self.attack, &at);
         put::<crate::attack::Striking>(&mut creature, self.striking, &at);
+        // A pick-up under way is taken again from its walk (#3763).
+        creature.remove::<crate::pickup::Picking>();
+        put::<crate::pickup::Picks>(&mut creature, self.picks, &at);
+        put::<crate::pickup::Collects>(&mut creature, self.collects, &at);
+        put::<crate::talk::Talking>(&mut creature, self.talking, &at);
+        put::<crate::containers::Opens>(&mut creature, self.opens, &at);
+        put::<crate::doors::Opens>(&mut creature, self.door, &at);
+        put::<crate::stashes::Searches>(&mut creature, self.searches, &at);
+        put::<crate::hero_held::HeroHeld>(&mut creature, self.held, &at);
+        put::<crate::fight::Downed>(&mut creature, self.downed, &at);
+        put::<crate::fight::Pushed>(&mut creature, self.pushed, &at);
+        // The ride itself is the save's world's (#3743): a walk to a horse or a dismount under
+        // way goes on, a mount ends at once, seated as a loaded rider is.
+        let mounting = match self.seat {
+            Some(crate::riding::SavedSeat::Mounting { horse, .. }) => {
+                crate::names::found(Some(horse))
+            }
+            Some(seat) => {
+                if let Some(seat) = <crate::riding::Seat as Saves>::again(seat, &at) {
+                    creature.insert(seat);
+                }
+                None
+            }
+            None => None,
+        };
         put::<Effects>(&mut creature, self.effects, &at);
         put::<KnockMarks>(&mut creature, self.marks, &at);
+        if let Some(horse) = mounting {
+            crate::riding::seat_again(world, entity, horse);
+        }
     }
 }
 
@@ -232,6 +290,7 @@ fn order(id: Id) -> (u8, u32) {
         Id::Hero => (0, 0),
         Id::Placed(index) => (1, index),
         Id::Born(serial) => (2, serial),
+        Id::Drop(index) => (3, index),
     }
 }
 
@@ -279,6 +338,7 @@ pub const DERIVED: &[&str] = &[
     "opensacred_game::npcs::ScriptName",
     "opensacred_game::npcs::Talk",
     "opensacred_game::npcs::Talks",
+    "opensacred_game::pickup::Kneels",
     "opensacred_game::npcs::RisesAgain",
     "opensacred_game::steps::Stepped",
     "opensacred_game::voices::Speaking",
@@ -298,6 +358,17 @@ pub const SAVED: &[&str] = &[
     "opensacred_game::npcs::Rearms",
     "opensacred_game::attack::Attack",
     "opensacred_game::attack::Striking",
+    "opensacred_game::pickup::Picks",
+    "opensacred_game::pickup::Picking",
+    "opensacred_game::pickup::Collects",
+    "opensacred_game::talk::Talking",
+    "opensacred_game::containers::Opens",
+    "opensacred_game::doors::Opens",
+    "opensacred_game::stashes::Searches",
+    "opensacred_game::riding::Seat",
+    "opensacred_game::hero_held::HeroHeld",
+    "opensacred_game::fight::Downed",
+    "opensacred_game::fight::Pushed",
     "opensacred_game::effects::Effects",
     "opensacred_game::fight::KnockMarks",
 ];

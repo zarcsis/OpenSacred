@@ -1457,16 +1457,26 @@ pub struct Laid {
 /// again (`npcs::QuestItem`, `npcs::ScriptItem`).
 pub fn laid(world: &mut World) -> Vec<Laid> {
     let mut drops = world.query_filtered::<(
+        Entity,
         &Transform,
         &Lying,
         Option<&Flying>,
         Option<&crate::pickup::KeptUse>,
     ), (Without<npcs::QuestItem>, Without<npcs::ScriptItem>)>();
+    let entities: Vec<Entity> = drops.iter(world).map(|(entity, ..)| entity).collect();
+    // Each named by its place in the list, by which a save's orders refer to it (#3763).
+    for (index, &entity) in entities.iter().enumerate() {
+        if let Ok(index) = u32::try_from(index) {
+            world
+                .entity_mut(entity)
+                .insert(crate::names::Named(crate::names::Id::Drop(index)));
+        }
+    }
     let world = &*world;
     let heights = world.get_resource::<Heights>();
     drops
         .iter(world)
-        .map(|(transform, lying, flying, kept)| Laid {
+        .map(|(_, transform, lying, flying, kept)| Laid {
             kept_use: kept.map(|kept| kept.0.clone()),
             dropped: lying.dropped.clone(),
             at: transform.translation,
@@ -1500,7 +1510,7 @@ fn lay_again(
         return;
     };
     commands.remove_resource::<Again>();
-    for laid in &again.0 {
+    for (index, laid) in again.0.iter().enumerate() {
         let transform = Transform::from_translation(laid.at)
             .with_rotation(laid.turn)
             .with_scale(Vec3::splat(iso::MODEL_SCALE));
@@ -1509,6 +1519,12 @@ fn lay_again(
             resting: laid.flight.is_none(),
         };
         let entity = put(&mut commands, (&assets, &tables), transform, lying);
+        // Its name in the save's list, by which the save's orders find it (#3763).
+        if let Ok(index) = u32::try_from(index) {
+            commands
+                .entity(entity)
+                .insert(crate::names::Named(crate::names::Id::Drop(index)));
+        }
         if let Some(function) = &laid.kept_use {
             commands
                 .entity(entity)
@@ -2140,6 +2156,28 @@ impl Plugin for DropsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_saves_drops_are_named_by_their_places_in_its_list() {
+        let mut app = App::new();
+        app.add_plugins(crate::names::NamesPlugin);
+        let world = app.world_mut();
+        let lying = |amount| Lying {
+            dropped: drops::gold_pile(amount),
+            resting: true,
+        };
+        world.spawn((Transform::default(), lying(5)));
+        world.spawn((Transform::default(), lying(9)));
+        let laid = laid(world);
+        assert_eq!(laid.len(), 2);
+        let mut named = world.query::<(&crate::names::Named, &Lying)>();
+        for (crate::names::Named(id), lying) in named.iter(world) {
+            let crate::names::Id::Drop(index) = *id else {
+                panic!("{id:?}");
+            };
+            assert_eq!(laid[usize::try_from(index).unwrap()].dropped, lying.dropped);
+        }
+    }
 
     #[test]
     fn the_survival_counter_counts_the_fight_stance_and_a_fall_clears_it() {

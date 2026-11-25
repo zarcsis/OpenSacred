@@ -103,6 +103,41 @@ const WALK_BEGINS_WITHIN: u8 = 10;
 #[derive(Component)]
 pub struct Opens(Entity, bool, u8);
 
+/// The hero's walk to open a container as a save keeps it (#3763): the container by its name.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedOpens {
+    #[serde(with = "crate::names::required")]
+    target: Entity,
+    first: bool,
+    count: u8,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedOpens {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = mapper.get_mapped(self.target);
+    }
+}
+
+impl crate::doings::Saves for Opens {
+    type Saved = SavedOpens;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<SavedOpens> {
+        Some(SavedOpens {
+            target: self.0,
+            first: self.1,
+            count: self.2,
+        })
+    }
+
+    fn again(saved: SavedOpens, _: &crate::doings::Moment) -> Option<Self> {
+        Some(Self(
+            crate::names::found(Some(saved.target))?,
+            saved.first,
+            saved.count,
+        ))
+    }
+}
+
 /// What a container of the type `kind` sounds as it opens, by `0x695800`'s choice: the chests'
 /// and the barrels' profile 605 (5200 to 5213 and 5220), the shrines' 609 (5214, 5215), the
 /// vase's 610 (5218), the book stand's 611 (5222), the graves' `GRAVE_OPEN01` or `02` (324, 325)

@@ -438,6 +438,78 @@ pub enum Seat {
     Dismounting { left: f32 },
 }
 
+/// The hero's seat as a save keeps it (#3763): its walk to a horse or its mount, the horse by
+/// its name, or its dismount; the ride itself the save's world keeps (#3743).
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum SavedSeat {
+    Approaching {
+        #[serde(with = "crate::names::required")]
+        horse: Entity,
+        point: Vec3,
+        heading: Vec3,
+    },
+    Mounting {
+        #[serde(with = "crate::names::required")]
+        horse: Entity,
+        left: f32,
+    },
+    Dismounting {
+        left: f32,
+    },
+}
+
+impl bevy::ecs::entity::MapEntities for SavedSeat {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        match self {
+            Self::Approaching { horse, .. } | Self::Mounting { horse, .. } => {
+                *horse = mapper.get_mapped(*horse);
+            }
+            Self::Dismounting { .. } => {}
+        }
+    }
+}
+
+impl crate::doings::Saves for Seat {
+    type Saved = SavedSeat;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<SavedSeat> {
+        match *self {
+            Self::Approaching {
+                horse,
+                point,
+                heading,
+            } => Some(SavedSeat::Approaching {
+                horse,
+                point,
+                heading,
+            }),
+            Self::Mounting { horse, left } => Some(SavedSeat::Mounting { horse, left }),
+            Self::Dismounting { left } => Some(SavedSeat::Dismounting { left }),
+            Self::Riding { .. } => None,
+        }
+    }
+
+    fn again(saved: SavedSeat, _: &crate::doings::Moment) -> Option<Self> {
+        let found = |horse| crate::names::found(Some(horse));
+        Some(match saved {
+            SavedSeat::Approaching {
+                horse,
+                point,
+                heading,
+            } => Self::Approaching {
+                horse: found(horse)?,
+                point,
+                heading,
+            },
+            SavedSeat::Mounting { horse, left } => Self::Mounting {
+                horse: found(horse)?,
+                left,
+            },
+            SavedSeat::Dismounting { left } => Self::Dismounting { left },
+        })
+    }
+}
+
 impl Seat {
     /// Whether its clip plays, the hero going nowhere: mounting or getting off.
     pub fn busy(&self) -> bool {

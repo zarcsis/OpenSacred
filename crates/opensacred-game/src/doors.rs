@@ -25,6 +25,34 @@ const TURNS_WITHIN: f32 = 300.0;
 #[derive(Component)]
 pub struct Opens(Entity);
 
+/// The hero's walk to open a door as a save keeps it (#3763): the door by its name.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+// Named apart from the containers' of its name, which the saves' layout test traces by name
+// (#2306); postcard writes no names.
+#[serde(rename = "SavedDoorOpens")]
+pub struct SavedOpens {
+    #[serde(with = "crate::names::required")]
+    target: Entity,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedOpens {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = mapper.get_mapped(self.target);
+    }
+}
+
+impl crate::doings::Saves for Opens {
+    type Saved = SavedOpens;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<SavedOpens> {
+        Some(SavedOpens { target: self.0 })
+    }
+
+    fn again(saved: SavedOpens, _: &crate::doings::Moment) -> Option<Self> {
+        Some(Self(crate::names::found(Some(saved.target))?))
+    }
+}
+
 /// On a press of the left button that went to no attack, the door that the cursor picks
 /// (`under_cursor`) becomes the hero's to turn; any press ends the last such order.
 pub(crate) fn pick(

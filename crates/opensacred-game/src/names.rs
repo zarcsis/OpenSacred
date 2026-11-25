@@ -27,6 +27,9 @@ pub enum Id {
     /// summoned, one the hero summoned, called or raised, one the command `spawn` made; by a
     /// serial of the game (`npcs::Kept`'s count), which a save keeps.
     Born(u32),
+    /// An item lying or flying, by its place in a save's list of the drops (`drops::laid`),
+    /// which its load lays again in that order (#3763).
+    Drop(u32),
 }
 
 /// The name of a creature or a thing.
