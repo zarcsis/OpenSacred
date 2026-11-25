@@ -98,7 +98,7 @@ pub struct Fire {
 }
 
 /// What a bolt strikes as it meets creatures.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Strikes {
     /// Every creature it finds in a frame, once, and it goes (the railgun's).
     All,
@@ -113,7 +113,7 @@ pub enum Strikes {
 
 /// How a bolt flies and strikes, and its look: its speed in units a second, how much slower it
 /// grows each second, its most time, what it strikes and its look's index.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Course {
     pub speed: f32,
     pub slows: f32,
@@ -137,7 +137,7 @@ pub struct Course {
 
 /// A bolt's sounds, each at it, at the volume 1 and the sample's own rate: as it leaves, as it
 /// hits, and looping while it flies.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Sounds {
     pub start: Option<u32>,
     pub hit: Option<u32>,
@@ -273,7 +273,7 @@ pub struct Launch {
 /// A bolt that an arrow's passing through bursts, the Wood Elf's bubble (847, `0x797D80`'s
 /// signal 8; #2128): whether a hero cast it, its direction on the ground and its seconds, which
 /// its look takes (`bubble_traps`).
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Bubble {
     pub(crate) hero: bool,
     pub(crate) direction: Vec2,
@@ -302,6 +302,114 @@ struct Flying {
     /// Its system's look, and the height it flies level at where it left from its bone.
     kind: Option<crate::bolt_looks::Kind>,
     level_at: Option<f32>,
+}
+
+/// A bolt in flight as a save keeps it (#3760; the original's `cObjectFX` keeps its fields and
+/// its load sets its stamp of the game's clock to its own, docs/re/saves.md, "What a load gives
+/// back of the doings"): its course, its shooter by its name, where it is, and how it has flown;
+/// its look, its trail and its loop come of its course again, made anew.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedBolt {
+    course: Course,
+    #[serde(with = "crate::names::required")]
+    shooter: Entity,
+    hero: bool,
+    direction: Vec2,
+    level: Level,
+    damages: [f32; 4],
+    wait: f32,
+    flown: f32,
+    spent: bool,
+    cooldown: f32,
+    level_at: Option<f32>,
+    bubble: Option<Bubble>,
+    at: Vec3,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedBolt {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.shooter = mapper.get_mapped(self.shooter);
+    }
+}
+
+/// The bolts in flight, as a save keeps them.
+pub fn saved(world: &mut World) -> Vec<SavedBolt> {
+    let mut heroes = world.query_filtered::<Entity, With<Body>>();
+    let hero = heroes.iter(world).next();
+    let mut flying = world.query::<(&Flying, &Transform, Option<&Bubble>)>();
+    flying
+        .iter(world)
+        .map(|(bolt, at, bubble)| SavedBolt {
+            course: bolt.course,
+            shooter: bolt.shooter,
+            hero: Some(bolt.shooter) == hero,
+            direction: bolt.direction,
+            level: bolt.level,
+            damages: bolt.damages,
+            wait: bolt.wait,
+            flown: bolt.flown,
+            spent: bolt.spent,
+            cooldown: bolt.cooldown,
+            level_at: bolt.level_at,
+            bubble: bubble.copied(),
+            at: at.translation,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's bolts again where they flew, their shooters mapped to the loaded world's
+/// entities already, one whose shooter is not back flying on from none.
+pub fn again(world: &mut World, bolts: Vec<SavedBolt>) {
+    let count = bolts.len();
+    let mut commands = world.commands();
+    for saved in bolts {
+        let mut bolt = commands.spawn((
+            Transform::from_translation(saved.at),
+            if saved.wait > 0.0 {
+                Visibility::Hidden
+            } else {
+                Visibility::Inherited
+            },
+            Flying {
+                course: saved.course,
+                shooter: saved.shooter,
+                direction: saved.direction,
+                level: saved.level,
+                damages: saved.damages,
+                wait: saved.wait,
+                flown: saved.flown,
+                spent: saved.spent,
+                cooldown: saved.cooldown,
+                kind: look_of(saved.course.look),
+                level_at: saved.level_at,
+            },
+            DespawnOnExit(AppState::InGame),
+        ));
+        if let Some(bubble) = saved.bubble {
+            bolt.insert(bubble);
+        }
+        dress(&mut bolt, saved.course, saved.direction, saved.hero);
+    }
+    world.flush();
+    debug!("bolts: a load's {count} bolts in flight again");
+}
+
+/// Gives a bolt the look, the trail and the loop of its course: its system's, the whirlwind's or
+/// the fire bolt's trail, the ice splinters', and its system's loop while it flies (`hums`).
+fn dress(bolt: &mut EntityCommands<'_>, course: Course, direction: Vec2, hero: bool) {
+    if let Some(trail) = trail_of(course.look) {
+        bolt.insert(crate::bolt_trails::Trail(trail));
+    }
+    if course.look == SPLINTERS_LOOK {
+        bolt.insert(crate::ice_splinters::Splinters { hero, direction });
+    }
+    if let Some(kind) = look_of(course.look) {
+        let id = bolt.id();
+        crate::bolt_looks::spawn(bolt.commands_mut(), id, kind, direction, hero);
+    }
+    if let Some(looping) = course.sounds.looping {
+        bolt.insert(crate::hums::Hum(looping));
+    }
 }
 
 /// The look of a system of its own, by the course's look (`bolt_looks`).
@@ -509,29 +617,13 @@ fn launch(
                 seconds: launched.course.life,
             });
         }
-        if let Some(trail) = trail {
-            bolt.insert(crate::bolt_trails::Trail(trail));
-        }
-        if splinters {
-            bolt.insert(crate::ice_splinters::Splinters {
-                hero: body.is_some(),
-                direction: launched.direction,
-            });
-        }
-        if let Some(kind) = system {
-            let id = bolt.id();
-            crate::bolt_looks::spawn(
-                bolt.commands_mut(),
-                id,
-                kind,
-                launched.direction,
-                body.is_some(),
-            );
-        }
-        // Its system's loop while it flies (`crate::hums`).
-        if let Some(looping) = launched.course.sounds.looping {
-            bolt.insert(crate::hums::Hum(looping));
-        }
+        // Its look, its trail and its loop while it flies (`crate::hums`).
+        dress(
+            &mut bolt,
+            launched.course,
+            launched.direction,
+            body.is_some(),
+        );
         // The railgun's once a shot, with its first bolt (`0x4DDE12` after `0x4DDD2A`'s object).
         if let Some(start) = launched.course.sounds.start
             && launched.wait <= 0.0

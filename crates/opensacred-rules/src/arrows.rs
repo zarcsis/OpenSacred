@@ -221,7 +221,7 @@ pub fn size(word: u32) -> f32 {
 }
 
 /// A point of the world: its point of the ground and its height, in world units.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Point {
     pub ground: Spot,
     pub height: f32,
@@ -244,7 +244,7 @@ impl Point {
 /// An arrow in flight (`cArrow3D`, `0x5BB010`): where it is, its velocity a second, fixed at its
 /// start in three dimensions without gravity, how long it still flies, and a ray's length, along
 /// which a ray tests its hits standing ([`Arrow::ray`]).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Arrow {
     at: Point,
     velocity: Point,
@@ -469,7 +469,7 @@ pub fn sticks(size: f32, hero: bool) -> bool {
 }
 
 /// The element that an arrow shows of its shooter's weapon (`+0x248`, `0x5BD2D0`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Element {
     Fire,
     Poison,

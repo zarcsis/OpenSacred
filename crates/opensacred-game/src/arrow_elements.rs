@@ -22,7 +22,7 @@ const SHAFT: [&str; 3] = ["weapon_fx01", "weapon_fx02", "weapon_fx03"];
 
 /// An arrow's element and its share, which its shot gives it (`arrows`, `0x5BD2D0`), or a
 /// weapon's in hand, which its values give it ([`wield`]).
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Elemental {
     pub element: Element,
     pub share: f32,

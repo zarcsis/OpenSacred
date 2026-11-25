@@ -73,7 +73,7 @@ pub struct Special {
 
 /// A homing blade's own (1008, `+0x1E4` bit `0x10`): how high over its target's feet it aims
 /// (the target's neck where it left), and how long until it may strike again (`+0x240`).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Homing {
     aim: f32,
     wait: f32,
@@ -107,7 +107,7 @@ pub(crate) struct Arrow {
 /// An arrow's trail (`0x5BB7FA`–`0x5BBA6B`): the length of its way since its last piece
 /// (`+0x24C`), and the explosive arrow's own point that each piece moves on (`+0x250`; at its
 /// place as it is shot, **hypothesis**), none for a blade, whose pieces lie where it is.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Trail {
     way: f32,
     point: Option<Vec3>,
@@ -130,6 +130,180 @@ struct Dice(opensacred_rules::spawning::Rng);
 /// An arrow stuck in a creature, and how long it stays there, in seconds.
 #[derive(Component)]
 struct Stuck(f32);
+
+/// The kind of an arrow's projectile (`opensacred_rules::arrows::projectile`), by which its model
+/// and texture are found (`npcs::Npcs::arrow`), flying or stuck.
+#[derive(Component, Clone, Copy, Debug)]
+struct Projectile(u32);
+
+/// An arrow in flight as a save keeps it (#3760; the original's `cArrow3D` keeps its fields and
+/// its load sets its stamp of the game's clock to its own, docs/re/saves.md, "What a load gives
+/// back of the doings"): its flight, its shooter and its target by their names, where it is and
+/// how it points, and what it is.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedArrow {
+    flight: arrows::Arrow,
+    #[serde(with = "crate::names::required")]
+    shooter: Entity,
+    #[serde(with = "crate::names::required")]
+    target: Entity,
+    level: Level,
+    size: f32,
+    share: f32,
+    special: Option<Special>,
+    homing: Option<Homing>,
+    wait: f32,
+    trail: Option<Trail>,
+    kind: u32,
+    element: Option<crate::arrow_elements::Elemental>,
+    at: Vec3,
+    pointing: Quat,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedArrow {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.shooter = mapper.get_mapped(self.shooter);
+        self.target = mapper.get_mapped(self.target);
+    }
+}
+
+/// An arrow stuck in a creature as a save keeps it (#3760): the creature by its name, the arrow's
+/// place on it, its kind and how long it stays.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedStuck {
+    #[serde(with = "crate::names::required")]
+    holder: Entity,
+    at: Vec3,
+    pointing: Quat,
+    scale: Vec3,
+    kind: u32,
+    left: f32,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedStuck {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.holder = mapper.get_mapped(self.holder);
+    }
+}
+
+/// The arrows in flight and stuck, as a save keeps them.
+pub fn saved(world: &mut World) -> (Vec<SavedArrow>, Vec<SavedStuck>) {
+    let mut flying = world.query::<(
+        &Arrow,
+        &Transform,
+        &Projectile,
+        Option<&crate::arrow_elements::Elemental>,
+    )>();
+    let arrows = flying
+        .iter(world)
+        .map(|(arrow, at, kind, element)| SavedArrow {
+            flight: arrow.flight,
+            shooter: arrow.shooter,
+            target: arrow.target,
+            level: arrow.level,
+            size: arrow.size,
+            share: arrow.share,
+            special: arrow.special,
+            homing: arrow.homing,
+            wait: arrow.wait,
+            trail: arrow.trail,
+            kind: kind.0,
+            element: element.copied(),
+            at: at.translation,
+            pointing: at.rotation,
+        })
+        .collect();
+    let mut stuck = world.query::<(&Stuck, &Transform, &Projectile, &ChildOf)>();
+    let stuck = stuck
+        .iter(world)
+        .map(|(stuck, at, kind, holder)| SavedStuck {
+            holder: holder.parent(),
+            at: at.translation,
+            pointing: at.rotation,
+            scale: at.scale,
+            kind: kind.0,
+            left: stuck.0,
+        })
+        .collect();
+    (arrows, stuck)
+}
+
+/// Makes a loaded save's arrows again, their references mapped to the loaded world's entities
+/// already: each in flight where it was, flying on, one whose shooter or target is not back
+/// flying on at none; each stuck in its creature where it was, but in one that is not back.
+pub fn again(world: &mut World, (arrows, stuck): (Vec<SavedArrow>, Vec<SavedStuck>)) {
+    let (Some(assets), Some(npcs)) = (
+        world.get_resource::<AssetServer>().cloned(),
+        world.get_resource::<Npcs>(),
+    ) else {
+        return;
+    };
+    let looks = |kind: u32| {
+        npcs.arrow(kind)
+            .map(|(model, texture, _)| (model.to_owned(), texture.map(str::to_owned)))
+    };
+    let arrows: Vec<_> = arrows
+        .into_iter()
+        .filter_map(|saved| Some((looks(saved.kind)?, saved)))
+        .collect();
+    let stuck: Vec<_> = stuck
+        .into_iter()
+        .filter(|saved| saved.holder != Entity::PLACEHOLDER)
+        .filter_map(|saved| Some((looks(saved.kind)?, saved)))
+        .collect();
+    let count = (arrows.len(), stuck.len());
+    for ((model, texture), saved) in arrows {
+        let mut arrow = world.spawn((
+            models::scene(&assets, &model),
+            Transform::from_translation(saved.at)
+                .with_rotation(saved.pointing)
+                .with_scale(Vec3::splat(iso::MODEL_SCALE)),
+            models::Ordered::default(),
+            crate::shadows::Casts,
+            Arrow {
+                flight: saved.flight,
+                shooter: saved.shooter,
+                target: saved.target,
+                level: saved.level,
+                size: saved.size,
+                share: saved.share,
+                special: saved.special,
+                homing: saved.homing,
+                wait: saved.wait,
+                trail: saved.trail,
+            },
+            Projectile(saved.kind),
+            DespawnOnExit(AppState::InGame),
+        ));
+        if let Some(texture) = texture {
+            arrow.insert(Retexture::load(&assets, &texture));
+        }
+        if let Some(element) = saved.element {
+            arrow.insert(element);
+        }
+    }
+    for ((model, texture), saved) in stuck {
+        let mut arrow = world.spawn((
+            models::scene(&assets, &model),
+            Transform::from_translation(saved.at)
+                .with_rotation(saved.pointing)
+                .with_scale(saved.scale),
+            models::Ordered::default(),
+            crate::shadows::Casts,
+            Stuck(saved.left),
+            Projectile(saved.kind),
+            ChildOf(saved.holder),
+            DespawnOnExit(AppState::InGame),
+        ));
+        if let Some(texture) = texture {
+            arrow.insert(Retexture::load(&assets, &texture));
+        }
+    }
+    debug!(
+        "arrows: a load's {} arrows in flight and {} stuck again",
+        count.0, count.1
+    );
+}
 
 /// The spider arrow's `HELF_SPINNENPFEIL` at the creature it hits, at half its rate (`0x5BBF1A`,
 /// a hero's arrow alone, docs/re/sound.md).
@@ -276,7 +450,8 @@ fn loose(
         let first = arrows::Arrow::new(point(from), point(toward));
         let level = ways.get(shot.shooter).ok().and_then(|way| way.level);
         let art = shot.special.map(|special| special.art);
-        let Some((model, texture, size)) = npcs.arrow(arrows::projectile(art)) else {
+        let kind = arrows::projectile(art);
+        let Some((model, texture, size)) = npcs.arrow(kind) else {
             continue;
         };
         // The element of the shooter's weapon, its most damaging item's (`0x5BD2D0`).
@@ -412,6 +587,7 @@ fn loose(
                         _ => None,
                     },
                 },
+                Projectile(kind),
                 DespawnOnExit(AppState::InGame),
             ));
             if let Some(texture) = texture {
@@ -872,6 +1048,77 @@ impl Plugin for ArrowsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_save_keeps_the_arrows_in_flight_and_stuck_by_their_creatures_names() {
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut app = App::new();
+        app.add_plugins(NamesPlugin);
+        let world = app.world_mut();
+        let shooter = world.spawn(Named(Id::Placed(4))).id();
+        let target = world.spawn(Named(Id::Hero)).id();
+        let flight = arrows::Arrow::new(
+            Point {
+                ground: Spot::new(0.0, 0.0),
+                height: 10.0,
+            },
+            Point {
+                ground: Spot::new(300.0, 0.0),
+                height: 10.0,
+            },
+        );
+        world.spawn((
+            Arrow {
+                flight,
+                shooter,
+                target,
+                level: None,
+                size: 50.0,
+                share: 1.0,
+                special: None,
+                homing: None,
+                wait: 0.0,
+                trail: None,
+            },
+            Transform::from_xyz(120.0, 10.0, 0.0),
+            Projectile(3),
+        ));
+        world.spawn((
+            Stuck(3.5),
+            Transform::from_xyz(1.0, 2.0, 3.0),
+            Projectile(3),
+            ChildOf(target),
+        ));
+        let (arrows, stuck) = saved(world);
+        assert_eq!((arrows.len(), stuck.len()), (1, 1));
+        let mut refs = Refs::default();
+        let mut saving = Saving {
+            world: app.world(),
+            refs: &mut refs,
+        };
+        let kept = (mapped(arrows, &mut saving), mapped(stuck, &mut saving));
+        let bytes = postcard::to_stdvec(&(&refs, &kept)).unwrap();
+        let (refs, kept): (Refs, (Vec<SavedArrow>, Vec<SavedStuck>)) =
+            postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..5).map(|_| ()));
+        let hero = loaded.world_mut().spawn(Named(Id::Hero)).id();
+        let mut loading = Loading {
+            refs: &refs,
+            names: loaded.world().resource::<Names>(),
+            lost: 0,
+        };
+        let (arrows, stuck) = (mapped(kept.0, &mut loading), mapped(kept.1, &mut loading));
+        // Its shooter not back, its target the loaded hero; the stuck one on the hero.
+        assert_eq!(
+            (arrows[0].shooter, arrows[0].target),
+            (Entity::PLACEHOLDER, hero)
+        );
+        assert_eq!(arrows[0].flight, flight);
+        assert_eq!(arrows[0].at, Vec3::new(120.0, 10.0, 0.0));
+        assert_eq!((stuck[0].holder, stuck[0].left), (hero, 3.5));
+    }
 
     /// Lays a trail along the steps `steps` from the origin along +x: the places of its pieces,
     /// one list a step.
