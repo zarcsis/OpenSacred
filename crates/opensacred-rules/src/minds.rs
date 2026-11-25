@@ -625,6 +625,13 @@ enum Charge {
 /// docs/re/ai.md, "The flyers", "Swooping"): `0x80`, which the Vampiress's distracting bat 595
 /// takes as her art 1036 makes it ([`Mind::distracts`]), and `0x100`, which none takes.
 const SWOOPS: u16 = 0x180;
+/// The mark of the flyers that take their swoop at a melee decision on the ground by a roll
+/// `rand() % 4` of [`SWOOP_ROLL`], the gargoyles, the harpies and the flight lizards (the table
+/// `0x4DB7E0` → `0x4D74F9`; docs/re/ai.md, "The flyers", #3707), and how near its target a pass
+/// must be at least to strike (`0x4E24E7`: on its target's own point it strikes nothing).
+const SWOOPS_BY_ROLL: u16 = 0x2;
+const SWOOP_ROLL: u32 = 3;
+const SWOOP_NEAREST: f32 = 1.0;
 /// A swooping flyer's band of its target, the two creatures' reach less this (`0x4DBC60` less
 /// 15), within which its pass strikes, and how far beyond its target the pass takes it
 /// (`0x4E24CC`–`0x4E2B7B`).
@@ -1770,9 +1777,16 @@ impl Mind {
         self.phase = Some((self.mark() & 0xF080) | 0x80);
     }
 
-    /// Whether it swoops at its target in melee, its mark of [`SWOOPS`] (`0x4D74F9`).
+    /// Whether it swoops at its target in melee: its mark of [`SWOOPS`] (`0x4D74F9`), or the
+    /// mark [`SWOOPS_BY_ROLL`] while it is aloft in its swoop (#3707).
     pub fn swoops(&self) -> bool {
-        self.mark() & SWOOPS != 0
+        self.mark() & SWOOPS != 0 || (self.flying && self.swoops_by_roll())
+    }
+
+    /// Whether it is of the mark that takes its swoop by a roll at its melee decisions, the mark
+    /// [`SWOOPS_BY_ROLL`] alone, its other bits but the `0xF000` none.
+    fn swoops_by_roll(&self) -> bool {
+        self.mark() & 0x0FFF == SWOOPS_BY_ROLL
     }
 
     /// Whether it is aloft in its swoop, which a blow may fell ([`swoop_fall_chance`]): fighting,
@@ -1800,8 +1814,10 @@ impl Mind {
     ) -> Option<Pursues> {
         let d = (target - here).length();
         match self.swoop {
-            Swoop::Pass if d <= reach - SWOOP_BAND => {
+            Swoop::Pass if (SWOOP_NEAREST..=reach - SWOOP_BAND).contains(&d) => {
                 self.swoop = Swoop::Turn;
+                // Its pass's strike moves its home to its place (`0x4E2B10`).
+                self.home = here;
                 let to = target + (target - here).unit() * SWOOP_BEYOND;
                 Some(Pursues::Swoops { to, strikes: true })
             }
@@ -2647,6 +2663,11 @@ impl Mind {
         if d > GIVES_UP {
             self.leaves_fight();
             return Some(Pursues::GivesUp);
+        }
+        // A flyer of the mark 2 on the ground takes its swoop by its roll (`0x4DB7E0`, #3707).
+        if !self.flying && self.swoops_by_roll() && rng.below(4) == SWOOP_ROLL {
+            self.flying = true;
+            self.swoop = Swoop::Pass;
         }
         // A creature of a swooping mark flies at its target and swoops (`0x4D74F9`–`0x4D765B`,
         // the sub-states 7 and 8; #3589).
@@ -7803,6 +7824,60 @@ mod tests {
     }
 
     #[test]
+    fn a_flyer_of_the_mark_2_takes_its_swoop_by_a_roll_and_strikes_not_on_the_point() {
+        use crate::spawning::Script;
+        let at = |x, y| Spot::new(x, y);
+        let target = at(1_000.0, 500.0);
+        let off = |x, y| target + at(x, y);
+        // The gargoyle 02 (61), of the mark 2.
+        let mut gargoyle = Mind::new(off(300.0, 0.0), 0x1, (true, false), None, SPEEDS, (61, 0));
+        assert_eq!(gargoyle.mark(), SWOOPS_BY_ROLL);
+        assert!(!gargoyle.swoops());
+        gargoyle.fighting = true;
+        let sight = |here: Spot| Pursuit {
+            hero: target,
+            ..listed(here, 0, here)
+        };
+        let reach = reach_f32(gargoyle.size(), SIZE);
+        // On the ground, a roll of 0 of 4: no swoop.
+        let next = gargoyle.pursue(
+            &sight(off(reach + 100.0, 0.0)),
+            || true,
+            &mut Script::new(vec![0; 8]),
+        );
+        assert!(!matches!(next, Some(Pursues::Swoops { .. })), "{next:?}");
+        assert!(!gargoyle.flying);
+        // By a roll of 3 it takes its swoop and flies at its target, aloft.
+        let next = gargoyle.pursue(
+            &sight(off(reach + 100.0, 0.0)),
+            || true,
+            &mut Script::new(vec![3; 8]),
+        );
+        assert!(
+            matches!(next, Some(Pursues::Swoops { strikes: false, .. })),
+            "{next:?}"
+        );
+        assert!(gargoyle.swoops() && gargoyle.swooping());
+        // On its target's own point its pass strikes nothing, and flies at it again.
+        let next = gargoyle.pursue(&sight(target), || true, &mut Script::new(vec![0; 8]));
+        assert!(
+            matches!(next, Some(Pursues::Swoops { strikes: false, .. })),
+            "{next:?}"
+        );
+        // Within its band, its pass strikes and moves its home to its place.
+        let here = off(reach - SWOOP_BAND - 1.0, 0.0);
+        let next = gargoyle.pursue(&sight(here), || true, &mut Script::new(vec![0; 8]));
+        assert!(
+            matches!(next, Some(Pursues::Swoops { strikes: true, .. })),
+            "{next:?}"
+        );
+        assert_eq!(gargoyle.home, here);
+        // Sharifo's mark of many bits takes no swoop.
+        let sharifo = Mind::new(target, 0x1, (true, false), None, SPEEDS, (701, 0));
+        assert!(!sharifo.swoops_by_roll());
+    }
+
+    #[test]
     fn the_distracting_bat_swoops_through_its_target_and_turns_back() {
         let mut rng = Rng::of(7, 0, 1);
         let at = |x, y| Spot::new(x, y);
@@ -7852,8 +7927,11 @@ mod tests {
         bat.falls_from_swoop();
         let next = bat.pursue(&sight(off(0.0, band), None), || true, &mut rng);
         assert!(swoops(next, off(0.0, -SWOOP_BEYOND), true), "{next:?}");
+        // Its pass's strike moved its home to its place (#3707).
+        assert_eq!(bat.home, off(0.0, band));
         // Turning: near its target and far from home, standing, it flies off to 350 on its side;
         // moving, it flies on; at 300, not nearer, it does not.
+        bat.home = off(5_000.0, 0.0);
         let next = bat.pursue(&sight(off(0.0, -200.0), None), || true, &mut rng);
         assert!(swoops(next, off(0.0, -TURN_OFF), false), "{next:?}");
         let moving = sight(off(-200.0, 0.0), Some(off(-350.0, 0.0)));
