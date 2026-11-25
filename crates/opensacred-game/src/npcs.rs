@@ -1465,6 +1465,10 @@ struct Kept {
     /// The world's time since the game began, in seconds, which a pause stands and a save keeps:
     /// the respawn's gate's clock, in place of the original's real clock.
     clock: f64,
+    /// The sectors that were in the world at a save, whose first coming after its load puts back
+    /// what they kept whatever the gate and the region, as their creatures stood in the world
+    /// (#3761), as the original's sectors of the bit `0x800` run no `Enter` at a load.
+    standing: HashSet<(u32, u32)>,
 }
 
 /// The respawn's bounds (`Respawn`, `DungeonRespawn` of the balance): the seconds a sector waits
@@ -1540,6 +1544,9 @@ impl Kept {
         region_of: impl Fn((u32, u32)) -> u16,
     ) -> Entered {
         let back = self.filled.remove(&at).unwrap_or_default();
+        if self.standing.remove(&at) {
+            return Entered { back, fill: false };
+        }
         let Some(region) = filling else {
             return Entered { back, fill: false };
         };
@@ -7348,7 +7355,10 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
         gone.push((placed, stood));
     }
     queues.sort_by_key(|&(index, _)| index);
-    let kept = npcs.kept.with_gone(gone);
+    let mut kept = npcs.kept.with_gone(gone);
+    if let Some(streamer) = world.get_resource::<Streamer>() {
+        kept.standing = streamer.sectors().collect();
+    }
     // The placements of those that went living or lying before; a killed one's comes back no
     // more.
     for (&index, went) in &kept.went {
@@ -17993,6 +18003,13 @@ mod tests {
         kept.clock = 250.0;
         let back = kept.enter((50, 39), Some(1), 300.0, region_of);
         assert_eq!((back.fill, back.back.len()), (false, 1));
+        // A sector that stood in the world at a save puts back what it kept at its first coming
+        // after the load, whatever the gate and the region, and is as any after.
+        kept.standing.insert((50, 39));
+        kept.gone(&wolf, Some(stood));
+        let first = kept.enter((50, 39), Some(1), 300.0, region_of);
+        assert_eq!((first.fill, first.back.len()), (false, 1));
+        assert!(kept.standing.is_empty());
         // Past the bound it passes: kept a time, its region the last, nothing anew.
         kept.clock = 301.0;
         assert!(!kept.enter((50, 39), Some(1), 300.0, region_of).fill);
