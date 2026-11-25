@@ -404,6 +404,13 @@ impl Book {
         }
     }
 
+    /// Shows the book, built anew from the log, as a loaded save that showed it shows it again
+    /// (`0x75A970`, #3741).
+    pub(crate) fn show_again(&mut self) {
+        self.shown = true;
+        self.stale = true;
+    }
+
     /// The row selected on the list's page `page`, 0 its ornament.
     fn selected(&self, page: usize) -> usize {
         self.selected.get(&page).copied().unwrap_or(0)
