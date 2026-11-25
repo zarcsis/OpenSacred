@@ -548,6 +548,50 @@ Read 2026-11-10 for #2519 by a subagent (**confirmed** by code unless marked oth
 Since #3064 a creature that `CreateNPC`'s or `SetNPCState`'s tag `0xA1` marks is a vision as those types are (`npcs::Vision`), the mark kept in its placement and so in a save: Vilya, of the type 224, in the Underworld's last scene, gold as the draw's table gives her.
 The visions' bodies end at once in blue-white sparks since #2514 (docs/re/fight.md, "The bodies' end").
 
+## The view's point
+
+Read 2026-11-25 for #3730 (**confirmed** by code unless marked otherwise) and **seen** in the running original the same day (the driver of #448, a Seraphim's new game in god mode, probes of `0x610449`, `0x624FC0` and `0x62A5C0`; the frames kept in the scratchpad).
+
+The world view (`cWorldView`, its draw's class `cWorldView0` of the vtable `0x8920F8`; the engine's `+0x08` table at its `+0x48`) keeps a point of the iso plane, the screen's plane at zoom 1, in which the cell (x, y) has its middle at (48 (x − y), 24 (x + y)) (docs/02 §5.3).
+Its fields: the current point at `+0x14` and `+0x18`, the point asked at `+0x1C` and `+0x20`, an offset at `+0x24` and `+0x28`, and the size of the plane it shows at `+0x96AB0` and `+0x96AB4`, 1,024 and 768 times the zoom (`+0xB60`), truncated (`cWorldView_updateViewMetrics`, `0x624A00`).
+The world's draw centres the screen on the current point, the weather's jolt added (`0xAD7998`, "The footprints" above; docs/re/weather.md), and the overview's lens takes the current point without the jolt (`0x6113C0`, `0x6113D0`; docs/re/maps.md, "The overview map"): it is the camera of the world and of the overview alike.
+
+- **The follow** (`0x610380`, at each frame of the render thread, from `0x60E765`): while the engine's `+0x54` has the bit 4 and not `0x800`, it takes the local hero's point (`0x44D820`), its place carried to the iso plane and raised by its height through the models' projection, about 1.717 pixels a unit of the models' height, the height being the ground's or the floor's under it (`0x449950`; docs/re/movement.md, "The height").
+  It asks the view (through `cEngine_scrollViewAndWarpCursor`, `0x6105B0`) for the point halfway from the current point to the hero's, each axis's half truncated toward 0; where a half passes 256 on either axis, or the engine's `+0x54` has the bit 2 (which it then clears), it asks for the hero's point itself.
+  A creature of the `+0x14` bit `0x4000000` in the AI's state 1 with the sub-state 4 or 5 and the action 0 (docs/re/ai.md) gives its bone `Bip01`'s place instead (when that holds is not read).
+  Without the bit 4 the mouse at the screen's edges scrolls the view instead (`0x625180`), a free view that a game does not use (**hypothesis**).
+- **Seen**: the view closes half the distance at each drawn frame and stands within a pixel of its goal once the hero stands (its x 34,811, 34,815, 34,820, 34,824 behind a hero walking about 5 pixels a frame); on a cell where the hero stood at the height 10.5, its point lay 18.6 pixels above its flat place.
+- **The offset** (`0x6250B0`, the engine's event `0xD`, which the equipment window sends, docs/re/inventory.md): the event's two numbers replace the offset and move the point asked by them at once.
+  Every point asked then (`cWorldView::setViewPosition`, `0x624FC0`) is the point given plus the offset times the zoom, so that the halving settles on the hero's point plus twice the offset times the zoom, and a jump on the hero's point plus the offset times the zoom: in pixels of the screen, twice the offset at any zoom.
+  The equipment window's show gives (100, 40) and its hide (0, −30), and a change of the engine's view (`0x610210`) carries the offset over to the new one.
+  **Seen**: the offset (0, 0) in a new game, the view on the hero; with the inventory shown, the view 200 right of the hero and 80 below it, the hero drawn left of and above the screen's middle, clear of the windows; after the hide, the view 60 above the hero until the game was loaded, the hero's feet 60 pixels below the screen's middle (at zoom 2, 118 of the plane's pixels); after a load of a save, the offset (0, 0) again.
+- `setViewPosition` leaves the point asked alone where the point given is the current one or the view's `+0x10` has the bit `0x2000`, and where the point given lies in no sector of the world it logs it and leaves it; otherwise it sets the point asked and clears `+0x10`'s bit `0x800`.
+- **The update** (`0x62A5C0`, a method of `cWorldView0`, run while `+0x10` has not the bit `0x800`): the view's first placement, before it has a sector (`+0x08`), takes the point asked as it is.
+  Later a point asked in no sector is put back to the current one; else the rim's stop below adjusts it, and the view takes it as its current point, each coordinate raised to the next even number where the zoom is above 1, and finds its sector again (docs/02 §5.1).
+  Where neither axis may move, it sets `+0x10`'s bit `0x800`, and the view stands until another point is asked.
+
+**The rim's stop.**
+A sector's `+0x2E` (`sectors.keyx`'s `+0x1CC`, docs/02 §5.1) has the bit `0x10` where the grid has no sector at (x, y − 1), beyond its upper right side on the screen, `0x20` none at (x + 1, y), its lower right, `0x40` none at (x, y + 1), its lower left, and `0x80` none at (x − 1, y), its upper left (**confirmed** on all 6,050 records).
+As the view moves, the update takes the sector of the point asked and those of its neighbours (`+0x04` to `+0x20`) into which a rectangle of the view's size about that point reaches, at most three (`0x629FD0`: the rectangle's corners against the sector's sides; **hypothesis**: every neighbour the rectangle overlaps, the choice at the corners not read to the end).
+For each of them, (sx, sy) its middle on the plane and w and h the view's half width and half height, the point asked's axis that moves toward one of the sector's lines is held so:
+- moving right, where the view's right edge would pass from left of x = sx − 48 to that line or beyond it, and the sector has `0x10` and `0x20`, or `0x10` alone and the view's top lies above sy, or `0x20` alone and its bottom below sy, the point asked's x becomes sx − 49 − w;
+- moving left, the same with the left edge, the line x = sx + 48, the bits `0x80` and `0x40`, and sx + 49 + w;
+- moving up, with the top edge and the line y = sy + 24, the bits `0x80` and `0x10`, one of them alone where the view's left edge lies left of sx (`0x80`) or its right edge right of sx (`0x10`), and sy + 25 + w;
+- moving down, with the bottom edge and the line y = sy − 24, the bits `0x40` and `0x20` (the left edge left of sx for `0x40`, the right edge right of sx for `0x20`), and sy − 25 − w;
+- where that new value is no nearer the line than the current point, the axis stays at the current point and stands.
+
+The up and down stops take the half width where the half height would set the edge on the line, a defect (**confirmed** by code and **seen**): a view that jumps across such a line stands 128 times the zoom farther back than its edge needs, while one that follows a walking hero halts where its edge would first cross, about 24 + h from the sector's middle.
+So a view that has come up to a rim sector's middle across one of these lines shows nothing of the sector's outer half, and a hero in that half stands off the screen's middle, off the screen once it is more than 512 times the zoom aside or 384 times it above or below.
+It is a stop, not a clamp: a view already beyond a line (placed there at the start, come from the far side, or widened by the zoom) is not brought back, and a view moving away from a line is free.
+
+**Seen** at zoom 1 on the island of the sectors 20 to 22, 94 to 96, whose outer sides all bear the bits:
+- a teleport from the middle sector 21,95 to the middle of 22,95 (`0x20`) left the view 561 left of the sector's middle and of the hero, which stood beyond the screen's right edge, its ring cut there; to 20,95 (`0x80`), 561 right of the middle;
+- to the middle of 20,94 (`0x90`, its whole upper side), the view stood 537 below the sector's middle, 513 below the hero, which stood above the screen's top, and the overview there showed the hero's dot 43 pixels above its cross;
+- walking 10 cells down from there and 7 back up, the view followed the hero down and halted on the way back with its top edge 2 pixels below the line, 410 below the sector's middle;
+- at 22,95 the zoom 2 let the view go to the hero, its right edge then 463 beyond the line, and back at zoom 1 it stayed on the hero.
+
+`opensacred-game`'s camera looks at the hero's place at every frame, its height included (`hero::follow`, `iso::view_of`), with no lag, no offset and no stop at the rim, which waits for the maintainer's decision (#3731); the overview takes the camera's point since #3730 (`overview`).
+
 ## What the game does with it
 
 `opensacred-game` orders the sprites through the depth buffer instead (docs/decisions/drawing.md, "Sprites ordered through the depth buffer"): each lies at the depth of its cell's centre at height 0, whatever the cell's height, so all the sprites of one cell, and those of the cells of one diagonal, have the same depth.
