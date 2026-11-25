@@ -23,6 +23,26 @@ pub struct Index {
     /// The masters' indices have none.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub shared: BTreeMap<String, String>,
+    /// Where each function whose first record is a `Teleport` (46) leads, by the function's
+    /// name, the first function of a name alone (#3419): by which the compass's markers find the
+    /// way across a dungeon's mouth among the base triggers' functions (`0x4A5420`, `0x4A4E20`;
+    /// docs/re/interface.md, "The markers (`sdk_MARKER_RESOLVE`, `0x4A5980`)"), which the game
+    /// cannot read from their bytecode. None in an index written before it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub leads: BTreeMap<String, Lead>,
+}
+
+/// Where a `Teleport` leads, as its record names it: its last operand of the tags `0x04`,
+/// `0x0C`, `0x0D` and `0x20` in the record's order (`0x472BC0`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
+pub enum Lead {
+    /// A cell and its layer, of `0x04`, `0x0C` or `0x0D`, the layer 0 where it is missing.
+    Cell(i32, i32, i32),
+    /// The place of a `DefPos` name, of `0x04`, `0x0C` or `0x0D`, which the play resolves.
+    Place(String),
+    /// A place in world units on the ground and its layer, `0x20`.
+    Point(i32, i32, i32),
 }
 
 /// A function in a tree's sources: its file and its key in the file's table, its name or, for a

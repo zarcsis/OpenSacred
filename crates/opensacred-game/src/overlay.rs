@@ -675,6 +675,7 @@ mod tests {
             cell,
             name: name.map(str::to_owned),
             away,
+            way: None,
         };
         snapshot.compass = Some(crate::compass::Targets {
             main: Some(aim(11, Some((3561, 2302)), Some("Romata"), false)),
@@ -692,6 +693,18 @@ mod tests {
         assert_eq!(
             snapshot.lines()[5..],
             ["compass  main quest 11 at 3349,2534 Romata away  side quest 14 Weston, nowhere"]
+        );
+        // Across a dungeon's mouth (#3419).
+        snapshot.compass = Some(crate::compass::Targets {
+            main: Some(crate::compass::Aim {
+                way: Some((3205, 70)),
+                ..aim(1703, Some((3034, 2085)), None, false)
+            }),
+            side: None,
+        });
+        assert_eq!(
+            snapshot.lines()[5..],
+            ["compass  main quest 1703 at 3034,2085 via 3205,70"]
         );
         snapshot.compass = Some(crate::compass::Targets::default());
         assert_eq!(snapshot.lines().len(), 5);
