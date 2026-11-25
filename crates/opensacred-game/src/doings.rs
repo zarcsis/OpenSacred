@@ -6,8 +6,9 @@
 //! A module gives and takes the state of its own components through [`Saves`], and [`Doing`]
 //! lists them, a field each, given back in the order of the mind, the body and the action. It
 //! holds so far the mind (`ai::Mind`, #3757) with its wake and its shooing, its walk and its
-//! height aloft (#3758), the effects, whose sources go by their names, and the knock-downs'
-//! marks; the next sub-issues of #3753 add the actions.
+//! height aloft (#3758), its action under way, a strike, a shot, the scripts' clip, a juggler's
+//! play, a rearming, the hero's attack and strike (#3759), the effects, whose sources go by their
+//! names, and the knock-downs' marks; the next sub-issues of #3753 add the other actions.
 //!
 //! The commands `doings` and `unsaved` show each named creature's doing and the components of
 //! the game that neither a save keeps nor a load makes again ([`DERIVED`]).
@@ -97,6 +98,18 @@ pub struct Doing {
     /// Its body: where it walks and how (#3758), and its height aloft.
     walk: Option<crate::npcs::SavedWalk>,
     aloft: Option<crate::flight::Aloft>,
+    /// Its action (#3759): a strike or a shot, its target by its name, played again from its
+    /// start with the hits it has struck; the scripts' clip, and whether it acts; a juggler's
+    /// play; its rearming; the hero's attack and strike.
+    #[entities]
+    strikes: Option<crate::npcs::SavedStrikes>,
+    clip: Option<crate::npcs::SavedScriptClip>,
+    acts: Option<crate::npcs::ClipActs>,
+    plays: Option<crate::npcs::Plays>,
+    rearms: Option<crate::npcs::Rearms>,
+    #[entities]
+    attack: Option<crate::attack::SavedAttack>,
+    striking: Option<crate::attack::SavedStriking>,
     /// Its effects, their sources by their names.
     #[entities]
     effects: Option<Effects>,
@@ -113,6 +126,13 @@ impl Doing {
             shoos: saved::<crate::ai::Shoos>(world, entity, &at),
             walk: saved::<crate::npcs::Walk>(world, entity, &at),
             aloft: saved::<crate::flight::Aloft>(world, entity, &at),
+            strikes: saved::<crate::npcs::Strikes>(world, entity, &at),
+            clip: saved::<crate::npcs::ScriptClip>(world, entity, &at),
+            acts: saved::<crate::npcs::ClipActs>(world, entity, &at),
+            plays: saved::<crate::npcs::Plays>(world, entity, &at),
+            rearms: saved::<crate::npcs::Rearms>(world, entity, &at),
+            attack: saved::<crate::attack::Attack>(world, entity, &at),
+            striking: saved::<crate::attack::Striking>(world, entity, &at),
             effects: saved::<Effects>(world, entity, &at),
             marks: saved::<KnockMarks>(world, entity, &at),
         };
@@ -131,6 +151,13 @@ impl Doing {
         put::<crate::ai::Shoos>(&mut creature, self.shoos, &at);
         put::<crate::npcs::Walk>(&mut creature, self.walk, &at);
         put::<crate::flight::Aloft>(&mut creature, self.aloft, &at);
+        put::<crate::npcs::Strikes>(&mut creature, self.strikes, &at);
+        put::<crate::npcs::ScriptClip>(&mut creature, self.clip, &at);
+        put::<crate::npcs::ClipActs>(&mut creature, self.acts, &at);
+        put::<crate::npcs::Plays>(&mut creature, self.plays, &at);
+        put::<crate::npcs::Rearms>(&mut creature, self.rearms, &at);
+        put::<crate::attack::Attack>(&mut creature, self.attack, &at);
+        put::<crate::attack::Striking>(&mut creature, self.striking, &at);
         put::<Effects>(&mut creature, self.effects, &at);
         put::<KnockMarks>(&mut creature, self.marks, &at);
     }
@@ -175,13 +202,15 @@ fn put<T: Saves>(creature: &mut EntityWorldMut<'_>, saved: Option<T::Saved>, at:
     }
 }
 
-/// Each named creature's doing, but the hero's, which its own part of the save keeps, by name,
-/// in the order of their names (`names::Id`), its references kept by their names in `refs`.
+/// Each named creature's doing, the hero's among them, by name, in the order of their names
+/// (`names::Id`), its references kept by their names in `refs`.
 pub fn gather(world: &mut World, refs: &mut crate::names::Refs) -> Doings {
-    let mut named = world.query_filtered::<(Entity, &Named), With<crate::ai::Mind>>();
+    let mut named = world.query_filtered::<
+        (Entity, &Named),
+        bevy::ecs::query::Or<(With<crate::ai::Mind>, With<crate::hero::Body>)>,
+    >();
     let mut creatures: Vec<(Id, Entity)> = named
         .iter(world)
-        .filter(|(_, named)| named.0 != Id::Hero)
         .map(|(entity, named)| (named.0, entity))
         .collect();
     creatures.sort_by_key(|&(id, _)| order(id));
@@ -249,6 +278,7 @@ pub const DERIVED: &[&str] = &[
     "opensacred_game::icons::Icon",
     "opensacred_game::npcs::ScriptName",
     "opensacred_game::npcs::Talk",
+    "opensacred_game::npcs::Talks",
     "opensacred_game::npcs::RisesAgain",
     "opensacred_game::steps::Stepped",
     "opensacred_game::voices::Speaking",
@@ -261,6 +291,13 @@ pub const SAVED: &[&str] = &[
     "opensacred_game::ai::Shoos",
     "opensacred_game::npcs::Walk",
     "opensacred_game::flight::Aloft",
+    "opensacred_game::npcs::Strikes",
+    "opensacred_game::npcs::ScriptClip",
+    "opensacred_game::npcs::ClipActs",
+    "opensacred_game::npcs::Plays",
+    "opensacred_game::npcs::Rearms",
+    "opensacred_game::attack::Attack",
+    "opensacred_game::attack::Striking",
     "opensacred_game::effects::Effects",
     "opensacred_game::fight::KnockMarks",
 ];
@@ -351,17 +388,17 @@ mod tests {
             effects,
             KnockMarks(KnockMarks::SECOND),
         ));
-        // One doing nothing that a save keeps, and the hero, which its own part keeps.
+        // One doing nothing but its mind, and the hero.
         saved.world_mut().spawn((Named(Id::Born(9)), mind()));
         saved
             .world_mut()
             .spawn((Named(Id::Hero), mind(), KnockMarks(KnockMarks::SECOND)));
         let mut refs = Refs::default();
         let doings = gather(saved.world_mut(), &mut refs);
-        // Each creature's mind, the hero's apart.
+        // Each creature's mind, and the hero's marks.
         assert_eq!(
             doings.owners().collect::<Vec<_>>(),
-            [Id::Placed(30), Id::Born(9)]
+            [Id::Hero, Id::Placed(30), Id::Born(9)]
         );
         let bytes = postcard::to_stdvec(&(&refs, &doings)).unwrap();
         let (refs, doings): (Refs, Doings) = postcard::from_bytes(&bytes).unwrap();
@@ -382,7 +419,7 @@ mod tests {
                 lost: 0,
             },
         );
-        assert_eq!(give(loaded.world_mut(), doings), (1, 1));
+        assert_eq!(give(loaded.world_mut(), doings), (1, 2));
         let world = loaded.world();
         assert_eq!(
             world.get::<Effects>(wolf).unwrap().timed()[0].source,
