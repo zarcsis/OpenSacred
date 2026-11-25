@@ -465,6 +465,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-rules/src/inventory.rs`: The hero's backpack as the original's grid
 - `crates/opensacred-rules/src/lib.rs`: `opensacred-rules`: the game's rules with no engine
 - `crates/opensacred-rules/src/minds.rs`: The creatures' decisions
+- `crates/opensacred-rules/src/mouths.rs`: The ways across a dungeon's mouth that the compass's markers point at (#3419; docs/re/ interface.md, "The markers
 - `crates/opensacred-rules/src/music.rs`: The peace stream's alternation
 - `crates/opensacred-rules/src/particles.rs`: The particle systems' machinery
 - `crates/opensacred-rules/src/pick.rs`: What lies under the cursor

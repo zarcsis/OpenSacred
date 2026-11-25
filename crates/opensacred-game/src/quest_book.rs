@@ -1170,7 +1170,7 @@ fn play(sounds: &mut MessageWriter<sfx::Play>, sound: u32) {
 fn rebuild(
     book: &mut Book,
     live: Option<&crate::scripts::Live>,
-    place: impl Fn(&opensacred_rules::quests::Compass) -> Option<Vec2>,
+    place: impl Fn(u32, &opensacred_rules::quests::Compass) -> Option<Vec2>,
     sounds: &mut MessageWriter<sfx::Play>,
 ) {
     let Some(live) = live else {
@@ -1181,7 +1181,11 @@ fn rebuild(
     book.places = book
         .entries
         .iter()
-        .map(|entry| quests.compass(entry.quest).and_then(&place))
+        .map(|entry| {
+            quests
+                .compass(entry.quest)
+                .and_then(|compass| place(entry.quest, compass))
+        })
         .collect();
     debug!(
         "quest book: built of {} entries, their places {:?}",
@@ -1277,10 +1281,13 @@ fn build(
         return;
     }
     book.stale = false;
-    // The compass's cell (`0x497540`), its middle on the iso plane, moved by (−2248, 420) and
-    // truncated (`0x6B0C33`).
-    let place = |compass: &opensacred_rules::quests::Compass| {
-        let at = seek.target_of(compass)?;
+    // The compass's cell (`0x497540`), the way into a hidden sector for a target there (#3419),
+    // its middle on the iso plane, moved by (−2248, 420) and truncated (`0x6B0C33`).
+    let place = |quest, compass: &opensacred_rules::quests::Compass| {
+        let at = match live.as_deref() {
+            Some(live) => seek.shown_at(live, quest, compass),
+            None => seek.target_of(compass),
+        }?;
         let middle = crate::paths::centre(crate::paths::cell_of(at.x, at.y));
         Some((crate::minimap::iso(middle) + PICTURE_SHIFT).trunc())
     };

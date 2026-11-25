@@ -60,7 +60,7 @@ use bevy::prelude::{
     MessageWriter, NonSendMut, OnEnter, OnExit, Plugin, PostUpdate, PreUpdate, Query, Res, ResMut,
     Resource, Transform, Update, With, Without, World,
 };
-use opensacred_data::luau::{BYTECODE, CALLS, INDEX, Index, calls, differing_calls};
+use opensacred_data::luau::{BYTECODE, CALLS, INDEX, Index, Lead, calls, differing_calls};
 use opensacred_data::netscript::{self, Function, Record, Tree, Value};
 use opensacred_rules::quests::{self, Counted, Transition};
 use opensacred_rules::spawning::Rng;
@@ -717,6 +717,9 @@ pub struct Live {
     mode: Mode,
     /// The flags its runs posted to the interface, not yet handed on ([`CinemaFlag`]).
     flags: Vec<bool>,
+    /// The ways across the dungeons' mouths that the markers keep by their sectors for the run
+    /// ([`Self::toward`], #3419), which the systems that read the scripts take turns at.
+    ways: std::cell::RefCell<opensacred_rules::mouths::Ways>,
 }
 
 /// A `Teleport` of the hero (`0x491D40`): the global cell and the layer it is put on, and the
@@ -757,7 +760,81 @@ impl Live {
             talking: false,
             mode: started.mode,
             flags: Vec::new(),
+            ways: std::cell::RefCell::default(),
         }
+    }
+
+    /// Where the base trigger `trigger` leads, where its function begins with a `Teleport`
+    /// (`Index::leads`, #3419): the first of its functions, as the markers' ways read it from
+    /// the map of the triggers' functions by the name, case aside (`0x4C5DB0`); a place's name
+    /// by the scripts' places, a place in world units by the cell nearest it (`0x4A576A`).
+    fn lead(&self, trigger: &str) -> Option<paths::Cell> {
+        let function = self.triggered.get(&trigger.to_lowercase())?.first()?;
+        match self.runtime.index().leads.get(function)? {
+            Lead::Cell(x, y, _) => Some((*x, *y)),
+            Lead::Place(name) => self.state.positions.place(name).map(|place| place.cell),
+            Lead::Point(x, y, _) => {
+                let half = crate::iso::CELL / 2.0;
+                Some(paths::cell_of(*x as f32 + half, *y as f32 + half))
+            }
+        }
+    }
+
+    /// Quest 61's fixed way into a hidden sector for the marker of the quest `quest`, while the
+    /// hero's main quest's items hold two of its elements (`opensacred_rules::mouths::fixed_way`).
+    fn fixed_way(&self, quest: Option<u32>) -> Option<paths::Cell> {
+        let items: Vec<u32> = self.quests_items().iter().map(|(item, _)| *item).collect();
+        opensacred_rules::mouths::fixed_way(quest, &items)
+    }
+
+    /// Where a marker of the quest `quest`, if a quest's, points from the hero's cell `hero`
+    /// toward its target's cell `target` (`0x4A5980`): across a dungeon's mouth between them, at
+    /// the way in or the way out, kept by its sector, the way out at every call where the
+    /// original's returns it at its first alone (`opensacred_rules::mouths::Ways::toward`,
+    /// #3419); else the target.
+    pub fn toward(
+        &self,
+        (hero, target): (paths::Cell, paths::Cell),
+        quest: Option<u32>,
+        dungeons: &crate::daynight::Dungeons,
+    ) -> paths::Cell {
+        let Ok(mut ways) = self.ways.try_borrow_mut() else {
+            return target;
+        };
+        ways.toward(
+            &self.state.triggers,
+            (hero, target),
+            (
+                |sector| dungeons.hides(sector),
+                |sector| dungeons.holds_sector(sector),
+            ),
+            |trigger| self.lead(trigger),
+            self.fixed_way(quest),
+        )
+    }
+
+    /// Where the world map's icons and the quest book's picture show the quest `quest`'s target
+    /// of the cell `target`: in a hidden sector, the way into it, as the original's markers write
+    /// it into the quest's entry (`0x4A61A1`, #3419); else the target.
+    pub fn shown_at(
+        &self,
+        target: paths::Cell,
+        quest: u32,
+        dungeons: &crate::daynight::Dungeons,
+    ) -> paths::Cell {
+        if !dungeons.hides(opensacred_rules::mouths::sector_of(target)) {
+            return target;
+        }
+        let Ok(mut ways) = self.ways.try_borrow_mut() else {
+            return target;
+        };
+        ways.inward(
+            &self.state.triggers,
+            target,
+            |trigger| self.lead(trigger),
+            self.fixed_way(Some(quest)),
+        )
+        .unwrap_or(target)
     }
 
     /// The scripts' modes as the last run left them.
@@ -814,11 +891,6 @@ impl Live {
     /// The value of the scripts' variable `name`, 0 for one never set (`this+0x7550`).
     pub fn variable(&self, name: &str) -> i32 {
         self.state.variables.value(name)
-    }
-
-    /// The compass that the marker `marker` shows (`sdk_MARKER_RESOLVE`, #1462).
-    pub fn marker(&self, marker: quests::Marker) -> Option<&quests::Compass> {
-        self.state.quests.marker(marker)
     }
 
     /// The main quest's items and their keys (`cInventoryEntry::addMainQuestItem`), which the quest

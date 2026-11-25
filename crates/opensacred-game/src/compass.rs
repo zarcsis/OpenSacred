@@ -11,8 +11,9 @@
 //! `GroupIsDead` found the nearest living member of its group, blinks for 60 s of the real time,
 //! every 300 ms the outer pin on the outer ellipse and then the inner pin on the inner one, drawn
 //! after the needle and before the other pins (`0x48C860`, `0x6E3F70`; docs/re/interface.md, "The
-//! compass", #3104). Not followed: objects named by `CreateObj`, and the way across a dungeon's
-//! mouth.
+//! compass", #3104). Where the hero and a marker's target lie on different sides of a
+//! dungeon's mouth, every marker points at the way between them, the way out at every call
+//! (`opensacred_rules::mouths`, #3419). Not followed: objects named by `CreateObj`.
 //! A creature that lives away from the world is sought where it stands away (#2406).
 
 use bevy::ecs::system::SystemParam;
@@ -178,6 +179,7 @@ pub(crate) struct Seek<'w, 's> {
     named: Query<'w, 's, (&'static ScriptName, &'static GlobalTransform)>,
     objects: Query<'w, 's, (&'static crate::npcs::ObjectName, &'static GlobalTransform)>,
     npcs: Option<Res<'w, Npcs>>,
+    dungeons: Option<Res<'w, crate::daynight::Dungeons>>,
 }
 
 impl Seek<'_, '_> {
@@ -214,22 +216,80 @@ impl Seek<'_, '_> {
             Target::Named(name) => self.creature(name).map(|(at, _)| at),
         }
     }
+
+    /// Where a marker points at the place `target` from the hero standing at `hero` (`x`, `z`),
+    /// the marker of the quest `quest` where it is a quest's: the place, or across a dungeon's
+    /// mouth between them the corner of the way's cell, where the original's resolve puts a
+    /// way's point (`0x4A6079`; `scripts::Live::toward`, #3419). Every marker goes through it,
+    /// the needle, the three pins and the overview's arrows (`0x6E3FE7`, `0x6CFB49`).
+    pub(crate) fn aim_at(
+        &self,
+        live: Option<&scripts::Live>,
+        (hero, target): (Vec2, Vec2),
+        quest: Option<u32>,
+    ) -> Vec2 {
+        let (Some(live), Some(dungeons)) = (live, self.dungeons.as_deref()) else {
+            return target;
+        };
+        let cell = paths::cell_of(target.x, target.y);
+        let way = live.toward((paths::cell_of(hero.x, hero.y), cell), quest, dungeons);
+        if way == cell {
+            target
+        } else {
+            let corner = crate::iso::ground(way.0 as f32, way.1 as f32);
+            Vec2::new(corner.x, corner.z)
+        }
+    }
+
+    /// Where the quest marker `marker` points from the hero standing at `hero` ([`Self::aim_at`]).
+    pub(crate) fn aim(&self, live: &scripts::Live, hero: Vec2, marker: Marker) -> Option<Vec2> {
+        let (quest, compass) = live.quests().marked(marker)?;
+        let target = self.target_of(compass)?;
+        Some(self.aim_at(Some(live), (hero, target), Some(quest)))
+    }
+
+    /// Where the world map's icons and the quest book's picture show the quest `quest`'s target
+    /// `compass`: its place, or in a hidden sector the centre of the way into it, the entry's
+    /// cell that they read (`scripts::Live::shown_at`, #3419).
+    pub(crate) fn shown_at(
+        &self,
+        live: &scripts::Live,
+        quest: u32,
+        compass: &Compass,
+    ) -> Option<Vec2> {
+        let target = self.target_of(compass)?;
+        let Some(dungeons) = self.dungeons.as_deref() else {
+            return Some(target);
+        };
+        let cell = paths::cell_of(target.x, target.y);
+        let way = live.shown_at(cell, quest, dungeons);
+        Some(if way == cell {
+            target
+        } else {
+            paths::centre(way)
+        })
+    }
 }
 
 /// Where a marker of the compass points, as the state tells it (#2403): its quest, the target's
 /// cell (a creature's where it stands now, none for one killed or not yet made), the
-/// creature's name in the scripts where the target is one, and whether it lives away from the
-/// world (#2406).
+/// creature's name in the scripts where the target is one, whether it lives away from the
+/// world (#2406), and the cell of the way across a dungeon's mouth that the marker points at
+/// instead of the target (#3419).
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct Aim {
     pub quest: u32,
     pub cell: Option<paths::Cell>,
     pub name: Option<String>,
     pub away: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub way: Option<paths::Cell>,
 }
 
 impl Aim {
-    fn of(quest: u32, compass: &Compass, seek: &Seek) -> Self {
+    /// The marker of the quest `quest` toward `compass`, the hero's cell `hero` and the scripts
+    /// `live` giving its way ([`Seek::aim`]).
+    fn of(quest: u32, compass: &Compass, seek: &Seek, way: Option<(&scripts::Live, Vec2)>) -> Self {
         let (cell, name, away) = match &compass.target {
             Target::Cell(x, y) => (Some((*x, *y)), None, false),
             Target::Named(name) => {
@@ -241,15 +301,22 @@ impl Aim {
                 )
             }
         };
+        let way = way.and_then(|(live, hero)| {
+            let target = seek.target_of(compass)?;
+            let aimed = seek.aim_at(Some(live), (hero, target), Some(quest));
+            (aimed != target).then(|| paths::cell_of(aimed.x, aimed.y))
+        });
         Self {
             quest,
             cell,
             name,
             away,
+            way,
         }
     }
 
-    /// The state's words for it: `quest N at X,Y`, the creature's name after the cell.
+    /// The state's words for it: `quest N at X,Y`, the creature's name after the cell, and
+    /// `via X,Y` for the way the marker points at instead.
     pub fn line(&self) -> String {
         let mut line = format!("quest {}", self.quest);
         match (self.cell, &self.name) {
@@ -265,6 +332,9 @@ impl Aim {
             (None, Some(name)) => line.push_str(&format!(" {name}, nowhere")),
             (None, None) => {}
         }
+        if let Some((x, y)) = self.way {
+            line.push_str(&format!(" via {x},{y}"));
+        }
         line
     }
 }
@@ -276,11 +346,23 @@ pub struct Targets {
     pub side: Option<Aim>,
 }
 
-/// Keeps [`Targets`] to the markers' quests and their targets' places.
-fn aim(scripts: Option<NonSend<scripts::Live>>, seek: Seek, mut targets: ResMut<Targets>) {
+/// Keeps [`Targets`] to the markers' quests, their targets' places and their ways.
+fn aim(
+    scripts: Option<NonSend<scripts::Live>>,
+    heroes: Query<&GlobalTransform, With<Body>>,
+    seek: Seek,
+    mut targets: ResMut<Targets>,
+) {
+    let hero = heroes.iter().next().map(|hero| hero.translation().xz());
     let of = |marker| {
-        let (quest, compass) = scripts.as_ref()?.quests().marked(marker)?;
-        Some(Aim::of(quest, compass, &seek))
+        let live = scripts.as_deref()?;
+        let (quest, compass) = live.quests().marked(marker)?;
+        Some(Aim::of(
+            quest,
+            compass,
+            &seek,
+            hero.map(|hero| (live, hero)),
+        ))
     };
     targets.set_if_neq(Targets {
         main: of(Marker::Main),
@@ -299,8 +381,7 @@ fn point(
     let hero = heroes.iter().next().map(GlobalTransform::translation);
     for (pointer, mut node, mut transform, mut visibility) in &mut pointers {
         let shown = scripts.as_ref().zip(hero).and_then(|(live, hero)| {
-            let compass = live.marker(pointer.0)?;
-            let target = seek.target_of(compass)?;
+            let target = seek.aim(live, hero.xz(), pointer.0)?;
             Some(angle(direction(hero.xz(), target)))
         });
         let Some(phi) = shown else {
@@ -374,6 +455,7 @@ fn point_group(
     mut blinking: ResMut<Blinking>,
     heroes: Query<&GlobalTransform, With<Body>>,
     places: Query<&GlobalTransform, Without<crate::npcs::Dies>>,
+    (live, seek): (Option<NonSend<scripts::Live>>, Seek),
     images: Res<UiImages>,
     mut pins: Query<(&GroupPin, &mut Node, &mut UiTransform, &mut Visibility)>,
 ) {
@@ -386,7 +468,10 @@ fn point_group(
         .0
         .and_then(|(member, _)| places.get(member).ok())
         .zip(hero)
-        .map(|(at, hero)| angle(direction(hero.xz(), at.translation().xz())));
+        .map(|(at, hero)| {
+            let target = seek.aim_at(live.as_deref(), (hero.xz(), at.translation().xz()), None);
+            angle(direction(hero.xz(), target))
+        });
     let outer = outer_phase(time.elapsed().as_millis());
     for (pin, mut node, mut transform, mut visibility) in &mut pins {
         let Some(phi) = phi.filter(|_| pin.0 == outer) else {
@@ -411,14 +496,15 @@ fn point_group(
 fn point_outer(
     map: Res<crate::world_map::Map>,
     heroes: Query<&GlobalTransform, With<Body>>,
+    (live, seek): (Option<NonSend<scripts::Live>>, Seek),
     images: Res<UiImages>,
     mut pins: Query<(&mut Node, &mut UiTransform, &mut Visibility), With<OuterPin>>,
 ) {
     let hero = heroes.iter().next().map(GlobalTransform::translation);
-    let phi = map
-        .pin_target()
-        .zip(hero)
-        .map(|(target, hero)| angle(direction(hero.xz(), target)));
+    let phi = map.pin_target().zip(hero).map(|(target, hero)| {
+        let target = seek.aim_at(live.as_deref(), (hero.xz(), target), None);
+        angle(direction(hero.xz(), target))
+    });
     for (mut node, mut transform, mut visibility) in &mut pins {
         let Some(phi) = phi else {
             visibility.set_if_neq(Visibility::Hidden);

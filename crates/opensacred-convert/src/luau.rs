@@ -39,7 +39,7 @@ use opensacred_data::netscript::{Body, Operand, Record, Tree, Value};
 
 use crate::flow::{Ending, Stmt, Test, structure};
 
-pub use opensacred_data::luau::{BYTECODE, Entry, INDEX, Index, MARKS, ORDER, ORDERED};
+pub use opensacred_data::luau::{BYTECODE, Entry, INDEX, Index, Lead, MARKS, ORDER, ORDERED};
 
 /// The Luau bytecode of `source` (`mlua`'s compiler, Luau's own); an error where it does not
 /// compile.
@@ -324,6 +324,36 @@ fn function(out: &mut String, name: &str, records: &[Record]) -> Result<()> {
     Ok(())
 }
 
+/// The record type `Teleport`.
+const TELEPORT: u16 = 46;
+/// A `Teleport`'s tags of a cell or a place's name, and of a place in world units.
+const CELL_TAGS: [u8; 3] = [0x04, 0x0C, 0x0D];
+const POINT_TAG: u8 = 0x20;
+
+/// Where a function of the records `records` leads, where its first is a `Teleport`: its last
+/// operand of a cell, a place's name or a place in world units, in the record's order, as the
+/// markers' way in reads it (`0x472BC0`, `0x4A5938`; docs/re/interface.md, "The markers
+/// (`sdk_MARKER_RESOLVE`, `0x4A5980`)", #3419).
+fn lead(records: &[Record]) -> Option<Lead> {
+    let first = records.first().filter(|r| r.kind == TELEPORT)?;
+    let Body::Operands(operands) = &first.body else {
+        return None;
+    };
+    operands.iter().rev().find_map(|operand| {
+        let cell = CELL_TAGS.contains(&operand.tag);
+        match &operand.value {
+            Value::I32x3([x, y, layer]) if cell => Some(Lead::Cell(*x, *y, *layer)),
+            Value::I32x2([x, y]) if cell => Some(Lead::Cell(*x, *y, 0)),
+            Value::U16x2([x, y]) if cell => Some(Lead::Cell(i32::from(*x), i32::from(*y), 0)),
+            Value::Str(name) | Value::Name(name) if cell => Some(Lead::Place(name.clone())),
+            Value::I32x3([x, y, layer]) if operand.tag == POINT_TAG => {
+                Some(Lead::Point(*x, *y, *layer))
+            }
+            _ => None,
+        }
+    })
+}
+
 /// The file of the function `name` of the quest `quest` (−1 for none) within a tree's directory.
 fn file_of(name: &str, quest: i32) -> String {
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
@@ -405,11 +435,14 @@ pub fn translate(source: &str, tree: &Tree) -> Result<(BTreeMap<String, String>,
             format!("{name}#{}", same + 1)
         };
         group.push((key.clone(), records));
-        index
-            .functions
-            .entry(name.to_owned())
-            .or_default()
-            .push(Entry { file, key });
+        let entries = index.functions.entry(name.to_owned()).or_default();
+        if entries.is_empty()
+            && !matches!(name, START | QUEST_FLAGS)
+            && let Some(lead) = lead(records)
+        {
+            index.leads.insert(name.to_owned(), lead);
+        }
+        entries.push(Entry { file, key });
     }
     let mut files = BTreeMap::new();
     for (file, functions) in groups {
@@ -877,5 +910,71 @@ mod tests {
                 .compile(text)
                 .unwrap_or_else(|e| panic!("{file}: {e}\n{text}"));
         }
+    }
+
+    #[test]
+    fn the_index_tells_where_the_functions_that_begin_with_a_teleport_lead() {
+        let function = |name: &str, records| Function {
+            name: name.into(),
+            quest: -1,
+            region: 0,
+            records,
+        };
+        let teleport = |operands| record(TELEPORT, operands);
+        let tree = Tree {
+            start: Vec::new(),
+            quest: Vec::new(),
+            functions: vec![
+                // A dungeon's exit, as the start's are written: its heading, then a place's name.
+                function(
+                    "OMO-1tpraus17.3",
+                    vec![teleport(vec![
+                        op(0x03, Value::I32(270)),
+                        op(0x04, Value::Str("tprausz17.3".into())),
+                    ])],
+                ),
+                // The last of the tags that give a cell.
+                function(
+                    "OMO-1cell",
+                    vec![teleport(vec![
+                        op(0x04, Value::Str("before".into())),
+                        op(0x0C, Value::I32x3([3463, 71, 0])),
+                    ])],
+                ),
+                function(
+                    "OMO-1point",
+                    vec![teleport(vec![op(0x20, Value::I32x3([20_000, 30_000, 1]))])],
+                ),
+                // A teleport after another record leads nowhere for the markers.
+                function(
+                    "OMO-1later",
+                    vec![
+                        record(111, Vec::new()),
+                        teleport(vec![op(0x04, Value::I32x3([1, 2, 0]))]),
+                    ],
+                ),
+                // The first function of a name alone.
+                function(
+                    "OMO-1twice",
+                    vec![teleport(vec![op(0x04, Value::I32x2([5, 6]))])],
+                ),
+                function(
+                    "OMO-1twice",
+                    vec![teleport(vec![op(0x04, Value::I32x2([7, 8]))])],
+                ),
+            ],
+            quests: Vec::new(),
+            regions: Vec::new(),
+        };
+        let (_, index) = translate("bin/Test", &tree).unwrap();
+        assert_eq!(
+            index.leads,
+            BTreeMap::from([
+                ("OMO-1cell".into(), Lead::Cell(3463, 71, 0)),
+                ("OMO-1point".into(), Lead::Point(20_000, 30_000, 1)),
+                ("OMO-1tpraus17.3".into(), Lead::Place("tprausz17.3".into())),
+                ("OMO-1twice".into(), Lead::Cell(5, 6, 0)),
+            ])
+        );
     }
 }

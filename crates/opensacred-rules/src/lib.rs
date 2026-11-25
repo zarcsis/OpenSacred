@@ -15,7 +15,8 @@
 //! ([`weapon_effects`]), the scripts' Pong ([`pong`]) and
 //! traps ([`script_traps`]) with the sword's guard ([`zhadum`]), the
 //! backpack's grid ([`inventory`]), the equipment's slots and who may use an item
-//! ([`equipment`]), the land explored ([`explored`]), the potions and the belt ([`potions`]),
+//! ([`equipment`]), the land explored ([`explored`]), the compass's ways across the dungeons'
+//! mouths ([`mouths`]), the potions and the belt ([`potions`]),
 //! the weapon sets ([`sets`]), the item sets' bonuses ([`set_bonuses`]), the prices and the
 //! merchants' stock ([`trade`]), the blacksmith ([`smith`]), the horses ([`horses`]) and the last
 //! fight's slaves with Shaddar's ward ([`shaddar`]).
@@ -33,6 +34,7 @@ pub mod fight;
 pub mod horses;
 pub mod inventory;
 pub mod minds;
+pub mod mouths;
 pub mod music;
 pub mod particles;
 pub mod pick;
