@@ -105,8 +105,9 @@ use crate::{arts, drops, making};
 /// shots' chain (#3568); the version 44 the marks of the items that the scripts put into the
 /// backpack (#3543); the version 45 the hero's knock-downs' marks (#3673); the version 46 whether a
 /// creature's attack's clips are a stand-in (#3314); the version 47 the camera's zoom (#3740); the
-/// version 48 the hero's and the kept creatures' headings (#3744).
-pub const VERSION: u32 = 48;
+/// version 48 the hero's and the kept creatures' headings (#3744); the version 49 the hero's walk
+/// under way (#3742).
+pub const VERSION: u32 = 49;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -175,7 +176,58 @@ pub struct Hero {
     /// The camera's zoom, which the original's save keeps as its current view's `+0xB60` in its
     /// views' part `0x82` and its load gives back (`0x6288F0`, #3740).
     pub zoom: f32,
+    /// Where it was going, which it goes on to after the load (#3742).
+    pub walk: Option<Walk>,
 }
+
+/// Where the hero was going as a save keeps it (#3742): its target's point and, where a click
+/// chose the level it lies on, that level's floor, 0 the ground; as the original's creature's
+/// record keeps its moving action with its point and floor (`+0x150` to `+0x1A3`, `0x54B3D0`), so
+/// that a load walks on to the same target. Its way is found anew from where it stands, as the
+/// original's search for the player's way runs again every half a second (docs/re/movement.md,
+/// "Searching again (`0x4F4770`)").
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct Walk {
+    pub to: (f32, f32, f32),
+    pub floor: Option<u8>,
+}
+
+impl Walk {
+    /// The hero's walk under way: its target and the level a click chose of it, `heights`
+    /// telling the level's floor.
+    fn of(target: Vec3, onto: Option<crate::terrain::Level>, heights: Option<&Heights>) -> Self {
+        let floor = onto.map(|level| {
+            heights
+                .and_then(|heights| heights.floor(level))
+                .map_or(0, |(_, floor)| floor)
+        });
+        Self {
+            to: (target.x, target.y, target.z),
+            floor,
+        }
+    }
+
+    /// Its target and the level to send the hero onto there ([`Body::send_to`]): the floor's
+    /// level of the building that holds the target's cell on it, the ground's for the floor 0, and
+    /// whatever level the way reaches where no building's floor holds the cell.
+    fn order(&self, heights: &Heights) -> (Vec3, Option<crate::terrain::Level>) {
+        let to = Vec3::new(self.to.0, self.to.1, self.to.2);
+        let cell = crate::paths::cell_of(to.x, to.z);
+        let level = match self.floor {
+            None => None,
+            Some(0) => Some(None),
+            Some(floor) => heights
+                .building_on_floor(cell, usize::from(floor))
+                .and_then(|building| heights.floor_level(building, usize::from(floor)))
+                .map(Some),
+        };
+        (to, level)
+    }
+}
+
+/// A loaded hero's walk to give it once it has landed where the save put it back (#3742).
+#[derive(Resource)]
+struct WalkOn(Walk);
 
 /// The scripts as a save keeps them (#1958; the original's quests, `sdk_SAVELOAD_SERIAL`): the
 /// game's seed (`seed::Game`), whose start makes the saved game's tree and placements again, the
@@ -441,6 +493,11 @@ pub(crate) fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(He
         .get_resource::<Time<Real>>()
         .map_or(0.0, Time::<Real>::elapsed_secs_f64);
     let heading = crate::npcs::heading_of(transform.rotation);
+    // Its walk under way, but one its scripts' queue gives it, which the queue gives again.
+    let walk = body
+        .target()
+        .filter(|_| queue.is_none_or(crate::npcs::ScriptQueue::is_empty))
+        .map(|target| Walk::of(target, body.onto(), world.get_resource::<Heights>()));
     let (at, base, health, effects, queue) = (
         (transform.translation.x, transform.translation.z),
         base.0,
@@ -517,6 +574,7 @@ pub(crate) fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(He
         chain,
         marks,
         zoom,
+        walk,
     };
     let header = Header {
         version: VERSION,
@@ -728,8 +786,32 @@ fn restore(world: &mut bevy::prelude::World) {
     }
     // The steps of its queue that the save kept (#2890).
     hero.queue.clone().give_now(world, entity);
+    // The walk under way, once it has landed (#3742).
+    if let Some(walk) = hero.walk {
+        world.insert_resource(WalkOn(walk));
+    }
     info!("saves: the hero is back");
     restore_world(world, *kept);
+}
+
+/// Sends a loaded hero on to where it was going ([`Walk`], #3742), once it has landed where the
+/// load put it back.
+fn walk_on(
+    mut commands: Commands,
+    walk: Res<WalkOn>,
+    heights: Option<Res<Heights>>,
+    mut bodies: Query<&mut Body>,
+) {
+    let (Some(heights), Ok(mut body)) = (heights, bodies.single_mut()) else {
+        return;
+    };
+    if body.landing() {
+        return;
+    }
+    let (to, level) = walk.0.order(&heights);
+    body.send_to(to, level);
+    commands.remove_resource::<WalkOn>();
+    info!("saves: the hero walks on to {to}");
 }
 
 /// Puts the character of `hero` on the hero `entity` (#1095, #2552): its values and health at
@@ -1062,6 +1144,7 @@ fn waited(world: &mut bevy::prelude::World) {
 /// that no later game takes its hero or its scripts.
 fn forget(mut commands: Commands) {
     commands.remove_resource::<Restore>();
+    commands.remove_resource::<WalkOn>();
     commands.remove_resource::<Resume>();
     commands.remove_resource::<drops::Again>();
 }
@@ -1083,6 +1166,13 @@ impl Plugin for SavesPlugin {
                     .run_if(in_state(AppState::InGame))
                     .run_if(resource_exists::<Restore>)
                     .run_if(|ready: Option<Res<crate::hero::Ready>>| ready.is_some_and(|r| r.0)),
+            )
+            .add_systems(
+                Update,
+                walk_on
+                    .after(restore)
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(resource_exists::<WalkOn>),
             )
             .add_systems(
                 Update,
@@ -1228,6 +1318,10 @@ pub(crate) mod tests {
             chain: 1.5,
             marks: crate::fight::KnockMarks::SECOND,
             zoom: 1.5,
+            walk: Some(Walk {
+                to: (1300.0, 0.0, 6800.0),
+                floor: Some(0),
+            }),
         }
     }
 
@@ -1251,6 +1345,26 @@ pub(crate) mod tests {
             (slots.arts, slots.selected),
             ([Some(1022), None, None, None, None], 1)
         );
+    }
+
+    #[test]
+    fn a_walk_goes_on_to_its_target_on_the_level_a_click_chose() {
+        let heights = Heights::default();
+        let target = Vec3::new(1300.0, 2.0, 6800.0);
+        // No level chosen: whatever level the way reaches.
+        let walk = Walk::of(target, None, Some(&heights));
+        assert_eq!(walk.floor, None);
+        assert_eq!(walk.order(&heights), (target, None));
+        // The ground chosen: the ground's.
+        let walk = Walk::of(target, Some(None), Some(&heights));
+        assert_eq!(walk.floor, Some(0));
+        assert_eq!(walk.order(&heights), (target, Some(None)));
+        // A floor that no building holds at the target any more: whatever level the way reaches.
+        let walk = Walk {
+            floor: Some(2),
+            ..walk
+        };
+        assert_eq!(walk.order(&heights), (target, None));
     }
 
     #[test]
@@ -1362,6 +1476,7 @@ pub(crate) mod tests {
         assert_eq!(read_hero.chain, 1.5);
         assert_eq!(read_hero.marks, crate::fight::KnockMarks::SECOND);
         assert_eq!(read_hero.zoom, 1.5);
+        assert_eq!(read_hero.walk, hero().walk);
         assert_eq!(read_hero.quests.quests, 12);
         assert_eq!(read_hero.quests.since_piece, 5);
         assert_eq!(read_hero.home.map(|home| home.cell), Some((3236, 2511)));
@@ -1437,7 +1552,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (48, 0x124C_B9BB_36C1_7104),
+            (49, 0xC828_7A10_D099_CB7B),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
