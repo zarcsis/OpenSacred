@@ -16,10 +16,14 @@
 //! (256, 256) of its picture's corner, its texels along the sector's x from the top corner to
 //! the right one and along its y to the left one.
 //!
-//! The world map's lens draws the hidden sectors black (#3479). Not followed: the corners faded
-//! where a sector lacks a neighbour (#3609).
+//! The world map's lens draws the hidden sectors black (#3479). A sector's picture fades toward
+//! the places of the grid that lack a sector about it (`0x6CD327`–`0x6CD3C2`, the outcode's
+//! switch `0x6CD3E1`; docs/re/questbook.md, "Per vertex", #3609): each of the six vertices of
+//! its strip white or black by its links and the switch, the colours blended across the strip's
+//! four triangles on the texels' stored values, a copy of the picture made so as it first shows
+//! ([`fade`]).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use bevy::asset::RenderAssetUsages;
@@ -45,13 +49,17 @@ const FOG_BITS: usize = 32;
 const DIAMOND: Vec2 = Vec2::new(512.0, 256.0);
 const SEAM: f32 = 2.0;
 
-/// The sectors' pictures' files, by the sector, found as the game starts.
+/// The sectors' pictures' files, by the sector, found as the game starts, and the places of the
+/// grid that have a sector, by which a picture fades ([`outcode`]).
 #[derive(Resource, Default)]
-pub struct Minimaps(HashMap<(i32, i32), String>);
+pub struct Minimaps {
+    files: HashMap<(i32, i32), String>,
+    grid: HashSet<(i32, i32)>,
+}
 
 impl Minimaps {
-    /// The pictures of `textures/texture` of `assets`.
-    pub fn read(assets: &Path) -> Self {
+    /// The pictures of `textures/texture` of `assets`, and the grid of `world`'s sectors.
+    pub fn read(assets: &Path, world: &opensacred_data::world::World) -> Self {
         let dir = assets.join("textures").join("texture");
         let suffix = format!(".{}", texture::EXTENSION);
         let pictures = files::read_dir(&dir)
@@ -68,12 +76,239 @@ impl Minimaps {
                 Some(((x, y), format!("textures/texture/{file}")))
             })
             .collect();
-        Self(pictures)
+        let grid = world
+            .sectors
+            .iter()
+            .filter_map(|sector| {
+                Some((i32::try_from(sector.x).ok()?, i32::try_from(sector.y).ok()?))
+            })
+            .collect();
+        Self {
+            files: pictures,
+            grid,
+        }
     }
 
     /// The file of the sector `sector`'s picture.
     pub fn file(&self, sector: (i32, i32)) -> Option<&str> {
-        self.0.get(&sector).map(String::as_str)
+        self.files.get(&sector).map(String::as_str)
+    }
+
+    /// The vertices of the sector `sector`'s picture that the lens draws black ([`blacks`]).
+    fn blacks(&self, sector: (i32, i32)) -> [bool; 6] {
+        blacks(outcode(|place| self.grid.contains(&place), sector))
+    }
+}
+
+/// The links that the lens reads of a sector (`0x6CD327`–`0x6CD3C2`; docs/re/questbook.md, "The
+/// links"): the neighbour's place by its offset and the outcode's bit that its empty link sets,
+/// (x − 1, y − 1) `0x01`, (x − 1, y) `0x02`, (x − 1, y + 1) `0x04`, (x, y + 1) `0x08`,
+/// (x + 1, y + 1) `0x10`, (x + 1, y) `0x20` and (x, y − 1) `0x40`; the link to (x + 1, y − 1)
+/// is not read.
+const LINKS: [((i32, i32), u8); 7] = [
+    ((-1, -1), 0x01),
+    ((-1, 0), 0x02),
+    ((-1, 1), 0x04),
+    ((0, 1), 0x08),
+    ((1, 1), 0x10),
+    ((1, 0), 0x20),
+    ((0, -1), 0x40),
+];
+
+/// The outcode of the sector at `(x, y)`: the bits of its links ([`LINKS`]) toward a place of the
+/// grid that has no sector by `has`, a link being empty exactly there (docs/02 §5.1).
+fn outcode(has: impl Fn((i32, i32)) -> bool, (x, y): (i32, i32)) -> u8 {
+    LINKS
+        .iter()
+        .filter(|&&((dx, dy), _)| !has((x + dx, y + dy)))
+        .fold(0, |code, &(_, bit)| code | bit)
+}
+
+/// The outcodes for which the switch (`0x6CD3E1`) blacks the right middle, the sector's own
+/// middle: its 18 values but `0x01`, `0x07` and `0x10`.
+const RIGHT_MIDDLE: [u8; 15] = [
+    0x20, 0x21, 0x30, 0x38, 0x3C, 0x40, 0x41, 0x43, 0x47, 0x60, 0x61, 0x63, 0x70, 0x71, 0x73,
+];
+
+/// Which of the six vertices of a picture's strip of the outcode `code` the lens draws black, in
+/// the strip's order: the top left, the top right, the left middle, the right middle, the bottom
+/// left and the bottom right (docs/re/questbook.md, "Per vertex"); each by the links of the
+/// sectors it lies on, and the switch's own (`0x6CD3E1`).
+fn blacks(code: u8) -> [bool; 6] {
+    let any = |bits: u8| code & bits != 0;
+    [
+        any(0x02) || matches!(code, 0x01 | 0x21 | 0x41 | 0x61 | 0x71),
+        any(0x01 | 0x40 | 0x02),
+        any(0x08 | 0x04 | 0x02),
+        RIGHT_MIDDLE.contains(&code),
+        any(0x08) || matches!(code, 0x10 | 0x30 | 0x70 | 0x71 | 0x73),
+        any(0x20 | 0x10 | 0x08),
+    ]
+}
+
+/// The colour's share at the point `(u, v)` of a picture's square, 0 to 1 across and down, of the
+/// vertices `black`: the white of 1 and the black of 0 blended linearly across the strip's
+/// triangle that holds the point, (top left, top right, left middle), (top right, left middle,
+/// right middle), (left middle, right middle, bottom left) or (right middle, bottom left, bottom
+/// right), as Direct3D's Gouraud shading blends a strip's colours (**seen**, #3609).
+fn shade(black: [bool; 6], (u, v): (f32, f32)) -> f32 {
+    let white = black.map(|black| if black { 0.0 } else { 1.0 });
+    let [tl, tr, lm, rm, bl, br] = white;
+    // Each half in its own coordinates, its upper corners at 0 down and its lower at 1.
+    let (upper, w) = if v <= 0.5 {
+        ((tl, tr, lm, rm), 2.0 * v)
+    } else {
+        ((lm, rm, bl, br), 2.0 * v - 1.0)
+    };
+    let (top_left, top_right, bottom_left, bottom_right) = upper;
+    if u + w <= 1.0 {
+        top_left * (1.0 - u - w) + top_right * u + bottom_left * w
+    } else {
+        top_right * (1.0 - w) + bottom_left * (1.0 - u) + bottom_right * (u + w - 1.0)
+    }
+}
+
+/// `rgba`'s texels, `width` across, faded toward the black vertices `black`: each texel's stored
+/// values times the colour's share at its centre ([`shade`]), as the device modulates the texture
+/// by the diffuse colour with no gamma; the alpha as it is.
+fn fade_texels(rgba: &mut [u8], width: usize, black: [bool; 6]) {
+    let height = rgba.len() / 4 / width.max(1);
+    let size = |n: usize| f32::from(u16::try_from(n).unwrap_or(u16::MAX));
+    for (index, texel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        let (x, y) = (index % width, index / width);
+        let share = shade(
+            black,
+            (
+                (size(x) + 0.5) / size(width),
+                (size(y) + 0.5) / size(height),
+            ),
+        );
+        for value in &mut texel[..3] {
+            *value = byte(f32::from(*value) * share);
+        }
+    }
+}
+
+/// A value of 0 to 255 rounded to its byte.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a value held within a byte's range"
+)]
+fn byte(value: f32) -> u8 {
+    value.round().clamp(0.0, 255.0) as u8
+}
+
+/// A copy of the picture `source` faded toward its black vertices `black`, of its first level's
+/// texels in 8 bits: its BC7 blocks decoded, or its texels as they are; none of another format.
+fn faded(source: &Image, black: [bool; 6]) -> Option<Image> {
+    let (width, height) = (
+        usize::try_from(source.width()).ok()?,
+        usize::try_from(source.height()).ok()?,
+    );
+    let data = source.data.as_ref()?;
+    let (mut rgba, format) = match source.texture_descriptor.format {
+        TextureFormat::Bc7RgbaUnorm | TextureFormat::Bc7RgbaUnormSrgb => {
+            let mut rgba = vec![0; 4 * width * height];
+            let across = width.div_ceil(4);
+            let level = data.get(..16 * across * height.div_ceil(4))?;
+            for (index, block) in level.as_chunks::<16>().0.iter().enumerate() {
+                let (bx, by) = (index % across, index / across);
+                let mut texels = [0; 64];
+                bcdec_rs::bc7(block, &mut texels, 16);
+                for row in 0..4 {
+                    let y = 4 * by + row;
+                    let take = 4.min(width.saturating_sub(4 * bx));
+                    if y < height {
+                        let at = 4 * (y * width + 4 * bx);
+                        rgba[at..at + 4 * take]
+                            .copy_from_slice(&texels[16 * row..16 * row + 4 * take]);
+                    }
+                }
+            }
+            let format = if source.texture_descriptor.format == TextureFormat::Bc7RgbaUnormSrgb {
+                TextureFormat::Rgba8UnormSrgb
+            } else {
+                TextureFormat::Rgba8Unorm
+            };
+            (rgba, format)
+        }
+        format @ (TextureFormat::Rgba8Unorm | TextureFormat::Rgba8UnormSrgb) => {
+            (data.get(..4 * width * height)?.to_vec(), format)
+        }
+        _ => return None,
+    };
+    fade_texels(&mut rgba, width, black);
+    let mut image = Image::new(
+        Extent3d {
+            width: source.width(),
+            height: source.height(),
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        rgba,
+        format,
+        // Kept in the main world too, where the interface's layers read its size (`ui_layers`).
+        RenderAssetUsages::default(),
+    );
+    image.sampler = source.sampler.clone();
+    Some(image)
+}
+
+/// A picture of the lens that fades toward its sector's missing neighbours, shown as it is until
+/// its faded copy is made ([`fade`]): its sector, its black vertices and its own image.
+#[derive(Component)]
+struct Fading {
+    sector: (i32, i32),
+    black: [bool; 6],
+    source: Handle<Image>,
+}
+
+/// The faded copies of the sectors' pictures made, kept for the lens's next draws.
+#[derive(Resource, Default)]
+struct Faded(HashMap<(i32, i32), Handle<Image>>);
+
+/// Shows each fading picture as its faded copy, made once its own image has loaded and kept for
+/// its sector ([`faded`]); a picture of a format it cannot fade shows as it is.
+fn fade(
+    mut commands: Commands,
+    mut fading: Query<(Entity, &Fading, &mut ImageNode)>,
+    mut images: ResMut<Assets<Image>>,
+    mut made: ResMut<Faded>,
+) {
+    for (entity, picture, mut node) in &mut fading {
+        let handle = if let Some(handle) = made.0.get(&picture.sector) {
+            handle.clone()
+        } else {
+            let Some(source) = images.get(&picture.source) else {
+                continue;
+            };
+            match faded(source, picture.black) {
+                Some(image) => {
+                    let handle = images.add(image);
+                    made.0.insert(picture.sector, handle.clone());
+                    handle
+                }
+                None => {
+                    warn!(
+                        "minimap: the picture of {:?} is of a format the lens cannot fade",
+                        picture.sector
+                    );
+                    picture.source.clone()
+                }
+            }
+        };
+        node.image = handle;
+        commands.entity(entity).remove::<Fading>();
+    }
+}
+
+/// The lens's faded pictures.
+pub struct MinimapPlugin;
+
+impl Plugin for MinimapPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<Faded>().add_systems(Update, fade);
     }
 }
 
@@ -156,14 +391,22 @@ pub fn spawn(
             .file(sector)
             .filter(|_| !hides.is_some_and(|dungeons| dungeons.hides(sector)));
         if let Some(file) = file {
-            let child = commands
-                .spawn((
-                    node,
-                    ImageNode::new(crate::hud::image(assets, file.to_owned()))
-                        .with_color(Color::WHITE.with_alpha(alpha)),
-                    Pickable::IGNORE,
-                ))
-                .id();
+            let image = crate::hud::image(assets, file.to_owned());
+            let black = minimaps.blacks(sector);
+            let mut child = commands.spawn((
+                node,
+                ImageNode::new(image.clone()).with_color(Color::WHITE.with_alpha(alpha)),
+                Pickable::IGNORE,
+            ));
+            // A picture that fades takes its faded copy once it is made (`fade`).
+            if black.contains(&true) {
+                child.insert(Fading {
+                    sector,
+                    black,
+                    source: image,
+                });
+            }
+            let child = child.id();
             commands.entity(parent).add_child(child);
             continue;
         }
@@ -264,6 +507,129 @@ pub fn spawn_fog(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pictures_vertices_go_black_by_its_links_and_the_outcodes_switch() {
+        const TL: usize = 0;
+        const TR: usize = 1;
+        const LM: usize = 2;
+        const RM: usize = 3;
+        const BL: usize = 4;
+        const BR: usize = 5;
+        let black = |code: u8| -> Vec<usize> {
+            blacks(code)
+                .iter()
+                .enumerate()
+                .filter(|&(_, &black)| black)
+                .map(|(vertex, _)| vertex)
+                .collect()
+        };
+        // No empty link: white all over; the links alone, the switch adding none.
+        assert_eq!(black(0x00), Vec::<usize>::new());
+        assert_eq!(black(0x02), [TL, TR, LM]);
+        assert_eq!(black(0x1C), [LM, BL, BR]);
+        assert_eq!(black(0x1F), [TL, TR, LM, BL, BR]);
+        // The switch's values, the table's last column (docs/re/questbook.md).
+        let table: [(u8, &[usize]); 18] = [
+            (0x01, &[TL, TR]),
+            (0x07, &[TL, TR, LM]),
+            (0x10, &[BL, BR]),
+            (0x20, &[RM, BR]),
+            (0x21, &[TL, TR, RM, BR]),
+            (0x30, &[RM, BL, BR]),
+            (0x38, &[LM, RM, BL, BR]),
+            (0x3C, &[LM, RM, BL, BR]),
+            (0x40, &[TR, RM]),
+            (0x41, &[TL, TR, RM]),
+            (0x43, &[TL, TR, LM, RM]),
+            (0x47, &[TL, TR, LM, RM]),
+            (0x60, &[TR, RM, BR]),
+            (0x61, &[TL, TR, RM, BR]),
+            (0x63, &[TL, TR, LM, RM, BR]),
+            (0x70, &[TR, RM, BL, BR]),
+            (0x71, &[TL, TR, RM, BL, BR]),
+            (0x73, &[TL, TR, LM, RM, BL, BR]),
+        ];
+        for (code, all) in table {
+            assert_eq!(black(code), all, "the outcode {code:#04x}");
+        }
+        // Another value with a missing neighbour on the right leaves the right middle white.
+        assert!(!blacks(0x2C)[RM] && !blacks(0x7F)[RM]);
+    }
+
+    #[test]
+    fn a_sectors_outcode_marks_its_links_toward_places_without_a_sector() {
+        let grid: HashSet<(i32, i32)> = [(5, 5), (4, 5), (5, 6), (6, 6), (6, 5), (5, 4), (4, 4)]
+            .into_iter()
+            .collect();
+        let has = |place| grid.contains(&place);
+        // All seven read neighbours there, (6, 4) unread.
+        assert_eq!(outcode(has, (5, 5)), 0x04);
+        assert_eq!(outcode(has, (6, 5)) & 0x20, 0x20);
+        // At the grid's edge every link is empty.
+        assert_eq!(outcode(|_| false, (0, 0)), 0x7F);
+    }
+
+    #[test]
+    fn the_strips_colours_blend_across_its_four_triangles() {
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-5;
+        let white = [false; 6];
+        assert!(near(shade(white, (0.3, 0.7)), 1.0));
+        // The top left alone: black at it, white at the opposite edge, half way between.
+        let top_left = [true, false, false, false, false, false];
+        assert!(near(shade(top_left, (0.0, 0.0)), 0.0));
+        assert!(near(shade(top_left, (0.5, 0.0)), 0.5));
+        assert!(near(shade(top_left, (0.0, 0.25)), 0.5));
+        // The upper half splits from the top right to the left middle: beyond it, white.
+        assert!(near(shade(top_left, (0.6, 0.3)), 1.0));
+        // The lower half splits from the right middle to the bottom left: the bottom right's
+        // black reaches the right middle's corner of its triangle alone.
+        let bottom_right = [false, false, false, false, false, true];
+        assert!(near(shade(bottom_right, (1.0, 1.0)), 0.0));
+        assert!(near(shade(bottom_right, (0.25, 0.875)), 1.0));
+        assert!(near(shade(bottom_right, (1.0, 0.75)), 0.5));
+        // The right middle's black ramps across both halves.
+        let right_middle = [false, false, false, true, false, false];
+        assert!(near(shade(right_middle, (1.0, 0.5)), 0.0));
+        assert!(near(shade(right_middle, (1.0, 0.25)), 0.5));
+        assert!(near(shade(right_middle, (0.5, 0.5)), 0.5));
+    }
+
+    #[test]
+    fn a_faded_picture_takes_its_texels_stored_values_times_the_colour() {
+        // Two texels across and two down, the right middle and the vertices below black.
+        let mut rgba = vec![
+            200, 100, 50, 255, 200, 100, 50, 255, 200, 100, 50, 255, 200, 100, 50, 128,
+        ];
+        let black = [false, false, true, true, true, true];
+        fade_texels(&mut rgba, 2, black);
+        // The upper texels at (0.25, 0.25) and (0.75, 0.25), the lower ones black.
+        let share = shade(black, (0.25, 0.25));
+        assert_eq!(
+            rgba[..4],
+            [
+                byte(200.0 * share),
+                byte(100.0 * share),
+                byte(50.0 * share),
+                255
+            ]
+        );
+        assert_eq!(rgba[8..], [0, 0, 0, 255, 0, 0, 0, 128]);
+        // An image of eight bits a channel, faded so whole.
+        let image = Image::new(
+            Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            TextureDimension::D2,
+            vec![10, 20, 30, 40],
+            TextureFormat::Rgba8Unorm,
+            RenderAssetUsages::all(),
+        );
+        let made = faded(&image, [true; 6]).map(|image| image.data);
+        assert_eq!(made, Some(Some(vec![0, 0, 0, 40])));
+    }
 
     /// The Seraphim's first quest's picture (measured): its point's iso coordinates (32312,
     /// 138587) in the original's units, its view of (556, 204) 256 × 256 the part at (1200, 488)

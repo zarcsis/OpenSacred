@@ -17,7 +17,8 @@ opensacred-rules = { path = "crates/opensacred-rules" }
 opensacred-scripts = { path = "crates/opensacred-scripts" }
 
 anyhow = "1.0.104"
-# A BC7 decoder, for the tests of the converter's textures (#700).
+# A BC7 decoder, for the tests of the converter's textures (#700) and the game's faded pictures
+# of the lens (#3609).
 bcdec_rs = "0.2.1"
 # The engine of the game (ADR-04). The default collections ("2d", "3d", "ui", "audio") minus: the
 # Wayland backend, whose client-side decorations pull the unmaintained ttf-parser (Linux runs

@@ -481,6 +481,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         bevy::asset::io::AssetSourceId::Default,
         bevy::asset::io::AssetSourceBuilder::new(move || Box::new(files::AssetFiles::new(&root))),
     );
+    let minimaps = minimap::Minimaps::read(&assets, &shared.world);
     app.add_plugins(
         DefaultPlugins
             .set(LogPlugin {
@@ -729,6 +730,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         merchant::MerchantPlugin,
         meteors::MeteorsPlugin,
         mines::MinesPlugin,
+    ))
+    .add_plugins((
+        minimap::MinimapPlugin,
         model_effects::ModelEffectsPlugin,
         models::ModelsPlugin,
         motions::MotionsPlugin,
@@ -867,7 +871,7 @@ fn run(cli: Cli) -> Result<AppExit> {
     .insert_resource(voices::Voices::read(&assets)?)
     .insert_resource(talk::Portraits::read(&assets)?)
     .insert_resource(bar::UiImages::read(&assets)?)
-    .insert_resource(minimap::Minimaps::read(&assets))
+    .insert_resource(minimaps)
     .insert_resource(weather::Rolls::read(&assets)?)
     .insert_resource(icons::Files::find(&assets))
     .insert_resource(sfx::Sfx::new(&sound_index.0))
