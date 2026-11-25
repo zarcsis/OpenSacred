@@ -144,6 +144,13 @@ enum Command {
     /// The creatures within RADIUS cells of the hero (20 by default), the nearest first, as the
     /// original's driver lists them
     Creatures { radius: Option<u32> },
+    /// The named creatures within RADIUS cells of the hero (20 by default), the nearest first,
+    /// each with what it is doing as a save keeps it (#3756)
+    Doings { radius: Option<u32> },
+    /// The named creatures within RADIUS cells of the hero (20 by default), the nearest first,
+    /// each with the components of the game that neither a save keeps nor a load makes again
+    /// (#3756)
+    Unsaved { radius: Option<u32> },
     /// The hidden stashes and the scripts' mouse events within RADIUS cells of the hero (20 by
     /// default), the nearest first: each its cell, its function, its text's name, its uses and its
     /// look
@@ -1333,6 +1340,20 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
             in_game(world)?;
             Ok(Outcome {
                 lines: debug::creatures(world, radius.unwrap_or(20))?,
+                wait: None,
+            })
+        }
+        Command::Doings { radius } => {
+            in_game(world)?;
+            Ok(Outcome {
+                lines: crate::doings::dump(world, radius.unwrap_or(20)),
+                wait: None,
+            })
+        }
+        Command::Unsaved { radius } => {
+            in_game(world)?;
+            Ok(Outcome {
+                lines: crate::doings::unsaved(world, radius.unwrap_or(20)),
                 wait: None,
             })
         }

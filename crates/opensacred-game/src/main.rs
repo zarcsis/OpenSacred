@@ -79,6 +79,7 @@ mod demon_deaths;
 mod demon_fires;
 mod demon_forms;
 mod demon_illusions;
+mod doings;
 mod doom_signs;
 mod doors;
 mod dragon_fires;

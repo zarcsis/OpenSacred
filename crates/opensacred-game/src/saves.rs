@@ -110,8 +110,9 @@ use crate::{arts, drops, making};
 /// version 48 the hero's and the kept creatures' headings (#3744); the version 49 the hero's walk
 /// under way (#3742); the version 50 whether the hero rides its own horse (#3743); the version 51
 /// the quest book and the inventory shown (#3741); the version 52 the names of the creatures that
-/// the effects' sources are and the serials of the creatures made in play (#3755).
-pub const VERSION: u32 = 52;
+/// the effects' sources are and the serials of the creatures made in play (#3755); the version 53
+/// the part of what lives, the creatures' doings (#3756).
+pub const VERSION: u32 = 53;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -297,9 +298,15 @@ pub struct World {
     pub fences: crate::laser_fences::Saved,
     /// The scripts' gold arrows standing, each one's place and colour (`beacons`, #3456).
     pub arrows: Vec<(Vec3, u32)>,
-    /// The names that the save's references point at (`names::Refs`, #3755): the sources of the
-    /// hero's, the followers' and the horse's effects.
+}
+
+/// What lives in the world as a save keeps it (#3756, the epic #3753), read after the world: the
+/// names that the save's references point at (`names::Refs`, #3755) and the creatures' doings
+/// (`doings`), which a load gives back once its scene is whole ([`resume`]).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Live {
     pub refs: Refs,
+    pub doings: crate::doings::Doings,
 }
 
 /// The saves' directory: `saves/` beside the settings' file, else in the configuration
@@ -326,18 +333,19 @@ fn file(dir: &Path, name: &str) -> Result<PathBuf> {
     Ok(dir.join(format!("{name}.{EXTENSION}")))
 }
 
-/// Writes a save of `header`, its `picture`, `hero`, `scripts` and `world` at `path`, the picture
-/// after the header, which the saves' list reads with it.
+/// Writes a save of `header`, its `picture`, `hero`, `scripts`, `world` and `live` at `path`, the
+/// picture after the header, which the saves' list reads with it.
 pub fn write(
     path: &Path,
     (header, picture): (&Header, Option<&Picture>),
-    (hero, scripts, world): (&Hero, &Scripts, &World),
+    (hero, scripts, world, live): (&Hero, &Scripts, &World, &Live),
 ) -> Result<()> {
     let mut bytes = postcard::to_stdvec(header).context("writing the header")?;
     bytes.extend(postcard::to_stdvec(&picture).context("writing the picture")?);
     bytes.extend(postcard::to_stdvec(hero).context("writing the hero")?);
     bytes.extend(postcard::to_stdvec(scripts).context("writing the scripts")?);
     bytes.extend(postcard::to_stdvec(world).context("writing the world")?);
+    bytes.extend(postcard::to_stdvec(live).context("writing what lives")?);
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
     }
@@ -357,16 +365,18 @@ fn header(bytes: &[u8]) -> Result<(Header, Option<Picture>, &[u8])> {
 }
 
 /// Reads the save at `path`.
-pub fn read(path: &Path) -> Result<(Header, Hero, Scripts, World)> {
+pub fn read(path: &Path) -> Result<(Header, Hero, Scripts, World, Live)> {
     let bytes = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let (header, _, rest) = header(&bytes).with_context(|| path.display().to_string())?;
     let (hero, rest) = postcard::take_from_bytes(rest)
         .with_context(|| format!("{}: reading the hero", path.display()))?;
     let (scripts, rest) = postcard::take_from_bytes(rest)
         .with_context(|| format!("{}: reading the scripts", path.display()))?;
-    let world = postcard::from_bytes(rest)
+    let (world, rest) = postcard::take_from_bytes(rest)
         .with_context(|| format!("{}: reading the world", path.display()))?;
-    Ok((header, hero, scripts, world))
+    let live = postcard::from_bytes(rest)
+        .with_context(|| format!("{}: reading what lives", path.display()))?;
+    Ok((header, hero, scripts, world, live))
 }
 
 /// The saves in `dir`, each its file's name and its header, the newest first; a file that does
@@ -656,16 +666,13 @@ fn scripts(world: &bevy::prelude::World) -> Result<Scripts> {
 }
 
 /// The world as it stands, to save.
-fn world_of(world: &mut bevy::prelude::World, mut refs: Refs) -> Result<World> {
+fn world_of(world: &mut bevy::prelude::World, refs: &mut Refs) -> Result<World> {
     let creatures = crate::npcs::creatures(world).context("no NPCs to save")?;
     // The followers' and the horse's effects' sources by their names (#3755).
     let followers = crate::npcs::following(world);
     let horse = crate::npcs::mount_of(world);
     let (followers, horse) = {
-        let mut saving = Saving {
-            world,
-            refs: &mut refs,
-        };
+        let mut saving = Saving { world, refs };
         (
             crate::names::mapped(followers, &mut saving),
             horse.map(|horse| crate::names::mapped(horse, &mut saving)),
@@ -715,7 +722,6 @@ fn world_of(world: &mut bevy::prelude::World, mut refs: Refs) -> Result<World> {
         fields: crate::pill_fields::saved(world),
         fences: crate::laser_fences::saved(world),
         arrows: crate::beacons::saved(world),
-        refs,
     })
 }
 
@@ -732,12 +738,18 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
     let mut refs = Refs::default();
     let (header, hero) = gather(world, name, &mut refs)?;
     let scripts = scripts(world)?;
-    let kept = world_of(world, refs)?;
+    let kept = world_of(world, &mut refs)?;
+    let doings = crate::doings::gather(world, &mut refs);
+    let live = Live { refs, doings };
     // The picture last taken (`save_picture`), as the original's save keeps its last capture.
     let picture = world
         .get_resource::<crate::save_picture::Taken>()
         .and_then(|taken| taken.picture.clone());
-    write(&path, (&header, picture.as_ref()), (&hero, &scripts, &kept))?;
+    write(
+        &path,
+        (&header, picture.as_ref()),
+        (&hero, &scripts, &kept, &live),
+    )?;
     info!("saves: {} saved in {}", header.name, path.display());
     Ok(path)
 }
@@ -751,7 +763,7 @@ pub fn saves(world: &bevy::prelude::World) -> Vec<(String, Header)> {
 
 /// A saved hero and world to put back once the loaded game's hero stands.
 #[derive(Resource)]
-pub struct Restore(pub Box<Hero>, pub Box<World>);
+pub struct Restore(pub Box<Hero>, pub Box<World>, pub Box<Live>);
 
 /// A loaded save's scripts and what its sectors kept of their creatures, which its game's load
 /// takes ([`crate::game`]'s `begin`).
@@ -762,7 +774,7 @@ pub struct Resume(pub Scripts, pub crate::npcs::Creatures);
 /// whose hero and world [`restore`] puts back.
 pub fn load(world: &mut bevy::prelude::World, name: &str) -> Result<Header> {
     let dir = directory(world.get_resource::<SettingsFile>()).context("no directory for saves")?;
-    let (header, hero, scripts, mut kept) = read(&file(&dir, name)?)?;
+    let (header, hero, scripts, mut kept, live) = read(&file(&dir, name)?)?;
     let shows = world
         .get_resource::<crate::game::Shows>()
         .copied()
@@ -777,7 +789,7 @@ pub fn load(world: &mut bevy::prelude::World, name: &str) -> Result<Header> {
     if let Some(mut ready) = world.get_resource_mut::<crate::hero::Ready>() {
         ready.0 = false;
     }
-    world.insert_resource(Restore(Box::new(hero), Box::new(kept)));
+    world.insert_resource(Restore(Box::new(hero), Box::new(kept), Box::new(live)));
     world.insert_resource(Resume(scripts, creatures));
     world
         .resource_mut::<NextState<AppState>>()
@@ -814,12 +826,12 @@ fn restore(world: &mut bevy::prelude::World) {
     let Some(entity) = heroes.iter(world).next() else {
         return;
     };
-    let Some(Restore(hero, kept)) = world.remove_resource::<Restore>() else {
+    let Some(Restore(hero, kept, live)) = world.remove_resource::<Restore>() else {
         return;
     };
     let hero = *hero;
     // Its effects' sources, the creatures that bear their names now (#3755).
-    let (mut effects, lost) = loaded(world, &kept.refs, hero.effects.clone());
+    let (mut effects, lost) = loaded(world, &live.refs, hero.effects.clone());
     effects.forget_lost();
     if lost > 0 {
         info!("saves: {lost} of the hero's effects' sources are not in the world");
@@ -871,7 +883,12 @@ fn restore(world: &mut bevy::prelude::World) {
         world.insert_resource(crate::inventory::Shown(true));
     }
     info!("saves: the hero is back");
-    restore_world(world, *kept, hero.health);
+    restore_world(world, *kept, (hero.health, &live.refs));
+    // What lives, once the loaded scene is whole ([`resume`]).
+    world.insert_resource(Resuming {
+        live: *live,
+        frames: 0,
+    });
 }
 
 /// Sends a loaded hero on to where it was going ([`Walk`], #3742), once it has landed where the
@@ -925,6 +942,84 @@ fn ride_on(world: &mut bevy::prelude::World) {
         _ => {
             world.remove_resource::<RideOn>();
         }
+    }
+}
+
+/// A loaded save's living part to give back once the loaded scene is whole ([`resume`]), and the
+/// frames waited for it.
+#[derive(Resource)]
+pub struct Resuming {
+    live: Live,
+    frames: u32,
+}
+
+/// Whether the game's time stands for a load (#3756), which [`resume`] lets run again.
+#[derive(Resource, Default)]
+struct Held(bool);
+
+/// The frames that [`resume`] waits at most for the creatures of the saved doings to come in.
+const RESUME_WAIT: u32 = 300;
+
+/// Stands the game's time from a load's first frame in the game until [`resume`], without the
+/// pause's menu (`pause::Still`), so that nothing thinks or moves before what lives is back: the
+/// creatures of the hero's sectors would otherwise act from where the start made them.
+fn hold(
+    mut held: ResMut<Held>,
+    play: Option<Res<bevy::prelude::State<crate::pause::Play>>>,
+    mut next: ResMut<NextState<crate::pause::Play>>,
+    mut still: ResMut<crate::pause::Still>,
+) {
+    let running = play.is_some_and(|play| *play.get() == crate::pause::Play::Running);
+    if held.0 || !running {
+        return;
+    }
+    held.0 = true;
+    still.0 = true;
+    next.set(crate::pause::Play::Paused);
+}
+
+/// Gives a loaded save's creatures their doings back once the hero is back and the sectors about
+/// it are in, and every creature of a doing has come in or [`RESUME_WAIT`] frames have passed
+/// (#3756), then lets the game's time run that [`hold`] stood.
+fn resume(world: &mut bevy::prelude::World) {
+    let Some(mut resuming) = world.get_resource_mut::<Resuming>() else {
+        return;
+    };
+    resuming.frames += 1;
+    let frames = resuming.frames;
+    let mut heroes = world.query_filtered::<&Transform, With<Body>>();
+    let Some(hero) = heroes.iter(world).next().map(|at| at.translation) else {
+        return;
+    };
+    let settled = world
+        .get_resource::<crate::sectors::Streamer>()
+        .is_none_or(|streamer| streamer.settled(hero));
+    let empty = Names::default();
+    let names = world.get_resource::<Names>().unwrap_or(&empty);
+    let Some(resuming) = world.get_resource::<Resuming>() else {
+        return;
+    };
+    let come = resuming
+        .live
+        .doings
+        .owners()
+        .all(|id| names.get(id).is_some());
+    if !(settled && come) && frames < RESUME_WAIT {
+        return;
+    }
+    let Some(Resuming { live, .. }) = world.remove_resource::<Resuming>() else {
+        return;
+    };
+    let (doings, lost) = loaded(world, &live.refs, live.doings);
+    let (given, missing) = crate::doings::give(world, doings);
+    info!(
+        "saves: what lives is back after {frames} frames: {given} doings, {missing} creatures not          in the world, {lost} references lost"
+    );
+    if world.get_resource::<Held>().is_some_and(|held| held.0) {
+        world.insert_resource(Held(false));
+        world
+            .resource_mut::<NextState<crate::pause::Play>>()
+            .set(crate::pause::Play::Running);
     }
 }
 
@@ -1016,7 +1111,7 @@ fn loaded<T: MapEntities>(world: &bevy::prelude::World, refs: &Refs, value: T) -
     (value, loading.lost)
 }
 
-fn restore_world(world: &mut bevy::prelude::World, kept: World, health: u32) {
+fn restore_world(world: &mut bevy::prelude::World, kept: World, (health, refs): (u32, &Refs)) {
     let World {
         creatures: _,
         followers,
@@ -1035,11 +1130,10 @@ fn restore_world(world: &mut bevy::prelude::World, kept: World, health: u32) {
         fields,
         fences,
         arrows,
-        refs,
     } = kept;
     // The followers' and the horse's effects' sources, the creatures that bear their names now.
-    let (mut followers, lost) = loaded(world, &refs, followers);
-    let (mut horse, lost_too) = loaded(world, &refs, horse);
+    let (mut followers, lost) = loaded(world, refs, followers);
+    let (mut horse, lost_too) = loaded(world, refs, horse);
     followers
         .iter_mut()
         .chain(horse.iter_mut())
@@ -1291,6 +1385,8 @@ fn waited(world: &mut bevy::prelude::World) {
 /// that no later game takes its hero or its scripts.
 fn forget(mut commands: Commands) {
     commands.remove_resource::<Restore>();
+    commands.remove_resource::<Resuming>();
+    commands.insert_resource(Held(false));
     commands.remove_resource::<WalkOn>();
     commands.remove_resource::<RideOn>();
     commands.remove_resource::<Resume>();
@@ -1304,6 +1400,7 @@ pub struct SavesPlugin;
 impl Plugin for SavesPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Asked>()
+            .init_resource::<Held>()
             .init_resource::<AutoSaves>()
             .init_resource::<Waiting>()
             .add_systems(OnEnter(AppState::Menu), forget)
@@ -1314,6 +1411,21 @@ impl Plugin for SavesPlugin {
                     .run_if(in_state(AppState::InGame))
                     .run_if(resource_exists::<Restore>)
                     .run_if(|ready: Option<Res<crate::hero::Ready>>| ready.is_some_and(|r| r.0)),
+            )
+            .add_systems(
+                Update,
+                hold.run_if(in_state(AppState::InGame)).run_if(
+                    |restore: Option<Res<Restore>>, resuming: Option<Res<Resuming>>| {
+                        restore.is_some() || resuming.is_some()
+                    },
+                ),
+            )
+            .add_systems(
+                Update,
+                resume
+                    .after(restore)
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(resource_exists::<Resuming>),
             )
             .add_systems(
                 Update,
@@ -1343,7 +1455,8 @@ impl Plugin for SavesPlugin {
                 (quick_keys, quick, autosave, waited)
                     .chain()
                     .run_if(in_state(AppState::InGame))
-                    .run_if(not(resource_exists::<Restore>)),
+                    .run_if(not(resource_exists::<Restore>))
+                    .run_if(not(resource_exists::<Resuming>)),
             );
     }
 }
@@ -1607,7 +1720,8 @@ pub(crate) mod tests {
     #[test]
     fn a_save_reads_back_as_written_and_lists_the_newest_first() {
         let dir = scratch("round");
-        let parts = (&hero(), &saved_scripts(), &saved_world());
+        let live = Live::default();
+        let parts = (&hero(), &saved_scripts(), &saved_world(), &live);
         let picture = Picture([0x0F, 0xF0].repeat(128 * 96));
         write(
             &file(&dir, "first").unwrap(),
@@ -1624,8 +1738,9 @@ pub(crate) mod tests {
         // The picture after the header, read with it.
         let bytes = fs::read(file(&dir, "first").unwrap()).unwrap();
         assert_eq!(super::header(&bytes).unwrap().1, Some(picture));
-        let (read_header, read_hero, read_scripts, read_world) =
+        let (read_header, read_hero, read_scripts, read_world, read_live) =
             read(&file(&dir, "first").unwrap()).unwrap();
+        assert_eq!(read_live, Live::default());
         assert_eq!(read_header, header("first", 10));
         assert_eq!(read_hero.at, (1234.5, 6789.0));
         assert_eq!(read_hero.heading, 135.0);
@@ -1699,6 +1814,7 @@ pub(crate) mod tests {
             tracer.trace_type_once::<Hero>(&samples)?;
             tracer.trace_type_once::<Scripts>(&samples)?;
             tracer.trace_type_once::<World>(&samples)?;
+            tracer.trace_type_once::<Live>(&samples)?;
             if round < ROUNDS {
                 for name in again {
                     tracer.check_incomplete_enum(name);
@@ -1712,7 +1828,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (52, 0x5EF1_A1A7_3955_1765),
+            (53, 0xA404_E969_238A_49D7),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
@@ -1721,7 +1837,8 @@ pub(crate) mod tests {
     #[test]
     fn a_save_of_another_version_stands_in_the_slots_and_is_not_loaded() {
         let dir = scratch("stale");
-        let parts = (&hero(), &saved_scripts(), &World::default());
+        let live = Live::default();
+        let parts = (&hero(), &saved_scripts(), &World::default(), &live);
         write(
             &file(&dir, "GAME01").unwrap(),
             (&header("now", 2), None),
@@ -1764,7 +1881,8 @@ pub(crate) mod tests {
             version: VERSION + 1,
             ..header("old", 1)
         };
-        let parts = (&hero(), &saved_scripts(), &World::default());
+        let live = Live::default();
+        let parts = (&hero(), &saved_scripts(), &World::default(), &live);
         write(&file(&dir, "old").unwrap(), (&old, None), parts).unwrap();
         let error = format!("{:#}", read(&file(&dir, "old").unwrap()).unwrap_err());
         assert!(error.contains("version"), "{error}");
