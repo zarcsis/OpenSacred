@@ -143,7 +143,7 @@ const RUNDUM_LEFT: f32 = 0.7;
 const RUNDUM_MOST: u32 = 1000;
 
 /// How a weapon art strikes, by its executor (docs/re/arts.md, "An art in a strike").
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Style {
     /// A strike at each hit point of its clip on its target, or on the next hostile creature,
     /// within the reach and [`ATTACKE_BEYOND`].
@@ -2966,7 +2966,10 @@ pub const BOWL_HOLD: f32 = 2.0;
 
 /// The flight of a thrown object (`0x44DED0` in its throw mode, its step `0x44DFE0`): its
 /// velocity on the ground, its rise and its height over the ground.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+// Named apart from the drops' flight, which the game's saves' layout test traces by name; postcard
+// writes no names.
+#[serde(rename = "ArtFlight")]
 pub struct Flight {
     pub velocity: [f32; 2],
     pub rise: f32,
