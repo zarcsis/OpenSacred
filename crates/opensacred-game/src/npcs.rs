@@ -10663,7 +10663,7 @@ pub(crate) fn lift(commands: &mut Commands, entity: Entity, stashed: &Stashed) {
 /// docs/re/netscript.md, "The anim mode and the creatures' queues"): its queue (`+0x588`), whose
 /// first step it takes at each tick of the world ([`take_steps`], `0x59A840`), its own idle
 /// behaviours left meanwhile (`ai`).
-#[derive(Component, Default, Debug)]
+#[derive(Component, Default, Debug, Clone)]
 pub struct ScriptQueue(std::collections::VecDeque<Queued>);
 
 impl ScriptQueue {
@@ -11614,7 +11614,8 @@ pub(crate) struct Morphs(Vec<Morph>);
 /// the level 1 (or the level that a `SetNPCState` after it gives), its health whole; at its turn
 /// in its queue at its level and its share of health. The original keeps the same object, its
 /// type and model swapped; the creature made again keeps what the game keeps of one
-/// (docs/decisions/netscript.md, "Morph made again"). The hero never changes.
+/// (docs/decisions/netscript.md, "Morph made again"), and what a run ordered the creature before
+/// it, its scripts' cast and its queue's steps (#3704). The hero never changes.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system's queries carry their components"
@@ -11644,6 +11645,10 @@ fn morph(
                     Option<&crate::followers::Hired>,
                     Option<&crate::followers::Follower>,
                 ),
+                (
+                    Option<&crate::creature_casts::ScriptCast>,
+                    Option<&ScriptQueue>,
+                ),
             ),
         ),
         Without<Dies>,
@@ -11661,7 +11666,7 @@ fn morph(
             entity,
             (named, at, way),
             (health, mind),
-            (placed, remakes, on_death, talk, (hired, follower)),
+            (placed, remakes, on_death, talk, (hired, follower), (cast, queue)),
         ) in &creatures
         {
             if named.0 != morphed.name {
@@ -11751,6 +11756,15 @@ fn morph(
             }
             if let Some(hired) = hired {
                 commands.entity(made).insert(*hired);
+            }
+            // What a run ordered it before its `Morph`, a cast and its queue's steps, goes on with
+            // the creature made again, as with the original's same object (`refresh_a`'s meteor,
+            // #3704).
+            if let Some(&cast) = cast {
+                commands.entity(made).insert(cast);
+            }
+            if let Some(queue) = queue {
+                commands.entity(made).insert(queue.clone());
             }
             // A follower stays its master's (#2839).
             if let Some(&follower) = follower {
