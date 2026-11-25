@@ -888,6 +888,13 @@ impl Triggers {
             })
             .map(|b| b.name.as_str())
     }
+
+    /// Each sector that holds a part of a base trigger's box, and its parts in their order.
+    pub fn sectors(&self) -> impl Iterator<Item = ((i32, i32), &[TriggerBox])> {
+        self.0
+            .iter()
+            .map(|(&sector, boxes)| (sector, boxes.as_slice()))
+    }
 }
 
 /// The quest and the trigger of a base trigger's function (`OMO<quest><name>`, the compiler's

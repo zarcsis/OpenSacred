@@ -875,7 +875,7 @@ pub(crate) fn quests_in_lens(
     for entry in quests.book() {
         let Some(at) = quests
             .compass(entry.quest)
-            .and_then(|compass| seek.target_of(compass))
+            .and_then(|compass| seek.shown_at(live, entry.quest, compass))
         else {
             continue;
         };
@@ -1490,11 +1490,12 @@ fn follow(
     for entry in quests.book() {
         let Some(at) = quests
             .compass(entry.quest)
-            .and_then(|compass| seek.target_of(compass))
+            .and_then(|compass| seek.shown_at(&live, entry.quest, compass))
         else {
             continue;
         };
-        // The compass's cell, its middle (`0x497540`).
+        // The compass's cell, its middle (`0x497540`), the way into a hidden sector for a target
+        // there (#3419).
         let middle = crate::paths::centre(crate::paths::cell_of(at.x, at.y));
         let (image, colour) = icon(entry);
         let side = icon_side(images.size(image).x);

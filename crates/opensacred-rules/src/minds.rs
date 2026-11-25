@@ -4778,16 +4778,22 @@ pub fn hero_comes_on_to_shoot(at_once: bool, distance: f32, coming: bool) -> boo
     !at_once && distance > within
 }
 
+/// The creatures' class of the heroes' types (`0x426650`, the class record's `+4`): the only
+/// creatures that take a strike's second hit ([`hit_due`]).
+pub const HEROES_CLASS: u8 = 1;
+
 /// Whether a strike's next hit is due (`0x4EA1F0`, of the hero's attack action 3, `0x4E4CF0`,
 /// and a creature's), `done` of its clip played and `struck` hits sent, by the clip's
 /// `fractions` and the class of what the striker holds `class`: the first at its first fraction,
 /// 0.5 for one of 0; a second where it hits twice ([`hits_twice`]), at its second fraction, or at
-/// the next step after the first where the clip has none.
-pub fn hit_due([first, second]: [f32; 2], struck: u8, done: f32, class: u8) -> bool {
+/// the next step after the first where the clip has none, for a striker of the heroes' class
+/// alone, `heroes` ([`HEROES_CLASS`]): any other leaves the step as soon as its first is marked
+/// (`0x4E6744`, `0x4E726C`; docs/re/fight.md, "The second hit is the heroes' class's alone").
+pub fn hit_due([first, second]: [f32; 2], struck: u8, done: f32, class: u8, heroes: bool) -> bool {
     let first = if first > 0.0 { first } else { 0.5 };
     match struck {
         0 => done >= first,
-        1 => hits_twice(second, class) && done >= second,
+        1 => heroes && hits_twice(second, class) && done >= second,
         _ => false,
     }
 }
@@ -7931,18 +7937,29 @@ mod tests {
     fn two_weapons_hit_twice_whatever_the_clip() {
         // A clip of one hit point hits once with one weapon, and with two a second time at the
         // step after the first (`0x4EA1F0`, #2748).
-        assert!(!hit_due([0.4, 0.0], 0, 0.39, 8));
-        assert!(hit_due([0.4, 0.0], 0, 0.4, 1));
-        assert!(!hit_due([0.4, 0.0], 1, 1.0, 1));
-        assert!(hit_due([0.4, 0.0], 1, 0.4, 8));
-        assert!(!hit_due([0.4, 0.0], 2, 1.0, 8));
+        assert!(!hit_due([0.4, 0.0], 0, 0.39, 8, true));
+        assert!(hit_due([0.4, 0.0], 0, 0.4, 1, true));
+        assert!(!hit_due([0.4, 0.0], 1, 1.0, 1, true));
+        assert!(hit_due([0.4, 0.0], 1, 0.4, 8, true));
+        assert!(!hit_due([0.4, 0.0], 2, 1.0, 8, true));
         // A clip of two hit points hits its second at its own point.
-        assert!(!hit_due([0.3, 0.4], 1, 0.39, 8));
-        assert!(hit_due([0.3, 0.4], 1, 0.4, 1));
+        assert!(!hit_due([0.3, 0.4], 1, 0.39, 8, true));
+        assert!(hit_due([0.3, 0.4], 1, 0.4, 1, true));
         // A first point of 0 is the clip's half.
-        assert!(!hit_due([0.0, 0.0], 0, 0.49, 1));
-        assert!(hit_due([0.0, 0.0], 0, 0.5, 1));
+        assert!(!hit_due([0.0, 0.0], 0, 0.49, 1, true));
+        assert!(hit_due([0.0, 0.0], 0, 0.5, 1, true));
         assert!(hits_twice(0.0, 8) && hits_twice(0.4, 1) && !hits_twice(0.0, 1));
+    }
+
+    #[test]
+    fn a_creature_not_of_the_heroes_class_lands_one_hit_a_swing() {
+        // Its first at its first fraction (seen: an Amazon 316 at the first tick past 0.2389,
+        // #3686), and no second, whatever its clip's second fraction or its two weapons.
+        assert!(!hit_due([0.238_929, 0.449_757], 0, 0.21, 0, false));
+        assert!(hit_due([0.238_929, 0.449_757], 0, 0.24, 0, false));
+        assert!(!hit_due([0.238_929, 0.449_757], 1, 1.0, 0, false));
+        assert!(!hit_due([0.4, 0.0], 1, 1.0, 8, false));
+        assert!(hit_due([0.0, 0.0], 0, 0.5, 8, false));
     }
 
     #[test]

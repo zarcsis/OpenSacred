@@ -499,6 +499,14 @@ impl Dungeons {
         self.0.contains(&at)
     }
 
+    /// Whether sector `at`, of the sectors' signed coordinates, is a dungeon's.
+    pub fn holds_sector(&self, (x, y): (i32, i32)) -> bool {
+        u32::try_from(x)
+            .ok()
+            .zip(u32::try_from(y).ok())
+            .is_some_and(|at| self.sector(at))
+    }
+
     /// Whether sector `at` is hidden (`0x6238C0`, `opensacred_rules::explored::hidden`): a
     /// dungeon's outside the two blocks of them that are not.
     pub fn hides(&self, (x, y): (i32, i32)) -> bool {

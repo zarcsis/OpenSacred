@@ -366,9 +366,11 @@ fn arrows(
                 } else {
                     Marker::Side
                 };
-                seek.target_of(live.marker(marker)?)
+                seek.aim(live, hero, marker)
             }),
-            _ => map.pin_target(),
+            _ => map
+                .pin_target()
+                .map(|pin| seek.aim_at(live.as_deref(), (hero, pin), None)),
         };
         let place = target.and_then(|target| edge_of(crate::compass::direction(hero, target)));
         let Some((edge, at)) = place else {

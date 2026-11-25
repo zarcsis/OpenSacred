@@ -1035,7 +1035,7 @@ All of it is done: the converter and the IR in M1, the translator, the runtime a
    - `regions/<n>.luau`, a region's `Init`;
    - `quests/<id>.luau`, a quest's functions;
    - `functions/<shape>.luau`, the other functions of one name's shape, the shapes that differ in case alone in the first's file (`Help45` and `help46` in `Help.luau`), which a file system blind to case would otherwise write over one another (#1043);
-   - `index.ron`, every function's file and key.
+   - `index.ron`, every function's file and key, and where each function whose first record is a `Teleport` leads, its last tag of a cell, a `DefPos` name or a world point (`leads`; #3419, docs/re/interface.md, "The markers (`sdk_MARKER_RESOLVE`, `0x4A5980`)").
 
    Each file returns a table of its functions.
    A record's operands are a table by their tags, `_01`, `_2A`, a tag that repeats a list of its values in their order; a table keeps no order of its keys, so a record of two markers or more also lists their tags in their order, `marks = { 0x0E, 0x46, 0x13 }` (#993), for `CreateNPC` and `SetNPCState`, which take the last of their mode's and their hostility's markers (the start's captain `hauptmann3`'s `0E 46 13` is mode 2, not `0x4000`).
