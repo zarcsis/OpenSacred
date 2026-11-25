@@ -228,7 +228,7 @@ pub struct Kill {
 /// A player's hero knocked down by a heavy blow (`0x56E366`–`0x56E8CC`, #2311): the seconds it
 /// still lies, where its attacker struck from, and how far its fall has thrown it
 /// (`knock_down`).
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Downed {
     pub left: f32,
     pub from: Vec3,
@@ -238,10 +238,41 @@ pub struct Downed {
 /// A player's hero knocked back by a whirlwind's strike (the event of the kind 3, `0x531AF7`,
 /// #2901): the place of the whirlwind's caster, the event's sender (#3305), and how far it still
 /// slides (`+0x24D`), which each new knock sets anew (`knock_down::slide`).
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Pushed {
     pub from: Vec3,
     pub left: f32,
+}
+impl bevy::ecs::entity::MapEntities for Downed {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+impl crate::doings::Saves for Downed {
+    type Saved = Downed;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
+}
+
+impl bevy::ecs::entity::MapEntities for Pushed {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+impl crate::doings::Saves for Pushed {
+    type Saved = Pushed;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 /// A creature's marks of the stats' `+0x2B7` bits `0x80` and `0x100` ([`Self::FIRST`],

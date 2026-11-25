@@ -11,8 +11,24 @@ use crate::hero::{Body, Clips};
 use crate::npcs::Dies;
 
 /// The hero while it is held.
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HeroHeld;
+
+impl bevy::ecs::entity::MapEntities for HeroHeld {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+impl crate::doings::Saves for HeroHeld {
+    type Saved = HeroHeld;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
+}
 
 /// Whether `effects` hold the hero.
 fn holds(effects: Option<&crate::effects::Effects>) -> bool {

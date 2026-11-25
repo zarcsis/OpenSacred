@@ -114,7 +114,7 @@ const CLICKS: i32 = 3;
 /// What a talk opens (`0x52AB70`): the creature's dialogue by its function's name, or, for a
 /// trader without one (its number below 1 or above 200,000), a smith's, a merchant's or a combat
 /// master's window.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum Speech {
     Dialogue(String),
     /// A townsperson's generic line of the Underworld, in the window of [`GENERIC`] (#2887).
@@ -184,6 +184,45 @@ pub struct Talking {
     stops: u8,
 }
 
+/// The hero's walk to talk as a save keeps it (#3763): the creature by its name and what it is
+/// to say; a talk whose window is open is no save's, which the window refuses (`saves::allowed`).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedTalking {
+    #[serde(with = "crate::names::required")]
+    creature: Entity,
+    dialogue: Speech,
+    walks: Option<bool>,
+    stops: u8,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedTalking {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.creature = mapper.get_mapped(self.creature);
+    }
+}
+
+impl crate::doings::Saves for Talking {
+    type Saved = SavedTalking;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<SavedTalking> {
+        (!self.open).then(|| SavedTalking {
+            creature: self.creature,
+            dialogue: self.dialogue.clone(),
+            walks: self.walks,
+            stops: self.stops,
+        })
+    }
+
+    fn again(saved: SavedTalking, _: &crate::doings::Moment) -> Option<Self> {
+        Some(Self {
+            creature: crate::names::found(Some(saved.creature))?,
+            dialogue: saved.dialogue,
+            open: false,
+            walks: saved.walks,
+            stops: saved.stops,
+        })
+    }
+}
 /// The creatures' portraits of the dialogues' window (#1032): the table of `tables/portraits.ron`
 /// and its textures' files by their names; none without the table (assets converted before it).
 #[derive(Resource, Default)]

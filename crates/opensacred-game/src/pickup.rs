@@ -83,6 +83,45 @@ pub(crate) fn gold_sound() -> sfx::Play {
 #[derive(Component)]
 pub struct Picks(Entity);
 
+/// The hero's walk to take an item as a save keeps it (#3763): the item by its name.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedPicks {
+    #[serde(with = "crate::names::required")]
+    target: Entity,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedPicks {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = mapper.get_mapped(self.target);
+    }
+}
+
+impl crate::doings::Saves for Picks {
+    type Saved = SavedPicks;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<SavedPicks> {
+        Some(SavedPicks { target: self.0 })
+    }
+
+    fn again(saved: SavedPicks, _: &crate::doings::Moment) -> Option<Self> {
+        Some(Self(crate::names::found(Some(saved.target))?))
+    }
+}
+
+/// A pick-up under way, which a save keeps as the walk to its item where it has not taken it
+/// yet, and none once taken: its load takes it from the walk again (#3763).
+impl crate::doings::Saves for Picking {
+    type Saved = SavedPicks;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<SavedPicks> {
+        (!self.taken).then_some(SavedPicks { target: self.item })
+    }
+
+    fn again(_: SavedPicks, _: &crate::doings::Moment) -> Option<Self> {
+        None
+    }
+}
+
 /// The hero playing its pick-up of `item` (the motion 172, `0x53A170`'s sub-state 3): the clip's
 /// node and length, and whether it took the item, which it does at the clip's half
 /// (`cCreature::pickupItem`, `0x558080`); the order ends with the clip (#1219).
@@ -121,6 +160,40 @@ const SAME_LAYER: f32 = 20.0;
 /// bar's Collect button, the key A or the command `collect` sends it ([`collect`]).
 #[derive(Component, Clone, Copy, Debug)]
 pub struct Collects(Collecting);
+
+/// The hero's collecting as a save keeps it (#3763): looking for its next item, or walking to it
+/// by its name; a pick-up under way looks again.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedCollects {
+    #[serde(with = "crate::names::optional")]
+    walking: Option<Entity>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedCollects {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.walking = self.walking.map(|item| mapper.get_mapped(item));
+    }
+}
+
+impl crate::doings::Saves for Collects {
+    type Saved = SavedCollects;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<SavedCollects> {
+        Some(SavedCollects {
+            walking: match self.0 {
+                Collecting::Walking(item) => Some(item),
+                _ => None,
+            },
+        })
+    }
+
+    fn again(saved: SavedCollects, _: &crate::doings::Moment) -> Option<Self> {
+        Some(Self(match crate::names::found(saved.walking) {
+            Some(item) => Collecting::Walking(item),
+            None => Collecting::Seeking,
+        }))
+    }
+}
 
 impl Collects {
     /// Whether it plays its pick-up, whose clip the hero's walk leaves alone (`hero::run`).
@@ -1664,6 +1737,57 @@ impl Plugin for PickupPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_heros_walk_to_an_item_goes_on_to_the_item_of_its_name_after_a_load() {
+        use crate::doings::{Moment, Saves};
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut saved = App::new();
+        saved.add_plugins(NamesPlugin);
+        let item = saved.world_mut().spawn(Named(Id::Drop(3))).id();
+        let mut refs = Refs::default();
+        let kept = mapped(
+            Picks(item).saved(&Moment::default()).unwrap(),
+            &mut Saving {
+                world: saved.world(),
+                refs: &mut refs,
+            },
+        );
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..2).map(|_| ()));
+        let again = loaded.world_mut().spawn(Named(Id::Drop(3))).id();
+        let names = loaded.world().resource::<Names>();
+        let back = Picks::again(
+            mapped(
+                kept,
+                &mut Loading {
+                    refs: &refs,
+                    names,
+                    lost: 0,
+                },
+            ),
+            &Moment::default(),
+        )
+        .unwrap();
+        assert_eq!(back.0, again);
+        // A pick-up under way goes on as its walk where it has not taken the item yet.
+        let picking = Picking {
+            item,
+            node: AnimationNodeIndex::new(1),
+            length: 1.0,
+            taken: false,
+        };
+        assert_eq!(
+            picking.saved(&Moment::default()).map(|saved| saved.target),
+            Some(item)
+        );
+        let taken = Picking {
+            taken: true,
+            ..picking
+        };
+        assert!(taken.saved(&Moment::default()).is_none());
+    }
     use opensacred_rules::drops::Dropped;
 
     fn dropped(kind: Kind, item: u32, amount: u32) -> Dropped {

@@ -160,7 +160,42 @@ pub struct RandomItem;
 /// The stash that the hero was sent to by a click, which it searches as it stands near once its
 /// walk there ends, whether the walk began, and the frames it waited for it.
 #[derive(Component)]
-struct Searches(Entity, bool, u8);
+pub(crate) struct Searches(Entity, bool, u8);
+
+/// The hero's search of a hidden stash as a save keeps it (#3763): the stash by its name.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedSearches {
+    #[serde(with = "crate::names::required")]
+    target: Entity,
+    first: bool,
+    count: u8,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedSearches {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = mapper.get_mapped(self.target);
+    }
+}
+
+impl crate::doings::Saves for Searches {
+    type Saved = SavedSearches;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<SavedSearches> {
+        Some(SavedSearches {
+            target: self.0,
+            first: self.1,
+            count: self.2,
+        })
+    }
+
+    fn again(saved: SavedSearches, _: &crate::doings::Moment) -> Option<Self> {
+        Some(Self(
+            crate::names::found(Some(saved.target))?,
+            saved.first,
+            saved.count,
+        ))
+    }
+}
 
 /// The cell under the cursor's point on the plane of the height 0, whatever the ground's height
 /// there (the view's `0x629F30`, made a cell by `0x6224E0`; docs/re/containers.md, "The mark of an
