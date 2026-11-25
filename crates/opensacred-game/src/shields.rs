@@ -9,7 +9,8 @@
 //! ShieldWall, Regen}`).
 //!
 //! A spell that the shield wall turns aside by its effect `0x1A` flashes it as an arrow does
-//! (`fight`, #2945). Not followed: the mana's spring of the set 32's seventh piece.
+//! (`fight`, #2945); the mana's spring of the set 32's seventh piece stands about its Mage for as
+//! long as he wears the set (`spells::set_spring`, #3634).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -105,7 +106,8 @@ struct Materials {
     health: [Option<Handle<Effect>>; 2],
 }
 
-/// Shows the sight of `kind` about `bearer` for `seconds`, its spell's value 0 at its level.
+/// Shows the sight of `kind` about `bearer` for `seconds`, its spell's value 0 at its level; no
+/// seconds end the bearer's sight of that kind.
 pub(crate) fn show(commands: &mut Commands, kind: Kind, bearer: Entity, seconds: f32) {
     commands.spawn((
         Unmade {
@@ -136,6 +138,10 @@ fn make(
             if sight.bearer == unmade.bearer && same_kind(&sight.look, unmade.kind) {
                 commands.entity(old).despawn();
             }
+        }
+        if unmade.seconds <= 0.0 {
+            commands.entity(entity).despawn();
+            continue;
         }
         let materials = looks.0.get_or_insert_with(|| {
             let mut material = |name: &str, whole: bool, repeated: bool| {

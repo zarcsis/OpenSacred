@@ -2599,11 +2599,12 @@ Read 2026-11-06 for #1092 in Ghidra and by scans of the executable (**confirmed*
 - One class but for their textures, their colours, their turns and their sounds: a symbol (`FX_MANAREGEN`, blue on an alpha mask; `FX_HPREGEN`, pale pink-white) flat at the bearer's root, the half side 40, white, turned by `−0.5·t` (clockwise) or `+0.5·t`, added by its alpha; then five flat `PARTICLE_GLOW03` of the half sides 100, 90, 80, 70 and 60 at the heights 0, 3, 6, 9 and 12, unturned, in (143, 143, 255) or (255, 79, 79) at the alpha 64, added by their alpha.
 - Their run: the clock, and past their end they die at once; their start asks the action 6 (the effects 11 and 12); 835 loops 2028, 836 plays 2042 once.
 - The effects' adder also makes an 835 of 7.5 s for the Mage of the set 32's seventh piece, as it takes the effect 40 anew (`0x582D50`'s case 40, `0x57AF53`); no adder's path gives an 836.
+  Its start asks the action 6 as a cast's does, so that it gives him the spring's effect 11, and the effect 40's taker keeps it at him, sending it the event `0x3A` at every second, for as long as the set is whole: **seen** 2026-11-25, one 835 standing at the Mage for 170 s past its 7.5 s (**hypothesis**: the event sets its clock back), ended as a piece was taken off (docs/re/sets.md, "Set 32's spring").
 
 `opensacred-game` draws the four since #1092 (`shields`, `opensacred_rules::particles::{HolyShield, ShieldWall, Regen}`), as `spells` casts the spells and the ice elf's creature cast its holy shield, at their bearer's root for the spells' time, on the layer that the night leaves untinted, the two shields with a light of 300 that goes with them; an arrow that the hero's holy shield or shield wall turns aside flashes it (`arrows`, `shields::Flash`).
 **Seen** 2026-11-06 beside the original at the Seraphim's and the Mage's starts at 22:00 and the zoom 2: the holy shield's pale blue band sweeping about her over its arc on the ground, the shield wall's red walls over their bright ring of glows, and the mana's spring's blue symbol over its glow, alike in both.
 A spell that the shield wall turns aside by its effect `0x1A` flashes it since #2945 (`fight::resolve`, `shields::Flash`).
-Not followed: the set 32's spring (#3634).
+The set 32's 835 stands about its Mage for as long as he wears the seven pieces since #3634, and ends as one is taken off (`spells::set_spring`; docs/re/sets.md, "Set 32's spring").
 
 ## The Dark Elf's wards
 

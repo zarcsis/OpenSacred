@@ -556,3 +556,13 @@ fn sets_42_and_59_lengthen_the_forms_and_tell_it() {
     assert_eq!(night_times(2.0), 2.8);
     assert_eq!(flight_times(2.0), 1.8);
 }
+
+#[test]
+fn set_32_at_seven_keeps_the_mages_spring_and_no_other_types() {
+    let flags = |n| stats(&wearing(32, n), Difficulty::Bronze, false).creature_flags;
+    assert!(keeps_spring(3, flags(7)));
+    assert!(!keeps_spring(3, flags(6)));
+    assert!(!keeps_spring(1, flags(7)));
+    assert!(keeps_spring(3, SPRING_FLAG | MARKS_FOR_FIRE));
+    assert!(!keeps_spring(3, MARKS_FOR_FIRE));
+}
