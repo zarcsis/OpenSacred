@@ -1482,7 +1482,7 @@ fn slot_of(slot: u16) -> ArtAction {
 /// What a boon art gives its maker ([`Style::Boon`]): the part of its clip at which it gives
 /// it, and each effect with its seconds; and as it starts, the keys whose effects it takes off
 /// (`0x5888F0`) and the effects it gives then.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Boon {
     pub point: f32,
     pub effects: Vec<(Effect, f32)>,

@@ -124,13 +124,36 @@ pub struct HomingFire {
 
 /// A creature's cast in course, until its clip ends: its spell and its variant, its target and
 /// the target's place as the cast was ordered, and whether its clip has begun.
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Casting {
     spell: u16,
     variant: u8,
+    #[serde(with = "crate::names::required")]
     target: Entity,
     point: Vec3,
     begun: bool,
+}
+
+impl bevy::ecs::entity::MapEntities for Casting {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = mapper.get_mapped(self.target);
+    }
+}
+
+/// A creature's cast under way, which a save keeps with its target by its name (#3766), a
+/// target that the load finds not none's ([`Entity::PLACEHOLDER`]), as a target gone in play: the
+/// cast plays on and ends; its clip, the scripts' clip, plays anew at a load
+/// ([`crate::npcs::SavedScriptClip`]).
+impl crate::doings::Saves for Casting {
+    type Saved = Casting;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(self.clone())
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 impl Casting {
@@ -1184,15 +1207,51 @@ const SUMMONS: f32 = 1.5;
 
 /// A creature that a creature's summon made, its caster's while it lives: a magician with one
 /// summons none (`casts::mage_spell`).
-#[derive(Component, Clone, Copy, Debug)]
-pub struct Summoned(pub Entity);
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Summoned(#[serde(with = "crate::names::required")] pub Entity);
+
+impl bevy::ecs::entity::MapEntities for Summoned {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.0 = mapper.get_mapped(self.0);
+    }
+}
+
+/// A summoned creature's summoner, which a save keeps by its name (#3766).
+impl crate::doings::Saves for Summoned {
+    type Saved = Summoned;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(Self(crate::names::found(Some(saved.0))?))
+    }
+}
 
 /// A creature that a creature hired, the goblin mages' ball's ring's (`sdk_HIRE`'s branch of a
 /// creature master, `0x54CF70`): of its master's side, its flags word 1, in its master's list and
 /// so in no follower's ways (no master at `+0x251`, no flag `0x100`), it fights as any creature
 /// of its side; its master dismisses it as it dies ([`dismiss`], #3224).
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Hired;
+
+impl bevy::ecs::entity::MapEntities for Hired {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// A creature hired by its summoner, which a save keeps (#3766).
+impl crate::doings::Saves for Hired {
+    type Saved = Hired;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
+}
 
 /// How far from its home a dismissed creature's home moves to it (`0x54D380`).
 const DISMISSED_HOME: f32 = 600.0;
@@ -1773,8 +1832,27 @@ const FIRE_HAND: [&str; 1] = ["Bip01 R Finger31"];
 /// A medium spider's shot that holds it in its attack (`npcs`' `hold_shots`, #3697): until a world
 /// tick at which its standing clip's loop has less than 0.05 left
 /// (`opensacred_rules::casts::shot_ends`), then the ticks after it that are left.
-#[derive(Component, Debug, Default, PartialEq, Eq)]
+#[derive(
+    Component, Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize,
+)]
 pub(crate) struct ShotHeld(pub(crate) Option<u8>);
+
+impl bevy::ecs::entity::MapEntities for ShotHeld {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// A medium spider's shot that holds it, which a save keeps (#3766).
+impl crate::doings::Saves for ShotHeld {
+    type Saved = ShotHeld;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
+}
 
 /// Ends each cast whose clip has ended (`0x51D150`'s sub-state 4), the creature taking its melee
 /// up again from its start; a spider's shot once it holds it no more ([`ShotHeld`]).

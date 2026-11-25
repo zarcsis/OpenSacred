@@ -4,11 +4,12 @@
 //! (`names`) once the loaded scene is whole (`saves`' resume).
 //!
 //! A module gives and takes the state of its own components through [`Saves`], and [`Doing`]
-//! lists them, a field each, given back in the order of the mind, the body and the action. It
-//! holds so far the mind (`ai::Mind`, #3757) with its wake and its shooing, its walk and its
-//! height aloft (#3758), its action under way, a strike, a shot, the scripts' clip, a juggler's
-//! play, a rearming, the hero's attack and strike (#3759), the effects, whose sources go by their
-//! names, and the knock-downs' marks; the next sub-issues of #3753 add the other actions.
+//! lists them, a field each, given back in the order of the mind, the body and the action
+//! ([`SAVED`] names them): the mind (`ai::Mind`, #3757) with its wake and its shooing, its walk
+//! and its height aloft (#3758), its action under way (a strike, a shot, the scripts' clip, a
+//! juggler's play, a rearming, the hero's attack, a pick-up, a talk, an opening, a ride, an art,
+//! a combo, a creature's cast; #3759–#3766), the effects, whose sources go by their names, and
+//! the knock-downs' marks.
 //!
 //! The commands `doings` and `unsaved` show each named creature's doing and the components of
 //! the game that neither a save keeps nor a load makes again ([`DERIVED`]).
@@ -150,6 +151,21 @@ pub struct Doing {
     trampling: Option<crate::trample::Trampling>,
     phase: Option<crate::script_attacks::Phase>,
     glances: Option<crate::glance::Counts>,
+    /// The creatures' casts and arts (#3766): a cast under way, a shot held, the summoner of a
+    /// summoned one and its hire, an order to make an art, the art in course, a leap, a volley.
+    #[entities]
+    casting: Option<crate::creature_casts::Casting>,
+    shot_held: Option<crate::creature_casts::ShotHeld>,
+    #[entities]
+    summoned: Option<crate::creature_casts::Summoned>,
+    hired: Option<crate::creature_casts::Hired>,
+    #[entities]
+    ordered: Option<crate::creature_arts::Ordered>,
+    #[entities]
+    makes: Option<crate::creature_arts::Makes>,
+    leaps: Option<crate::creature_arts::Leaps>,
+    #[entities]
+    volley: Option<crate::creature_arts::Volley>,
     /// Its effects, their sources by their names.
     #[entities]
     effects: Option<Effects>,
@@ -194,6 +210,14 @@ impl Doing {
             trampling: saved::<crate::trample::Trampling>(world, entity, &at),
             phase: saved::<crate::script_attacks::Phase>(world, entity, &at),
             glances: saved::<crate::glance::Counts>(world, entity, &at),
+            casting: saved::<crate::creature_casts::Casting>(world, entity, &at),
+            shot_held: saved::<crate::creature_casts::ShotHeld>(world, entity, &at),
+            summoned: saved::<crate::creature_casts::Summoned>(world, entity, &at),
+            hired: saved::<crate::creature_casts::Hired>(world, entity, &at),
+            ordered: saved::<crate::creature_arts::Ordered>(world, entity, &at),
+            makes: saved::<crate::creature_arts::Makes>(world, entity, &at),
+            leaps: saved::<crate::creature_arts::Leaps>(world, entity, &at),
+            volley: saved::<crate::creature_arts::Volley>(world, entity, &at),
             combo: world
                 .get::<crate::hero::Body>(entity)
                 .and_then(|_| world.get_resource::<crate::combos::ComboRun>())
@@ -245,6 +269,14 @@ impl Doing {
         put::<crate::trample::Trampling>(&mut creature, self.trampling, &at);
         put::<crate::script_attacks::Phase>(&mut creature, self.phase, &at);
         put::<crate::glance::Counts>(&mut creature, self.glances, &at);
+        put::<crate::creature_casts::Casting>(&mut creature, self.casting, &at);
+        put::<crate::creature_casts::ShotHeld>(&mut creature, self.shot_held, &at);
+        put::<crate::creature_casts::Summoned>(&mut creature, self.summoned, &at);
+        put::<crate::creature_casts::Hired>(&mut creature, self.hired, &at);
+        put::<crate::creature_arts::Ordered>(&mut creature, self.ordered, &at);
+        put::<crate::creature_arts::Makes>(&mut creature, self.makes, &at);
+        put::<crate::creature_arts::Leaps>(&mut creature, self.leaps, &at);
+        put::<crate::creature_arts::Volley>(&mut creature, self.volley, &at);
         let hero = creature.contains::<crate::hero::Body>();
         // The ride itself is the save's world's (#3743): a walk to a horse or a dismount under
         // way goes on, a mount ends at once, seated as a loaded rider is.
@@ -396,6 +428,8 @@ pub const DERIVED: &[&str] = &[
     "opensacred_game::npcs::RisesAgain",
     "opensacred_game::steps::Stepped",
     "opensacred_game::voices::Speaking",
+    "opensacred_game::creature_arts::Bolted",
+    "opensacred_game::creature_casts::DruidThorns",
 ];
 
 /// The components that a creature's [`Doing`] keeps, by their types' paths.
@@ -433,6 +467,14 @@ pub const SAVED: &[&str] = &[
     "opensacred_game::trample::Trampling",
     "opensacred_game::script_attacks::Phase",
     "opensacred_game::glance::Counts",
+    "opensacred_game::creature_casts::Casting",
+    "opensacred_game::creature_casts::ShotHeld",
+    "opensacred_game::creature_casts::Summoned",
+    "opensacred_game::creature_casts::Hired",
+    "opensacred_game::creature_arts::Ordered",
+    "opensacred_game::creature_arts::Makes",
+    "opensacred_game::creature_arts::Leaps",
+    "opensacred_game::creature_arts::Volley",
     "opensacred_game::effects::Effects",
     "opensacred_game::fight::KnockMarks",
 ];
