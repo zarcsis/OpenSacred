@@ -1002,7 +1002,7 @@ impl Stats {
             .any(|read| matches!(read.reads, Reader::Unseen))
     }
 
-    /// The part that six pieces of set 28 add to the time played's per cent of the creatures'
+    /// The part that six pieces of set 28 add to the survival counter's per cent of the creatures'
     /// levels (M12, `0x47D2C3`, `0x48468C`, `0x551126`): the difficulty's factor added to the
     /// whole per cent and truncated, 1 to gold and 2 above; 0 without them.
     pub fn played_part(&self) -> u32 {

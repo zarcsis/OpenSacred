@@ -1383,7 +1383,7 @@ fn show(
         Option<Res<HeroArts>>,
         Res<Pack>,
         Res<LastFoe>,
-        Res<crate::drops::Played>,
+        Res<crate::drops::Survival>,
     ),
     (attributes, learning, portraits, rules, selected): (
         Res<Attributes>,

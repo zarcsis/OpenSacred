@@ -842,23 +842,28 @@ pub(crate) struct Dice(pub(crate) Rng);
 #[derive(Resource, Default)]
 struct LastJewel(drops::LastJewel);
 
-/// The time the game has been played, in seconds, which raises a kill's bonus and the level of a
-/// script's creature (**hypothesis** for the original's counter `+0x570C`).
+/// The survival counter, in seconds: the time the hero has stood in its fight stance since its
+/// last death, which the survival bonus, a kill's bonus, a container's key and the level of a
+/// script's creature read in whole minutes, as the original's statistics' counter `+0x570C`
+/// (docs/re/questbook.md, "The statistics' book"; #3785): it counts while a hostile is in the
+/// fight's reach of the hero ([`survive`]), the hero's fall clears it, a save keeps it. It counts
+/// the world's time whole, where the original adds each frame's milliseconds truncated
+/// (docs/decisions/fight.md, "Survival counter by the world's time").
 #[derive(Resource, Default)]
-pub(crate) struct Played(f32);
+pub(crate) struct Survival(f32);
 
-impl Played {
-    /// The time played of a save (`saves`), in seconds.
+impl Survival {
+    /// The counter of a save (`saves`), in seconds.
     pub(crate) fn of(seconds: f32) -> Self {
         Self(seconds)
     }
 
-    /// The seconds played, as a save keeps them.
+    /// The seconds counted, as a save keeps them.
     pub(crate) fn seconds(&self) -> f32 {
         self.0
     }
 
-    /// The whole minutes played, as the original counts them for a script's creature's level
+    /// The whole minutes counted, as the original reads them for a script's creature's level
     /// (`0x424650`, its seconds over 60, at `0x48463A`).
     pub(crate) fn minutes(&self) -> u32 {
         #[expect(
@@ -870,7 +875,7 @@ impl Played {
         minutes
     }
 
-    /// The time played as the creatures' levels take it, with the part of the sets of the hero
+    /// The counter as the creatures' levels take it, with the part of the sets of the hero
     /// that holds `holding` (`opensacred_rules::fight::Played`, M12).
     pub(crate) fn time(&self, holding: Option<&crate::fight::Holding>) -> crate::fight::Played {
         crate::fight::Played {
@@ -993,11 +998,11 @@ pub(crate) fn contained(
 }
 
 /// The bonus that the hero holding `holding` gives the quality keys of a container's items after
-/// the time `played` (`opensacred_rules::drops::Rules::opener_bonus`, `0x5D57C0`, #2858): of its
-/// whole minutes played and its luck.
+/// the survival counter `played` (`opensacred_rules::drops::Rules::opener_bonus`, `0x5D57C0`,
+/// #2858): of its whole minutes and its luck.
 pub(crate) fn opener_bonus(
     tables: &Tables,
-    played: &Played,
+    played: &Survival,
     (holding, combat): (Option<&fight::Holding>, Option<&fight::Combat>),
 ) -> Option<u32> {
     let (luck, _) = luck_of(holding, combat);
@@ -1126,10 +1131,10 @@ type Killer = (u32, (f32, bool), Option<(f32, [f32; 3])>);
 
 /// Whether a player made the kill that `dies` tells, and the killer's values of its drops, of
 /// `heros` the hero's: the hero's own kill; else the kill of the hero's follower, hired or
-/// summoned, which the original drops for (the hero's list `+0x39C`, `0x4FC900`; seen, #2804) as
-/// no player's (no bonus of the time played or the luck) and of the follower's values, no greed
-/// and no alchemy, the local hero's set 22 still counted (`0x559CA9`); none where another
-/// creature killed it, which drops nothing (`0x533BA8`, #630).
+/// summoned, which the original drops for (the hero's list `+0x39C`, `0x4FC900`; seen, #2804) as no
+/// player's (no bonus of the survival counter or the luck) and of the follower's values, no greed
+/// and no alchemy, the local hero's set 22 still counted (`0x559CA9`); none where another creature
+/// killed it, which drops nothing (`0x533BA8`, #630).
 fn killer(dies: &Dies, heros: Killer) -> Option<(bool, Killer)> {
     if !dies.by_creature {
         Some((true, heros))
@@ -1142,7 +1147,7 @@ fn killer(dies: &Dies, heros: Killer) -> Option<(bool, Killer)> {
 }
 
 /// A creature's death as its drops take it: its type, class, level, worth and rank, the hero,
-/// the time played, its greed's `s` and its luck, on the game's difficulty.
+/// the survival counter, its greed's `s` and its luck, on the game's difficulty.
 fn death(
     entity: Entity,
     mind: &ai::Mind,
@@ -1596,7 +1601,7 @@ fn dies(
     mut dice: ResMut<Dice>,
     mut last: ResMut<LastJewel>,
     (played, difficulty, rules): (
-        Res<Played>,
+        Res<Survival>,
         Option<Res<crate::game::Difficulty>>,
         Option<Res<fight::Rules>>,
     ),
@@ -1850,9 +1855,31 @@ fn out_of_reach(hero: Vec2, item: Vec2, walkable: impl Fn(crate::paths::Cell) ->
         || !crate::paths::straight(hero, item, walkable)
 }
 
-/// Counts the time played.
-fn play(time: Res<Time>, mut played: ResMut<Played>) {
-    played.0 += time.delta_secs();
+/// Counts the survival counter's time while the hero stands in its fight stance: while the last
+/// look found a hostile within the fight's reach, 350, 1,000 with a ranged weapon (the original's
+/// `+0x200` bit `0x8000`, `0x547070`, which `0x424A60` counts; `crowd::Nearest`), on the game's
+/// time, which a pause stands.
+fn survive(
+    time: Res<Time>,
+    nearest: Res<crate::crowd::Nearest>,
+    heroes: Query<Option<&crate::fight::Holding>, (With<crate::hero::Body>, Without<Dies>)>,
+    mut survival: ResMut<Survival>,
+) {
+    let Some(holding) = heroes.iter().next() else {
+        return;
+    };
+    let ranged = holding.is_some_and(|holding| holding.0.ranged);
+    if nearest.found && nearest.distance < opensacred_rules::fight::in_fight_within(ranged) {
+        survival.0 += time.delta_secs();
+    }
+}
+
+/// Clears the survival counter as the hero falls dead (`0x4246D0`, which counts the
+/// resurrection too, at the death of a player's hero, `0x5335F1`).
+fn clear(fallen: Query<(), Added<crate::hero::Fallen>>, mut survival: ResMut<Survival>) {
+    if !fallen.is_empty() {
+        survival.0 = 0.0;
+    }
 }
 
 /// Starts reading the tables.
@@ -1995,7 +2022,7 @@ fn make_nearest(
     tables: Option<Res<Tables>>,
     mut dice: ResMut<Dice>,
     mut last: ResMut<LastJewel>,
-    (played, difficulty): (Res<Played>, Option<Res<crate::game::Difficulty>>),
+    (played, difficulty): (Res<Survival>, Option<Res<crate::game::Difficulty>>),
     experience: Res<fight::Experience>,
     assets: Res<AssetServer>,
     creatures: Query<
@@ -2083,7 +2110,7 @@ impl Plugin for DropsPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(Dice(crate::seed::dice(415)))
             .init_resource::<LastJewel>()
-            .init_resource::<Played>()
+            .init_resource::<Survival>()
             .add_message::<PileFromHit>()
             .add_message::<Jump>()
             .add_observer(dies)
@@ -2095,12 +2122,13 @@ impl Plugin for DropsPlugin {
                     .run_if(in_state(AppState::InGame))
                     .run_if(resource_exists::<Again>),
             )
-            .add_systems(OnEnter(AppState::InGame), |mut played: ResMut<Played>| {
-                played.0 = 0.0
-            })
+            .add_systems(
+                OnEnter(AppState::InGame),
+                |mut survival: ResMut<Survival>| survival.0 = 0.0,
+            )
             .add_systems(
                 Update,
-                (play, jump, fly, piles_from_hits)
+                (survive, clear, jump, fly, piles_from_hits)
                     .chain()
                     .after(Step::Npcs)
                     .in_set(Playing)
@@ -2112,6 +2140,41 @@ impl Plugin for DropsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_survival_counter_counts_the_fight_stance_and_a_fall_clears_it() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        world.insert_resource(Time::<()>::default());
+        world.insert_resource(crate::crowd::Nearest::default());
+        world.insert_resource(Survival::default());
+        let hero = world.spawn(crate::hero::Body::standing()).id();
+        let step = |world: &mut World, seconds: f32| {
+            world
+                .resource_mut::<Time>()
+                .advance_by(std::time::Duration::from_secs_f32(seconds));
+            world.run_system_once(survive).unwrap();
+            world.run_system_once(clear).unwrap();
+        };
+        // No hostile near: nothing counts.
+        step(&mut world, 2.0);
+        assert_eq!(world.resource::<Survival>().seconds(), 0.0);
+        // A hostile within 350: its stance counts; beyond, with a melee weapon, nothing.
+        {
+            let mut nearest = world.resource_mut::<crate::crowd::Nearest>();
+            nearest.found = true;
+            nearest.distance = 300.0;
+        }
+        step(&mut world, 2.0);
+        assert!((world.resource::<Survival>().seconds() - 2.0).abs() < 1e-4);
+        world.resource_mut::<crate::crowd::Nearest>().distance = 500.0;
+        step(&mut world, 2.0);
+        assert!((world.resource::<Survival>().seconds() - 2.0).abs() < 1e-4);
+        // The hero's fall clears it.
+        world.entity_mut(hero).insert(crate::hero::Fallen::now());
+        step(&mut world, 0.5);
+        assert_eq!(world.resource::<Survival>().seconds(), 0.0);
+    }
 
     fn mind(creature: u32, flags: u32) -> ai::Mind {
         ai::Mind::new(

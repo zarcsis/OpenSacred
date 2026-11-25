@@ -6,7 +6,7 @@
 //! the books, or the type it names, or its count of random items (#1412). Each item is made at the
 //! level and of the quality key that the item maker of the contents gives it (`0x5D57C0`, #2858):
 //! the hero's level or a little above, held at most at the container's sector's lowest, and a key
-//! that the time played and the opener's luck raise.
+//! that the survival counter and the opener's luck raise.
 
 use crate::drops::{self, Catalogue, Hero, Kind, Wanted, between};
 use crate::fight;
@@ -72,7 +72,7 @@ pub enum Content {
 /// Who opens the container and what it is: the hero; the level for the gold, the hero's held to
 /// its sector's highest ([`fight::Rules::gold_level`]); the levels of the container's sector, none
 /// for a sector without them, and the rules that raise them by the difficulty
-/// ([`fight::Rules::contained_level`]); the opener's bonus of the time played and the luck
+/// ([`fight::Rules::contained_level`]); the opener's bonus of the survival counter and the luck
 /// ([`drops::Rules::opener_bonus`]); the drops' rules; whether the container raises a creature,
 /// whether an icon lies in the world, and the count of the class's runes given
 /// (`drops::Rules::rune_range`).

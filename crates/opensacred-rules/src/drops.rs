@@ -273,8 +273,9 @@ pub struct Hero {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Kill {
     pub by_player: bool,
-    /// The time played, in minutes (**hypothesis**: the statistics' counter `+0x570C` over 1,000
-    /// and over 60).
+    /// The survival counter, in minutes: the statistics' counter `+0x570C` over 1,000 and over 60,
+    /// the time the hero has stood in its fight stance since its last death (docs/re/questbook.md,
+    /// "The statistics' book").
     pub minutes: f32,
     /// The killer's luck `ℓ`, 100 plus the value of its effect 840 (`0x564A60`).
     pub luck: f32,
@@ -290,7 +291,7 @@ pub struct Kill {
 }
 
 impl Default for Kill {
-    /// The hero's kill, at no time played and the luck of no effect.
+    /// The hero's kill, at a survival counter of 0 and the luck of no effect.
     fn default() -> Self {
         Self {
             by_player: true,
@@ -352,9 +353,9 @@ pub struct Calls {
 
 /// The balance's values of the drops: the calls' count (`WurfAnzahl`); a champion's and a boss's
 /// bonus and calls more (`ITBonusChamp`, `ITThrowCountBonusChamp`, `ITBonusBoss`,
-/// `ITThrowCountBonusBoss`); the time played's factor (`LongivityFactor`); the chance per mille
-/// (`WurfWarsch`) and its factor for a boss or a champion (`WurfBoss`); the factor of the bonus by
-/// the creature's worth (`DropQuality`); the share of the weighing in the keys' weights
+/// `ITThrowCountBonusBoss`); the survival counter's factor (`LongivityFactor`); the chance per
+/// mille (`WurfWarsch`) and its factor for a boss or a champion (`WurfBoss`); the factor of the
+/// bonus by the creature's worth (`DropQuality`); the share of the weighing in the keys' weights
 /// (`ItemThrowFactor`); the levels' values of the weighing (`UnterExpAnteil`, `UnterExpVoll`,
 /// `ObereEXPVoll`); the kinds' chances per mille (`DropSaft`, `DropGold`, `DropWaffe`,
 /// `DropRuestung`); gold's two values (`GoldProLevel`, `GoldProLevel[1]`); the quality keys'
@@ -703,7 +704,7 @@ impl Rules {
     /// `WurfAnzahl` and `B` 0; a champion has `B = ITBonusChamp` and, unless too weak,
     /// `R(1, ITThrowCountBonusChamp)` calls more; a boss adds `ITBonusBoss` and, unless too weak,
     /// `R(1, ITThrowCountBonusBoss)`; for a player's kill `B` takes `LongivityFactor·v(t)` of the
-    /// time played `t`, `v(t) = 100·(1 − 1/(1 + (t − 1)/120))` from a minute on, and then
+    /// survival counter `t`, `v(t) = 100·(1 − 1/(1 + (t − 1)/120))` from a minute on, and then
     /// `√(100·(ℓ − 100))` of the killer's luck, whole after each.
     pub fn calls(&self, death: &Death, dice: &mut impl Dice) -> Calls {
         let e = self.bronze(death.dead.level, death.difficulty);
@@ -832,10 +833,10 @@ impl Rules {
     }
 
     /// The bonus that the opener of a container gives the quality keys of its items (`0x5D57C0`,
-    /// docs/re/containers.md, "The contents"): `⌊LongivityFactor·v(t) + ⌊√(100·(ℓ − 100))⌋⌋` of
-    /// the whole minutes played `t`, `v` the survival bonus's curve ([`fight::survival`]), and of
-    /// the opener's luck `ℓ` (`0x564A60`), whole; none for a luck below 100, whose root is no
-    /// number.
+    /// docs/re/containers.md, "The contents"): `⌊LongivityFactor·v(t) + ⌊√(100·(ℓ − 100))⌋⌋` of the
+    /// survival counter's whole minutes `t`, `v` the survival bonus's curve ([`fight::survival`]),
+    /// and of the opener's luck `ℓ` (`0x564A60`), whole; none for a luck below 100, whose root is
+    /// no number.
     pub fn opener_bonus(&self, minutes: u32, luck: f32) -> Option<u32> {
         let above = i64::from(whole(luck)) - 100;
         if above < 0 {
@@ -847,10 +848,10 @@ impl Rules {
     }
 
     /// The item maker's key of a container's item (`0x5D57C0`): a key `k` drawn on the quality
-    /// keys' weights as a drop's pass draws it with no bonus ([`Rules::key`]), of the factor of
-    /// the share `B` ([`Rules::spread`]), `B` the opener's bonus ([`Rules::opener_bonus`]); the
-    /// maker's key `16 − k` for `k` of 2 to 15, at most [`CONTAINED_KEY`], else 0; 0 for an opener
-    /// of no bonus, whose factor no sum passes. So the time played and the luck raise it: with no
+    /// keys' weights as a drop's pass draws it with no bonus ([`Rules::key`]), of the factor of the
+    /// share `B` ([`Rules::spread`]), `B` the opener's bonus ([`Rules::opener_bonus`]); the maker's
+    /// key `16 − k` for `k` of 2 to 15, at most [`CONTAINED_KEY`], else 0; 0 for an opener of no
+    /// bonus, whose factor no sum passes. So the survival counter and the luck raise it: with no
     /// bonus the factor is 1.5 and most draws pass no key at all.
     pub fn contained_key(&self, bonus: Option<u32>, dice: &mut impl Dice) -> u8 {
         let Some(bonus) = bonus else {

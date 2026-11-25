@@ -347,13 +347,13 @@ type Making<'w> = (
 );
 
 /// What a container's fill takes of its opener: its experience, its pack, its arts, the class's
-/// runes given and the time played.
+/// runes given and the survival counter.
 type Opener<'w> = (
     Res<'w, crate::fight::Experience>,
     Res<'w, crate::pickup::Pack>,
     Option<Res<'w, crate::arts::HeroArts>>,
     ResMut<'w, crate::rewards::RunesGiven>,
-    Option<Res<'w, crate::drops::Played>>,
+    Option<Res<'w, crate::drops::Survival>>,
 );
 
 /// The containers, the difficulty, the ground and the creatures standing on it, about which a
@@ -440,7 +440,7 @@ fn fill(
         tables,
         played
             .as_deref()
-            .unwrap_or(&crate::drops::Played::default()),
+            .unwrap_or(&crate::drops::Survival::default()),
         (holding, combat),
     );
     let mut opening = Opening {
