@@ -824,6 +824,14 @@ fn restore(world: &mut bevy::prelude::World) {
     if lost > 0 {
         info!("saves: {lost} of the hero's effects' sources are not in the world");
     }
+    bevy::log::debug!(
+        "saves: the hero's effects' sources {:?}",
+        effects
+            .timed()
+            .iter()
+            .filter_map(|timed| timed.source)
+            .collect::<Vec<_>>()
+    );
     if let Ok(mut entity) = world.get_entity_mut(entity) {
         entity.insert((effects, crate::attack::ShotChain(hero.chain)));
         if hero.marks == 0 {
