@@ -169,6 +169,16 @@ pub fn slot(action: Action, class: u8, has: impl Fn(u16) -> bool) -> (u16, Actio
 #[derive(Clone, Debug, Default)]
 pub struct Slots(HashMap<u16, String>);
 
+/// An NPC's attack's clips for the class of what it holds ([`Slots::attacks`]): its class's own,
+/// at their own hit fractions, or the clip of the stand-in that its model has in their place,
+/// which `MOTIONS.PAK`'s record 0 times (`stand_in`; `0x4135D0`, docs/re/motions.md, "Where the
+/// model lacks the slot").
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Attacks {
+    pub clips: Vec<String>,
+    pub stand_in: bool,
+}
+
 impl Slots {
     /// Slots of the given clips, for the tests.
     #[cfg(test)]
@@ -254,25 +264,55 @@ impl Slots {
         slots.iter().find_map(|&slot| self.slot(slot))
     }
 
-    /// The attack's clips for `class`, the slots 79 + 5 · class to 4 more where the model has them
-    /// (`0x5467A0`, the action 4; class 13's its own 241 alone, #2820, class 14 taking 12's;
-    /// docs/re/motions.md); where it has none of them, the bare hands' of class 0
-    /// (docs/decisions/fight.md, "A creature's strike of a class
-    /// its model has no clip of"): the original names an NPC's slot of its class whether its
-    /// model has it or not, and a grave's skeleton warrior holding a dagger, whose model has the
-    /// bare hands' alone, never struck here (#2708).
-    pub fn attacks(&self, class: u8) -> Vec<String> {
+    /// The attack's own clips for `class`, the slots 79 + 5 · class to 4 more where the model has
+    /// them (`0x5467A0`, the action 4; class 13's its own 241 alone, #2820, class 14 taking 12's;
+    /// docs/re/motions.md).
+    fn own_attacks(&self, class: u8) -> Vec<String> {
         let of = |first: u16, count: u16| {
             (first..first + count)
                 .filter_map(|slot| self.slot(slot).map(str::to_owned))
                 .collect::<Vec<_>>()
         };
-        let own = match class {
+        match class {
             13 => of(Self::attack_slot(13), 1),
             _ => of(Self::attack_slot(class), 5),
-        };
+        }
+    }
+
+    /// An NPC's attack's clips for `class` ([`Attacks`]): its class's own, whose slot the
+    /// original names whether its model has it or not (`0x5467A0`'s action 4 for an NPC); where
+    /// the model has none of them, the clip of the first of the slots 89, 84 and 79 that it has,
+    /// which the models' clip getter gives in the slot's place (`0x4118B0`,
+    /// `opensacred_rules::minds::stand_ins`; docs/re/motions.md, "Where the model lacks the
+    /// slot", #3314), none where it has none of them either: a grave's skeleton warrior holding
+    /// a dagger swings its slot 84's clip.
+    pub fn attacks(&self, class: u8) -> Attacks {
+        let clips = self.own_attacks(class);
+        if !clips.is_empty() {
+            return Attacks {
+                clips,
+                stand_in: false,
+            };
+        }
+        let clips = opensacred_rules::minds::stand_ins(Self::attack_slot(class))
+            .iter()
+            .find_map(|&slot| self.slot(slot))
+            .map(|name| vec![name.to_owned()])
+            .unwrap_or_default();
+        Attacks {
+            clips,
+            stand_in: true,
+        }
+    }
+
+    /// The hero's attack's clips for `class`: its class's own, else the bare hands' of class 0,
+    /// as its standing and moving fall back to them (the hero's case of `0x5467A0`'s action 4,
+    /// the creature's `+0x200` bit `0x40`, is not read; the heroes' models hold the attacks of
+    /// the classes their weapons take).
+    pub fn hero_attacks(&self, class: u8) -> Vec<String> {
+        let own = self.own_attacks(class);
         if own.is_empty() {
-            of(Self::attack_slot(0), 5)
+            self.own_attacks(0)
         } else {
             own
         }
@@ -445,21 +485,48 @@ mod tests {
         assert_eq!(Slots::default().riding_attack(0), None);
     }
 
-    /// A grave's skeleton warrior holds a dagger of class 5, and its model has the bare hands'
-    /// strike alone (#2708).
+    /// A grave's skeleton warrior holds a dagger of class 5, and its model `SKEL_WARRIOR` fills
+    /// the slots 79, 84, 85, 99 and 114 of the attacks (#2708, #3314).
     #[test]
-    fn a_class_without_strikes_of_its_own_strikes_with_the_bare_hands() {
-        let skeleton = Slots::of([(79, "BH_A"), (80, "BH_B"), (104, "SWORD_A")]);
-        assert_eq!(skeleton.attacks(0), ["BH_A", "BH_B"]);
-        assert_eq!(skeleton.attacks(5), ["SWORD_A"]);
-        assert_eq!(skeleton.attacks(1), ["BH_A", "BH_B"]);
-        assert!(Slots::default().attacks(5).is_empty());
-        // Class 13's attack is its own 241 alone, not class 12's; 14 takes 12's.
+    fn a_class_without_strikes_of_its_own_strikes_with_the_first_stand_in() {
+        let own = |clips: &[&str]| Attacks {
+            clips: clips.iter().map(|&clip| clip.to_owned()).collect(),
+            stand_in: false,
+        };
+        let stand_in = |clips: &[&str]| Attacks {
+            clips: clips.iter().map(|&clip| clip.to_owned()).collect(),
+            stand_in: true,
+        };
+        let skeleton = Slots::of([
+            (79, "BH_A"),
+            (84, "1H_A"),
+            (85, "1H_B"),
+            (99, "STAB_A"),
+            (114, "BOW_A"),
+        ]);
+        assert_eq!(skeleton.attacks(0), own(&["BH_A"]));
+        assert_eq!(skeleton.attacks(1), own(&["1H_A", "1H_B"]));
+        // The dagger's 104 lacking: the slot 84's, as the getter gives it, not 89, not 79.
+        assert_eq!(skeleton.attacks(5), stand_in(&["1H_A"]));
+        // 89 before 84 and 79; 79 last.
+        let both = Slots::of([(79, "BH_A"), (84, "1H_A"), (89, "2H_A")]);
+        assert_eq!(both.attacks(5), stand_in(&["2H_A"]));
+        assert_eq!(Slots::of([(79, "BH_A")]).attacks(5), stand_in(&["BH_A"]));
+        assert_eq!(Slots::default().attacks(5), stand_in(&[]));
+        // Class 13's attack is its own 241 alone, not class 12's, with no stand-in; 14 takes 12's.
         let gunner = Slots::of([(79, "BH_A"), (139, "XBOW_A"), (140, "XBOW_B"), (241, "GUN")]);
-        assert_eq!(gunner.attacks(13), ["GUN"]);
-        assert_eq!(gunner.attacks(12), ["XBOW_A", "XBOW_B"]);
-        assert_eq!(gunner.attacks(14), ["XBOW_A", "XBOW_B"]);
-        assert_eq!(Slots::of([(79, "BH_A")]).attacks(13), ["BH_A"]);
+        assert_eq!(gunner.attacks(13), own(&["GUN"]));
+        assert_eq!(gunner.attacks(12), own(&["XBOW_A", "XBOW_B"]));
+        assert_eq!(gunner.attacks(14), own(&["XBOW_A", "XBOW_B"]));
+        assert_eq!(Slots::of([(79, "BH_A")]).attacks(13), stand_in(&[]));
+    }
+
+    #[test]
+    fn the_heros_class_without_strikes_of_its_own_strikes_with_the_bare_hands() {
+        let hero = Slots::of([(79, "BH_A"), (80, "BH_B"), (84, "1H_A")]);
+        assert_eq!(hero.hero_attacks(1), ["1H_A"]);
+        assert_eq!(hero.hero_attacks(5), ["BH_A", "BH_B"]);
+        assert!(Slots::default().hero_attacks(5).is_empty());
     }
 
     #[test]

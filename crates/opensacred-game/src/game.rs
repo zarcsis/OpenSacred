@@ -908,7 +908,7 @@ pub fn clips_of(
             .map(str::to_owned)
     });
     let attacks = slots
-        .map(|slots| slots.attacks(class))
+        .map(|slots| slots.hero_attacks(class))
         .unwrap_or_default()
         .into_iter()
         .map(with_fractions)
