@@ -112,6 +112,7 @@ fn explode(
                     hurled: false,
                     object: false,
                     mount: false,
+                    marks: false,
                 });
             }
         }

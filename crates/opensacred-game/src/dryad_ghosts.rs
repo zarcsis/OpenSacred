@@ -294,6 +294,7 @@ fn fly(
                 hurled: false,
                 object: true,
                 mount: false,
+                marks: false,
             });
         }
         ghost.cooldown = DRYAD_GHOST_BEAT;

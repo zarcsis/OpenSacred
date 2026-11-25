@@ -13745,6 +13745,7 @@ fn strike(
                     hurled: false,
                     object: false,
                     mount: false,
+                    marks: false,
                     attacker: entity,
                     target: strikes.target,
                     share: npc.hits.share,

@@ -65,6 +65,12 @@ pub struct Hit {
     /// horse and its rider each take (docs/re/fight.md, "The mount's and the rider's share",
     /// #3586).
     pub mount: bool,
+    /// Whether its record's kind (`+0x14`) is not 0 (docs/re/fight.md, "The strikes' kinds"): a
+    /// combat art's strike of an executor's, a bow art's arrow at its hit, a thrown item's, a
+    /// blow of a creature that the Dwarf's 1083 throws, the Daemon's blast 1168, the horse's
+    /// strike at a big creature and set 58's kill, but the Vampiress's 1032 at its landing; a
+    /// death by it marks the struck one (`0x532AF5`, [`KnockMarks::SECOND`]).
+    pub marks: bool,
 }
 
 /// A strike from nobody, an attacker's id of 0: a fire smoke's or a bursting geyser's (`fx`,
@@ -228,10 +234,49 @@ pub struct Pushed {
     pub left: f32,
 }
 
-/// How many times a hero was knocked down since its marks were cleared (the stats' `+0x2B7`
-/// bits `0x80` and `0x100`), which its whole health in a settlement clears (`0x54808A`).
+/// A creature's marks of the stats' `+0x2B7` bits `0x80` and `0x100` ([`Self::FIRST`],
+/// [`Self::SECOND`]): a player's hero's first and second knock-downs, after which it falls no more
+/// (`0x56E366`–`0x56E8CC`), cleared where its health is whole in a settlement (`0x54808A`); the
+/// second, the bit 1 of `+0x2B8`, a death by a strike whose record's kind is not 0 sets too, on
+/// any creature ([`Hit::marks`], `0x532AF5`), so that its dying roll of the blood fountain takes
+/// 30 rather than 10 (`0x53F38F`; docs/re/effects.md, "The bit 1 of `+0x2B8`").
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct KnockMarks(pub u8);
+
+impl KnockMarks {
+    /// The first knock-down's mark, the bit `0x80`.
+    pub const FIRST: u8 = 1;
+    /// The second knock-down's mark, the bit `0x100`, a marked death's too.
+    pub const SECOND: u8 = 2;
+
+    /// How many of the two it holds: a third knock-down falls no more
+    /// (`opensacred_rules::fight::knocks_down`).
+    pub fn count(self) -> u8 {
+        u8::from(self.0 & Self::FIRST != 0) + u8::from(self.0 & Self::SECOND != 0)
+    }
+
+    /// The marks after a knock-down: the first where it is not held, else the second.
+    #[must_use]
+    pub fn knocked(self) -> Self {
+        if self.0 & Self::FIRST == 0 {
+            Self(self.0 | Self::FIRST)
+        } else {
+            Self(self.0 | Self::SECOND)
+        }
+    }
+
+    /// The marks with the second, a marked death's.
+    #[must_use]
+    pub fn marked(self) -> Self {
+        Self(self.0 | Self::SECOND)
+    }
+
+    /// Whether it holds the second, the bit 1 of `+0x2B8`, which the blood fountain's roll at a
+    /// death reads.
+    pub fn second(self) -> bool {
+        self.0 & Self::SECOND != 0
+    }
+}
 
 /// A creature that takes no damage, for a test (the commands `spawn --immortal` and `god`,
 /// #521): a hit lands and shows its damage, but the health stays.
@@ -947,20 +992,20 @@ pub(crate) fn resolve(
         // above it, for at least its health, twice at most until its marks are cleared, falls
         // (`knock_down`), thrown off its horse first, keeping a ninth of its health.
         let damage = if hero_hit && !immortal {
-            let marks = knock_marks.map_or(0, |marks| marks.0);
+            let marks = knock_marks.copied().unwrap_or_default();
             if downed.is_some() {
                 0
             } else if opensacred_rules::fight::knocks_down(
                 (level, health.level),
                 dice.0.below(2),
                 (damage, health.current),
-                marks,
+                marks.count(),
             ) {
                 info!(
                     "fight: {} knocks {} down, its {} marks",
                     hit.attacker,
                     hit.target,
-                    marks + 1
+                    marks.count() + 1
                 );
                 commands.entity(hit.target).insert((
                     Downed {
@@ -968,7 +1013,7 @@ pub(crate) fn resolve(
                         from: from.translation(),
                         thrown: 0.0,
                     },
-                    KnockMarks(marks + 1),
+                    marks.knocked(),
                 ));
                 // Its butterflies, white for 6 s (the object 874, `0x56E7D2`; #3023).
                 crate::knockouts::knocked_down(&mut commands, hit.target);
@@ -1216,6 +1261,12 @@ pub(crate) fn resolve(
             DespawnOnExit(AppState::InGame),
         ));
         if health.current == 0 {
+            // A death by a strike whose record's kind is not 0 marks the struck one, a hero or
+            // not, before its dying roll of the blood fountain (`0x532AEE`–`0x532AF5`).
+            if hit.marks {
+                let marks = knock_marks.copied().unwrap_or_default().marked();
+                commands.entity(hit.target).insert(marks);
+            }
             let by_creature = !hero && !hero_hit;
             // The killer's master where it is the hero's follower, hired or summoned (the hero's
             // list `+0x39C`, `0x4FC900`), whose kill drops (#2804) and makes the statistics'
@@ -2472,6 +2523,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn the_knock_marks_are_two_bits_the_second_a_marked_deaths_too() {
+        let none = KnockMarks::default();
+        assert_eq!((none.count(), none.second()), (0, false));
+        // The first knock-down sets the first, the second the second: a third falls no more.
+        let once = none.knocked();
+        assert_eq!((once.count(), once.second()), (1, false));
+        let twice = once.knocked();
+        assert_eq!((twice.count(), twice.second()), (2, true));
+        // A marked death sets the second alone, which a later knock-down's first completes.
+        let marked = none.marked();
+        assert_eq!((marked.count(), marked.second()), (1, true));
+        assert_eq!(marked.knocked(), twice);
+        assert_eq!(once.marked(), twice);
+    }
+
+    #[test]
     fn a_hero_rising_a_level_keeps_its_effects_part_of_its_values() {
         let mut world = World::new();
         world.init_resource::<Messages<crate::sfx::Play>>();
@@ -2643,6 +2710,7 @@ mod tests {
                     hurled: false,
                     object: false,
                     mount: false,
+                    marks: false,
                 });
             }
         }
@@ -2710,6 +2778,7 @@ mod tests {
                 hurled: false,
                 object,
                 mount: false,
+                marks: false,
             });
             app.update();
             let world = app.world();
@@ -2797,6 +2866,7 @@ mod tests {
             hurled: false,
             object: false,
             mount: false,
+            marks: false,
         });
         app.update();
         let current = |entity| app.world().get::<Health>(entity).unwrap().current;
@@ -2862,6 +2932,7 @@ mod tests {
             hurled,
             object: false,
             mount: false,
+            marks: false,
         });
         app.update();
         1_000 - app.world().get::<Health>(target).unwrap().current
@@ -2953,11 +3024,98 @@ mod tests {
             hurled: false,
             object: false,
             mount: false,
+            marks: false,
         });
         app.update();
         assert_eq!(app.world().get::<Health>(victim).unwrap().current, 0);
         assert!(app.world().resource::<Experience>().points > before);
         assert!(app.world().resource::<Messages<Kill>>().is_empty());
+    }
+
+    #[test]
+    fn a_death_by_a_strike_of_a_kind_marks_the_struck_one() {
+        let combat = Combat(opensacred_rules::fight::Combat {
+            attack: 200.0,
+            defence: 10.0,
+            damage: [[0.0; 2]; 4],
+            resistance: [0.0; 4],
+            damping: [0; 4],
+            speed: 140.0,
+            pace: 130.0,
+            multipliers: [1.0; 4],
+            resistance_factors: [1.0; 4],
+            spells: [1.0; 4],
+            cast: opensacred_rules::fight::CAST_SPEED,
+            attributes: [0.0; 6],
+            attack_factor: 1.0,
+            defence_factor: 1.0,
+        });
+        let mut app = App::new();
+        app.add_plugins(MinimalPlugins)
+            .add_message::<Hit>()
+            .add_message::<Kill>()
+            .add_message::<Struck>()
+            .add_message::<crate::voices::Speak>()
+            .add_message::<crate::sfx::Blow>()
+            .add_message::<crate::remarks::Remark>()
+            .add_message::<crate::drops::PileFromHit>()
+            .add_message::<crate::sfx::Play>()
+            .insert_resource(Dice(Rng::of(0, 0, 0)))
+            .init_resource::<Experience>()
+            .init_resource::<Rules>()
+            .add_systems(Update, resolve);
+        let world = app.world_mut();
+        let health = |current| Health {
+            current,
+            most: 1_000,
+            level: 5,
+        };
+        let hero = world
+            .spawn((
+                combat,
+                health(500),
+                Body::standing(),
+                GlobalTransform::default(),
+            ))
+            .id();
+        // Two victims, one of them knocked down once before: the fixed strike kills both.
+        let plain = world
+            .spawn((combat, health(10), GlobalTransform::default()))
+            .id();
+        let marked = world
+            .spawn((
+                combat,
+                health(10),
+                KnockMarks::default().knocked(),
+                GlobalTransform::default(),
+            ))
+            .id();
+        for (target, marks) in [(plain, false), (marked, true)] {
+            world.write_message(Hit {
+                attacker: hero,
+                target,
+                share: 1.0,
+                ranged: false,
+                art: None,
+                fixed: Some([100.0, 0.0, 0.0, 0.0]),
+                sure: true,
+                poison: false,
+                ward: false,
+                hurled: false,
+                object: false,
+                mount: false,
+                marks,
+            });
+        }
+        app.update();
+        let world = app.world();
+        assert_eq!(world.get::<Health>(plain).unwrap().current, 0);
+        assert!(world.get::<KnockMarks>(plain).is_none());
+        // Its first knock-down's mark kept, the second added.
+        assert_eq!(
+            world.get::<KnockMarks>(marked),
+            Some(&KnockMarks(KnockMarks::FIRST | KnockMarks::SECOND))
+        );
     }
 
     #[test]
@@ -3038,6 +3196,7 @@ mod tests {
                 hurled: false,
                 object: false,
                 mount,
+                marks: false,
             });
             app.update();
             assert_eq!(app.world().get::<Health>(victim).unwrap().current, 0);
@@ -3115,6 +3274,7 @@ mod tests {
             hurled: false,
             object: false,
             mount: false,
+            marks: false,
         });
         app.update();
         1_000 - app.world().get::<Health>(target).unwrap().current
@@ -3211,6 +3371,7 @@ mod tests {
             hurled: false,
             object: false,
             mount: false,
+            marks: false,
         });
         app.update();
         1_000 - app.world().get::<Health>(goblin).unwrap().current
@@ -3348,6 +3509,7 @@ mod tests {
                 hurled: false,
                 object: false,
                 mount: false,
+                marks: false,
             });
         }
         app.update();

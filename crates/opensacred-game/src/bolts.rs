@@ -698,6 +698,7 @@ fn fly(
                         hurled: false,
                         object: true,
                         mount: false,
+                        marks: false,
                     });
                 }
             }
@@ -838,6 +839,7 @@ fn fly(
                 hurled: false,
                 object: true,
                 mount: false,
+                marks: false,
             });
         }
         match course.strikes {
