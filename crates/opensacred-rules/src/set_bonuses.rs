@@ -700,10 +700,9 @@ pub enum Reader {
     /// The wearer's steps leave small fires (M8, the creature's `+0x1FC` bit 1, `0x63918C`;
     /// [`Stats::fiery_steps`]), which no text of the original's list tells.
     FierySteps,
-    /// A flyer that swoops at the wearer is grounded after its pass's strike in `⌊c·D⌋` rolls of
-    /// `R(0, 100)`, where the wearer's items give no effect 855 (M16, `0x4E263D`; docs/re/sets.md),
-    /// which in a game of one player no foe of the hero does, so that the game follows it not and
-    /// tells no line of it (#3596, #3597).
+    /// A flyer that swoops at the wearer is set down after its pass's strike in `⌊c·D⌋` rolls of
+    /// `R(0, 100)`, where the wearer's items give no effect 855 (M16, `0x4E263D`; docs/re/sets.md;
+    /// [`Stats::terror_faces`], `crate::minds::pass_terror`, #3597).
     Terror(f32),
     /// The killer's effect 863, the exorcism, grows by `c·D` at an undead's death (M20,
     /// `0x532D77`, `0x532D9F`; `undead::exorcised`): set 61's flag `0x2000000` first, then set 54.
@@ -1042,6 +1041,18 @@ impl Stats {
         [reached(10.0), reached(6.0)]
     }
 
+    /// The faces of `R(0, 100)` below which a swooping flyer's pass at the wearer sets it down,
+    /// `⌊c·D⌋` ([`Reader::Terror`], M16), none without set 41's four pieces.
+    pub fn terror_faces(&self) -> u32 {
+        self.worn
+            .reads()
+            .map(|read| match read.reads {
+                Reader::Terror(c) => crate::fight::whole_part(c * self.factor),
+                _ => 0,
+            })
+            .sum()
+    }
+
     /// The effect 856's value `value` of the wearer's items, grown by its sets
     /// ([`Reader::GoldPile`]).
     pub fn gold_pile(&self, value: f32) -> f32 {
@@ -1243,6 +1254,9 @@ pub enum Told {
     /// The chance, a share of 1, that a strike wounds the struck one ([`Reader::OpenWounds`]):
     /// `(⌊c·D⌋ + 1)/101`.
     OpenWounds(f32),
+    /// The chance, a share of 1, that a swooping flyer's pass at the wearer sets it down
+    /// ([`Reader::Terror`]): `⌊c·D⌋/101`.
+    Terror(f32),
     /// The effect 863's value more, `c·D` ([`Reader::Exorcist`]).
     Exorcist(f32),
     /// The stun's value more, the set's own term times `D` ([`Stats::stun`]); one set's term
@@ -1321,9 +1335,10 @@ pub fn told(set: u8, worn: &Worn, difficulty: Difficulty, night: bool) -> Vec<To
                 Reader::Painkiller(c) => Told::Painkiller(c * d),
                 Reader::Exorcist(c) => Told::Exorcist(c * d),
                 Reader::Unseen => Told::Unseen,
-                // A swooping flyer's terror, which no foe of a single player's hero makes
-                // (#3596).
-                Reader::Terror(_) => return None,
+                Reader::Terror(c) => Told::Terror(
+                    crate::fight::to_f32(crate::fight::whole_part(c * d))
+                        / crate::fight::to_f32(crate::fight::CRITICAL_FACES),
+                ),
                 Reader::OpenWounds(c) => Told::OpenWounds(crate::fight::wound_chance(c, d)),
                 // No text of the game tells the small fires (#1808).
                 Reader::FierySteps => return None,

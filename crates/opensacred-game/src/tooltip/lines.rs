@@ -300,8 +300,7 @@ fn details(item: &Item, hero: &Hero, words: &Words) -> Vec<Line> {
         }
     }
     // The bonuses listed, each taken where a line before claims it; but the open wounds (857),
-    // which the code reads on the struck creature's own items, the trap of the flyers (855),
-    // which only a swooping flyer's target reads (#3596), and the alchemy (868) where
+    // which the code reads on the struck creature's own items, and the alchemy (868) where
     // neither this item nor what the hero wears marks it for the getter, whose lines would tell
     // what never happens (#1759; docs/decisions/interface.md, "Bonus lines of what the code
     // applies").
@@ -315,7 +314,7 @@ fn details(item: &Item, hero: &Hero, words: &Words) -> Vec<Line> {
         .iter()
         .copied()
         .filter(|bonus| match bonus.effect & 0xFFFF {
-            0 | 857 | opensacred_rules::fight::CAGING => false,
+            0 | 857 => false,
             868 => marked,
             _ => true,
         })
@@ -741,6 +740,16 @@ fn bonus_line(bonus: &Bonus, leech: f32, words: &Words) -> Option<Line> {
             };
             format!("{}: {shown}%", words.of("1125"))
         }
+        // The trap of the flyers: the chance that a swooping flyer's pass at the bearer cages it,
+        // of the faces of the roll's 101 below the value, where the original's line shows the value
+        // as a per cent (#3597).
+        opensacred_rules::fight::CAGING => format!(
+            "{}: {}",
+            words.of("1150"),
+            super::set::share(opensacred_rules::fight::caging_chance(f32::from(
+                bonus.value
+            )))
+        ),
         _ => {
             if let Some((_, text)) = PLUS.iter().find(|&&(effect, _)| effect == e) {
                 format!("{}: {v:+}", words.of(text))
@@ -967,8 +976,9 @@ mod tests {
         };
         // The open wounds, read on the struck creature's own items, show no line (#1759).
         assert!(shown(&ring(&[(857, 10)]), &hero(&[])).is_empty());
-        // The trap of the flyers, read only on a swooping flyer's target, none (#3596).
-        assert!(shown(&ring(&[(855, 20)]), &hero(&[])).is_empty());
+        // The trap of the flyers, the chance of 20 faces of 101 that a swooping flyer's pass is
+        // caged (#3597).
+        assert_eq!(shown(&ring(&[(855, 20)]), &hero(&[])), ["<1150>: +19.8%"]);
         // The alchemy alone, unmarked, none; beside a marked effect, or on a marked hero, its own.
         assert!(shown(&ring(&[(868, 5)]), &hero(&[])).is_empty());
         assert_eq!(

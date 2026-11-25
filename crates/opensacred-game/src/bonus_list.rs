@@ -238,6 +238,13 @@ fn line(listed: &Listed, words: &Words, chances: &[EffectChance]) -> Option<Stri
         866 => per_cent_of(1134),
         867 => per_cent_of(1135),
         868 => odds(words.of("UI_RARE_ALCHEMIE"), fight::ALCHEMY_FACES),
+        // The trap of the flyers: the chance that a swooping flyer's pass at the hero cages it, of
+        // the faces of the roll's 101 below the value (#3597).
+        fight::CAGING => format!(
+            "{}: {v:+} ({})",
+            words.n(1150),
+            per_cent(f64::from(fight::caging_chance(listed.value)) * 100.0)
+        ),
         fight::TERROR => {
             let (base, most) = (words.terror)(listed.value);
             printf(
@@ -368,6 +375,7 @@ mod tests {
                 "<colorl=FFD8AB30>[UI_RARE_SCHOCK]: +10 (+5%)",
                 "<colorl=FFD8AB30>[1132]: +10 (+9.9%)",
                 "<colorl=FF449BEA>[art 1071]: +1",
+                "<colorl=FFD8AB30>[1150]: +20 (+19.8%)",
                 "<colorl=FFFFFFA0>[1161] [1188] [1078] [1076]: +15%",
                 "<colorl=FFD8AB30>[SCHRECKEN_NEU]",
             ]

@@ -2367,7 +2367,7 @@ fn object_sound(spell: u16) -> Option<(u32, bool)> {
 }
 
 /// A whole number of seconds as a float.
-fn fight_seconds(seconds: u32) -> f32 {
+pub(crate) fn fight_seconds(seconds: u32) -> f32 {
     u16::try_from(seconds).map_or(f32::MAX, f32::from)
 }
 

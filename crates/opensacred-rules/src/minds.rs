@@ -660,6 +660,37 @@ pub enum Swoop {
     Turn,
 }
 
+/// What a swooping flyer's pass does to it after its strike ([`pass_terror`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PassTerror {
+    /// It flies on.
+    Flies,
+    /// It is set down ([`Mind::set_down`]).
+    SetDown,
+    /// It is set down, and [`PASS_CAGES`] plant cages hold it.
+    Caged,
+}
+
+/// How many plant cages a swooping flyer's pass's terror makes about it (`0x4E26F1`).
+pub const PASS_CAGES: u32 = 10;
+
+/// The terror of a swooping flyer's pass on its target, after its strike (`0x4E25E0`–`0x4E28A4`;
+/// docs/re/ai.md, "The flyers", #3597): the target's items giving the effect 855 of the value
+/// `caging` (`0x4E2616`) and its set 41 the faces `faces` of 101 (M16, `⌊20·D⌋`,
+/// `set_bonuses::Stats::terror_faces`), by two rolls of `R(0, 100)`: the flyer is set down where
+/// 855 is above 0, or else where `terror` falls below `faces` (`0x4E263D`); and caged where 855
+/// holds and `cage` falls below its value (`0x4E26F1`), set 41 alone rolling against 0.
+pub fn pass_terror(caging: f32, faces: u32, [terror, cage]: [u32; 2]) -> PassTerror {
+    let bears = caging > 0.0;
+    if !bears && terror >= faces {
+        PassTerror::Flies
+    } else if bears && f64::from(cage) < f64::from(caging) {
+        PassTerror::Caged
+    } else {
+        PassTerror::SetDown
+    }
+}
+
 /// The chance in 101 that a blow of `damage` fells a swooping flyer left at `health` by it, the
 /// struck one taking its attacker (`0x535CDD`–`0x535CF6`): `⌊100·d/(h + d)⌋`, 0 for a blow of no
 /// damage (docs/re/ai.md, "Foes among the creatures"; seen, #3499).
@@ -1797,6 +1828,15 @@ impl Mind {
 
     /// A swooping flyer felled: its swoop starts again from its pass as it decides next.
     pub fn falls_from_swoop(&mut self) {
+        self.swoop = Swoop::Pass;
+    }
+
+    /// A swooping flyer set down by its pass's terror ([`pass_terror`], `0x54E6D0(1, 0)`,
+    /// `0x44D520(1, 0)`): its flying over and its model on the ground at once, its swoop starting
+    /// again from its pass.
+    pub fn set_down(&mut self) {
+        self.flying = false;
+        self.descends = false;
         self.swoop = Swoop::Pass;
     }
 
@@ -8004,6 +8044,33 @@ mod tests {
         assert_eq!(swoop_fall_chance(0, 0), 0);
         assert_eq!(swoop_fall_chance(10, 0), 100);
         assert!(swoop_falls(18, 30) && !swoop_falls(30, 30) && !swoop_falls(0, 0));
+    }
+
+    #[test]
+    fn a_swooping_flyers_pass_at_a_bearer_of_855_or_set_41_sets_it_down_and_855_may_cage_it() {
+        use PassTerror::{Caged, Flies, SetDown};
+        // Neither: it flies on.
+        assert_eq!(pass_terror(0.0, 0, [0, 0]), Flies);
+        // 855 sets it down whatever the first roll, and cages it below its value.
+        assert_eq!(pass_terror(20.0, 0, [100, 19]), Caged);
+        assert_eq!(pass_terror(20.0, 0, [100, 20]), SetDown);
+        assert_eq!(pass_terror(0.5, 0, [100, 0]), Caged);
+        // Set 41 alone sets it down below its faces, and never cages it.
+        assert_eq!(pass_terror(0.0, 20, [19, 0]), SetDown);
+        assert_eq!(pass_terror(0.0, 20, [20, 0]), Flies);
+        // The cage's chance: the faces of the roll's 101 below the value.
+        assert!((crate::fight::caging_chance(20.0) - 20.0 / 101.0).abs() < 1e-6);
+        assert!((crate::fight::caging_chance(0.5) - 1.0 / 101.0).abs() < 1e-6);
+        assert!(crate::fight::caging_chance(0.0).abs() < 1e-6);
+        assert!((crate::fight::caging_chance(500.0) - 1.0).abs() < 1e-6);
+        // Set down, its flying is over at once, its swoop from its pass again.
+        let mut gargoyle = Mind::new(Spot::default(), 0x1, (true, false), None, SPEEDS, (61, 0));
+        gargoyle.flying = true;
+        gargoyle.descends = true;
+        gargoyle.swoop = Swoop::Turn;
+        gargoyle.set_down();
+        assert!(!gargoyle.flying && !gargoyle.descends);
+        assert_eq!(gargoyle.swoop, Swoop::Pass);
     }
 
     /// A goblin warrior (76, class 8) fighting the hero in melee.

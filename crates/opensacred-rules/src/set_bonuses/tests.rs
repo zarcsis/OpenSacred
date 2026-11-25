@@ -306,11 +306,22 @@ fn the_readers_of_the_counts_take_their_shares() {
     // Six pieces of set 23 leave small fires at the steps, five do not.
     assert!(stats(&wearing(23, 6), Difficulty::Bronze, false).fiery_steps());
     assert!(!stats(&wearing(23, 5), Difficulty::Bronze, false).fiery_steps());
-    // Set 41's swooping flyers' terror at 4 tells no line: no foe of a single player's hero
-    // swoops (#3596).
-    assert_eq!(
-        told(41, &wearing(41, 4), Difficulty::Bronze, false).len(),
-        told(41, &wearing(41, 3), Difficulty::Bronze, false).len()
+    // Set 41's swooping flyers' terror at 4: ⌊20·D⌋ faces of 101, told as their share (M16,
+    // #3597).
+    let faces = |n, d| stats(&wearing(41, n), d, false).terror_faces();
+    assert_eq!(faces(4, Difficulty::Bronze), 20);
+    assert_eq!(faces(4, Difficulty::Silver), 26);
+    assert_eq!(faces(3, Difficulty::Bronze), 0);
+    assert!(
+        told(41, &wearing(41, 4), Difficulty::Bronze, false).contains(&Told::Terror(20.0 / 101.0))
+    );
+    assert!(
+        told(41, &wearing(41, 4), Difficulty::Silver, false).contains(&Told::Terror(26.0 / 101.0))
+    );
+    assert!(
+        !told(41, &wearing(41, 3), Difficulty::Bronze, false)
+            .iter()
+            .any(|line| matches!(line, Told::Terror(_)))
     );
     // The magic defence: set 41 at 5 adds 15·D, set 44 at 3 10·D, each that holds.
     assert!(close(
