@@ -52,6 +52,8 @@ pub struct Clips {
     /// The defending clip for what it holds, where the model has its slot
     /// (`motions::Slots::defend_slot`, `hero_defence`, #3392).
     pub defend: Option<String>,
+    /// The hit clip, the slot 175, where the model has it (`hit_clips`, #3637).
+    pub hit: Option<String>,
 }
 
 /// A form of the hero: its type, its model and clips, its record's values for its fight, its

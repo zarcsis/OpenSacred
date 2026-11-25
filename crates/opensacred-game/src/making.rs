@@ -3606,15 +3606,14 @@ pub struct Knocked {
 const BOSS: u32 = 0x80000;
 
 /// Plays the hit clip of the creature `entity` that a knock of `strength` reaches, its slot 175 at
-/// three times the rate, where the strength is above 10 (`0x593770`;
-/// `opensacred_rules::arts::knock_plays_hit_clip`, #3141): the kicks', the roar's, the cannon's
-/// and the blast's.
+/// three times the rate over its clip in play from the weight 0.25 whatever the creature, where
+/// the strength is above 10 (`0x593770`; `opensacred_rules::arts::knock_plays_hit_clip`, #3141,
+/// `hit_clips`, #3637): the kicks', the roar's, the cannon's and the blast's.
 pub(crate) fn hit_clip(commands: &mut Commands, entity: Entity, strength: f32) {
     if arts::knock_plays_hit_clip(strength) {
-        commands.entity(entity).insert(crate::npcs::ScriptClip::hit(
-            arts::HIT_CLIP,
-            arts::HIT_CLIP_RATE,
-        ));
+        commands
+            .entity(entity)
+            .insert(crate::hit_clips::HitClipAsked(arts::HIT_CLIP_WEIGHT));
     }
 }
 
@@ -3839,8 +3838,12 @@ mod tests {
             hit_clip(&mut commands, weak, 10.0);
         }
         queue.apply(&mut world);
-        assert!(world.get::<crate::npcs::ScriptClip>(strong).is_some());
-        assert!(world.get::<crate::npcs::ScriptClip>(weak).is_none());
+        // Laid over the clip in play from 0.25 whatever the creature (#3637).
+        assert_eq!(
+            world.get::<crate::hit_clips::HitClipAsked>(strong),
+            Some(&crate::hit_clips::HitClipAsked(0.25))
+        );
+        assert!(world.get::<crate::hit_clips::HitClipAsked>(weak).is_none());
     }
 
     #[test]

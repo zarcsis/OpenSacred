@@ -1758,10 +1758,28 @@ fn whole_units(value: f64) -> i64 {
         .clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i64
 }
 
-/// A knocked creature's first hit clip (`HIT_A`), its slot, and how fast it plays at a knock: at
-/// three times the rate (`0x593770`, read for #3141, **seen**: over the clip in play).
+/// A struck or knocked creature's first hit clip (`HIT_A`), its slot, and how fast it plays: at
+/// three times the rate (`0x593770`, read for #3141 and #3637, **seen**: over the clip in play).
 pub const HIT_CLIP: u16 = 175;
 pub const HIT_CLIP_RATE: f32 = 3.0;
+
+/// A hit clip's weight at its start (`0x593770`'s blend, Granny's weights at the control's start
+/// and end; docs/re/motions.md, "A clip over the clip in play"): 0.25, and 0.1 for a creature of
+/// the heroes' class struck by a blow (the event 5's handler, `0x535950`–`0x535981`; docs/re/
+/// fight.md, "The struck creature's hit clip"); a knock's is 0.25 whatever the creature.
+pub const HIT_CLIP_WEIGHT: f32 = 0.25;
+pub const HEROES_HIT_CLIP_WEIGHT: f32 = 0.1;
+
+/// The seconds over which a hit clip's weight eases in from its start to 1 (`0x593770`'s 10.0),
+/// so that it rises in a straight line over the clip's short life and never fades out.
+pub const HIT_CLIP_EASE: f32 = 10.0;
+
+/// A hit clip's weight `seconds` after its start, its weight at its start `start`:
+/// `w0 + (1 − w0)·e/10`, 1 at most (`0x10001A30`, the envelope of `0x593770`'s control; **seen**:
+/// 0.25 to some 0.262 over a goblin's 0.48 s, #3637).
+pub fn hit_clip_weight(start: f32, seconds: f32) -> f32 {
+    (start + (1.0 - start) * seconds.max(0.0) / HIT_CLIP_EASE).min(1.0)
+}
 /// A creature's dying clip, which one that a thrown creature bowls over plays (`0x44DFE0`'s
 /// blows).
 pub const BOWLED_CLIP: u16 = 173;

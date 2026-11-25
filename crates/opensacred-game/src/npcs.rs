@@ -1753,6 +1753,9 @@ struct Clips {
     /// The clips of the slots that the scripts' `PlayAnim`s played, added to its graph as they
     /// come (#1277), each with its clip.
     scripted: HashMap<u16, (AnimationNodeIndex, Handle<AnimationClip>)>,
+    /// Its hit clip's node laid over the clip in play, added the first time it plays, apart
+    /// from the scripts' clips ([`hit_layer`], #3637), with its clip.
+    layered: Option<(AnimationNodeIndex, Handle<AnimationClip>)>,
 }
 
 impl Clips {
@@ -8695,6 +8698,7 @@ pub fn animate(
                 attacks,
                 dying,
                 scripted: HashMap::new(),
+                layered: None,
             });
         }
         if let Some(clips) = npc.graph.clone() {
@@ -9324,6 +9328,35 @@ fn slot_clip(
     let added = (graph_asset.add_clip(handle.clone(), 1.0, root), handle);
     graph.scripted.insert(slot, added.clone());
     Some(added)
+}
+
+/// The entity of an NPC's animation player, and the node of its hit clip laid over its clip in
+/// play with its clip (`hit_clips`, #3637): its model's slot 175, added to its graph the first
+/// time as a node apart from its scripts' clips, none where its model lacks the slot or it has no
+/// player yet.
+pub(crate) fn hit_layer(
+    npc: &mut Npc,
+    data: &Npcs,
+    (gltfs, graphs): (&Assets<Gltf>, &mut Assets<AnimationGraph>),
+) -> Option<(Entity, (AnimationNodeIndex, Handle<AnimationClip>))> {
+    let player = npc.player?;
+    let Npc {
+        graph, model, gltf, ..
+    } = npc;
+    let graph = graph.as_mut()?;
+    if let Some(layered) = graph.layered.clone() {
+        return Some((player, layered));
+    }
+    let name = data
+        .slots
+        .get(model.as_str())?
+        .slot(opensacred_rules::arts::HIT_CLIP)?;
+    let handle = gltfs.get(&*gltf)?.named_animations.get(name)?.clone();
+    let mut graph_asset = graphs.get_mut(&graph.graph)?;
+    let root = graph_asset.root;
+    let layered = (graph_asset.add_clip(handle.clone(), 1.0, root), handle);
+    graph.layered = Some(layered.clone());
+    Some((player, layered))
 }
 
 /// A creature whose clip of [`EMERGING`] has just ended ([`turn_emerged`]).
@@ -10890,15 +10923,6 @@ impl ScriptClip {
     /// The clip of an idle creature's fidget, once, where it stands (`0x54EA30`, #1364).
     pub(crate) fn fidget(slot: u16) -> Self {
         Self::new(slot, 1)
-    }
-
-    /// A clip of `slot` once at the rate `rate`, whatever its attack speed: a knocked creature's
-    /// hit clip at three times it (`0x593770`; `making`, #3141).
-    pub(crate) fn hit(slot: u16, rate: f32) -> Self {
-        Self {
-            rate: Some(rate),
-            ..Self::new(slot, 1)
-        }
     }
 
     /// The fall of a creature that a horse tramples, once at the rate 1.0 (`0x5941A0` at
@@ -18343,6 +18367,7 @@ mod tests {
             attacks: Vec::new(),
             dying: Vec::new(),
             scripted: HashMap::new(),
+            layered: None,
         };
         // A shot's end starts a standing clip anew in its other node, the same clip.
         assert_eq!(clips.again(node(0)), Some(node(5)));
@@ -18573,6 +18598,7 @@ mod tests {
             attacks: Vec::new(),
             dying: Vec::new(),
             scripted: HashMap::new(),
+            layered: None,
         };
         let npc = app
             .world_mut()

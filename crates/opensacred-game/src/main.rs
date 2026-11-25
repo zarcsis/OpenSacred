@@ -140,6 +140,7 @@ mod help;
 mod hero;
 mod hero_defence;
 mod hero_held;
+mod hit_clips;
 mod hit_sparks;
 mod holding_sights;
 mod holy_lights;
@@ -679,6 +680,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         hero_held::HeroHeldPlugin,
     ))
     .add_plugins((
+        hit_clips::HitClipsPlugin,
         hit_sparks::HitSparksPlugin,
         holy_lights::HolyLightsPlugin,
         homing_fires::HomingFiresPlugin,

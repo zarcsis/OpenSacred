@@ -711,6 +711,43 @@ Since #2311 `opensacred-game` follows it (`opensacred_rules::fight::{knocks_down
 **Seen** in the game: the Seraphim of the level 1 at 17 health struck by a creature 76 of the level 15 fell to 1, took 0 from its strikes while she lay, got up after 5 s, fell again at the next heavy blow, and the third killed her.
 Not followed: the unconscious line, which no hero's type has (`tables/voices.ron`; the companions' follow since #3087, docs/re/sound.md, "The line of one that falls unconscious"), and the `+0x2B7` bit 8 (the scripts' tag `0x6B` sets it, docs/re/netscript.md, "`SetNPCState`"), which none of the 18 `CreateNPC` and `SetNPCState` records naming the hero in the Seraphim's two trees carries.
 
+### The struck creature's hit clip
+
+Read 2026-11-24 for #3637 (the event 5's handler, `0x534FAB`–`0x535986`; **confirmed** by code, and **seen** where marked).
+A creature that a blow leaves alive (its health `0x549460(2)` above 0, `0x532AA9`) reacts whether the blow did damage or not, the parade's way (`0x532731`) joining the hit's at `0x532A9E`, and before the handler's tail turns it on its attacker (docs/re/ai.md, "Foes among the creatures"):
+
+- **Not at all** while its `+0x200` holds the bit `0x10`, which a creature's cast sets as its action 4 starts and the spells' executor clears at the cast's end (docs/re/ai.md, "The creatures' spells"): the handler returns at once (`0x534FB2`), with no reaction, no tail and no flags' bit 0.
+- **Nothing** where it is held (`+0x200` bit `0x40000`, `0x53588F`; docs/re/ai.md, "A held creature"), where it rides (`+0x14` bit 2, `0x5358DA`), or where it is of `+0x200` bit `0x40`, the hero in a game of one player (docs/re/motions.md, "The fight stance"), and does not stand idle: its AI's state (`+0xFC`), its action (`+0x150`) and the action's sub-state (`+0x152`) must be 0, 0 and 1 (`0x5358A1`–`0x5358C9`).
+- **A stop** for one walking (the action 1) struck from farther than 300 (`0x5370B0` with the record's attacker, `+8`) with a weapon of a ranged kind: the record's weapon object (`+4`; an arrow's record carries the bow that shot it, "A strike's resolution" above), whose type `0x427ED0` admits by its `Weapon.pak +0x1E`, the kinds 7, 12, 13 and 14 (`0x5358E0`–`0x535923`); it plays its standing slot (`0x5467A0(0)`) through `0x593320` at the blend 0.2, the loops 10,000 and the rate 1.0 and stops (`0x54E6D0(1, 1)`), and plays no hit clip (by code, not seen).
+- **The hit clip** otherwise (`0x535950`–`0x535981`): `0x593770` with the slot 175 (`*_HIT_A`), the rate 3.0 and the weight 0.1 for a creature of the heroes' class (`0x426650`: the hero), 0.25 for any other (the doubles at `0x890D50` and `0x890F00`).
+
+How it plays (`0x593770`, docs/re/motions.md, "A clip over the clip in play"):
+
+- The models' clip getter gives its clip with no stand-in, the slot 175 lying past 153, so a model without the slot plays nothing (163 of the 312 converted models with clips fill it).
+- It is a second clip of the creature's model, beside the clip in play, played once from its start at `GameSpeed` times 3.0 times the creature's time factor `+0x2C9` (and the motion's own factor, `0x413610`): at the time factor 1 it lasts its clip's length over 3.75, the Seraphim's `SERA_HIT_A` of 1.86 s 0.496 s and a goblin warrior's 0.483 s.
+- Its weight is 0.25 or 0.1 at its start and rises by `(1 − w)/10` a second, to 0.262 or 0.145 at its end; it does not fade out, and nothing of the game ends it: Granny frees it at the first time step past its end.
+- Each bone it has a track for is laid at that weight over the creature's pose from the clips added before it, its clip in play and any blend begun before it: the position interpolated linearly and the rotation spherically from that pose toward the hit clip's.
+- It changes nothing of the creature's clip in play, its slot, its blend or its queued clip, so the action's clip and its times run on under it: a struck creature's strike lands at its fraction as before.
+- A clip that the creature starts while it plays is laid after it and blends over it from 0 to 1 over that clip's blend.
+
+Its other callers play the same slot at 3.0 and 0.25 whatever the creature: a creature knocked above 10 (`0x4FFCE8`, docs/re/arts.md, "The kicks"), the objects' hits (`0x5B1F6C` in `0x5ABD80`, docs/re/arts.md, "The objects' hits") and the arts' executors at `0x501B0B`, `0x5041A6`, `0x507B88`, `0x51269D` and `0x5178C9` (their tests not read).
+
+**Seen** 2026-11-24 for #3637 (the driver of #448, the Seraphim of level 1 under the god mode at 3283,2533 and from 3250,2560 to 3250,2620, striking with her sword and later shooting a long bow 1733; immortal goblin warriors 76, an immortal goblin mage 127 and an Amazon 316 of level 1 made hostile one or two cells off; probes at `0x534FAB` and `0x535889` with the struck creature's `+0x200`, `+0xFC`, `+0x150`, `+0x152` and `+0x14`, at `0x535925`, `0x593770` traced with its slot, rate and weight, the strikes traced; Granny's controls probed in `granny.dll` at `0x100016E0`):
+
+- The hero standing idle (the states 0 and 0.1) played 175 at 3.0 and 0.1 at each of 254 blows; striking (the action 3, 6 blows), shooting (5, 59) and in the AI's states 1 and 8 with the action 0.1 (20) she played none.
+- Goblins played 175 at 3.0 and 0.25 at each blow in their strike (3.1, 3.2), standing or walking in their fight (4, 0.0 to 1.1, struck from beside her), and a goblin mage in its strike and fight alike; their own strikes went on, one landing in the frame of the blow and others 0.1 s after it.
+- Each of 61 misses of the hero, which left the immortal goblins' health untouched, played it as each of 175 hits did.
+- The goblin mage struck in its cast (the AI's state 6, the action 4.1, `+0x200` 0x10) reached `0x534FAB` and neither the reaction nor the clip; struck later in the same cast (4.4, the bit cleared), it played it.
+- A goblin killed by a blow reached none of them.
+- The hit clip's control held the speed 3.75, the loops 1, the weights 0.1 or 0.25 at its start and end and 1.0 between, the ease-in 10.0 and the ease-out 0, as `0x593770` sets them; it was the last of the 23 controls in the first time step after its start, and was laid at each frame's step until the one that passed its end (30 steps, 0.4834 s to 0.5001 s after its start for the Seraphim's clip of 0.496 s; 29 for a goblin's of 0.483 s), never after.
+- Not staged: a walking creature shot from afar, the goblins coming on and reaching the hero before her first arrow.
+
+Since #3637 `opensacred-game` lays it over the clip in play (`hit_clips`) at each blow that leaves a creature alive (`fight::Struck`, a hit or a miss) and at a knock above 10 (#3141, `making::hit_clip`, docs/re/arts.md, "The kicks"), as above: once at three times the rate by the game's speed and its motion's own factor, its weight from 0.25, or 0.1 for the hero and the heroes' class by a blow, rising over 10 s (`opensacred_rules::arts::hit_clip_weight`), the clip in play going on beneath it.
+- The weight is a node's of the creature's animation graph, which normalises its clips' weights, so that the node takes `w·W/(1 − w)` against the others' `W` in all and the pose is theirs moved by `w` toward the hit clip's.
+- A blow plays none on a creature that casts (`creature_casts::Casting`, from its order to its clip's end), is held by a knock or rides, nor on the hero but standing idle (no walk, attack, strike, defence, art or fall, not on a horse).
+- A clip started after it hides it over 0.25 s, the creatures' clips' blend in, as a later control laid over it rises to 1.
+- Not followed: an NPC walking that a ranged weapon strikes from farther than 300 stops and stands (by code, not seen); the other callers (the spells' objects' hits, five arts' executors), whose tests are not read; a second blow during the clip starts it anew, where the original's lays a second control over the first.
+
 ## An NPC's attack, defence and damage
 
 Status: **confirmed** by code (#281) unless marked otherwise.
