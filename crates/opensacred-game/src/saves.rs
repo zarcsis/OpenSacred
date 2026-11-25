@@ -115,8 +115,9 @@ use crate::{arts, drops, making};
 /// (#3757); the version 55 the respawn's gate's passes and clock (#3786); the version 56 the
 /// creatures' walks and heights aloft (#3758); the version 57 the strikes, the scripts' clips and
 /// the hero's attack mid-way (#3759); the version 58 the arrows and the bolts in flight (#3760); the
-/// version 59 the sectors' `Enter` creatures as they stood (#3761).
-pub const VERSION: u32 = 59;
+/// version 59 the sectors' `Enter` creatures as they stood (#3761); the version 60 the bodies
+/// (#3762).
+pub const VERSION: u32 = 60;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -313,6 +314,8 @@ pub struct Live {
     pub refs: Refs,
     pub doings: crate::doings::Doings,
     pub things: Things,
+    /// The dead creatures' bodies, lying and dying (#3762).
+    pub bodies: Vec<crate::npcs::SavedBody>,
 }
 
 /// The things in flight as a save keeps them (#3760, the epic #3753): the arrows flying and stuck
@@ -778,10 +781,12 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
     let kept = world_of(world, &mut refs)?;
     let doings = crate::doings::gather(world, &mut refs);
     let things = things_of(world, &mut refs);
+    let bodies = crate::npcs::bodies(world);
     let live = Live {
         refs,
         doings,
         things,
+        bodies,
     };
     // The picture last taken (`save_picture`), as the original's save keeps its last capture.
     let picture = world
@@ -1052,6 +1057,8 @@ fn resume(world: &mut bevy::prelude::World) {
     let Some(Resuming { live, .. }) = world.remove_resource::<Resuming>() else {
         return;
     };
+    // The bodies first, which the things' arrows may stick in.
+    crate::npcs::lay_again(world, live.bodies);
     let (doings, lost) = loaded(world, &live.refs, live.doings);
     let (given, missing) = crate::doings::give(world, doings);
     // The things in flight, once the creatures they refer to are back.
@@ -1876,7 +1883,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (59, 0x9FCE_A8DC_2D9F_F44E),
+            (60, 0xDADA_BC50_6462_5037),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

@@ -7635,6 +7635,142 @@ pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
     kept.into_iter().map(|(_, following)| following).collect()
 }
 
+/// A dead creature's body as a save keeps it (#3762): what it is made of, where it lies with its
+/// heading and level, what it was, how it died, how long it has lain and lies on before it
+/// vanishes and is destroyed (`bodies`), and an undead's rising or burning (`undead`); a load
+/// lays it where it lay at once, its fall not played again, its times going on
+/// (docs/decisions/fight.md, "Bodies lie at a load as they lay").
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedBody {
+    made: Made,
+    stood: Stood,
+    corpse: Corpse,
+    choice: u32,
+    by_creature: bool,
+    by_follower: bool,
+    killed: bool,
+    rises: bool,
+    lies: Option<crate::bodies::SavedLies>,
+    undead: Option<crate::undead::SavedUndead>,
+}
+
+/// The dead creatures' bodies in `world` as a save keeps them (#3762): every named one that lies
+/// or dies, but a follower's, which goes with the hero ([`following`]), and a kept placement's
+/// whose dialogue holds it, which its sector keeps ([`Kept`], #2457); a dying one lies as its
+/// fall will end.
+pub fn bodies(world: &mut bevy::prelude::World) -> Vec<SavedBody> {
+    let mut dead = world.query_filtered::<(
+        Entity,
+        (Option<&Placed>, Option<&crate::names::Named>),
+        (&Transform, Option<&Corpse>, Option<&Stashed>),
+        (&Dies, Option<&fight::Health>, Option<&fight::Ranked>),
+        (Option<&ai::Mind>, Option<&crowd::InTheWay>, Has<Talk>),
+    ), Without<crate::followers::Follower>>();
+    let world = &*world;
+    let heights = world.get_resource::<Heights>();
+    let mut saved = Vec::new();
+    for (
+        entity,
+        (placed, named),
+        (at, corpse, stashed),
+        (dies, health, ranked),
+        (mind, way, talk),
+    ) in dead.iter(world)
+    {
+        if named.is_none() || (talk && placed.is_some_and(|placed| placed.kept().is_some())) {
+            continue;
+        }
+        let Some(mind) = stashed.map(|stashed| &stashed.mind).or(mind) else {
+            continue;
+        };
+        let level = corpse
+            .map(|corpse| corpse.level)
+            .or_else(|| stashed.map(|stashed| stashed.way.level))
+            .or_else(|| way.map(|way| way.level))
+            .unwrap_or_default();
+        let health = health.map(|health| fight::Health {
+            current: 0,
+            ..*health
+        });
+        let Some(stood) = stood_of((at, level), health.as_ref(), (true, true), heights) else {
+            continue;
+        };
+        let corpse = corpse.copied().unwrap_or(Corpse {
+            creature: mind.creature,
+            class: mind.class,
+            dialogue: mind.dialogue,
+            level,
+            hostile: mind.hostile(),
+            flags: mind.flags,
+        });
+        saved.push(SavedBody {
+            made: made_of((placed, named), mind, ranked),
+            stood,
+            corpse,
+            choice: dies.choice,
+            by_creature: dies.by_creature,
+            by_follower: dies.by_follower,
+            killed: dies.killed,
+            rises: dies.rises,
+            lies: crate::bodies::saved_lies(world, entity),
+            undead: crate::undead::saved(world, entity),
+        });
+    }
+    saved
+}
+
+/// Lays a loaded save's bodies again where they lay (#3762), each made as it was, its fall not
+/// played again, its times of lying and its undead's state going on.
+pub fn lay_again(world: &mut bevy::prelude::World, bodies: Vec<SavedBody>) {
+    let count = bodies.len();
+    for body in bodies {
+        let following = Following {
+            made: body.made,
+            stood: body.stood,
+            flags: body.corpse.flags,
+            side: 0,
+            stands: ways::InTheWay::object(),
+            escorted: false,
+            listed: false,
+            hands: Vec::new(),
+            given: None,
+            effects: None,
+            rises: false,
+            lain: None,
+            queue: SavedQueue::default(),
+        };
+        let entity = match world.run_system_cached_with(respawn_following, following) {
+            Ok(Ok(entity)) => entity,
+            Ok(Err(e)) => {
+                bevy::log::warn!("npcs: a saved body is not made: {e}");
+                continue;
+            }
+            Err(e) => {
+                bevy::log::warn!("npcs: a saved body is not made: {e}");
+                continue;
+            }
+        };
+        let Ok(mut creature) = world.get_entity_mut(entity) else {
+            continue;
+        };
+        creature.insert(Dies {
+            choice: body.choice,
+            by_creature: body.by_creature,
+            by_follower: body.by_follower,
+            killed: body.killed,
+            rises: body.rises,
+            ..Dies::fallen()
+        });
+        if let Some(lies) = body.lies {
+            creature.insert(crate::bodies::Resumed(lies));
+        }
+        if let Some(undead) = body.undead {
+            crate::undead::again(&mut creature, undead);
+        }
+    }
+    bevy::log::info!("npcs: the save's {count} bodies lie again");
+}
+
 /// What a saved creature is made of ([`Made`]) by its placement `placed`, else its type, rank and
 /// serial of its name `named`.
 fn made_of(
@@ -13542,7 +13678,7 @@ impl Dies {
 /// (#1856) raise: its type, its `Creature.pak` class, whether it had a dialogue, the level it lies
 /// on, whether it was hostile to the hero, and its flags word, whose `0x2000` holds it lying
 /// (`opensacred_rules::undead::LIES_ON`, `bodies`).
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Corpse {
     pub creature: u32,
     pub class: u8,
@@ -17934,6 +18070,83 @@ mod tests {
             },
         );
         assert!(Strikes::again(lost, &Moment::default()).is_none());
+    }
+
+    #[test]
+    fn a_save_keeps_a_body_as_it_lies_but_a_dialogues_held_one_and_a_followers() {
+        use crate::names::{Id, Named};
+        let mut world = bevy::prelude::World::new();
+        let centre = paths::centre((3236, 2511));
+        let corpse = Corpse {
+            creature: 313,
+            class: 2,
+            dialogue: false,
+            level: None,
+            hostile: true,
+            flags: 1,
+        };
+        let health = fight::Health {
+            current: 0,
+            most: 42,
+            level: 2,
+        };
+        let goblin = world
+            .spawn((
+                Named(Id::Born(12)),
+                Placed {
+                    at: (50, 39),
+                    source: Source::Filled(Box::new(Placement {
+                        born: Some(12),
+                        ..Placement::default()
+                    })),
+                },
+                Transform::from_xyz(centre.x, 0.0, centre.y),
+                corpse,
+                Dies::by_creature(2),
+                health,
+                Stashed {
+                    mind: ai::Mind::new(
+                        Vec3::ZERO,
+                        1,
+                        (true, false),
+                        None,
+                        [70.0, 180.0],
+                        (313, 2),
+                    ),
+                    way: crowd::InTheWay::of(0, 0, None),
+                    lain: 0.0,
+                },
+            ))
+            .id();
+        // A kept placement's body that its dialogue holds goes with its sector.
+        world.spawn((
+            Named(Id::Placed(5)),
+            Placed {
+                at: (50, 39),
+                source: Source::Kept(5),
+            },
+            Transform::from_xyz(centre.x, 0.0, centre.y),
+            corpse,
+            Dies::new(0),
+            health,
+            Talk("res:giver".into()),
+        ));
+        let saved = bodies(&mut world);
+        assert_eq!(saved.len(), 1);
+        let body = &saved[0];
+        assert!(matches!(&body.made, Made::Filled(_, placement) if placement.born == Some(12)));
+        assert!(body.stood.lies());
+        assert_eq!(
+            (body.choice, body.by_creature, body.killed),
+            (2, true, true)
+        );
+        assert_eq!(body.corpse, corpse);
+        let bytes = postcard::to_stdvec(&saved).unwrap();
+        assert_eq!(
+            postcard::from_bytes::<Vec<SavedBody>>(&bytes).unwrap(),
+            saved
+        );
+        assert!(world.get_entity(goblin).is_ok());
     }
 
     #[test]

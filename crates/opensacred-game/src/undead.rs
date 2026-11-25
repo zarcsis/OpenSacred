@@ -40,7 +40,7 @@ const BURNS: f32 = 0.25;
 
 /// An undead that lies dead before it rises ([`rise`]): whether it was hostile to the hero, the
 /// seconds it still lies, and the type that a skeleton warrior changes into as it falls.
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Rises {
     hostile: bool,
     lies: f32,
@@ -57,6 +57,38 @@ impl Rises {
 /// An undead at its last death, the seconds before it burns away ([`burn`]).
 #[derive(Component, Clone, Copy, Debug)]
 struct Burns(f32);
+
+/// An undead's state of its death as a save keeps it (#3762): its rising, or the seconds before
+/// it burns away.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum SavedUndead {
+    Rises(Rises),
+    Burns(f32),
+}
+
+/// The undead's state of the dead creature `entity`, if any.
+pub(crate) fn saved(world: &World, entity: Entity) -> Option<SavedUndead> {
+    world
+        .get::<Rises>(entity)
+        .map(|rises| SavedUndead::Rises(*rises))
+        .or_else(|| {
+            world
+                .get::<Burns>(entity)
+                .map(|burns| SavedUndead::Burns(burns.0))
+        })
+}
+
+/// Gives a loaded save's body its undead's state again.
+pub(crate) fn again(creature: &mut EntityWorldMut<'_>, saved: SavedUndead) {
+    match saved {
+        SavedUndead::Rises(rises) => {
+            creature.insert(rises);
+        }
+        SavedUndead::Burns(left) => {
+            creature.insert(Burns(left));
+        }
+    }
+}
 
 /// A fire ghoul that burns away once its dying clip has played ([`burn_after_clip`]).
 #[derive(Component, Clone, Copy, Debug)]

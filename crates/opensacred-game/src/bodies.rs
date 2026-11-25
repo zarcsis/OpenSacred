@@ -47,6 +47,30 @@ struct Lies {
     demon: bool,
 }
 
+/// A body's times of lying as a save keeps them (#3762): how long it has lain, when it
+/// vanishes, and how long it still waits to be destroyed (`undead::Destroyed`).
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedLies {
+    lain: f32,
+    time: f32,
+    destroyed: Option<f32>,
+}
+
+/// The times of lying of the body `entity`, if it lies.
+pub(crate) fn saved_lies(world: &World, entity: Entity) -> Option<SavedLies> {
+    let lies = world.get::<Lies>(entity)?;
+    Some(SavedLies {
+        lain: lies.lain,
+        time: lies.time,
+        destroyed: world.get::<Destroyed>(entity).map(|destroyed| destroyed.0),
+    })
+}
+
+/// A loaded save's body's times of lying, which its first tick of lying takes in place of its
+/// death's ([`lie`], #3762).
+#[derive(Component, Clone, Copy, Debug)]
+pub(crate) struct Resumed(pub(crate) SavedLies);
+
 /// A body that a script's `SetNPCState` of `0x80` lets go (`0x46224D`–`0x4622B6`; docs/re/
 /// netscript.md, "`SetNPCState`", #3445): its flags word's hold cleared and its death's stamp put
 /// back by 19, 4 or 1 s at the detail 2, 1 or 0, so that it vanishes a second later and is
@@ -139,7 +163,7 @@ fn lie(
             &Corpse,
             &Dies,
             &GlobalTransform,
-            (Option<&Npc>, Option<&PutBack>),
+            (Option<&Npc>, Option<&PutBack>, Option<&Resumed>),
             (Has<Bursts>, Has<RisesAgain>, Has<Vision>),
         ),
         Added<Corpse>,
@@ -155,7 +179,7 @@ fn lie(
     let violence = settings
         .as_deref()
         .is_some_and(|settings| settings.gameplay.violence);
-    for (entity, corpse, dies, at, (npc, put_back), (bursts, rises, vision)) in &lying {
+    for (entity, corpse, dies, at, (npc, put_back, resumed), (bursts, rises, vision)) in &lying {
         if bursts
             || dies.rises
             || corpse.class == undead::CLASS
@@ -184,17 +208,31 @@ fn lie(
         } else {
             undead::vanishes_after(detail) - back
         };
+        // A loaded save's body lies on for what it had left (#3762).
+        let (lain, time, destroyed) = match resumed {
+            Some(Resumed(saved)) => {
+                commands.entity(entity).remove::<Resumed>();
+                (
+                    saved.lain,
+                    saved.time,
+                    saved
+                        .destroyed
+                        .unwrap_or(undead::destroyed_after(detail) - back),
+                )
+            }
+            None => (0.0, time, undead::destroyed_after(detail) - back),
+        };
         let set = gibs.as_deref().map_or(0, |gibs| gibs.of(corpse.creature));
         commands.entity(entity).insert((
             Lies {
-                lain: 0.0,
+                lain,
                 time,
                 body,
                 spider: corpse.creature == undead::MEDIUM_SPIDER,
                 puddle: violence && !dies.fallen && !rises && undead::puddles(corpse.creature, set),
                 demon: !dies.fallen && undead::BIG_DEMONS.contains(&corpse.creature),
             },
-            Destroyed(undead::destroyed_after(detail) - back),
+            Destroyed(destroyed),
         ));
     }
 }
