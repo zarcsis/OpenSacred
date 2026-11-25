@@ -457,6 +457,101 @@ fn swoop_falls(
 /// The clip a felled swooping flyer plays once (`*_DYING_A`, `0x535D60`).
 const SWOOP_FALL_SLOT: u16 = 173;
 
+/// A swooping flyer's pass that struck its target ([`pass_terror`]).
+#[derive(Message, Clone, Copy, Debug)]
+pub(crate) struct SwoopPassed {
+    flyer: Entity,
+    target: Entity,
+}
+
+/// The hold of a creature's plant cage, in seconds, where its caster is no hero (`0x5B5CC8`).
+const CREATURES_CAGE_HOLDS: f32 = 3.0;
+
+/// The terror of each swooping flyer's pass on its target after its strike (`0x4E25E0`–`0x4E28A4`;
+/// docs/re/ai.md, "The flyers", #3597; [`minds::pass_terror`]): where the target's items give
+/// the effect 855, or set 41's four pieces on it make `R(0, 100)` fall below `⌊20·D⌋` (M16), the
+/// flyer stops what it does and is set down at once ([`minds::Mind::set_down`], `flight`); with
+/// 855 a second `R(0, 100)` below its value makes ten plant cages about it, silent, their caster
+/// the target: a hero's of the spell 40's value 0 at a third of its level, else 3 s
+/// (`plant_cages`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
+fn pass_terror(
+    mut commands: Commands,
+    mut passes: MessageReader<SwoopPassed>,
+    mut rolls: ResMut<Minds>,
+    arts: Option<Res<crate::arts::HeroArts>>,
+    targets: Query<(
+        &crate::fight::Holding,
+        Option<&crate::fight::Combat>,
+        Option<&crate::fight::Health>,
+        Has<Body>,
+    )>,
+    mut flyers: Query<&mut Mind, Without<crate::npcs::Dies>>,
+) {
+    for pass in passes.read() {
+        let Ok((holding, combat, health, hero)) = targets.get(pass.target) else {
+            continue;
+        };
+        let Ok(mut mind) = flyers.get_mut(pass.flyer) else {
+            continue;
+        };
+        let caging = opensacred_rules::fight::item_effect(
+            &holding.0.items,
+            opensacred_rules::fight::CAGING,
+            crate::drops::attributes_of(combat),
+            None,
+        );
+        let faces = holding.0.sets.terror_faces();
+        let terror = if caging > 0.0 {
+            0
+        } else {
+            rolls.rng.below(101)
+        };
+        let cage = if caging > 0.0 {
+            rolls.rng.below(101)
+        } else {
+            0
+        };
+        let done = minds::pass_terror(caging, faces, [terror, cage]);
+        if done == minds::PassTerror::Flies {
+            continue;
+        }
+        debug!(
+            "ai: {} set down by its pass at {}, {done:?}",
+            pass.flyer, pass.target
+        );
+        mind.set_down();
+        commands.entity(pass.flyer).remove::<(Walk, Strikes)>();
+        if done != minds::PassTerror::Caged {
+            continue;
+        }
+        let seconds = if hero {
+            let level = health.map_or(1, |health| health.level) / 3;
+            arts.as_deref()
+                .and_then(|arts| {
+                    arts.tables
+                        .spells
+                        .iter()
+                        .find(|spell| spell.id == opensacred_rules::spells::CAGE)
+                })
+                .map_or(CREATURES_CAGE_HOLDS, |record| {
+                    crate::spells::fight_seconds(opensacred_rules::spells::value(record, 0, level))
+                })
+        } else {
+            CREATURES_CAGE_HOLDS
+        };
+        crate::plant_cages::cage_silently(
+            &mut commands,
+            pass.flyer,
+            minds::PASS_CAGES,
+            (hero, seconds),
+        );
+    }
+}
+
 /// A creature's stand-in for the original's object id, which a hornet's flank and the queen's
 /// circle take (#2562): the sum of its home cell's coordinates, as for the guards' torches
 /// (docs/decisions/ai.md, "The guards' torches").
@@ -1188,7 +1283,7 @@ fn pursue(
         >,
         Query<&crate::npcs::Arms>,
     ),
-    mut hits: MessageWriter<crate::fight::Hit>,
+    (mut hits, mut passes): (MessageWriter<crate::fight::Hit>, MessageWriter<SwoopPassed>),
 ) {
     let dt = tick.seconds.unwrap_or_default();
     let Some((
@@ -1777,6 +1872,10 @@ fn pursue(
                 // (`0x4EA3F0` at the sub-state 7, #3589); its flight at the gait 2, aloft.
                 if strikes {
                     debug!("ai: {entity} swoops through {aimed}");
+                    passes.write(SwoopPassed {
+                        flyer: entity,
+                        target: aimed,
+                    });
                     hits.write(crate::fight::Hit {
                         attacker: entity,
                         target: aimed,
@@ -3570,6 +3669,14 @@ impl Plugin for AiPlugin {
                     .before(think),
             )
             .add_systems(Update, swoop_falls.in_set(Step::Crowd).before(think))
+            .add_message::<SwoopPassed>()
+            .add_systems(
+                Update,
+                pass_terror
+                    .after(pursue)
+                    .in_set(Step::Crowd)
+                    .run_if(crate::frame::ticked),
+            )
             .add_systems(Update, face_shooed.in_set(Step::Crowd).after(behave));
     }
 }

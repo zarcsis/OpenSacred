@@ -5217,10 +5217,18 @@ pub fn gold_for_health(damage: f32, (value, gold): (f32, u32), rng: &mut impl Di
     }
 }
 
-/// The items' effect that grounds a flyer swooping at its bearer and may cage it (`0x357`,
-/// `0x4E2616`; docs/re/ai.md, "The flyers"), which no foe of a single player's hero makes, so
-/// that the game follows it not and tells no line of it (#3596, #3597).
+/// The items' effect that sets down a flyer swooping at its bearer and may cage it (`0x357`,
+/// `0x4E2616`; docs/re/ai.md, "The flyers", `crate::minds::pass_terror`, #3597).
 pub const CAGING: u32 = 855;
+
+/// The chance, a share of 1, that a swooping flyer's pass at a bearer of the effect 855 of the
+/// value `value` cages it: the faces of `R(0, 100)` below the value (`0x4E26F1`).
+pub fn caging_chance(value: f32) -> f32 {
+    let faces = (0..CRITICAL_FACES)
+        .filter(|&roll| f64::from(roll) < f64::from(value))
+        .count();
+    to_f32(u32::try_from(faces).unwrap_or(CRITICAL_FACES)) / to_f32(CRITICAL_FACES)
+}
 
 /// The items' effect of the terror (`SCHRECKEN_NEU`, `0x354`), by which the hero's look kills
 /// the weak hostile creatures at once ([`Rules::terror_threshold`], [`terrifies`]).

@@ -192,6 +192,10 @@ fn told_lines(line: Told, wearer: &Wearer, words: &Words) -> Vec<Line> {
         )),
         // The open wounds' chance of a strike, as the items' effect 857 is worded.
         Told::OpenWounds(chance) => white(format!("{}: {}", n(1151), share(chance))),
+        // Set 41's line at 4 (`0x571710`'s `{T1150}: %d%%`), the chance that a swooping flyer's
+        // pass sets it down, of `⌊20·D⌋` faces of 101 where the original's tells `⌊20·D⌋` %
+        // (#3597).
+        Told::Terror(chance) => white(format!("{}: {}", n(1150), share(chance))),
         // Against the ranged fighters, as an item's bonus against them is worded.
         Told::RangedDefence(x) => white(format!(
             "{} {} {}: {}",

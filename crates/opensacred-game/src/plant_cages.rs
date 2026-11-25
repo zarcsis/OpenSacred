@@ -76,6 +76,17 @@ pub(crate) fn cage(
     cages(commands, target, count, (hero, seconds), true);
 }
 
+/// Makes `count` cages about `target` as [`cage`] does, none of them sounding: a swooping flyer's
+/// pass's (`0x4E26F1`, `ai::pass_terror`).
+pub(crate) fn cage_silently(
+    commands: &mut Commands,
+    target: Entity,
+    count: u32,
+    (hero, seconds): (bool, f32),
+) {
+    cages(commands, target, count, (hero, seconds), false);
+}
+
 /// Holds `target` by the plant cage for `seconds` (the cages' action 7, the effect 15 keyed by
 /// the spell 40, docs/re/effects.md, "The plant cage"): it stops what it does and stands held.
 fn hold(commands: &mut Commands, target: Entity, seconds: f32) {
