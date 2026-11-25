@@ -569,8 +569,11 @@ struct ClipNames {
     /// The jugglers' clips of the slots 180 to 183 (`*_FUN_IDLE_*`), by which they play their
     /// instruments.
     fun: [Option<String>; 4],
-    /// Its attack's clips (`motions::Slots::attacks`).
+    /// Its attack's clips (`motions::Slots::attacks`), and whether they are a stand-in for its
+    /// class's, which `MOTIONS.PAK`'s record 0 times ([`LACKING`], #3314).
     attacks: Vec<String>,
+    #[serde(default)]
+    stand_in: bool,
     /// Its dying clips by their slots: 173 and 174 (`*_DYING_A`, `*_DYING_B`) and the flat
     /// falls 228 to 233, of which [`die`] rolls one at each death
     /// (`opensacred_rules::undead::dying_slot`, #3400); a rider's 168, else 173.
@@ -610,6 +613,7 @@ impl ClipNames {
             fun: [None, None, None, None],
             fun_slots: 0,
             attacks: vec![walk.clone()],
+            stand_in: false,
             dying: vec![(opensacred_rules::undead::DYING_A, walk.clone())],
             attack_slot: SCUTTLE,
             defend: Some(SCUTTLE),
@@ -634,6 +638,7 @@ impl ClipNames {
                 .riding_attack(class)
                 .map(|name| vec![name.to_owned()])
                 .unwrap_or_default(),
+            stand_in: false,
             dying: named(RIDING_DEATH)
                 .map(|name| (RIDING_DEATH, name))
                 .or_else(|| {
@@ -651,13 +656,15 @@ impl ClipNames {
     /// The clips of a model of `slots` that holds what is of `class` (`motions::class`).
     fn of(slots: &motions::Slots, class: u8) -> Self {
         let clip = |action| slots.clip(action, class).map(|(name, _)| name.to_owned());
+        let attacks = slots.attacks(class);
         Self {
             stand: clip(motions::Action::Stand),
             walk: clip(motions::Action::Walk),
             run: clip(motions::Action::Run),
             fly: slots.slot(FLY).map(str::to_owned),
             stance: slots.stance(class).map(str::to_owned),
-            attacks: slots.attacks(class),
+            attacks: attacks.clips,
+            stand_in: attacks.stand_in,
             dying: dying_names(slots),
             unfallen: slots.slot(173).is_none(),
             talk: slots.talk().map(str::to_owned),
@@ -8660,11 +8667,13 @@ pub fn animate(
                 .iter()
                 .filter_map(|name| {
                     let clip = gltf.named_animations.get(name.as_str())?.clone();
-                    let hits = data
-                        .hits
-                        .get(&name.to_ascii_uppercase())
-                        .copied()
-                        .unwrap_or_default();
+                    // A stand-in timed by the record 0 (`0x4EA1F0` reading the entry 0's, #3314).
+                    let timed_by = if npc.names.stand_in {
+                        LACKING.to_owned()
+                    } else {
+                        name.to_ascii_uppercase()
+                    };
+                    let hits = data.hits.get(&timed_by).copied().unwrap_or_default();
                     Some((graph.add_clip(clip.clone(), 1.0, root), clip, hits))
                 })
                 .collect();
