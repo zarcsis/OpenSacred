@@ -352,6 +352,7 @@ fn step(
                     at: at.translation(),
                     level: way.and_then(|way| way.level),
                     caster: Some(entity),
+                    breath: false,
                 });
             }
             // Its footprint, on the ground and of a type that lays them, but the Big Demon's, whose

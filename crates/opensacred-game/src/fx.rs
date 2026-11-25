@@ -53,8 +53,8 @@ use bevy::render::render_resource::{
 use bevy::shader::ShaderRef;
 use opensacred_rules::particles::{
     Blend, DEATH_FLAMES_EMIT, Fire, GROUND_GRID, GROUND_HALF, GROUND_TEXTURE, Geyser, Jet,
-    Particle, SCORCH_HALF, SMALL_FIRE_EMITS, System, death_flames, fire, ground_frame,
-    scorch_alpha, scorch_texture, small_fire,
+    Particle, SCORCH_HALF, SMALL_FIRE_EMITS, System, breath_small_fire, death_flames, fire,
+    ground_frame, scorch_alpha, scorch_texture, small_fire,
 };
 use opensacred_rules::spawning::Rng;
 
@@ -109,16 +109,18 @@ const VARIANTS: [u8; 13] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13];
 #[derive(Resource)]
 struct StepFires {
     fire: Arc<Fire>,
+    breath: Arc<Fire>,
     layers: Vec<Material>,
     ground: Material,
 }
 
-/// A small fire that a step of the hero leaves (#1808), a step of a Big Demon's (#3028), or a
-/// creature's cast (#2898): its particles and dice, its layers' meshes and its ground's, the level
-/// of its place, the creature whose strike its strikes are, and how long until it may strike
-/// again.
+/// A small fire that a step of the hero leaves (#1808), a step of a Big Demon's (#3028), a
+/// creature's cast (#2898) or a bounce of the Daemon's breath (#3301): its variant's data, its
+/// particles and dice, its layers' meshes and its ground's, the level of its place, the creature
+/// whose strike its strikes are, and how long until it may strike again.
 #[derive(Component)]
 pub struct StepFire {
+    fire: Arc<Fire>,
     system: System,
     dice: Rng,
     meshes: Vec<Handle<Mesh>>,
@@ -133,11 +135,15 @@ pub struct StepFire {
 /// the one that a big demon's fire, the spell 50, leaves at its feet (`0x527669`: 878 by the FX
 /// event `0x65`), whose caster is the object's own id, for which its strikes gather no target, so
 /// that it never strikes: none here (docs/re/arts.md, "The creatures' own spells"; #2898).
+///
+/// The Daemon's breath leaves one of the variant 1 at each bounce, narrower and shorter, its
+/// caster the breath's (`0x5AA5A9`, `breath`; #3301): `breath`.
 #[derive(Message, Clone, Copy, Debug)]
 pub struct SmallFire {
     pub at: Vec3,
     pub level: crate::terrain::Level,
     pub caster: Option<Entity>,
+    pub breath: bool,
 }
 
 /// How far above the ground the burnt ground lies, in world units, so that the ground's mesh does
@@ -1331,6 +1337,7 @@ fn begin(
         .map(|image| materials.add(particle_material(image, AlphaMode::Add)));
     commands.insert_resource(StepFires {
         fire: Arc::new(step),
+        breath: Arc::new(breath_small_fire()),
         layers,
         ground,
     });
@@ -1381,10 +1388,21 @@ fn kindle(
         cast.clear();
         return;
     };
-    for &SmallFire { at, level, caster } in cast.read() {
+    for &SmallFire {
+        at,
+        level,
+        caster,
+        breath,
+    } in cast.read()
+    {
+        let fire = if breath {
+            &step_fires.breath
+        } else {
+            &step_fires.fire
+        };
         light_small_fire(
             &mut commands,
-            (&step_fires, &mut meshes),
+            (&step_fires, fire, &mut meshes),
             (at, level, None),
             caster,
         );
@@ -1400,7 +1418,7 @@ fn kindle(
         }
         light_small_fire(
             &mut commands,
-            (&step_fires, &mut meshes),
+            (&step_fires, &step_fires.fire, &mut meshes),
             (at, body.level(), layered.copied()),
             Some(hero),
         );
@@ -1411,7 +1429,7 @@ fn kindle(
 /// those of `caster`, none for none.
 fn light_small_fire(
     commands: &mut Commands,
-    (step_fires, meshes): (&StepFires, &mut Assets<Mesh>),
+    (step_fires, variant, meshes): (&StepFires, &Arc<Fire>, &mut Assets<Mesh>),
     (at, level, layered): (
         Vec3,
         crate::terrain::Level,
@@ -1425,7 +1443,7 @@ fn light_small_fire(
         let mut fire = commands.spawn((
             Transform::from_translation(at),
             Visibility::default(),
-            daynight::Light(step_fires.fire.light),
+            daynight::Light(variant.light),
             DespawnOnExit(AppState::InGame),
         ));
         if let Some(layered) = layered {
@@ -1458,7 +1476,8 @@ fn light_small_fire(
         });
         let index = usize::try_from(fire.id().index_u32()).unwrap_or(0);
         fire.insert(StepFire {
-            system: System::new(step_fires.fire.count),
+            fire: variant.clone(),
+            system: System::new(variant.count),
             dice: crate::seed::dice(SEED ^ index),
             meshes: handles,
             ground,
@@ -1543,23 +1562,20 @@ fn push_particle(quads: &mut Quads, fire: &Fire, particle: &Particle, sign: f32)
 fn smoulder(
     mut commands: Commands,
     time: Res<Time>,
-    step_fires: Option<Res<StepFires>>,
     mut fires: Query<(Entity, &mut StepFire)>,
     mut meshes: ResMut<Assets<Mesh>>,
 ) {
-    let Some(step_fires) = step_fires else {
-        return;
-    };
-    let fire = &*step_fires.fire;
     let dt = time.delta_secs().min(0.1);
     for (entity, mut step) in &mut fires {
         let StepFire {
+            fire,
             system,
             dice,
             meshes: layers,
             ground,
             ..
         } = &mut *step;
+        let fire: &Fire = fire;
         system.update(dt, &fire.layers);
         if system.clock < SMALL_FIRE_EMITS {
             system.emit(&fire.blocks, &fire.layers, fire.count, dice);
@@ -2158,6 +2174,7 @@ mod tests {
     fn struck_by(world: &mut World, caster: Option<Entity>) -> Vec<Entity> {
         world.spawn((
             StepFire {
+                fire: Arc::new(small_fire()),
                 system: System::new(1),
                 dice: Rng::of(1, 2, 3),
                 meshes: Vec::new(),
@@ -2248,6 +2265,7 @@ mod tests {
             .add_message::<SmallFire>()
             .insert_resource(StepFires {
                 fire: Arc::new(small_fire()),
+                breath: Arc::new(breath_small_fire()),
                 layers: Vec::new(),
                 ground: None,
             })
@@ -2257,17 +2275,36 @@ mod tests {
             at,
             level: None,
             caster: None,
+            breath: false,
         });
         app.update();
         let mut fires = app.world_mut().query::<(&StepFire, &Transform)>();
         let (fire, place) = fires.single(app.world()).unwrap();
         assert_eq!(place.translation, at);
         assert!(fire.caster.is_none() && fire.level.is_none());
+        assert_eq!(fire.fire.light, small_fire().light);
         // No hero, no steps' fire.
         app.world_mut()
             .write_message(crate::sound::HeroStep(Vec3::ZERO));
         app.update();
         assert_eq!(fires.iter(app.world()).count(), 1);
+        // A breath's bounce's of the variant 1, its light 100 (#3301).
+        app.world_mut().write_message(SmallFire {
+            at: Vec3::ZERO,
+            level: None,
+            caster: None,
+            breath: true,
+        });
+        app.update();
+        let mut lights = app
+            .world_mut()
+            .query::<(&StepFire, &daynight::Light, &Transform)>();
+        let (bounce, light, _) = lights
+            .iter(app.world())
+            .find(|(.., place)| place.translation == Vec3::ZERO)
+            .unwrap();
+        assert_eq!(bounce.fire.light, 100.0);
+        assert_eq!(light.0, 100.0);
     }
 
     #[test]
