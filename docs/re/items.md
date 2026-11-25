@@ -287,7 +287,7 @@ The quality pass (`0x5D2E40`) writes the quality bits last, the sum of its map's
 
 ## A creature's items
 
-A fill (`FillSector`, `0x47C610`) makes all its creatures' items at one level: the hero's within the sector's bounds and jittered, as the creatures' (docs/re/spawning.md), raised by a tenth of a curve of the minutes of a counter (**hypothesis**: the time played) through `0x552230`, which is the level itself on bronze, at most 300; every item of its `MakeGroup` rule is made at it with the quality key 0.
+A fill (`FillSector`, `0x47C610`) makes all its creatures' items at one level: the hero's within the sector's bounds and jittered, as the creatures' (docs/re/spawning.md), raised by a tenth of a curve of the survival counter's minutes (`0x424650` at `0x47D277`; docs/re/questbook.md, "The statistics' book") through `0x552230`, which is the level itself on bronze, at most 300; every item of its `MakeGroup` rule is made at it with the quality key 0.
 `CreateNPC` makes a record's items at the creature's level with a key at random of 0–3.
 A fixed item keeps its record when the maker stops (**hypothesis**: the copy of `Weapon.pak +0x80…+0x101`, whose words fit the record's layout).
 
@@ -326,8 +326,8 @@ The death calls the drop `0x559BF0` `N` times, each with a bonus `B` and a value
 - `N` is `WurfAnzahl` (1) and `B` 0.
 - A creature with a champion's levelling (`+0xB0` bit `0x400`, docs/re/fight.md, "Bosses and champions"; a champion, and a fill's 343 or 212 without the mark, #621) has `B` = `ITBonusChamp` (35) and, unless too weak, `N` + `R(1, ITThrowCountBonusChamp)` (3).
 - A boss (`+0x1F4` bit `0x80000`) adds `ITBonusBoss` (50) to `B` and, unless too weak, `R(1, ITThrowCountBonusBoss)` (4) to `N`; then a switch over its type (`0x533E2E`, its jump tables at `0x536EBC` and `0x536F48`) gives some twenty types more drops or particular items (below).
-- For a player's kill, `B` becomes `⌊B + LongivityFactor·v(t)⌋` (`LongivityFactor` 0.5), `v(t) = 100·(1 − 1/(1 + (t − 1)/120))` for `t` at least 1, else 0, `t` the statistics' counter `+0x570C` over 1,000 and over 60 (`0x425290`, `0x424650`; **hypothesis**: the minutes played), and then `⌊B + √(100·(ℓ − 100))⌋`, `ℓ` the hero's luck of `0x564A60`: 100 plus the value of its effect 840, raised when some of its counts at `+0x4F8` are high (the worn pieces of the sets 3, 9, 21 and 53, docs/re/sets.md §4, M2).
-  So the time played adds up to 50 to the bonus and a luck of 25 adds 50.
+- For a player's kill, `B` becomes `⌊B + LongivityFactor·v(t)⌋` (`LongivityFactor` 0.5), `v(t) = 100·(1 − 1/(1 + (t − 1)/120))` for `t` at least 1, else 0, `t` the statistics' survival counter `+0x570C` over 1,000 and over 60 (`0x425290`, `0x424650` at `0x5345B6`): the whole minutes that the hero has stood in its fight stance since its last death, which a save's header keeps in whole seconds (docs/re/questbook.md, "The statistics' book"; read 2026-11-25 for #3749, **confirmed** by code and **seen**), and then `⌊B + √(100·(ℓ − 100))⌋`, `ℓ` the hero's luck of `0x564A60`: 100 plus the value of its effect 840, raised when some of its counts at `+0x4F8` are high (the worn pieces of the sets 3, 9, 21 and 53, docs/re/sets.md §4, M2).
+  So the time in the fight stance adds up to 50 to the bonus and a luck of 25 adds 50.
 - `s` is 0, but for a killer with the effect 42 in its list of effects (`+0x11A`, `0x5539D0`) the value 1 of the combat art record 55 (`0x4D2310`, a table compiled in at `0x952A38`) at that effect's level (`0x4D26B0`), the Dwarf's greed (docs/re/arts.md, "The Dwarf's spells").
 - `DropAll` is 0 on file: in `R(0, 1000)` below it the creature would throw up to three of the items it holds (`0x4E9900`, which throws one from the slots 13, 12, 1 or 0); so a creature's own weapons, shield and armour never drop.
 

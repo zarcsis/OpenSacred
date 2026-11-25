@@ -127,6 +127,7 @@ Its callers:
 
 - the clip player `0x593320`, for the clip it starts (`+0x235`) and for the clip in play that it blends from (`+0x48`, at `0x5935D6`), both at the play's rate times `+0x2C9`; `0x593770` for its own clip; the queued start (`0x594BE0`) for the clip it starts, at `+0x21D` times `+0x2C9`; the objects' player `0x44A6C0`;
 - the time factor's setter `0x537160` (the effect 15, docs/re/arts.md, "The effects");
+- the objects' play of a slot `0x44A6C0` (the creature's `0x5930B0`, its virtual `+0x2C`), at its rate times `+0x2C9`, which a load calls for the slot in play of each model with the speed that its save read as the rate, so that the clip plays again from its start `GameSpeed` times the own factor faster than at the save (read 2026-11-25 for #3754, **confirmed** by code and **seen**: docs/re/saves.md, "What a load gives back of the doings");
 - the shot's action at `0x4DF306`, for a shooter without the effect 17's bit and without a gun: the hero's shot going on, for the slot in play (**seen** 2026-11-23 for #3563, docs/re/fight.md, "The archers");
 - the gait's speed `0x4F75F0`, which sets the clip in play (`+0x48`, its slot `+0x64`), whatever that clip is, to `GameSpeed` times the pace's factor, the pace times `+0x2C9` over 100 (docs/re/movement.md, "The speed"), and leaves a clip that a blend is bringing in (`+0x235`) as it is.
 
