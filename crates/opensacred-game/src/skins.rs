@@ -458,7 +458,7 @@ fn dress(
                         let mut base = base;
                         base.base.base_color = Color::WHITE;
                         base.base.base_color_texture = Some(look.clone());
-                        base.base.unlit = false;
+                        crate::models::set_lit(&mut base, true);
                         materials.add(base)
                     })
                     .clone();
