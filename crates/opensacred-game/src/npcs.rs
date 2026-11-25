@@ -1325,6 +1325,7 @@ pub struct Npcs {
     /// Each creature type's `Creature.pak` class, which picks a fill's factor.
     classes: HashMap<u32, u8>,
     factors: spawning::Factors,
+    respawns: Respawns,
     /// The balance's values of the creatures' fight, and the templates of the items' values.
     fight: fight::Rules,
     items: fight::Templates,
@@ -1455,6 +1456,28 @@ struct Kept {
     last: Option<u16>,
     /// The next serial of a creature made in play (`names::Id::Born`, #3755).
     born: u32,
+    /// The world's time of each sector's respawn's gate's last pass, by [`Self::clock`] (#3786).
+    passed: HashMap<(u32, u32), f64>,
+    /// The world's time since the game began, in seconds, which a pause stands and a save keeps:
+    /// the respawn's gate's clock, in place of the original's real clock.
+    clock: f64,
+}
+
+/// The respawn's bounds (`Respawn`, `DungeonRespawn` of the balance): the seconds a sector waits
+/// after its gate last passed before it may fill anew, a dungeon's longer.
+#[derive(Clone, Copy, Debug)]
+struct Respawns {
+    open: f32,
+    dungeon: f32,
+}
+
+/// The balance's respawn's bounds, 300 and 1,000 s where `tables/balance.ron` lacks them.
+fn respawns(balance: Option<&opensacred_data::tables::Balance>) -> Respawns {
+    let bound = |name, default| balance.and_then(|b| b.f32(name)).unwrap_or(default);
+    Respawns {
+        open: bound("Respawn", 300.0),
+        dungeon: bound("DungeonRespawn", 1_000.0),
+    }
 }
 
 /// What a sector that comes in does with its fills ([`Kept::enter`]).
@@ -1498,20 +1521,33 @@ impl Kept {
 
     /// What sector `at` does with its fills as it comes in, `filling` its region where it has
     /// fills, `region_of` another sector's (`FillSector`, `0x47CCEC`…`0x47CDEF`, docs/re/
-    /// spawning.md): where it kept a time and its region filled last, the creatures it kept come
-    /// back, none where it kept none, and it fills nothing; else it fills anew, dropping what it
-    /// kept, and a region other than the last drops what every sector of another region kept,
-    /// and its time. A sector of no fills puts back what it kept (`0x4939F0`).
+    /// spawning.md): within `bound` seconds of its respawn's gate's last pass it fills nothing,
+    /// the creatures it kept coming back and all else as it is (docs/decisions/spawning.md,
+    /// "Respawn's gate as meant"); else the gate passes, and where it kept a time and its region
+    /// filled last, the creatures it kept come back, none where it kept none, and it fills
+    /// nothing; else it fills anew, dropping what it kept, and a region other than the last drops
+    /// what every sector of another region kept, its time and its gate's pass. A sector of no
+    /// fills puts back what it kept (`0x4939F0`).
     fn enter(
         &mut self,
         at: (u32, u32),
         filling: Option<u16>,
+        bound: f64,
         region_of: impl Fn((u32, u32)) -> u16,
     ) -> Entered {
         let back = self.filled.remove(&at).unwrap_or_default();
         let Some(region) = filling else {
             return Entered { back, fill: false };
         };
+        if self
+            .passed
+            .get(&at)
+            .is_some_and(|&pass| self.clock < pass + bound)
+        {
+            bevy::log::debug!("npcs: {at:?} fills no sooner than {bound} s after its last");
+            return Entered { back, fill: false };
+        }
+        self.passed.insert(at, self.clock);
         if self.times.contains(&at) && self.last == Some(region) {
             return Entered { back, fill: false };
         }
@@ -1519,6 +1555,7 @@ impl Kept {
             bevy::log::debug!("npcs: the region {region} fills after {:?}", self.last);
             self.filled.retain(|&sector, _| region_of(sector) == region);
             self.times.retain(|&sector| region_of(sector) == region);
+            self.passed.retain(|&sector, _| region_of(sector) == region);
             self.last = Some(region);
         }
         Entered {
@@ -2683,6 +2720,13 @@ pub fn hit_points(tables: &Tables) -> HashMap<String, Vec<f32>> {
             (name, m.floats_62[1..].to_vec())
         })
         .collect()
+}
+
+/// Counts the respawn's gate's clock, on the world's time, which a pause stands (#3786).
+fn tick(time: Res<Time>, npcs: Option<ResMut<Npcs>>) {
+    if let Some(mut npcs) = npcs {
+        npcs.kept.clock += time.delta_secs_f64();
+    }
 }
 
 /// The balance's factors of the fills' density (`SpawnAnimalsSP`, `SpawnEnemysSP`), 0.8 and 1.2
@@ -5202,6 +5246,7 @@ impl Npcs {
             types,
             classes,
             factors: factors(balance),
+            respawns: respawns(balance),
             fight: fight::Rules::at(balance, difficulty),
             items: fight::Templates::new(&modifiers, weapons).with_balance(balance),
             rules: rules(tree),
@@ -6416,7 +6461,12 @@ pub fn place(
             .get(&at)
             .is_some_and(|fills| !fills.is_empty())
             .then(|| quests::region(streamer.area(at).unwrap_or(0)));
-        let entered = npcs.kept.enter(at, filling, |sector| {
+        let bound = if dungeons.sector(at) {
+            npcs.respawns.dungeon
+        } else {
+            npcs.respawns.open
+        };
+        let entered = npcs.kept.enter(at, filling, f64::from(bound), |sector| {
             quests::region(streamer.area(sector).unwrap_or(0))
         });
         bevy::log::debug!(
@@ -15476,6 +15526,10 @@ impl Plugin for NpcsPlugin {
             .add_observer(equipment_ready)
             .add_observer(keep)
             .add_observer(named)
+            .add_systems(
+                Update,
+                tick.run_if(bevy::prelude::in_state(crate::game::AppState::InGame)),
+            )
             .add_observer(hear_again)
             .add_systems(
                 Update,
@@ -17200,18 +17254,18 @@ mod tests {
         let region_of = |(x, _): (u32, u32)| if x >= 49 { 2 } else { 3 };
         // How many creatures come back, and whether the sector fills anew.
         let enter = |kept: &mut Kept, at: (u32, u32)| {
-            let entered = kept.enter(at, Some(region_of(at)), region_of);
+            let entered = kept.enter(at, Some(region_of(at)), 0.0, region_of);
             (entered.back.len(), entered.fill)
         };
         let (here, there) = ((49, 39), (47, 39));
         let mut kept = Kept::default();
         // Filled at first; a sector of no fills fills nothing.
         assert_eq!(enter(&mut kept, here), (0, true));
-        assert!(!kept.enter((50, 39), None, region_of).fill);
+        assert!(!kept.enter((50, 39), None, 0.0, region_of).fill);
         // One of its fills went living: it comes back where it stood, and the sector fills
         // nothing.
         kept.gone(&rabbit(here), Some(stood(3150)));
-        let entered = kept.enter(here, Some(2), region_of);
+        let entered = kept.enter(here, Some(2), 0.0, region_of);
         assert!(!entered.fill);
         assert_eq!(entered.back.len(), 1);
         assert_eq!(entered.back[0].1, stood(3150));
@@ -17262,7 +17316,7 @@ mod tests {
         };
         // The sector came in and filled; its creatures stand in the world.
         let mut kept = Kept::default();
-        assert!(kept.enter((51, 39), Some(2), |_| 2).fill);
+        assert!(kept.enter((51, 39), Some(2), 0.0, |_| 2).fill);
         for placed in [&goblin, &killed, &follower, &rabbit] {
             kept.spawned(placed);
         }
@@ -17354,7 +17408,7 @@ mod tests {
         // The follower stays out of its sector: the save puts it beside the hero.
         assert_eq!(kept.again(9), Again::Not);
         // The rabbit comes back with its sector, which fills nothing then.
-        let entered = kept.enter((51, 39), Some(2), |_| 2);
+        let entered = kept.enter((51, 39), Some(2), 0.0, |_| 2);
         assert!(!entered.fill);
         assert_eq!(entered.back.len(), 1);
         assert_eq!(entered.back[0].0.model, "rabbit");
@@ -17518,6 +17572,50 @@ mod tests {
     }
 
     #[test]
+    fn a_sector_fills_anew_no_sooner_than_its_respawns_bound_after_its_gate_passed() {
+        let region_of = |(x, _): (u32, u32)| if x < 60 { 1 } else { 2 };
+        let wolf = Placed {
+            at: (50, 39),
+            source: Source::Filled(Box::default()),
+        };
+        let stood = Stood {
+            cell: (3236, 2511),
+            layer: 0,
+            heading: 0.0,
+            health: fight::Health {
+                current: 20,
+                most: 30,
+                level: 2,
+            },
+            marked: false,
+        };
+        let mut kept = Kept::default();
+        // Its first coming fills it, its gate passing at 0.
+        assert!(kept.enter((50, 39), Some(1), 300.0, region_of).fill);
+        // Cleared and back within the bound: nothing made, nothing kept.
+        kept.clock = 120.0;
+        let early = kept.enter((50, 39), Some(1), 300.0, region_of);
+        assert!(!early.fill && early.back.is_empty());
+        // A living one kept comes back within the bound, its gate left as it was.
+        kept.gone(&wolf, Some(stood));
+        kept.clock = 250.0;
+        let back = kept.enter((50, 39), Some(1), 300.0, region_of);
+        assert_eq!((back.fill, back.back.len()), (false, 1));
+        // Past the bound it passes: kept a time, its region the last, nothing anew.
+        kept.clock = 301.0;
+        assert!(!kept.enter((50, 39), Some(1), 300.0, region_of).fill);
+        // Another region's fill drops this region's passes too: back at once, it fills anew.
+        kept.clock = 320.0;
+        assert!(kept.enter((70, 39), Some(2), 300.0, region_of).fill);
+        kept.clock = 330.0;
+        assert!(kept.enter((50, 39), Some(1), 300.0, region_of).fill);
+        // A save keeps the passes and the clock.
+        let bytes = postcard::to_stdvec(&kept).unwrap();
+        let loaded: Kept = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(loaded, kept);
+    }
+
+    #[test]
     fn a_fills_creature_keeps_its_serial_through_its_sectors_going_and_coming() {
         let mut kept = Kept::default();
         let (first, second) = (kept.mint(), kept.mint());
@@ -17545,7 +17643,7 @@ mod tests {
         let bytes = postcard::to_stdvec(&kept).unwrap();
         let mut kept: Kept = postcard::from_bytes(&bytes).unwrap();
         assert_eq!(kept.born, 2);
-        let back = kept.enter((50, 39), None, |_| 0).back;
+        let back = kept.enter((50, 39), None, 0.0, |_| 0).back;
         assert_eq!(back.len(), 1);
         assert_eq!(back[0].0.born, Some(second));
         assert_eq!(kept.mint(), 2);
