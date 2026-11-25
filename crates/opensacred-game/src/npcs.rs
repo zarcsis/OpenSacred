@@ -7401,20 +7401,27 @@ fn made_of(placed: Option<&Placed>, mind: &ai::Mind, ranked: Option<&fight::Rank
     }
 }
 
-/// The hero's own horse as a save keeps it (#2301; the original's save appends it to the hero's
-/// objects, `0x604C85`): as a follower ([`Following`]), what it is made of and where it stands
-/// with its health and effects; none where the hero owns none, or one dead.
+/// The hero's own horse as a save keeps it (#2301; the original's save keeps it with its
+/// objects, `0x602300`): as a follower ([`Following`]), what it is made of and where it stands
+/// with its health and effects, under its rider where the hero rides it, its place in the way
+/// kept aside (#3743); none where the hero owns none, or one dead.
 pub fn mount_of(world: &mut bevy::prelude::World) -> Option<Following> {
     let mut horses = world.query_filtered::<(
         Option<&Placed>,
-        (&Transform, &crowd::InTheWay, Option<&fight::Health>),
+        (
+            &Transform,
+            Option<&crowd::InTheWay>,
+            Option<&crate::riding::Ridden>,
+            Option<&fight::Health>,
+        ),
         (&ai::Mind, Option<&fight::Ranked>, Option<&Arms>),
         Option<&crate::effects::Effects>,
     ), (With<crate::riding::OwnHorse>, Without<Dies>)>();
     let world = &*world;
     let heights = world.get_resource::<Heights>();
-    let (placed, (transform, way, health), (mind, ranked, arms), effects) =
+    let (placed, (transform, way, ridden, health), (mind, ranked, arms), effects) =
         horses.iter(world).next()?;
+    let way = way.or_else(|| ridden.and_then(crate::riding::Ridden::way))?;
     let stood = stood_of((transform, way.level), health, (false, false), heights)?;
     bevy::log::debug!("npcs: the hero's horse saved standing {stood:?}");
     Some(Following {
@@ -7439,19 +7446,21 @@ pub fn mount_of(world: &mut bevy::prelude::World) -> Option<Following> {
     })
 }
 
-/// Puts the saved own horse `horse` back where it stood and links it to the hero again,
-/// unmounted, as the original's load restores it (`ItemDataMgr::loadHero`, `0x6058A0`).
-pub fn mount_again(world: &mut bevy::prelude::World, horse: Following) {
+/// Puts the saved own horse `horse` back where it stood and links it to the hero again: the
+/// horse made again, which a hero that rode it mounts again once it has landed (`saves`, #3743),
+/// as the original's load of a game keeps both creatures' records and their link (docs/re/saves.md,
+/// "What a load puts back").
+pub fn mount_again(world: &mut bevy::prelude::World, horse: Following) -> Option<Entity> {
     let (flags, side, stands) = (horse.flags, horse.side, horse.stands);
     let entity = match world.run_system_cached_with(respawn_following, horse) {
         Ok(Ok(entity)) => entity,
         Ok(Err(e)) => {
             bevy::log::warn!("npcs: the saved horse is not made: {e}");
-            return;
+            return None;
         }
         Err(e) => {
             bevy::log::warn!("npcs: the saved horse is not made: {e}");
-            return;
+            return None;
         }
     };
     if let Some(mut mind) = world.get_mut::<ai::Mind>(entity) {
@@ -7466,6 +7475,7 @@ pub fn mount_again(world: &mut bevy::prelude::World, horse: Following) {
         .get::<Transform>(entity)
         .map(|t| paths::cell_of(t.translation.x, t.translation.z));
     bevy::log::info!("npcs: the save's horse {entity} back at {at:?}, the hero's own");
+    Some(entity)
 }
 
 /// What a follower made of a placement whose hands hold `made` changes to hold `hands` again

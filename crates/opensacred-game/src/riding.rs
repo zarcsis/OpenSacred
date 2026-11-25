@@ -20,8 +20,8 @@
 //! horseback (`tooltip`); the rider's most health raised by the horse under it ([`Saddle`],
 //! #2302); the rider thrown off by a knock-down ([`throw_off`], #2311) and its horse felled in
 //! its place by a lethal blow ([`fell`]); the Seraphim's bolts' effects ended on a rider
-//! ([`unbolt`], #3134); the line of a hero that may not ride and the call's whistles (#1180); and
-//! the command `ride` ([`ride`]).
+//! ([`unbolt`], #3134); a loaded save's rider seated again ([`seat_again`], #3743); the line of a
+//! hero that may not ride and the call's whistles (#1180); and the command `ride` ([`ride`]).
 
 use std::time::Duration;
 
@@ -1280,6 +1280,32 @@ pub fn ride(world: &mut World, id: Option<Entity>) -> Result<String, String> {
         heading,
     });
     Ok(format!("the hero goes to mount {horse} of class {class}"))
+}
+
+/// Whether the hero rides its own horse, which a save keeps (#3743).
+pub fn rides_own(world: &mut World) -> bool {
+    let own = world.get_resource::<Owned>().and_then(|owned| owned.0);
+    let mut seats = world.query_filtered::<&Seat, With<Body>>();
+    let ridden = seats.iter(world).next().and_then(Seat::ridden);
+    own.is_some() && ridden == own
+}
+
+/// Seats the hero `me` on its own horse `horse` again at once, as a loaded save that rode puts it
+/// back on its horse (#3743; docs/re/saves.md, "What a load puts back"): the horse brought under
+/// the hero and held for it, its mount over, which [`mount`] ends at the next frame.
+pub fn seat_again(world: &mut World, me: Entity, horse: Entity) {
+    let Some(at) = world.get::<Transform>(me).copied() else {
+        return;
+    };
+    if let Some(mut transform) = world.get_mut::<Transform>(horse) {
+        transform.translation = at.translation;
+        transform.rotation = at.rotation;
+    }
+    hold(world, horse, me);
+    if let Ok(mut entity) = world.get_entity_mut(me) {
+        entity.insert(Seat::Mounting { horse, left: 0.0 });
+    }
+    info!("riding: the hero rides {horse} again");
 }
 
 /// Holds the horse `horse` for its rider `me`: its walk ended, its place in the way kept aside.
