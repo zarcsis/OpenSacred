@@ -109,6 +109,111 @@ pub struct Mind {
     /// Its script's spell (`+0x2B6`, its `CreateNPC`'s `0x67`), which a magician's chooser takes
     /// first (`0x4D31C0`, #1869); 0 for none.
     pub spell: u8,
+    /// Whether its next strike in melee chains on the one that ended (`Mind::ends_strike`, #466).
+    chains: bool,
+}
+
+/// A creature's mind as a save keeps it (#3757; the original's creature's AI's state and order,
+/// `+0xFC` to `+0x14F`, docs/re/saves.md, "A creature's record"): its thought whole, its clock of
+/// the real time from the save's time ([`minds::Mind::rebase`]), and the creatures and doors it
+/// goes to by their names (`names`), none where a load finds none.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedMind {
+    thinks: minds::Mind,
+    #[serde(with = "crate::names::optional")]
+    last: Option<Entity>,
+    #[serde(with = "crate::names::optional")]
+    partner: Option<Entity>,
+    runs_after: bool,
+    #[serde(with = "crate::names::optional")]
+    visiting: Option<Entity>,
+    #[serde(with = "crate::names::optional")]
+    door: Option<Entity>,
+    #[serde(with = "crate::names::optional")]
+    opening: Option<Entity>,
+    entering: Option<SavedEntering>,
+    #[serde(with = "crate::names::optional")]
+    foe: Option<Entity>,
+    spell: u8,
+    chains: bool,
+}
+
+/// The door a creature goes into a house by, as a save keeps it, and its outer and inner points.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct SavedEntering {
+    #[serde(with = "crate::names::required")]
+    door: Entity,
+    outer: Vec3,
+    inner: Vec3,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedMind {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        for entity in [
+            &mut self.last,
+            &mut self.partner,
+            &mut self.visiting,
+            &mut self.door,
+            &mut self.opening,
+            &mut self.foe,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            *entity = mapper.get_mapped(*entity);
+        }
+        if let Some(entering) = &mut self.entering {
+            entering.door = mapper.get_mapped(entering.door);
+        }
+    }
+}
+
+impl crate::doings::Saves for Mind {
+    type Saved = SavedMind;
+
+    fn saved(&self, at: &crate::doings::Moment) -> Option<SavedMind> {
+        let mut thinks = self.thinks.clone();
+        thinks.rebase(-at.now);
+        Some(SavedMind {
+            thinks,
+            last: self.last,
+            partner: self.partner,
+            runs_after: self.runs_after,
+            visiting: self.visiting,
+            door: self.door,
+            opening: self.opening,
+            entering: self.entering.map(|(door, outer, inner)| SavedEntering {
+                door,
+                outer,
+                inner,
+            }),
+            foe: self.foe,
+            spell: self.spell,
+            chains: self.chains,
+        })
+    }
+
+    fn again(saved: SavedMind, at: &crate::doings::Moment) -> Option<Self> {
+        use crate::names::found;
+        let mut thinks = saved.thinks;
+        thinks.rebase(at.now);
+        Some(Self {
+            thinks,
+            last: found(saved.last),
+            partner: found(saved.partner),
+            runs_after: saved.runs_after,
+            visiting: found(saved.visiting),
+            door: found(saved.door),
+            opening: found(saved.opening),
+            entering: saved
+                .entering
+                .filter(|entering| entering.door != Entity::PLACEHOLDER)
+                .map(|entering| (entering.door, entering.outer, entering.inner)),
+            foe: found(saved.foe),
+            spell: saved.spell,
+            chains: saved.chains,
+        })
+    }
 }
 
 impl Mind {
@@ -133,6 +238,7 @@ impl Mind {
             entering: None,
             foe: None,
             spell: 0,
+            chains: false,
         }
     }
 
@@ -1210,7 +1316,6 @@ impl Default for FightRules {
 )]
 fn pursue(
     mut commands: Commands,
-    mut chained: Local<std::collections::HashSet<Entity>>,
     mut lines: MessageWriter<crate::voices::Speak>,
     tick: Res<crate::frame::WorldTick>,
     mut minds: ResMut<Minds>,
@@ -1453,7 +1558,7 @@ fn pursue(
         if ended {
             let roll = minds.rng.below(4);
             if mind.ends_strike(roll) {
-                chained.insert(entity);
+                mind.chains = true;
             }
             commands.entity(entity).remove::<crate::npcs::StrikeEnded>();
         }
@@ -1940,7 +2045,7 @@ fn pursue(
             Pursues::Strikes(choice) => {
                 transform.rotation = crate::hero::facing(hero - here);
                 if let Some(choice) = choice {
-                    let chains = chained.remove(&entity);
+                    let chains = std::mem::take(&mut mind.chains);
                     // A strike that does not chain, against a target that fights (the hero
                     // attacking, a creature fighting), is a parry in one case of four where its
                     // model has its defending clip: it plays the clip once in place of the strike,
@@ -3357,7 +3462,7 @@ const SHOO_HOLDS: f32 = 0.3;
 /// The hero's stance's bit of a shoo (`0x4F2C8C`; docs/re/ai.md, "Children and jugglers",
 /// #3150): it faces the child that it shooed last, `toward`, at once (`0x44DD90`), and its ring
 /// shows while the bit holds (`health_rings`), `left` seconds more.
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Shoos {
     pub toward: Vec3,
     pub left: f32,
@@ -3563,8 +3668,42 @@ fn face(
 /// docs/re/ai.md, "Dormant and awake", #3149): `CreateNPC`'s of the flags' bit 0 as it is made,
 /// `SetNPCState`'s writing that bit, the group's alarm at an idle member, the hiring and the
 /// undead's rising; its sight runs where it sees the hero ([`sight`]), and the mark goes.
-#[derive(Component, Clone, Copy, Debug, Default)]
+#[derive(
+    Component, Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize,
+)]
 pub struct Woken;
+
+impl bevy::ecs::entity::MapEntities for Woken {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+impl crate::doings::Saves for Woken {
+    type Saved = Woken;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
+}
+
+impl bevy::ecs::entity::MapEntities for Shoos {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+impl crate::doings::Saves for Shoos {
+    type Saved = Shoos;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
+}
 
 /// Runs each creature's sight function as it first sees the hero (`sdk_WAKE` `0x59F580`, #2475;
 /// docs/re/ai.md, "Dormant and awake"): at each of the hero's looks, a creature of a sight
@@ -4283,6 +4422,54 @@ mod tests {
             Some(theirs)
         );
         assert_eq!(door_in_way(here, 0, &doors[1..]), None);
+    }
+
+    #[test]
+    fn a_saved_mind_keeps_its_foe_and_door_by_their_names_and_its_deadline_by_the_clock() {
+        use crate::doings::{Moment, Saves};
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut saved = App::new();
+        saved.add_plugins(NamesPlugin);
+        let wolf = saved.world_mut().spawn(Named(Id::Born(3))).id();
+        let door = saved.world_mut().spawn(Named(Id::Placed(80))).id();
+        let nameless = saved.world_mut().spawn_empty().id();
+        let mut mind = Mind::new(Vec3::ZERO, 0x1, (false, true), None, [70.0, 180.0], (76, 2));
+        mind.foe = Some(wolf);
+        mind.entering = Some((door, Vec3::X, Vec3::Y));
+        mind.last = Some(nameless);
+        mind.chains = true;
+        let mut refs = Refs::default();
+        let kept = mapped(
+            mind.saved(&Moment { now: 50.0 }).unwrap(),
+            &mut Saving {
+                world: saved.world(),
+                refs: &mut refs,
+            },
+        );
+        let bytes = postcard::to_stdvec(&(&refs, &kept)).unwrap();
+        let (refs, kept): (Refs, SavedMind) = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..6).map(|_| ()));
+        let door = loaded.world_mut().spawn(Named(Id::Placed(80))).id();
+        let wolf = loaded.world_mut().spawn(Named(Id::Born(3))).id();
+        let kept = mapped(
+            kept,
+            &mut Loading {
+                refs: &refs,
+                names: loaded.world().resource::<Names>(),
+                lost: 0,
+            },
+        );
+        let back = Mind::again(kept, &Moment { now: 5.0 }).unwrap();
+        assert_eq!(back.foe, Some(wolf));
+        assert_eq!(back.entering, Some((door, Vec3::X, Vec3::Y)));
+        assert_eq!(back.last, None);
+        assert!(back.chains);
+        // Its deadline of the real clock 45 s earlier, the load 45 s before the save's time.
+        let mut thinks = mind.thinks.clone();
+        thinks.rebase(-45.0);
+        assert_eq!(back.thinks, thinks);
     }
 
     #[test]

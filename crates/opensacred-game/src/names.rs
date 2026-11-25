@@ -141,10 +141,32 @@ impl EntityMapper for Loading<'_> {
     fn set_mapped(&mut self, _source: Entity, _target: Entity) {}
 }
 
+/// `entity` where a load found the creature of its name, none where it found none
+/// ([`Entity::PLACEHOLDER`], [`Loading`]).
+pub fn found(entity: Option<Entity>) -> Option<Entity> {
+    entity.filter(|&entity| entity != Entity::PLACEHOLDER)
+}
+
 /// `value` with its references mapped by `mapper`.
 pub fn mapped<T: MapEntities>(mut value: T, mapper: &mut impl EntityMapper) -> T {
     value.map_entities(mapper);
     value
+}
+
+/// A saved reference, kept as its entity's bits (`#[serde(with)]`): bits that name no entity
+/// read as [`Entity::PLACEHOLDER`], none's mark.
+pub mod required {
+    use bevy::prelude::Entity;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S: Serializer>(entity: &Entity, to: S) -> Result<S::Ok, S::Error> {
+        entity.to_bits().serialize(to)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(from: D) -> Result<Entity, D::Error> {
+        let bits = u64::deserialize(from)?;
+        Ok(Entity::try_from_bits(bits).unwrap_or(Entity::PLACEHOLDER))
+    }
 }
 
 /// A saved reference that may be none, kept as its entity's bits (`#[serde(with)]`): bits that

@@ -111,8 +111,9 @@ use crate::{arts, drops, making};
 /// under way (#3742); the version 50 whether the hero rides its own horse (#3743); the version 51
 /// the quest book and the inventory shown (#3741); the version 52 the names of the creatures that
 /// the effects' sources are and the serials of the creatures made in play (#3755); the version 53
-/// the part of what lives, the creatures' doings (#3756).
-pub const VERSION: u32 = 53;
+/// the part of what lives, the creatures' doings (#3756); the version 54 the creatures' minds
+/// (#3757).
+pub const VERSION: u32 = 54;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -1829,7 +1830,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (53, 0xA404_E969_238A_49D7),
+            (54, 0x1E93_99B2_FD04_95F1),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

@@ -35,7 +35,7 @@ use crate::spawning::Dice;
 /// A point of the ground in the world's units, the original's (a cell's side is 53.66563,
 /// `CreateNPC` `0x482E9D`; docs/02 §5.1), in which the creatures' distances are measured: `x`
 /// and `y` along the grid, which the game's world takes as its x and z.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Spot {
     pub x: f32,
     pub y: f32,
@@ -612,7 +612,7 @@ const CHARGE_LEAVES: f32 = 300.0;
 pub const CHARGE_EFFECT_SECONDS: f32 = 10.0;
 
 /// A riding black rider's charge's step, or the hornet hunter's (#2562).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum Charge {
     #[default]
     None,
@@ -653,7 +653,7 @@ const TURN_AHEAD: f32 = 300.0;
 
 /// A swooping flyer's step in melee (`+0x2A0`'s sub-states 7 and 8): its pass through its
 /// target, and its turn back.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Swoop {
     #[default]
     Pass,
@@ -872,8 +872,9 @@ pub fn marked(creature: u32) -> bool {
     MARKED.iter().any(|types| types.contains(&creature))
 }
 
-/// A creature's mind while no foe is near, and in its fight, with the hero or a creature.
-#[derive(Clone, Debug, PartialEq)]
+/// A creature's mind while no foe is near, and in its fight, with the hero or a creature, which
+/// a save keeps whole (the original's creature's AI's state and order, `+0xFC` to `+0x14F`).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Mind {
     /// Where it was made, the point it goes home to.
     pub home: Spot,
@@ -1014,6 +1015,14 @@ pub struct Mind {
 }
 
 impl Mind {
+    /// Its clock of the real time moved by `by` seconds: a caster's deadline (`+0x24D`), kept by
+    /// a save as the seconds from the save's time and put on the load's, where the original's
+    /// load takes it back raw, so that it has passed after a load (docs/re/saves.md, "What a
+    /// load gives back of the doings").
+    pub fn rebase(&mut self, by: f64) {
+        self.cast_deadline += by;
+    }
+
     /// Its size, of which and another's the reach of two creatures is the mean ([`size`]).
     pub fn size(&self) -> u32 {
         size(self.creature, self.armed)
@@ -5045,7 +5054,7 @@ pub fn attack_ends(at_once: bool, ends: bool, alive: bool, asked: bool) -> bool 
 /// raised by a call to fight that reaches it in mid-shot and set back by its melee, never by a
 /// shot itself (#3313). The hero's strikes keep its attack speed: its `+0x210` stays 1 in the
 /// original, its button held or clicked (#704).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Chain {
     factor: f32,
 }
@@ -5076,6 +5085,27 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+
+    #[test]
+    fn a_minds_deadline_moves_with_the_real_clock_and_a_save_keeps_it() {
+        let mut mind = Mind::new(
+            Spot::new(10.0, 20.0),
+            0x1,
+            (false, true),
+            None,
+            [70.0, 180.0],
+            (76, 2),
+        );
+        mind.cast_deadline = 130.5;
+        // A save keeps it from the save's time, 100 s, and a load at 7 s puts it 30.5 s ahead.
+        mind.rebase(-100.0);
+        assert!((mind.cast_deadline - 30.5).abs() < 1e-9);
+        let bytes = serde_json::to_vec(&mind).unwrap();
+        let mut back: Mind = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(back, mind);
+        back.rebase(7.0);
+        assert!((back.cast_deadline - 37.5).abs() < 1e-9);
+    }
 
     #[test]
     fn the_dwarfs_sword_strike_opens_at_its_share_of_the_rate() {
