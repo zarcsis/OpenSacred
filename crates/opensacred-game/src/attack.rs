@@ -413,8 +413,8 @@ fn engage(
             let done = active.seek_time() / striking.length;
             // The action tests its hits at its steps, the world's ticks, alone (`0x4EA1F0`); with
             // two weapons it hits twice whatever its clip, each hit of half the share (`0x4EA3F0`,
-            // #2748).
-            if ticked && minds::hit_due(striking.fractions, striking.struck, done, class) {
+            // #2748), the hero being of the heroes' class, which takes its second hit (#3686).
+            if ticked && minds::hit_due(striking.fractions, striking.struck, done, class, true) {
                 striking.struck += 1;
                 if let Some(bolt) = striking.bolt {
                     // Its bolts leave at the clip's first hit toward its target, or the point it

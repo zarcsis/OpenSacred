@@ -13502,10 +13502,10 @@ fn hits_within(size: u32, other: u32) -> f32 {
 }
 
 /// Plays each striking NPC's attack once, and at the first tick of the world past the clip's
-/// fractions (0.5 for a first of 0; a second when it is above 0, or with two weapons whatever
-/// the clip, #2748), or at its end, sends a hit of its share when the target is then within
-/// reach, as the action steps at the ticks alone (#617); a walk ends the strike (`0x4E4CF0`,
-/// `0x4EA1F0`). A shot plays its clip at its attack speed times its chain, and at the first tick
+/// first fraction (0.5 for one of 0), or at its end, sends a hit of its share when the target is
+/// then within reach; a creature of the heroes' class alone a second, where its clip's second
+/// fraction is above 0 or with two weapons whatever the clip (#2748, #3686), as the action steps
+/// at the ticks alone (#617); a walk ends the strike (`0x4E4CF0`, `0x4EA1F0`). A shot plays its clip at its attack speed times its chain, and at the first tick
 /// past the clip's first fraction, or at its end, looses its arrow (`arrows::Loose`, `0x4DD90E`);
 /// a shot of bolts plays its bolt's clip at its own rate, its stand-in where the model lacks it,
 /// and sends its bolts in place of the arrow (`bolts::Fire`, `0x4DCB80`, #2899); one whose model
@@ -13682,14 +13682,20 @@ fn strike(
         };
         let done = active.seek_time() / length;
         // At a tick, or as the clip ends between two, which the next tick's thought then sees; a
-        // second hit with two weapons whatever the clip (`0x4EA1F0`, #2748).
+        // second hit for a creature of the heroes' class alone, with two weapons whatever the clip
+        // (`0x4EA1F0`, `0x4E726C`, #2748, #3686); the first marked whether or not the target is
+        // within reach (`0x4EA304`), so that one beyond it takes nothing that swing.
         let due = (tick.seconds.is_some() || active.is_finished())
             && match (strikes.shot, strikes.struck) {
                 (Some(_), 0) => opensacred_rules::minds::looses(fractions[0], done),
                 (Some(_), _) => false,
-                (None, struck) => {
-                    opensacred_rules::minds::hit_due(fractions, struck, done, npc.hits.class)
-                }
+                (None, struck) => opensacred_rules::minds::hit_due(
+                    fractions,
+                    struck,
+                    done,
+                    npc.hits.class,
+                    mind.is_some_and(|mind| mind.class == minds::HEROES_CLASS),
+                ),
             };
         if due && strikes.shot.is_some() {
             strikes.struck += 1;
