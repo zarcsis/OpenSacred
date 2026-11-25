@@ -120,6 +120,21 @@ pub fn unbias(descriptor: &mut RenderPipelineDescriptor) {
     }
 }
 
+/// Keeps the frame's alpha as it is under a pipeline's blended colour: the share of a pixel that
+/// the night's pass darkens, which a black that adds no colour leaves alone (`night.wesl`, #3693).
+pub fn keep_alpha(fragment: &mut bevy::render::render_resource::FragmentState) {
+    use bevy::render::render_resource::{BlendComponent, BlendFactor, BlendOperation};
+    if let Some(Some(target)) = fragment.targets.first_mut()
+        && let Some(blend) = target.blend.as_mut()
+    {
+        blend.alpha = BlendComponent {
+            src_factor: BlendFactor::Zero,
+            dst_factor: BlendFactor::One,
+            operation: BlendOperation::Add,
+        };
+    }
+}
+
 /// `base` in `layer`.
 pub fn sorted(base: StandardMaterial, layer: Layer) -> Sorted {
     Sorted {
