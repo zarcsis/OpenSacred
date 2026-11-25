@@ -19,8 +19,25 @@ use crate::npcs::Dies;
 use crate::spawning::Rng;
 
 /// The counts of the hero's effects 18, each in the entry's first word (`+8`), in their order.
-#[derive(Component, Default)]
-struct Counts(Vec<u32>);
+#[derive(Component, Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Counts(Vec<u32>);
+
+impl bevy::ecs::entity::MapEntities for Counts {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// The counts of the hero's glances, which a save keeps (#3765).
+impl crate::doings::Saves for Counts {
+    type Saved = Counts;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(self.clone())
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
+}
 
 /// The dice of the strikes' targets and kinds (`0x562730`'s `rand`).
 #[derive(Resource)]

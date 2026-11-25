@@ -36,13 +36,35 @@ pub(crate) const TRAMPLE_SPARKS: u16 = 1014;
 /// most one strike deals (its factor), the seconds left, the horse's place at its last move, and
 /// its strikes sent but not yet resolved, each its target, the most health it may take and the
 /// passes since.
-#[derive(Component, Clone, Debug, PartialEq)]
+#[derive(Component, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Trampling {
     pub value: f32,
     pub factor: f32,
     pub left: f32,
     at: Vec3,
+    #[serde(with = "crate::names::trampled")]
     pending: Vec<(Entity, f32, u8)>,
+}
+
+impl bevy::ecs::entity::MapEntities for Trampling {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        for (entity, ..) in &mut self.pending {
+            *entity = mapper.get_mapped(*entity);
+        }
+    }
+}
+
+/// A trample under way, which a save keeps with its creatures to strike by their names (#3765).
+impl crate::doings::Saves for Trampling {
+    type Saved = Trampling;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(self.clone())
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 /// How many passes a strike sent waits for its resolution before it no longer holds back the
@@ -412,6 +434,45 @@ fn fight_f32(value: u32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_trample_saved_keeps_its_creatures_to_strike_by_their_names() {
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut saved = App::new();
+        saved.add_plugins(NamesPlugin);
+        let wolf = saved.world_mut().spawn(Named(Id::Born(5))).id();
+        let trampling = Trampling {
+            value: 40.0,
+            factor: 1.5,
+            left: 0.6,
+            at: Vec3::ZERO,
+            pending: vec![(wolf, 0.2, 1)],
+        };
+        let mut refs = Refs::default();
+        let kept = mapped(
+            trampling.clone(),
+            &mut Saving {
+                world: saved.world(),
+                refs: &mut refs,
+            },
+        );
+        let bytes = postcard::to_stdvec(&(&refs, &kept)).unwrap();
+        let (refs, kept): (Refs, Trampling) = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..3).map(|_| ()));
+        let again = loaded.world_mut().spawn(Named(Id::Born(5))).id();
+        let back = mapped(
+            kept,
+            &mut Loading {
+                refs: &refs,
+                names: loaded.world().resource::<Names>(),
+                lost: 0,
+            },
+        );
+        assert_eq!(back.pending, vec![(again, 0.2, 1)]);
+        assert_eq!((back.value, back.left), (40.0, 0.6));
+    }
 
     #[test]
     fn a_trample_waits_for_its_regeneration() {

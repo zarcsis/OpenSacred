@@ -31,12 +31,29 @@ use crate::{iso, models};
 /// The hero's throw of its weapon, as the art's clip reaches it (`making`): where its target
 /// stood, the art's level in play and its factor, and the seconds its clip still plays, through
 /// which the hero's action stays the art's (`0x4FF0B0`; docs/re/arts.md, "The Gladiator's").
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Hurls {
     pub at: Vec3,
     pub level: u32,
     pub factor: f32,
     pub clip_left: f32,
+}
+
+impl bevy::ecs::entity::MapEntities for Hurls {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// The hero's hurling, which a save keeps (#3765).
+impl crate::doings::Saves for Hurls {
+    type Saved = Hurls;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 /// A weapon in flight: its arc's ends on the ground, its height, its time and the time flown, the
