@@ -108,6 +108,7 @@ Written on the render thread, the time and the rates take at once: 20:20 gives t
 
 The engine (`cEngine` at `0xAD6EF8`, docs/re/window.md) keeps its world views at `+0x08` and the current one's index at `+0x48` (`u16`).
 A view's zoom is its float at `+0xB60` (docs/re/drawing.md): `cWorldView_setZoom` (`0x628130`) and `cWorldView_addZoom` (`0x628310`) set it or add to it, held within 0.5 and 2, and set the device's projection, an orthographic one of `±267` by `±200` times the zoom, so they run on the render thread; `cEngine_handleZoomInput` (`0x60DD20`) then eases a zoom between 0.5, 1 and 2 toward the nearest of them, frame by frame (observed: `zoom 2` held).
+A new game's view starts at the zoom 1, a save keeps each view's zoom and its load gives it back, and no key of `Settings.cfg` holds one (docs/re/saves.md, "What a load puts back"; read 2026-11-25 for #3739, **confirmed** by code and **seen**).
 The view's sixth virtual function takes a pixel of the window to a position on the ground's plane (the cursor's update, `cEngine::updateWorldCursor`, `0x611E70`, calls it before it finds the cell under the cursor with `0x616AD0`, docs/re/movement.md, "The cursor's point"); being affine, three of its answers give the pixel of a cell, without the ground's heights.
 Observed: a cell 2 and 4 cells off the hero at (418, 530) of the window; a click there walked the hero onto it.
 
