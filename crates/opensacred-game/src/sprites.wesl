@@ -18,8 +18,9 @@ import package::{order, post::post_process};
 /// statics' shadows, which fade by night.
 @group(constants::MATERIAL_BIND_GROUP) @binding(1) var<uniform> tint: vec4<f32>;
 /// What the sprites of the fading types fade about (`statics::Fade`): the radius, the alpha at a
-/// point and the count of the points; then each point on the original's screen and its place in
-/// the order, in their order of drawing (`fade_points`).
+/// point, the count of the points and the deeper fade's `k`; then each point on the original's
+/// screen with 1 where it has a first fading sprite, its place in the order and that sprite's
+/// place, in their order of drawing (`fade_points`).
 @group(constants::MATERIAL_BIND_GROUP) @binding(2) var<storage, read> fade: array<vec4<f32>>;
 
 struct Vertex {
@@ -55,7 +56,8 @@ struct VertexOutput {
     /// than over the floor's part (`fragment_on_floor`); a plane, linear across the screen.
     @location(4) floor: f32,
     @location(5) footprint: vec2<f32>,
-    /// The depth of the sprite's place in the order, which the points' places are tested against.
+    /// The sprite's place in the order toward the camera (`order::toward`), which the points'
+    /// places are tested against.
     @location(6) @interpolate(flat) order: f32,
 };
 
@@ -109,7 +111,7 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     out.floor = order::depth(vertex.floor, 0.0);
     out.footprint = vertex.footprint;
     out.fades = vertex.fades;
-    out.order = order::depth(vertex.anchor, 0.0);
+    out.order = order::toward(vertex.anchor, 0.0);
     return out;
 }
 
@@ -177,13 +179,19 @@ fn sampled(uv: vec2<f32>, source: vec4<i32>, alpha: f32, level: f32) -> vec4<f32
     return mix(near, filtered(uv, source, alpha, u32(low) + 1u), t);
 }
 
-/// The alpha out of 1 of the point at `screen` of a fading sprite whose place lies at the depth
-/// `depth` in the order (`0x62FF60`): of the last point in the order drawn before the sprite whose
-/// radius holds it across and down, from the alpha at the point to 1 at the radius' distance;
-/// else 1. Per point here, where the original gives each corner of its sprites' pieces of 64
-/// pixels this alpha and lets the rasterizer blend it between them
-/// (docs/decisions/drawing.md, "Trees' fade per pixel"). The same as `statics::TreeFade::about`.
-fn faded(screen: vec2<f32>, depth: f32) -> f32 {
+/// The pixels of the box's edge over which a point's `k` fades out (`statics::FADE_EDGE`).
+const FADE_EDGE: f32 = 64.0;
+
+/// The alpha out of 1 of the point at `screen` of a fading sprite whose place lies at `place`
+/// in the order (`order::toward`) (`0x62FF60`): of the last point in the order drawn before the sprite whose radius
+/// holds it across and down, `G·(1 − k) + (255 − G)·t` out of 255, `t` the distance over the
+/// radius held at 1, `k` 0 up to the point's first fading sprite and the deeper fade's after it,
+/// its part fading out over the box's outermost [`FADE_EDGE`] pixels; else 1. Per point here,
+/// where the original gives each corner of its sprites' pieces of 64 pixels this alpha and lets
+/// the rasterizer blend it between them, and `k` at once where the original's rises sprite by
+/// sprite (docs/decisions/drawing.md, "Trees' fade per pixel", "Trees' deeper fade from the
+/// second on"). The same as `statics::TreeFade::about`.
+fn faded(screen: vec2<f32>, place: f32) -> f32 {
     let radius = fade[0].x;
     var alpha = 1.0;
     if radius <= 0.0 {
@@ -191,15 +199,20 @@ fn faded(screen: vec2<f32>, depth: f32) -> f32 {
     }
     let count = u32(fade[0].z);
     for (var i = 0u; i < count; i ++) {
-        // Drawn after the point: nearer than its place in the reversed depth.
-        if depth <= order::depth(fade[2u + 2u * i], 0.0) {
+        let point = fade[1u + 3u * i];
+        let offset = screen - point.xy;
+        if abs(offset.x) >= radius || abs(offset.y) >= radius {
             continue;
         }
-        let offset = screen - fade[1u + 2u * i].xy;
-        if abs(offset.x) < radius && abs(offset.y) < radius {
-            let t = min(length(offset) / radius, 1.0);
-            alpha = (fade[0].y + (255.0 - fade[0].y) * t) / 255.0;
+        // Drawn after the point: nearer than its place.
+        if place <= order::toward(fade[2u + 3u * i], 0.0) {
+            continue;
         }
+        let deeper = point.z > 0.5 && place > order::toward(fade[3u + 3u * i], 0.0);
+        let k = select(0.0, fade[0].w, deeper);
+        let t = min(length(offset) / radius, 1.0);
+        let edge = clamp((radius - max(abs(offset.x), abs(offset.y))) / FADE_EDGE, 0.0, 1.0);
+        alpha = (fade[0].y * (1.0 - k * edge) + (255.0 - fade[0].y) * t) / 255.0;
     }
     return alpha;
 }

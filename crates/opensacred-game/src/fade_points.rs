@@ -2,9 +2,10 @@
 //! the heroes"): as `0x62FF60` passes the creatures in its lists it adds a point for the local
 //! hero, the horse it rides, its followers, a creature hostile to it with a ranged weapon in hand
 //! while the hero lives, and any creature that fights, each the middle of its rectangle on the
-//! screen (`0x44CF20`), up to 100; a sprite of a fading type drawn after a point fades about it
-//! (`statics::Fade`, `sprites.wesl`). The game keeps the 100 nearest the hero, in the order the
-//! lists draw them.
+//! screen (`0x44CF20`), up to 99; a sprite of a fading type drawn after a point fades about it
+//! (`statics::Fade`, `sprites.wesl`). The game keeps the 99 nearest the hero, in the order the
+//! lists draw them, each with the first sprite of a fading type drawn after it whose rectangle
+//! meets its box, after which the sprites fade deeper about it (`statics::first_fading`, #3292).
 
 use bevy::prelude::*;
 use bevy::render::storage::ShaderBuffer;
@@ -12,7 +13,7 @@ use opensacred_rules::pick;
 
 use crate::frame::Step;
 use crate::iso;
-use crate::statics::{FADE_POINTS, Fade, TreeFade};
+use crate::statics::{FADE_POINTS, Fade, Fading, TreeFade, first_fading};
 
 /// The point that a creature of the type `kind` standing at `at` fades the sprites about, on the
 /// original's screen in its pixels at zoom 1: the middle of its rectangle there (`0x44CF20`,
@@ -44,10 +45,13 @@ type Creatures<'w, 's> = Query<
 /// (`+0x251`, the flags `0x104` of `+0x1F4`, in the hero's list of followers); a creature hostile
 /// to the hero holding a ranged weapon (`0x549000`, `0x54A2A0`), while the hero lives; and a
 /// creature that fights (the AI's state 4 or 8, `+0x104`, or its other states of a fight with a
-/// target, `+0x158`). Of them the 100 nearest the hero, in the order of drawing of their places.
+/// target, `+0x158`). Of them the 99 nearest the hero, in the order of drawing of their places,
+/// each with its first fading sprite among the sprites shown (`0x6307BB`, `0x6309B5`): a
+/// building's parts hidden by its state are not drawn.
 fn gather(
     heroes: Query<(Entity, &Transform, &crate::fight::Health), With<crate::hero::Body>>,
     creatures: Creatures,
+    fading: Query<(&Fading, Option<&InheritedVisibility>)>,
     (arts, size): (Option<Res<crate::arts::HeroArts>>, Option<Res<TreeFade>>),
     (mut fade, mut buffers): (ResMut<Fade>, ResMut<Assets<ShaderBuffer>>),
 ) {
@@ -82,14 +86,26 @@ fn gather(
     }
     points.sort_by(|a, b| a.0.total_cmp(&b.0));
     points.truncate(FADE_POINTS);
-    let mut placed: Vec<(Vec2, Vec4)> = points
+    let mut placed: Vec<(f64, Vec2, Vec4)> = points
         .into_iter()
-        .map(|(_, at, point)| (point, crate::models::place_of(at)))
+        .map(|(_, at, point)| {
+            let place = crate::models::place_of(at);
+            (crate::statics::nearness(place.to_array()), point, place)
+        })
         .collect();
-    placed.sort_by(|a, b| {
-        crate::statics::nearness(a.1.to_array())
-            .total_cmp(&crate::statics::nearness(b.1.to_array()))
-    });
+    placed.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let shown: Vec<&Fading> = fading
+        .iter()
+        .filter(|(_, shown)| shown.is_none_or(|shown| shown.get()))
+        .map(|(fading, _)| fading)
+        .collect();
+    let placed: Vec<(Vec2, Vec4, Option<[f32; 4]>)> = placed
+        .into_iter()
+        .map(|(after, point, place)| {
+            let first = first_fading(after, point, size.radius, shown.iter().copied());
+            (point, place, first)
+        })
+        .collect();
     fade.keep(*size, &placed, &mut buffers);
 }
 

@@ -92,6 +92,8 @@ struct Batch {
     /// Each quad's [`nearness`] and first vertex, until the indices take their order.
     quads: Vec<(f64, u32)>,
     indices: Vec<u32>,
+    /// Its sprites of a fading type, for the points' first ([`Fading`]).
+    fading: Vec<Faded>,
 }
 
 /// What places a vertex's sprite in depth (`sprites.wesl`): the centre of its cell at height 0
@@ -1055,6 +1057,7 @@ fn add_quad(batches: &mut BTreeMap<BatchKey, Batch>, pending: Pending) -> Result
         on_floor: false,
         quads: Vec::new(),
         indices: Vec::new(),
+        fading: Vec::new(),
     });
     // The texels map onto the quad one to one; the shader samples only the texels whose centres
     // lie within the quad's source, where filtering would blend in the texels around them.
@@ -1094,6 +1097,17 @@ fn add_quad(batches: &mut BTreeMap<BatchKey, Batch>, pending: Pending) -> Result
     ];
     batch.sources.extend([texels; 4]);
     batch.quads.push((nearness(placed), first));
+    // A fading sprite at the place the shader takes, its first corner's.
+    if quad.fades && matches!(quad.texture, Texture::Page(_)) {
+        let anchor = spot.anchor_at(screens[0]);
+        let low = screens.into_iter().reduce(Vec2::min).unwrap_or_default();
+        let high = screens.into_iter().reduce(Vec2::max).unwrap_or_default();
+        batch.fading.push(Faded {
+            near: nearness(anchor),
+            anchor,
+            rect: [low.x, low.y, high.x, high.y],
+        });
+    }
     Ok(())
 }
 
@@ -1269,6 +1283,7 @@ pub fn build(
         add_quad(&mut batches, quad)?;
     }
     for batch in batches.values_mut() {
+        batch.fading.sort_by(|a, b| a.near.total_cmp(&b.near));
         batch.quads.sort_by(|a, b| a.0.total_cmp(&b.0));
         for &(_, first) in &batch.quads {
             batch
@@ -1374,41 +1389,134 @@ impl TreeFade {
     }
 
     /// The alpha out of 1 that a sprite takes at `offset` from the point it fades about, in the
-    /// original's pixels at zoom 1: within the radius across and down, from the alpha at the
-    /// point to 1 at the radius' distance, else 1 (`0x62FF60`). As `sprites.wesl` has it, for the
-    /// tests.
+    /// original's pixels at zoom 1, the point's `k` 0 or [`FADE_DEEPER`]: within the radius
+    /// across and down, `G·(1 − k) + (255 − G)·t` out of 255, `t` the distance over the radius
+    /// held at 1, `k`'s part fading out over the box's outermost [`FADE_EDGE`] pixels; else 1
+    /// (`0x62FF60`; docs/decisions/drawing.md, "Trees' deeper fade from the second on"). As
+    /// `sprites.wesl` has it, for the tests.
     #[cfg(test)]
-    fn at(&self, offset: Vec2) -> f32 {
+    fn at(&self, offset: Vec2, k: f32) -> f32 {
         if self.radius <= 0.0 || offset.x.abs() >= self.radius || offset.y.abs() >= self.radius {
             return 1.0;
         }
         let t = (offset.length() / self.radius).min(1.0);
-        (self.alpha + (255.0 - self.alpha) * t) / 255.0
+        let edge = ((self.radius - offset.x.abs().max(offset.y.abs())) / FADE_EDGE).clamp(0.0, 1.0);
+        (self.alpha * (1.0 - k * edge) + (255.0 - self.alpha) * t) / 255.0
     }
+
     /// The alpha out of 1 that a sprite drawn at the place `order` takes at `at` from `points`,
-    /// each a point and its place, in their order of drawing: that of the last point drawn before
-    /// the sprite whose radius holds `at` across and down, else 1 (`0x62FF60`). As `sprites.wesl`
+    /// each a point, its place and the place of its first fading sprite, in their order of
+    /// drawing: that of the last point drawn before the sprite whose radius holds `at` across and
+    /// down, of `k` [`FADE_DEEPER`] past its first sprite, else 1 (`0x62FF60`). As `sprites.wesl`
     /// has it, for the tests.
     #[cfg(test)]
-    fn about(&self, points: &[(Vec2, f64)], order: f64, at: Vec2) -> f32 {
+    fn about(&self, points: &[(Vec2, f64, Option<f64>)], order: f64, at: Vec2) -> f32 {
         let mut alpha = 1.0;
-        for &(point, place) in points {
+        for &(point, place, first) in points {
             let offset = at - point;
             if order > place && offset.x.abs() < self.radius && offset.y.abs() < self.radius {
-                alpha = self.at(offset);
+                let deeper = first.is_some_and(|first| order > first);
+                alpha = self.at(offset, if deeper { FADE_DEEPER } else { 0.0 });
             }
         }
         alpha
     }
 }
 
-/// How many points the sprites fade about at most (`0x62FF60`'s list at `+0x96B3C`).
-pub const FADE_POINTS: usize = 100;
+/// The `k` of a point once a fading sprite has faded about it, the cap of its rise (the float
+/// at `0x890820`): the sprites drawn after its first fade to a fifth of `TransValu` at the point
+/// (docs/re/drawing.md, "The trees about the heroes").
+pub const FADE_DEEPER: f32 = 0.8;
+
+/// The pixels of the box's edge over which a point's `k` fades out, where the original's piece
+/// of 64 pixels straddling the box's edge blends its corners' alphas: `sprites.wesl`'s, for the
+/// tests.
+#[cfg(test)]
+const FADE_EDGE: f32 = 64.0;
+
+/// A fading sprite of a batch ([`Fading`]): its [`nearness`], its anchor as the shader takes it
+/// (its first corner's), and its rectangle on the original's screen in its pixels at zoom 1,
+/// `x0, y0, x1, y1`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Faded {
+    near: f64,
+    anchor: [f32; 4],
+    rect: [f32; 4],
+}
+
+/// The sprites of a fading type of a batch of a sector's sprites in their order of drawing, and
+/// the rectangle that holds them all, among which each point's first is sought
+/// ([`first_fading`], #3292).
+#[derive(bevy::prelude::Component, Clone, Debug, PartialEq)]
+pub struct Fading {
+    sprites: Vec<Faded>,
+    bounds: [f32; 4],
+}
+
+impl Fading {
+    /// The fading sprites `sprites`, in their order of drawing; none for none.
+    fn of(sprites: Vec<Faded>) -> Option<Self> {
+        let bounds = sprites.iter().map(|sprite| sprite.rect).reduce(|a, b| {
+            [
+                a[0].min(b[0]),
+                a[1].min(b[1]),
+                a[2].max(b[2]),
+                a[3].max(b[3]),
+            ]
+        })?;
+        Some(Self { sprites, bounds })
+    }
+}
+
+/// The first sprite of a fading type drawn after a point at the place `after` in the order whose
+/// rectangle meets the box of `radius` across and down about the point at `point` on the
+/// original's screen, among `batches`: its anchor, its place in the cell raised by half a place,
+/// so that the shader fades it and those drawn before it to `TransValu` about the point and those
+/// after it to a fifth of it (`0x6307BB`, `0x6309B5`; docs/decisions/drawing.md, "Trees' deeper
+/// fade from the second on").
+pub fn first_fading<'a>(
+    after: f64,
+    point: Vec2,
+    radius: f32,
+    batches: impl IntoIterator<Item = &'a Fading>,
+) -> Option<[f32; 4]> {
+    let meets = |rect: [f32; 4]| {
+        rect[0] < point.x + radius
+            && rect[2] > point.x - radius
+            && rect[1] < point.y + radius
+            && rect[3] > point.y - radius
+    };
+    let mut first: Option<&Faded> = None;
+    for batch in batches {
+        if !meets(batch.bounds) {
+            continue;
+        }
+        let start = batch.sprites.partition_point(|sprite| sprite.near <= after);
+        for sprite in &batch.sprites[start..] {
+            if first.is_some_and(|first| sprite.near >= first.near) {
+                break;
+            }
+            if meets(sprite.rect) {
+                first = Some(sprite);
+                break;
+            }
+        }
+    }
+    first.map(|sprite| {
+        let [x, y, z, chain] = sprite.anchor;
+        [x, y, z, chain + 0.5]
+    })
+}
+
+/// How many points the sprites fade about at most (`0x62FF60`'s list at `+0x96B3C`, whose count
+/// stops at 99, `0x631665`).
+pub const FADE_POINTS: usize = 99;
 
 /// What the sprites fade about, for the sprites' shader (`sprites.wesl`): [`TreeFade`]'s radius
-/// and alpha and the count of the points, then each point on the original's screen and its place
-/// in the order of drawing, which only the sprites drawn after it fade about, in their order of
-/// drawing (`fade_points`). One buffer that every sprite material shares.
+/// and alpha, the count of the points and [`FADE_DEEPER`], then each point on the original's
+/// screen with whether it has a first fading sprite, its place in the order of drawing, which only
+/// the sprites drawn after it fade about, and its first fading sprite's place ([`first_fading`]),
+/// in their order of drawing (`fade_points`). One buffer that every sprite material shares.
 #[derive(Resource)]
 pub struct Fade {
     pub buffer: Handle<ShaderBuffer>,
@@ -1429,15 +1537,17 @@ impl FromWorld for Fade {
 }
 
 impl Fade {
-    /// The buffer's data of `size` and `points`, each a point on the original's screen and its
-    /// place, up to [`FADE_POINTS`] of them.
-    fn data(size: TreeFade, points: &[(Vec2, Vec4)]) -> Vec<[f32; 4]> {
+    /// The buffer's data of `size` and `points`, each a point on the original's screen, its
+    /// place and its first fading sprite's, up to [`FADE_POINTS`] of them.
+    fn data(size: TreeFade, points: &[(Vec2, Vec4, Option<[f32; 4]>)]) -> Vec<[f32; 4]> {
         let points = &points[..points.len().min(FADE_POINTS)];
         let count = u16::try_from(points.len()).map_or(0.0, f32::from);
-        let mut data = vec![[size.radius, size.alpha, count, 0.0]];
-        for (point, place) in points {
-            data.push([point.x, point.y, 0.0, 0.0]);
+        let mut data = vec![[size.radius, size.alpha, count, FADE_DEEPER]];
+        for (point, place, first) in points {
+            let has_first = if first.is_some() { 1.0 } else { 0.0 };
+            data.push([point.x, point.y, has_first, 0.0]);
             data.push(place.to_array());
+            data.push(first.unwrap_or_default());
         }
         data
     }
@@ -1446,7 +1556,7 @@ impl Fade {
     pub fn keep(
         &mut self,
         size: TreeFade,
-        points: &[(Vec2, Vec4)],
+        points: &[(Vec2, Vec4, Option<[f32; 4]>)],
         buffers: &mut Assets<ShaderBuffer>,
     ) {
         let data = Self::data(size, points);
@@ -1534,7 +1644,8 @@ pub fn spawn(
         .into_iter()
         .map(|floor| commands.spawn(floor).id())
         .collect();
-    for batch in statics.batches {
+    for mut batch in statics.batches {
+        let fading = Fading::of(std::mem::take(&mut batch.fading));
         // The sprites are tested against the original's reference, the miniatures are not
         // (docs/re/drawing.md, "Blending"); a shadow's texels are all translucent.
         let passes: Vec<Handle<SpriteMaterial>> = match batch.texture {
@@ -1568,8 +1679,14 @@ pub fn spawn(
             .with_inserted_attribute(ATTRIBUTE_FOOTPRINT, batch.footprints)
             .with_inserted_indices(Indices::U32(batch.indices)),
         );
-        for material in passes {
+        for (pass, material) in passes.into_iter().enumerate() {
             let mut entity = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material)));
+            // The body's pass keeps the batch's fading sprites, once.
+            if pass == 0
+                && let Some(fading) = fading.clone()
+            {
+                entity.insert(fading);
+            }
             // A building's parts show while its state is their mask, the shells' outside.
             if let Some((building, mask)) = batch.part {
                 let visibility = if mask == buildings::OUTSIDE {
@@ -2387,7 +2504,11 @@ pub(crate) mod tests {
         // Two objects in the chain of cell (5, 5), one in the next cell of its diagonal, and one
         // of the diagonal behind. The cell (5, 5) lies 5 pixels higher than the next, as the
         // chapel's wall beside its cabinet (#112), and the cell behind as high as a cell goes:
-        // neither height changes the order.
+        // neither height changes the order. The second and the one behind of a fading type.
+        let fading = |object: StaticObject| StaticObject {
+            type_flags: FADES,
+            ..object
+        };
         let mut cells = vec![cell; SIDE * SIDE];
         cells[5 * SIDE + 5].heights = [5; 4];
         cells[4 * SIDE + 4].heights = [i8::MAX; 4];
@@ -2397,7 +2518,12 @@ pub(crate) mod tests {
             id: 0,
             liquids: [0; 2],
             cells,
-            statics: vec![object(5, 5), object(5, 5), object(6, 4), object(4, 4)],
+            statics: vec![
+                object(5, 5),
+                fading(object(5, 5)),
+                object(6, 4),
+                fading(object(4, 4)),
+            ],
             layers: Vec::new(),
             buildings: Vec::new(),
         };
@@ -2412,6 +2538,13 @@ pub(crate) mod tests {
         let quads: Vec<u32> = batch.indices.chunks(6).map(|q| q[0] / 4).collect();
         assert_eq!(quads, [3, 0, 1, 2]);
         assert!(nearness(behind) < nearness(first) && nearness(second) < nearness(next));
+        // Its fading sprites in their order, each at its anchor, over its 8 pixels square.
+        let fading: Vec<[f32; 4]> = batch.fading.iter().map(|faded| faded.anchor).collect();
+        assert_eq!(fading, [behind, second]);
+        assert!(batch.fading.iter().all(|faded| {
+            let [x0, y0, x1, y1] = faded.rect;
+            (x1 - x0, y1 - y0) == (8.0, 8.0) && faded.near == nearness(faded.anchor)
+        }));
         for (name, value) in [("ACROSS", ACROSS), ("CHAIN", CHAIN)] {
             let shader = f64::from(shader_constant(ORDER, name));
             assert!(
@@ -2462,7 +2595,7 @@ pub(crate) mod tests {
                 alpha: 50.0
             }
         );
-        let alpha = |x: f32, y: f32| (size.at(Vec2::new(x, y)) * 255.0).round();
+        let alpha = |x: f32, y: f32| (size.at(Vec2::new(x, y), 0.0) * 255.0).round();
         // 50 out of 255 at the hero, half way at 95 pixels, whole at 190 and beyond, and past the
         // radius' distance within its box.
         assert_eq!(alpha(0.0, 0.0), 50.0);
@@ -2470,8 +2603,21 @@ pub(crate) mod tests {
         assert_eq!(alpha(0.0, -190.0), 255.0);
         assert_eq!(alpha(150.0, 150.0), 255.0);
         // So the original's alpha test drops the faded texels within 13 pixels of the hero.
-        assert!(size.at(Vec2::new(13.0, 0.0)) * 255.0 < 64.5);
-        assert!(size.at(Vec2::new(14.0, 0.0)) * 255.0 > 64.5);
+        assert!(size.at(Vec2::new(13.0, 0.0), 0.0) * 255.0 < 64.5);
+        assert!(size.at(Vec2::new(14.0, 0.0), 0.0) * 255.0 > 64.5);
+        // Deeper, a fifth of it at the point, and a hole of 50 pixels.
+        let deeper = |x: f32, y: f32| size.at(Vec2::new(x, y), FADE_DEEPER) * 255.0;
+        assert!((deeper(0.0, 0.0) - 10.0).abs() < 1e-3);
+        assert!(deeper(50.0, 0.0) < 64.5 && deeper(51.0, 0.0) > 64.5);
+        // Within 126 pixels across and down its k whole; over the box's outer 64 its part fades
+        // out, past the radius' distance from 215 to 255 at the box's edge.
+        assert!((deeper(95.0, 0.0) - (10.0 + 102.5)).abs() < 1e-3);
+        assert!((deeper(150.0, 150.0) - (255.0 - 40.0 * 40.0 / 64.0)).abs() < 1e-3);
+        assert!(deeper(189.9, 0.0) > 254.5);
+        assert_eq!(
+            FADE_EDGE,
+            shader_constant(include_str!("sprites.wesl"), "FADE_EDGE")
+        );
     }
 
     #[test]
@@ -2480,8 +2626,8 @@ pub(crate) mod tests {
             radius: 190.0,
             alpha: 50.0,
         };
-        let a = (Vec2::ZERO, 1.0);
-        let b = (Vec2::new(100.0, 0.0), 2.0);
+        let a = (Vec2::ZERO, 1.0, None);
+        let b = (Vec2::new(100.0, 0.0), 2.0, None);
         let alpha = |order: f64, at: Vec2| (size.about(&[a, b], order, at) * 255.0).round();
         // Drawn before both points, it stays whole; after the first, it fades about it alone.
         assert_eq!(alpha(0.5, Vec2::ZERO), 255.0);
@@ -2491,19 +2637,63 @@ pub(crate) mod tests {
         assert_eq!(alpha(2.5, Vec2::ZERO), 158.0);
         assert_eq!(alpha(2.5, Vec2::new(150.0, 0.0)), 104.0);
         assert_eq!(alpha(2.5, Vec2::new(-120.0, 0.0)), 179.0);
-        // The buffer's layout: the radius, the alpha and the count, then each point and place.
+        // Past the point's first fading sprite, at 1.2, deeper: that sprite and those before it
+        // to 50 at the point, those after it to 10.
+        let first = (Vec2::ZERO, 1.0, Some(1.2));
+        let deeper = |order: f64| (size.about(&[first], order, Vec2::ZERO) * 255.0).round();
+        assert_eq!((deeper(0.5), deeper(1.1), deeper(1.5)), (255.0, 50.0, 10.0));
+        // The buffer's layout: the radius, the alpha, the count and the deeper fade's k, then
+        // each point with whether it has a first sprite, its place and its first sprite's place.
         let place = Vec4::new(1.0, 2.0, 3.0, 4.0);
-        let data = Fade::data(size, &[(Vec2::new(5.0, 6.0), place)]);
+        let data = Fade::data(
+            size,
+            &[
+                (Vec2::new(5.0, 6.0), place, None),
+                (Vec2::new(7.0, 8.0), place, Some([9.0, 10.0, 11.0, 12.5])),
+            ],
+        );
         assert_eq!(
             data,
             vec![
-                [190.0, 50.0, 1.0, 0.0],
+                [190.0, 50.0, 2.0, FADE_DEEPER],
                 [5.0, 6.0, 0.0, 0.0],
-                [1.0, 2.0, 3.0, 4.0]
+                [1.0, 2.0, 3.0, 4.0],
+                [0.0; 4],
+                [7.0, 8.0, 1.0, 0.0],
+                [1.0, 2.0, 3.0, 4.0],
+                [9.0, 10.0, 11.0, 12.5]
             ]
         );
-        let many = vec![(Vec2::ZERO, place); FADE_POINTS + 5];
-        assert_eq!(Fade::data(size, &many).len(), 1 + 2 * FADE_POINTS);
+        let many = vec![(Vec2::ZERO, place, None); FADE_POINTS + 5];
+        assert_eq!(Fade::data(size, &many).len(), 1 + 3 * FADE_POINTS);
+    }
+
+    #[test]
+    fn a_points_first_fading_sprite_is_the_earliest_after_it_that_meets_its_box() {
+        let sprite = |near: f64, x: f32| Faded {
+            near,
+            anchor: [x, 0.0, 0.0, 3.0],
+            rect: [x, -50.0, x + 100.0, 50.0],
+        };
+        // Two batches of sprites in their order, far right and near the point.
+        let one = Fading::of(vec![sprite(1.0, 0.0), sprite(3.0, 0.0), sprite(5.0, 400.0)]).unwrap();
+        let two = Fading::of(vec![sprite(2.0, 400.0), sprite(4.0, -150.0)]).unwrap();
+        assert_eq!(one.bounds, [0.0, -50.0, 500.0, 50.0]);
+        let first = |after: f64| first_fading(after, Vec2::ZERO, 190.0, [&one, &two]);
+        // The earliest after the point whose rectangle meets the box, its place raised a half.
+        assert_eq!(first(0.5), Some([0.0, 0.0, 0.0, 3.5]));
+        assert_eq!(first(1.0), Some([0.0, 0.0, 0.0, 3.5]));
+        assert_eq!(first(3.0), Some([-150.0, 0.0, 0.0, 3.5]));
+        // None after the last that meets it, and none whose rectangle stays out of the box.
+        assert_eq!(first(4.0), None);
+        assert_eq!(
+            first_fading(0.0, Vec2::new(0.0, 300.0), 190.0, [&one, &two]),
+            None
+        );
+        // A rectangle's edge on the box's edge does not meet it.
+        let edge = Fading::of(vec![sprite(1.0, 190.0)]).unwrap();
+        assert_eq!(first_fading(0.0, Vec2::ZERO, 190.0, [&edge]), None);
+        assert!(Fading::of(Vec::new()).is_none());
     }
 
     #[test]
