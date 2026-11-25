@@ -140,8 +140,10 @@ fn read(mut commands: Commands, data: Option<Res<crate::game::Data>>) {
 pub type ApartMaterial = ExtendedMaterial<StandardMaterial, Under>;
 
 /// The effect's texture and the glow's under an [`ApartMaterial`]'s texels, and their offsets,
-/// the effect's in `x` and `y`, the glow's in `z` and `w`.
+/// the effect's in `x` and `y`, the glow's in `z` and `w`; and, for a figure of the choice of the
+/// hero, its two lights ([`TwoLights`]).
 #[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+#[bind_group_data(UnderKey)]
 pub struct Under {
     #[texture(103)]
     #[sampler(104)]
@@ -155,9 +157,64 @@ pub struct Under {
     /// that draw no glow, in `x`.
     #[uniform(108)]
     glows: Vec4,
+    /// The share of the figures' second light, in `x` ([`TwoLights`]).
+    #[uniform(110)]
+    second: Vec4,
+    /// Whether it is a figure's, lit by the figures' two lights, else unlit or by Bevy's light as
+    /// its base has it.
+    figure: bool,
 }
 
-impl MaterialExtension for Under {
+/// What the pipeline of an [`ApartMaterial`] depends on beyond Bevy's own material: whether it is
+/// a figure's.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct UnderKey {
+    figure: bool,
+}
+
+impl From<&Under> for UnderKey {
+    fn from(under: &Under) -> Self {
+        Self {
+            figure: under.figure,
+        }
+    }
+}
+
+impl Under {
+    /// Lights a figure by its second light, the one under the cursor or chosen, or darkens it
+    /// ([`TwoLights::light`]).
+    pub fn light(&mut self, lit: bool) {
+        self.second = second(lit);
+    }
+}
+
+/// The material of a figure of the choice of the hero: Bevy's own, lit by the original's two
+/// lights of the figures in the frame's values (`0x6F1B30`, `0x6F1250`; docs/re/drawing.md, "The
+/// models drawn apart", #3726; `standard.wesl`'s `FIGURE_LIGHT`), in linear light.
+pub type FigureMaterial = ExtendedMaterial<StandardMaterial, TwoLights>;
+
+/// The share of the figures' second light that a figure takes, in `x`: the light's colour times
+/// white for the figure under the cursor or chosen and times black for the others (`0x642FD0`),
+/// so that it lights the front of that one alone.
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug, Default)]
+pub struct TwoLights {
+    #[uniform(110)]
+    second: Vec4,
+}
+
+impl TwoLights {
+    /// Lights a figure by its second light, or darkens it.
+    pub fn light(&mut self, lit: bool) {
+        self.second = second(lit);
+    }
+}
+
+/// The share of the figures' second light: whole for a figure lit, none for one dark.
+fn second(lit: bool) -> Vec4 {
+    Vec4::X * if lit { 1.0 } else { 0.0 }
+}
+
+impl MaterialExtension for TwoLights {
     /// The world's models' (`standard.wesl`), in linear light.
     fn fragment_shader() -> ShaderRef {
         crate::shaders::STANDARD.into()
@@ -177,8 +234,38 @@ impl MaterialExtension for Under {
             return Ok(());
         }
         if let Some(fragment) = descriptor.fragment.as_mut() {
+            fragment.shader_defs.push("FIGURE_LIGHT".into());
+            fragment.shader_defs.push("LINEAR".into());
+        }
+        Ok(())
+    }
+}
+
+impl MaterialExtension for Under {
+    /// The world's models' (`standard.wesl`), in linear light.
+    fn fragment_shader() -> ShaderRef {
+        crate::shaders::STANDARD.into()
+    }
+
+    fn specialize(
+        _pipeline: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        if descriptor
+            .vertex
+            .shader_defs
+            .contains(&ShaderDefVal::from("PREPASS_PIPELINE"))
+        {
+            return Ok(());
+        }
+        if let Some(fragment) = descriptor.fragment.as_mut() {
             fragment.shader_defs.push("EFFECT".into());
             fragment.shader_defs.push("LINEAR".into());
+            if key.bind_group_data.figure {
+                fragment.shader_defs.push("FIGURE_LIGHT".into());
+            }
         }
         Ok(())
     }
@@ -199,12 +286,14 @@ pub struct Making<'w> {
 
 impl Making<'_> {
     /// A material that draws a mesh of `base` over the effect `effect` apart from the world,
-    /// opaque, each texel over the effect by its alpha; none while the effect's textures load, as
-    /// a mesh of it would not be drawn until they are.
+    /// opaque, each texel over the effect by its alpha, a figure's lit by the figures' two lights
+    /// (`figure`, [`TwoLights`]); none while the effect's textures load, as a mesh of it would not
+    /// be drawn until they are.
     pub fn over(
         &mut self,
         base: StandardMaterial,
         effect: &Effect,
+        figure: bool,
     ) -> Option<Handle<ApartMaterial>> {
         let loaded = |image: &Handle<Image>| self.images.contains(image);
         if !loaded(&effect.effect) || !effect.glow.as_ref().is_none_or(loaded) {
@@ -221,6 +310,8 @@ impl Making<'_> {
                 glow: effect.glow.clone().unwrap_or_else(|| effect.effect.clone()),
                 offsets: Vec4::ZERO,
                 glows: Vec4::X * if effect.glow.is_some() { 1.0 } else { 0.0 },
+                second: Vec4::ZERO,
+                figure,
             },
         });
         self.made.0.push((handle.id(), effect.kind));
@@ -470,11 +561,14 @@ pub struct ModelEffectsPlugin;
 impl Plugin for ModelEffectsPlugin {
     fn build(&self, app: &mut App) {
         crate::shaders::embed_standard(app);
-        app.add_plugins(MaterialPlugin::<ApartMaterial>::default())
-            .init_resource::<Materials>()
-            .init_resource::<Apart>()
-            .add_systems(Startup, read)
-            .add_systems(Update, run);
+        app.add_plugins((
+            MaterialPlugin::<ApartMaterial>::default(),
+            MaterialPlugin::<FigureMaterial>::default(),
+        ))
+        .init_resource::<Materials>()
+        .init_resource::<Apart>()
+        .add_systems(Startup, read)
+        .add_systems(Update, run);
     }
 }
 

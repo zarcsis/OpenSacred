@@ -390,19 +390,20 @@ struct Figure {
     idle: String,
 }
 
-/// A figure's own copies of its meshes' materials with their colours and reflectances lit, which
-/// its light changes alone, and whether it stands lit.
+/// A figure's own copies of its meshes' materials, lit by the figures' two lights, whose second
+/// it changes alone, and whether it stands lit.
 #[derive(Component, Default)]
 struct Shades {
-    materials: Vec<(Shaded, Color, f32)>,
+    materials: Vec<Shaded>,
     lit: Option<bool>,
 }
 
-/// A figure's own copy of a mesh's material: Bevy's own, or one over its item's effect of the
-/// kinds 1 to 4, which the original draws on the figures as on a game's models (`0x6F1B30`,
+/// A figure's own copy of a mesh's material, lit by the figures' two lights
+/// (`model_effects::TwoLights`, #3726): Bevy's own, or one over its item's effect of the kinds 1
+/// to 4, which the original draws on the figures as on a game's models (`0x6F1B30`,
 /// `model_effects::ApartMaterial`; #1875).
 enum Shaded {
-    Plain(Handle<StandardMaterial>),
+    Plain(Handle<model_effects::FigureMaterial>),
     Over(Handle<model_effects::ApartMaterial>),
 }
 
@@ -677,11 +678,6 @@ const PLAIN: Color = Color::linear_rgb(198.0 / 255.0, 202.0 / 255.0, 187.0 / 255
 const MARKED: Color = LIT;
 /// How long the name's caret shows, and then hides, in milliseconds of real time.
 const BLINK: u128 = 300;
-/// The figures' light: a figure dark is all but a shape, the light from the top left and the
-/// ambient light of their scene.
-const DARK: Color = Color::srgb(0.09, 0.10, 0.12);
-const LIGHT: f32 = 4000.0;
-const AMBIENT: f32 = 600.0;
 
 /// The pedestal of the arrows' next choice from `chosen`, `step` figures on in the screen's
 /// order.
@@ -1008,22 +1004,9 @@ fn stage(
         eye,
         Tonemapping::None,
         DebandDither::Disabled,
-        // Lit by an ambient and a directional light alone: one cluster for the lights (#2664).
+        // Lit by the figures' own two lights in their materials (`model_effects::TwoLights`),
+        // no light of Bevy's: one cluster (#2664).
         bevy::light::cluster::ClusterConfig::Single,
-        AmbientLight {
-            color: Color::WHITE,
-            brightness: AMBIENT,
-            affects_lightmapped_meshes: true,
-        },
-        RenderLayers::layer(FIGURES),
-    )));
-    scope.bind(&mut commands.spawn((
-        DirectionalLight {
-            illuminance: LIGHT,
-            shadow_maps_enabled: false,
-            ..default()
-        },
-        Transform::from_xyz(-1.0, 1.2, 1.5).looking_at(Vec3::ZERO, Vec3::Y),
         RenderLayers::layer(FIGURES),
     )));
     for look in looks {
@@ -2711,7 +2694,10 @@ fn settle(
     layered: Query<(), With<RenderLayers>>,
     mut players: Query<&mut AnimationPlayer, Without<AnimationGraphHandle>>,
     meshes: Query<FigureMesh, Without<Owned>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    (materials, mut figure_materials): (
+        Res<Assets<StandardMaterial>>,
+        ResMut<Assets<model_effects::FigureMaterial>>,
+    ),
     (mut graphs, mut making): (ResMut<Assets<AnimationGraph>>, model_effects::Making),
 ) {
     for (figure, idle, mut shades) in &mut figures {
@@ -2733,25 +2719,26 @@ fn settle(
             let Some(own) = materials.get(material).cloned() else {
                 continue;
             };
-            let (colour, reflectance) = (own.base_color, own.reflectance);
             // A mesh over an effect waits for its textures, drawn as it is meanwhile.
             if let Some(effect) = effect {
-                let Some(own) = making.over(own, effect) else {
+                let Some(own) = making.over(own, effect, true) else {
                     continue;
                 };
-                shades
-                    .materials
-                    .push((Shaded::Over(own.clone()), colour, reflectance));
+                shades.materials.push(Shaded::Over(own.clone()));
                 commands
                     .entity(entity)
                     .remove::<MeshMaterial3d<StandardMaterial>>()
                     .insert((MeshMaterial3d(own), Owned));
             } else {
-                let own = materials.add(own);
-                shades
-                    .materials
-                    .push((Shaded::Plain(own.clone()), colour, reflectance));
-                commands.entity(entity).insert((MeshMaterial3d(own), Owned));
+                let own = figure_materials.add(model_effects::FigureMaterial {
+                    base: own,
+                    extension: model_effects::TwoLights::default(),
+                });
+                shades.materials.push(Shaded::Plain(own.clone()));
+                commands
+                    .entity(entity)
+                    .remove::<MeshMaterial3d<StandardMaterial>>()
+                    .insert((MeshMaterial3d(own), Owned));
             }
             shades.lit = None;
         }
@@ -2810,11 +2797,12 @@ fn hush(mut introduction: ResMut<Introduction>, channel: Option<Res<AudioChannel
     *introduction = Introduction::default();
 }
 
-/// Lights the figure under the cursor and the one chosen, the others dark.
+/// Lights the figure under the cursor and the one chosen by the figures' second light, the others
+/// by the first alone (`0x6F1B30`, `0x642FD0`; #3726).
 fn shade(
     choice: Res<Choice>,
     mut figures: Query<(&Figure, &mut Shades)>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<model_effects::FigureMaterial>>,
     mut aparts: ResMut<Assets<model_effects::ApartMaterial>>,
 ) {
     for (figure, mut shades) in &mut figures {
@@ -2823,20 +2811,16 @@ fn shade(
             continue;
         }
         shades.lit = Some(lit);
-        // A dark figure reflects no light either, which would leave it grey.
-        let shaded = if lit { None } else { Some((DARK, 0.0)) };
-        for (handle, colour, reflectance) in &shades.materials {
-            let (colour, reflectance) = shaded.unwrap_or((*colour, *reflectance));
+        for handle in &shades.materials {
             match handle {
                 Shaded::Plain(handle) => {
                     if let Some(mut material) = materials.get_mut(handle) {
-                        (material.base_color, material.reflectance) = (colour, reflectance);
+                        material.extension.light(lit);
                     }
                 }
                 Shaded::Over(handle) => {
                     if let Some(mut material) = aparts.get_mut(handle) {
-                        (material.base.base_color, material.base.reflectance) =
-                            (colour, reflectance);
+                        material.extension.light(lit);
                     }
                 }
             }
