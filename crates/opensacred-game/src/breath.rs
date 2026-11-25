@@ -3,7 +3,10 @@
 //! that may not be walked on, and burns each hostile creature it meets once
 //! (`opensacred_rules::arts::Burn`, kept on him, `burns`); as far as the point, at most 650, it
 //! stops, lays a pair of fires every 0.15 s across its line (`wall_spreads`), and goes; each fire
-//! burns for 10 s each creature it meets once.
+//! burns for 10 s each creature it meets once. At each bounce of its hop while it flies, one every
+//! 1.05 s, it leaves a small fire of the variant 1 on the ground, whose strikes are his
+//! (`fx::SmallFire`, `opensacred_rules::particles::breath_small_fire`), and a burst of sparks
+//! (`opensacred_rules::particles::bounce_sparks`, `puffs`; #3301).
 //! They look as their systems (#1092; docs/re/effects.md, "The breath of fire"): the breath leaves
 //! flames and smoke along its way while it flies, its glow at it and its light of 100 with it
 //! until its last flame dies (`opensacred_rules::particles::walloffire`); each fire of its wall
@@ -47,7 +50,8 @@ pub struct Fire {
 }
 
 /// A breath on its way: its fire, where it left, its direction, how far it flies, its time, its
-/// level, the creatures it has burned, and once stopped how many pairs of fires it has laid.
+/// level, the creatures it has burned, how many times it has bounced, and once stopped how many
+/// pairs of fires it has laid.
 #[derive(Component)]
 pub struct Breath {
     fire: Fire,
@@ -57,6 +61,7 @@ pub struct Breath {
     time: f32,
     level: Level,
     touched: Vec<Entity>,
+    bounces: usize,
     laid: Option<usize>,
 }
 
@@ -72,6 +77,7 @@ impl Breath {
             time: 0.0,
             level,
             touched: Vec::new(),
+            bounces: 0,
             laid: None,
         }
     }
@@ -406,8 +412,10 @@ pub(crate) fn wall_quads(fire: &particles::Fire, flames: &System) -> Quads {
     quads
 }
 
-/// Flies each breath a frame on, burns what it meets, and lays its wall where it stops
-/// (`0x5A6680`, `0x5AFB64`, `0x5B3F1C`).
+/// Flies each breath a frame on, burns what it meets, leaves a small fire of the variant 1 and a
+/// burst of sparks at each bounce of its hop while it flies (`0x5A6F46` to `0x5A6FC5`,
+/// `0x5AA560`: the objects 878 and 1009; #3301), and lays its wall where it stops (`0x5A6680`,
+/// `0x5AFB64`, `0x5B3F1C`).
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its queries with their filters"
@@ -417,7 +425,7 @@ fn breathe(
     time: Res<Time>,
     heights: Res<Heights>,
     looks: Res<Looks>,
-    mut meshes: ResMut<Assets<Mesh>>,
+    (mut meshes, mut small_fires): (ResMut<Assets<Mesh>>, MessageWriter<crate::fx::SmallFire>),
     mut breaths: Query<(Entity, &mut Breath, &mut Transform)>,
     creatures: Query<
         (
@@ -501,6 +509,26 @@ fn breathe(
         }
         let ground = heights.standing(at.x, at.y, breath.level).unwrap_or(0.0);
         transform.translation = Vec3::new(at.x, ground + breath_height(breath.time, RISE), at.y);
+        if particles::breath_bounced(breath.time - dt, breath.time) {
+            // Where it touches the ground, its small fire of the breath's caster, then its
+            // sparks of no caster.
+            let place = Vec3::new(at.x, ground, at.y);
+            small_fires.write(crate::fx::SmallFire {
+                at: place,
+                level: breath.level,
+                caster: Some(breath.fire.by),
+                breath: true,
+            });
+            breath.bounces += 1;
+            let index = usize::try_from(entity.index_u32()).unwrap_or(0);
+            let mut dice = crate::seed::dice(SEED ^ 0x3F0 ^ index ^ (breath.bounces << 20));
+            crate::puffs::spawn(
+                &mut commands,
+                particles::bounce_sparks(&mut dice),
+                place,
+                None,
+            );
+        }
         let burned = met(creatures.iter(), at, breath.level, &breath.touched);
         breath.touched.extend(&burned);
         burn(&mut commands, breath.fire, burned);
@@ -578,5 +606,63 @@ impl Plugin for BreathPlugin {
                 .after(Step::Npcs)
                 .in_set(Playing),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[derive(Resource, Default)]
+    struct Kindled(Vec<crate::fx::SmallFire>);
+
+    fn kindled(mut fires: MessageReader<crate::fx::SmallFire>, mut kept: ResMut<Kindled>) {
+        kept.0.extend(fires.read().copied());
+    }
+
+    /// Runs `app` for `frames` frames of 0.05 s.
+    fn run(app: &mut App, frames: usize) {
+        for _ in 0..frames {
+            app.world_mut()
+                .resource_mut::<Time>()
+                .advance_by(Duration::from_millis(50));
+            app.update();
+        }
+    }
+
+    #[test]
+    fn a_breath_leaves_its_small_fire_and_sparks_at_each_bounce_while_it_flies() {
+        let mut app = App::new();
+        app.init_resource::<Assets<Mesh>>()
+            .init_resource::<Heights>()
+            .init_resource::<Looks>()
+            .init_resource::<Kindled>()
+            .insert_resource(Time::<()>::default())
+            .add_message::<crate::fx::SmallFire>()
+            .add_systems(Update, (breathe, kindled).chain());
+        let daemon = app.world_mut().spawn_empty().id();
+        let fire = Fire {
+            by: daemon,
+            damage: 10.0,
+            seconds: 5.0,
+        };
+        let breath = Breath::new(fire, Vec2::ZERO, Vec2::new(600.0, 0.0), None);
+        app.world_mut().spawn((breath, Transform::default()));
+        // The first bounce at π/6 s, 0.52; none before it.
+        run(&mut app, 10);
+        assert!(app.world().resource::<Kindled>().0.is_empty());
+        run(&mut app, 2);
+        // The second at π/2 s, 1.57.
+        run(&mut app, 20);
+        let world = app.world_mut();
+        let fires = &world.resource::<Kindled>().0;
+        assert_eq!(fires.len(), 2);
+        for fire in fires {
+            assert!(fire.breath && fire.caster == Some(daemon) && fire.level.is_none());
+            assert_eq!(fire.at.y, 0.0, "on the ground");
+        }
+        let sparks = world.query::<&crate::puffs::Unmade>().iter(world).count();
+        assert_eq!(sparks, 2);
     }
 }

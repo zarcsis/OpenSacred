@@ -750,6 +750,108 @@ pub fn small_fire() -> Fire {
     }
 }
 
+/// The small fire of the variant 1 that the Daemon's breath leaves at each bounce (878 by the FX
+/// event `0x65` of the variant 1, `0x5AA5A9`; `0x79F970`; docs/re/effects.md, "The steps' small
+/// fire"): as [`small_fire`]'s variant 2 but narrower and shorter, its flame's layer of the life
+/// −200 a second and the size +15, its block's size 0.5 ± 0.2, velocity ± 0.2 and places ± 4
+/// along the screen's horizontal alone; its smoke of the size 1 ± 0.5, the velocity ± 0.3, the
+/// places ± 4 and the spin 0.5, its ramp ending at the alpha 0.496; its light 100.
+pub fn breath_small_fire() -> Fire {
+    let narrow = |speed: f32| Block {
+        velocity: spread([0.0; 3], [speed; 3]),
+        offset: spread([0.0; 3], [4.0, 0.0, 0.0]),
+        ..Block::default()
+    };
+    let variant_2 = small_fire();
+    let [flame, smoke] = [&variant_2.blocks[0], &variant_2.blocks[1]];
+    Fire {
+        layers: vec![
+            Layer {
+                life: -200.0,
+                size: 15.0,
+                ..Layer::default()
+            },
+            variant_2.layers[1],
+        ],
+        blocks: vec![
+            Block {
+                size: spread(0.5, 0.2),
+                ..Block {
+                    buoyancy: flame.buoyancy,
+                    angle: flame.angle,
+                    interval: flame.interval,
+                    ..narrow(0.2)
+                }
+            },
+            Block {
+                size: spread(1.0, 0.5),
+                spin: spread(0.0, 0.5),
+                ..Block {
+                    buoyancy: smoke.buoyancy,
+                    angle: smoke.angle,
+                    interval: smoke.interval,
+                    ..narrow(0.3)
+                }
+            },
+        ],
+        ramps: vec![flame_ramp(), fire_smoke_ramp(0.496_093_75)],
+        light: 100.0,
+        ..variant_2
+    }
+}
+
+/// Whether the Daemon's breath bounces between its times `before` and `now` (`0x5A6F46` to
+/// `0x5A6FA2`): where `cos 3t`, the hop's rate of 3 radians a second (`+0xB0`), changes its sign,
+/// at `t = π/6 + kπ/3`, one every 1.05 s.
+pub fn breath_bounced(before: f32, now: f32) -> bool {
+    ((3.0 * before).cos() >= 0.0) != ((3.0 * now).cos() >= 0.0)
+}
+
+/// The sparks that leap where the Daemon's breath bounces (1009, `cParticleSystem_sparks`, its
+/// start `0x7AF2E0` of the variant 0; docs/re/effects.md, "The bounce's sparks (1009)"): a burst
+/// of 80 of `PARTICLE_SPARK06` within (7, 7, 0) of the place, shot up at (0, 0, 140) ± (30, 30,
+/// 60) and falling at a buoyancy of 110 ± 40, of a half side of 7 ± 2 shrinking by 2 a second,
+/// living 1.275 s, from a white of 254 to (254, 129, 74) and to black, added whole, turned at
+/// random, its light 200.
+pub fn bounce_sparks(dice: &mut impl Dice) -> Burst {
+    let pi = std::f32::consts::PI;
+    let block = Block {
+        buoyancy: spread(110.0, 40.0),
+        size: spread(7.0, 2.0),
+        angle: spread(pi, pi),
+        velocity: spread([0.0, 0.0, 140.0], [30.0, 30.0, 60.0]),
+        offset: spread([0.0; 3], [7.0, 7.0, 0.0]),
+        ..Block::default()
+    };
+    let particles = (0..BOUNCE_SPARKS).map(|_| born(&block, 0, dice)).collect();
+    let white = 254.0 / 255.0;
+    Burst {
+        texture: "PARTICLE_SPARK06",
+        grid: 1,
+        blend: Blend::Whole,
+        layer: Layer {
+            life: -200.0,
+            size: -2.0,
+            ..Layer::default()
+        },
+        ramp: Ramp::new(
+            [white, white, white, 0.0],
+            &[
+                ([white, 129.0 / 255.0, 74.0 / 255.0, 0.0], 100),
+                ([0.0; 4], 156),
+            ],
+        ),
+        particles,
+        ground: None,
+        light: 200.0,
+        tinted: false,
+        stream: None,
+    }
+}
+
+/// The bounce's sparks' particles (`0x7AEFC0`), all of its burst.
+const BOUNCE_SPARKS: usize = 80;
+
 /// The frame of the steps' small fire's burnt ground at its clock `t` (`0x79F7D0`), of the
 /// [`GROUND_GRID`]'s 16: the frames 4 to 0 over the first 0.3 s, as it spreads in, then the frame
 /// 0 to 8 s, then the frames 0 to 15 over the ninth second, as it shrinks away; none after.
@@ -21208,6 +21310,68 @@ mod tests {
         assert!(fire.done());
         assert_eq!(GroundFire::ramp().at(255.0), [0.0; 4]);
         assert_eq!(GroundFire::ramp().at(128.0)[0], 200.0 / 256.0);
+    }
+
+    #[test]
+    fn the_breath_bounces_every_third_of_pi_and_leaves_a_narrower_fire_and_sparks() {
+        // Its bounces at π/6 + kπ/3: 0.52, 1.57 and 2.62 s.
+        let bounces: Vec<u32> = (1..=300_u16)
+            .filter(|&k| breath_bounced(f32::from(k - 1) / 100.0, f32::from(k) / 100.0))
+            .map(u32::from)
+            .collect();
+        assert_eq!(bounces, [53, 158, 262]);
+        // Its fire of the variant 1: the flame shorter and narrower, the light 100.
+        let fire = breath_small_fire();
+        let variant_2 = small_fire();
+        assert_eq!(fire.layers[0].life, -200.0);
+        assert_eq!(fire.layers[0].size, 15.0);
+        assert_eq!(fire.layers[1], variant_2.layers[1]);
+        assert_eq!(fire.blocks[0].size, spread(0.5, 0.2));
+        assert_eq!(fire.blocks[0].velocity, spread([0.0; 3], [0.2; 3]));
+        assert_eq!(fire.blocks[0].offset, spread([0.0; 3], [4.0, 0.0, 0.0]));
+        assert_eq!(fire.blocks[0].buoyancy, variant_2.blocks[0].buoyancy);
+        assert_eq!(fire.blocks[1].size, spread(1.0, 0.5));
+        assert_eq!(fire.blocks[1].spin, spread(0.0, 0.5));
+        assert_eq!(fire.blocks[1].velocity, spread([0.0; 3], [0.3; 3]));
+        assert_eq!(fire.blocks[1].buoyancy, variant_2.blocks[1].buoyancy);
+        assert_eq!(fire.light, 100.0);
+        let peak = |fire: &Fire| {
+            (145..=255_u8)
+                .map(|life| fire.ramps[1].at(f32::from(life))[3])
+                .fold(0.0, f32::max)
+        };
+        assert!((peak(&fire) - 0.496).abs() < 0.01 && (peak(&variant_2) - 0.996).abs() < 0.01);
+        assert_eq!(
+            (fire.texture, fire.count),
+            (variant_2.texture, variant_2.count)
+        );
+        // Its sparks: 80, white at birth, falling to black, added whole, its light 200.
+        let sparks = bounce_sparks(&mut Rng::of(9, 9, 1009));
+        assert_eq!(sparks.particles.len(), 80);
+        assert_eq!(sparks.blend, Blend::Whole);
+        assert_eq!(sparks.light, 200.0);
+        assert_eq!((sparks.layer.life, sparks.layer.size), (-200.0, -2.0));
+        assert!((sparks.ramp.at(255.0)[0] - 254.0 / 255.0).abs() < 1e-6);
+        let orange = sparks.ramp.at(155.0);
+        let expected = [254.0 / 255.0, 129.0 / 255.0, 74.0 / 255.0];
+        assert!(
+            (0..3).all(|c| (orange[c] - expected[c]).abs() < 0.01),
+            "{orange:?}"
+        );
+        assert!(sparks.ramp.at(0.0)[0] < 0.01);
+        let all = |test: &dyn Fn(&Particle) -> bool| sparks.particles.iter().all(test);
+        let most = |value: &dyn Fn(&Particle) -> f32| {
+            sparks.particles.iter().map(value).fold(0.0, f32::max)
+        };
+        assert!(all(&|p| p.place[0].abs() <= 7.0
+            && p.place[1].abs() <= 7.0
+            && p.place[2] == 0.0));
+        assert!(most(&|p| p.place[0].abs()) > 3.0 && most(&|p| p.place[1].abs()) > 3.0);
+        assert!(all(&|p| (80.0..=200.0).contains(&p.velocity[2])));
+        assert!(all(&|p| (70.0..=150.0).contains(&p.buoyancy)));
+        assert!(all(&|p| (5.0..=9.0).contains(&p.size)));
+        let pi = std::f32::consts::PI;
+        assert!(all(&|p| (0.0..=2.0 * pi).contains(&p.angle)) && most(&|p| p.angle) > pi);
     }
 
     #[test]
