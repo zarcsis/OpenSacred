@@ -1552,6 +1552,18 @@ pub struct Fallen {
     no_clip: bool,
 }
 
+impl Fallen {
+    /// A hero fallen this frame, for the tests.
+    #[cfg(test)]
+    pub(crate) fn now() -> Self {
+        Self {
+            lain: 0.0,
+            puddle: false,
+            no_clip: false,
+        }
+    }
+}
+
 /// The hero at health 0 (`fight`, the AI's state 9): it stops, its attack ends, it plays one of
 /// its dying clips once and lies there; with the violence on, a hero of a gib set that bleeds
 /// lays its blood puddle as that clip ends, as any body lays its own at the first tick of lying

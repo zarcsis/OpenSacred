@@ -398,7 +398,7 @@ pub(crate) fn resolve(
         ),
         Without<Dies>,
     >,
-    played: Option<Res<crate::drops::Played>>,
+    played: Option<Res<crate::drops::Survival>>,
     (difficulty, mut pack, mut piles, mut sounds): (
         Option<Res<crate::game::Difficulty>>,
         Option<ResMut<crate::pickup::Pack>>,
@@ -682,12 +682,12 @@ pub(crate) fn resolve(
         if hit.hurled {
             blow.rolled = 1.0;
         }
-        // The survival bonus of the time played: the hero's four damages, or its strike's fixed
+        // The survival bonus of its counter: the hero's four damages, or its strike's fixed
         // ones, raised by half its curve and set 28's part (`0x56A50F`, `0x56C156`; #1761); not a
         // hurled item's, which take the place of the record's raised ones (#3382).
         if side == Some(Side::Attacker) && !hit.hurled {
             let set = holding.map_or(0.0, |holding| holding.0.sets.survival);
-            let minutes = played.as_deref().map_or(0, crate::drops::Played::minutes);
+            let minutes = played.as_deref().map_or(0, crate::drops::Survival::minutes);
             let raise = opensacred_rules::fight::survival_raise(minutes, set);
             attacker.damage = attacker.damage.map(|ends| {
                 ends.map(|end| {
@@ -2916,7 +2916,7 @@ mod tests {
             .add_message::<crate::drops::PileFromHit>()
             .add_message::<crate::sfx::Play>()
             .insert_resource(Dice(Rng::of(0, 0, 0)))
-            .insert_resource(crate::drops::Played::of(7_200.0))
+            .insert_resource(crate::drops::Survival::of(7_200.0))
             .init_resource::<Experience>()
             .init_resource::<Rules>()
             .add_systems(Update, resolve);
@@ -2953,7 +2953,7 @@ mod tests {
 
     #[test]
     fn a_hurled_items_damages_take_no_survivals_raise() {
-        // The hero's fixed damages rise by the survival's share of the time played (`0x56C156`);
+        // The hero's fixed damages rise by the survival's share of its counter (`0x56C156`);
         // a hurled item's take the attack record's place and none (`0x56BC81`, #3382).
         let raised = lost_two_hours_in(false);
         let hurled = lost_two_hours_in(true);

@@ -168,8 +168,9 @@ pub struct Hero {
     /// Its counts of its quests' rewards and of those since its last set's piece
     /// (`rewards::QuestCounts`, #2886).
     pub quests: opensacred_rules::rewards::QuestCounts,
-    /// The seconds played, which the creatures' levels and the fills follow (`drops::Played`).
-    pub played: f32,
+    /// The survival counter's seconds (`drops::Survival`), which the original's save keeps as
+    /// whole seconds in its header's `+0x44` (#3785).
+    pub survival: f32,
     pub clock: Clock,
     /// The steps of its queue under the scripts' anim mode, a `Teleport`'s among them (#2890).
     pub queue: crate::npcs::SavedQueue,
@@ -611,9 +612,9 @@ pub(crate) fn gather(
             .get_resource::<crate::rewards::QuestCounts>()
             .map(|counts| counts.0)
             .unwrap_or_default(),
-        played: world
-            .get_resource::<drops::Played>()
-            .map_or(0.0, drops::Played::seconds),
+        survival: world
+            .get_resource::<drops::Survival>()
+            .map_or(0.0, drops::Survival::seconds),
         clock: clock.clone(),
         queue,
         chain,
@@ -1025,10 +1026,10 @@ fn resume(world: &mut bevy::prelude::World) {
     }
 }
 
-/// Puts the character of `hero` on the hero `entity` (#1095, #2552): its values and health at
-/// its level, its experience and points, combat arts and their slots, combos, pack and weapon
-/// sets, its statistics and wins and the time played, its values made anew with them; not where
-/// it stands, its home, its effects or the clock, which a save puts back and an import does not.
+/// Puts the character of `hero` on the hero `entity` (#1095, #2552): its values and health at its
+/// level, its experience and points, combat arts and their slots, combos, pack and weapon sets, its
+/// statistics and wins and the survival counter, its values made anew with them; not where it
+/// stands, its home, its effects or the clock, which a save puts back and an import does not.
 fn put_character(world: &mut bevy::prelude::World, entity: Entity, hero: &Hero) {
     if let Ok(mut entity) = world.get_entity_mut(entity) {
         if let Some(mut base) = entity.get_mut::<crate::fight::Base>() {
@@ -1064,7 +1065,7 @@ fn put_character(world: &mut bevy::prelude::World, entity: Entity, hero: &Hero) 
     world.insert_resource(hero.wins);
     world.insert_resource(crate::rewards::RunesGiven(hero.runes_given));
     world.insert_resource(crate::rewards::QuestCounts(hero.quests));
-    world.insert_resource(drops::Played::of(hero.played));
+    world.insert_resource(drops::Survival::of(hero.survival));
     if let Err(e) = world.run_system_cached(refit) {
         warn!("saves: making the hero's values anew: {e}");
     }
@@ -1582,7 +1583,7 @@ pub(crate) mod tests {
                 quests: 12,
                 since_piece: 5,
             },
-            played: 125.0,
+            survival: 125.0,
             clock: Clock::at(21, 30),
             queue: crate::npcs::SavedQueue::default(),
             chain: 1.5,
@@ -1830,7 +1831,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (54, 0x1E93_99B2_FD04_95F1),
+            (54, 0x1D2C_715A_7600_9A86),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

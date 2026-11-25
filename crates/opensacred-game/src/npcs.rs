@@ -5791,7 +5791,7 @@ impl Npcs {
     /// The level that `CreateNPC` gives the creature of `placement`: its level tag's, held by
     /// its cell's sector's highest, or a boss's marker level (`fight::tagged_level`, #540); else
     /// (`fight::scripted_level`) the hero's, `hero`, by the levels of its cell's sector, then a
-    /// horse's by the hero's riding and any other's by the time played, `played`, held at the
+    /// horse's by the hero's riding and any other's by the survival counter, `played`, held at the
     /// sector's highest (#562); its roll the same each time it is made on its cell.
     fn scripted_level(&self, placement: &Placement, hero: u32, played: fight::Played) -> u32 {
         let (x, y) = placement.cell;
@@ -5849,7 +5849,10 @@ pub fn spawn_creatures(
     assets: Res<AssetServer>,
     data: Res<crate::game::Data>,
     experience: Res<fight::Experience>,
-    (played, holding): (Res<drops::Played>, Query<&fight::Holding, With<hero::Body>>),
+    (played, holding): (
+        Res<drops::Survival>,
+        Query<&fight::Holding, With<hero::Body>>,
+    ),
 ) -> Result<Vec<Entity>, String> {
     let npcs = &mut *npcs;
     let mut placement = npcs.requested(&request, &data.0.assets)?;
@@ -6084,7 +6087,8 @@ fn place_index(
         Again::Anew
     };
     // Made anew, the level its record makes it at: the start's creature's as the game starts,
-    // with the hero of its first level and no time played; a sector's as its function runs.
+    // with the hero of its first level and its survival counter at 0; a sector's as its function
+    // runs.
     let made_at = matches!(again, Again::Anew).then(|| {
         if placement.started {
             npcs.scripted_level(placement, fight::HERO_LEVEL, fight::Played::default())
@@ -6326,7 +6330,7 @@ pub fn place(
     assets: Res<AssetServer>,
     (experience, difficulty): (Res<fight::Experience>, Option<Res<crate::game::Difficulty>>),
     (played, replacements, area_types): (
-        Res<drops::Played>,
+        Res<drops::Survival>,
         Option<Res<crate::scripts::ScriptReplacements>>,
         Option<Res<crate::scripts::ScriptAreaTypes>>,
     ),
@@ -11758,7 +11762,7 @@ fn morph(
     (heights, states, assets): (Res<Heights>, Res<buildings::Buildings>, Res<AssetServer>),
     (experience, played, holding): (
         Res<fight::Experience>,
-        Res<drops::Played>,
+        Res<drops::Survival>,
         Query<&fight::Holding, With<hero::Body>>,
     ),
     creatures: Query<
@@ -13995,7 +13999,7 @@ fn strike(
 /// (`fight::Unfought`) at its first strike or hit, as the hit is sent and before it is resolved
 /// (`0x56B130` for both sides, `0x550E50`, #630): its opponent's level, a creature's or the
 /// hero's, plus `LevelUpBoss` or `LevelUpChamp`, held within the levels of the sector it stands
-/// in, then through the difficulty's scaling with the time played and the hero's sets' part
+/// in, then through the difficulty's scaling with the survival counter and the hero's sets' part
 /// where its opponent is the hero (`0x5510C5`, #1761; `opensacred_rules::fight::Rank::level`);
 /// its health refilled to its new most, its items
 /// made again at its new level, and its attack, defence, damage, resistances, regeneration and
@@ -14008,7 +14012,7 @@ fn first_fight(
     mut commands: Commands,
     mut hits: MessageReader<fight::Hit>,
     npcs: Option<Res<Npcs>>,
-    (experience, played): (Res<fight::Experience>, Option<Res<drops::Played>>),
+    (experience, played): (Res<fight::Experience>, Option<Res<drops::Survival>>),
     heroes: Query<Option<&fight::Holding>, With<hero::Body>>,
     levels: Query<&fight::Health, Without<fight::Unfought>>,
     mut unfought: Query<(
@@ -14032,7 +14036,7 @@ fn first_fight(
             if levelled.contains(&who) || !unfought.contains(who) {
                 continue;
             }
-            // The time played counts against a player alone (`0x5510D1`).
+            // The survival counter counts against a player alone (`0x5510D1`).
             let opponent = if let Ok(holding) = heroes.get(opponent) {
                 let time = played
                     .as_deref()
@@ -14098,7 +14102,7 @@ fn first_fight(
             levelled.insert(who);
             bevy::log::info!(
                 "npcs: {who}, a {creature} of rank {:?}, levelled at its first fight to {grade} by \
-                 its opponent's {} and {} % of the time played, health {}",
+                 its opponent's {} and {} % of the survival counter, health {}",
                 rank.0,
                 opponent.0,
                 opponent.1.per_cent(),
@@ -14402,7 +14406,7 @@ pub(crate) fn state_level(world: &mut bevy::prelude::World, entity: Entity, tag:
         let world = &*world;
         let holding = heroes.iter(world).next();
         world
-            .get_resource::<drops::Played>()
+            .get_resource::<drops::Survival>()
             .map_or_else(fight::Played::default, |played| played.time(holding))
     };
     world.resource_scope(|world, npcs: bevy::prelude::Mut<Npcs>| {

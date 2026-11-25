@@ -225,11 +225,11 @@ impl Rank {
         }
     }
 
-    /// Its level, made at the hero's level `hero` after the time played `played` (`0x550E50`):
+    /// Its level, made at the hero's level `hero` after the survival counter `played` (`0x550E50`):
     /// the hero's plus `LevelUpBoss` or `LevelUpChamp` (a champion's levelling alone too, which
     /// the strike levels as it does a champion, `0x56B682`), at least `OffLevel` plus the
     /// sector's lowest, and unless its type is big at most `LevelKap` plus the sector's highest
-    /// plus the same; then through the difficulty's scaling of the levels with the time played
+    /// plus the same; then through the difficulty's scaling of the levels with the survival counter
     /// (`0x5510C5`–`0x55122C`, [`played_level`]), which the original takes where its opponent is a
     /// player; a common creature's `level`.
     pub fn level(
@@ -1090,7 +1090,7 @@ impl Rules {
     /// standing in a sector of the levels `values` (`0x4AC940` at `0x4AD8CB`…`0x4ADA15`): the
     /// bound 1, or in a sector of levels the greater of its lowest and of the least of 1 and its
     /// highest, both raised as [`Self::item_bounds`] raises them, as a container's
-    /// ([`Self::contained_level`]); the bound scaled by the difficulty with no time played
+    /// ([`Self::contained_level`]); the bound scaled by the difficulty with a survival counter of 0
     /// (`0x552230(b, 0)`); then the roll `R(H, ⌊1.05·H⌋)` held at most at it. So on bronze the item
     /// is at most at the sector's lowest, and at 1 in a sector without levels (#2872).
     pub fn reward_level(
@@ -5547,7 +5547,7 @@ pub fn scaled(total: f32, factor: f32) -> f32 {
     }
 }
 
-/// The time played as the creatures' levels take it (the per cent `x` that `0x47D2C3`,
+/// The survival counter as the creatures' levels take it (the per cent `x` that `0x47D2C3`,
 /// `0x48468C` and `0x5510C5` give `0x552230`): its whole minutes, and the part of the local
 /// hero's sets (`set_bonuses::Stats::played_part`, M12).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -5573,7 +5573,7 @@ const FILLS_MOST: u32 = 300;
 /// raised to the lowest of its sector's levels, `values`, when below it (to their highest where
 /// the lowest is not below it), but not held at the highest; moved once by its band, `r % 2` below
 /// 6, then two rolls averaged, `(r % 4 + r % 4)/2 − 1` below 30, `(r % 6 + r % 6)/2 − 2` below 90
-/// and `(r % 10 + r % 10)/2 − 3` below 250, none from 250; then raised by the time played,
+/// and `(r % 10 + r % 10)/2 − 3` below 250, none from 250; then raised by the survival counter,
 /// `played`, through the difficulty's scaling of the levels (`0x552230`, as `CreateNPC`'s), at
 /// most 300. Each creature takes it through [`filled_level`].
 pub fn fill_level(
@@ -5633,7 +5633,7 @@ pub enum Raise {
     /// A horse (`Creature.pak` class 4, `0x4266F0`): by an eighth of the level of the hero's
     /// skill 22 (`0x582450`; **hypothesis**: riding).
     Horse { riding: u32 },
-    /// Any other creature: by the time played, through the difficulty's scaling of the levels
+    /// Any other creature: by the survival counter, through the difficulty's scaling of the levels
     /// (`0x552230`).
     Played(Played),
 }
@@ -5717,12 +5717,12 @@ fn most_level(values: Option<&SpawnValues>, creature: u32, rules: &Rules) -> u32
 }
 
 /// The level that `CreateNPC` gives a creature of type `creature` of a record with the level tag
-/// `0x1F`, `tag` (`0x482510`, from `0x4843C2`; docs/re/spawning.md, "`CreateNPC`'s level"), or
-/// none for 0, a record without one, whose creature takes [`scripted_level`]'s. For
-/// [`BOSS_TAG`], a boss's marker level 1 ([`Rank::of_tag`]), which [`Rank::level`] then levels
-/// as a fill's boss. For any other, that level as the level's setter takes it, without the
-/// hero's, the sector's lowest or the time played: raised by the difficulty's `OffLevel`, through
-/// its scaling of the levels with no time played, both of which keep it on bronze, then held
+/// `0x1F`, `tag` (`0x482510`, from `0x4843C2`; docs/re/spawning.md, "`CreateNPC`'s level"), or none
+/// for 0, a record without one, whose creature takes [`scripted_level`]'s. For [`BOSS_TAG`], a
+/// boss's marker level 1 ([`Rank::of_tag`]), which [`Rank::level`] then levels as a fill's boss.
+/// For any other, that level as the level's setter takes it, without the hero's, the sector's
+/// lowest or the survival counter: raised by the difficulty's `OffLevel`, through its scaling of
+/// the levels with a survival counter of 0, both of which keep it on bronze, then held
 /// ([`held_level`], `0x564D60`).
 pub fn tagged_level(
     tag: u32,
@@ -5748,8 +5748,8 @@ pub fn tagged_level(
 /// `creature`, big or not, standing in a sector of `values` (`sdk_HIRE`'s second setting,
 /// `0x54D14C`), and that the hero's own setting of its level gives each follower it keeps whose
 /// level is below the hero's scaled (the level's setter `0x564D60` at its end; read 2026-11-18 for
-/// #2896): the hero's level scaled by the difficulty with no time played (`0x552230(L, 0)`), held
-/// as the setter holds the follower ([`Rank::held`]) by its own sector's highest and the
+/// #2896): the hero's level scaled by the difficulty with a survival counter of 0 (`0x552230(L,
+/// 0)`), held as the setter holds the follower ([`Rank::held`]) by its own sector's highest and the
 /// difficulty's `LevelKap`. **Seen**: a Seraphim of level 15 hired a creature of level 2 at her
 /// start on bronze, which then stood at its sector's 4.
 pub fn follower_level(
@@ -5761,17 +5761,18 @@ pub fn follower_level(
     rank.held(follower_scale(hero, rules), values, creature, big, rules)
 }
 
-/// The hero's level `hero` scaled by the difficulty with no time played (`0x552230(L, 0)`), which
-/// a follower kept below it rises toward ([`follower_level`]).
+/// The hero's level `hero` scaled by the difficulty with a survival counter of 0 (`0x552230(L,
+/// 0)`), which a follower kept below it rises toward ([`follower_level`]).
 pub fn follower_scale(hero: u32, rules: &Rules) -> u32 {
     played_level(hero, Played::default(), rules)
 }
 
-/// A level `level` scaled by the difficulty and raised by the time played (`0x552230`, docs/re/
-/// spawning.md): `⌊L·(1 + (P + x)/100) + B + 0.5⌋`, at least 1, with `P` and `B` the difficulty's
-/// `OffLevelProz` and `BaseOffLevel` (0 and 0 on bronze) and `x` the per cent of `played`
-/// ([`Played::per_cent`]): one more per cent of the level from 15 minutes on, five from 121
-/// minutes, and the difficulty's factor truncated more where the hero wears six pieces of set 28.
+/// A level `level` scaled by the difficulty and raised by the survival counter (`0x552230`,
+/// docs/re/ spawning.md): `⌊L·(1 + (P + x)/100) + B + 0.5⌋`, at least 1, with `P` and `B` the
+/// difficulty's `OffLevelProz` and `BaseOffLevel` (0 and 0 on bronze) and `x` the per cent of
+/// `played` ([`Played::per_cent`]): one more per cent of the level from 15 minutes on, five from
+/// 121 minutes, and the difficulty's factor truncated more where the hero wears six pieces of set
+/// 28.
 fn played_level(level: u32, played: Played, rules: &Rules) -> u32 {
     let [offset, per_cent] = rules.scale.map(f64::from);
     let x = f64::from(played.per_cent());
@@ -7649,7 +7650,7 @@ mod tests {
         assert_eq!(contained(&bronze, 40, None, vec![0, 1]), 40);
         assert_eq!(contained(&bronze, 40, None, vec![1, 1]), 41);
         // A reward's item: the container's bound, or 1 without levels, scaled by the difficulty
-        // with no time played, over the roll of `H` to `⌊1.05·H⌋` (#2872).
+        // with a survival counter of 0, over the roll of `H` to `⌊1.05·H⌋` (#2872).
         let reward = |rules: &Rules, hero, values, rolls: Vec<u32>| -> u32 {
             let mut dice = Rolls(rolls);
             let level = rules.reward_level(hero, values, &mut dice);
@@ -9288,7 +9289,7 @@ mod tests {
             Rank::Boss.level(5, (20, Played::default()), &values, true, &rules),
             22
         );
-        // Then by the time played (`0x5510C5`): 121 minutes give 5 %, six pieces of set 28 on
+        // Then by the survival counter (`0x5510C5`): 121 minutes give 5 %, six pieces of set 28 on
         // niobium 2 more; 42 to 44 and 45.
         let played = |minutes, sets| Played { minutes, sets };
         assert_eq!(played(14, 0).per_cent(), 0);
@@ -9940,7 +9941,7 @@ mod tests {
         assert_eq!(fill(&west, 40, 0, &[5, 5]), 43);
         // A lowest not below the highest gives the highest.
         assert_eq!(fill(&values(10, 8), 1, 0, &[1, 1]), 8);
-        // From 90 by −3 to 6, none from 250; the time played as `CreateNPC`'s, at most 300.
+        // From 90 by −3 to 6, none from 250; the survival counter as `CreateNPC`'s, at most 300.
         assert_eq!(fill(&values(1, 300), 100, 0, &[9, 9]), 106);
         assert_eq!(fill(&values(1, 300), 290, 0, &[]), 290);
         assert_eq!(fill(&values(1, 300), 290, 121, &[]), 300);
@@ -10009,14 +10010,14 @@ mod tests {
         assert_eq!(npc(None, 3, start, 1), 0);
         assert_eq!(npc(Some(&values(0, 7)), 1, start, 1), 1);
         assert_eq!(npc(Some(&values(0, 7)), 9, start, 1), 7);
-        // A horse by an eighth of the hero's riding, without the time played, and not held at
+        // A horse by an eighth of the hero's riding, without the survival counter, and not held at
         // the sector's highest.
         let horse = |riding| Raise::Horse { riding };
         assert_eq!(npc(Some(&smith), 1, horse(7), 1), 4);
         assert_eq!(npc(Some(&smith), 1, horse(17), 1), 6);
         assert_eq!(npc(Some(&smith), 7, horse(17), 1), 10);
-        // The time played: no more below 15 minutes, a per cent from 15, five from 121 minutes,
-        // up to the sector's highest.
+        // The survival counter: no more below 15 minutes, a per cent from 15, five from 121
+        // minutes, up to the sector's highest.
         let played = |minutes| Raise::Played(Played { minutes, sets: 0 });
         let high = values(40, 250);
         assert_eq!(npc(Some(&high), 100, played(14), 0), 100);
@@ -10110,8 +10111,8 @@ mod tests {
             Rank::Boss.level(1, (1, Played::default()), &start, false, &rules),
             3
         );
-        // Any other: that level, with no hero's level, lowest or time played in it, at most its
-        // sector's highest: the goodie 692 of 60,75 (6 to 10) at 6, the guards of the start
+        // Any other: that level, with no hero's level, lowest or survival counter in it, at most
+        // its sector's highest: the goodie 692 of 60,75 (6 to 10) at 6, the guards of the start
         // script's garrison in 52,39 (1 to 4) of the tag 5 at 4.
         assert_eq!(Rank::of_tag(6), Rank::Common);
         assert_eq!(
