@@ -1048,7 +1048,7 @@ const WORLD = {
   addGold: ptr('0x57fd80'),          // the stats: thiscall (stats, amount), the gold's handler: adds the amount (less
                                      // than 0 too) when the integrity test 0x590730 passes, else kills the hero for
                                      // good, so the gold is never written directly
-  makeObject: ptr('0x5fb530'),       // the object manager: thiscall (manager, type), an object of the type, its id
+  makeObject: ptr('0x5fb530'),       // the object manager: thiscall (manager, type, id, two flags), an object of the type, its id
   hire: ptr('0x54cf70'),             // sdk_HIRE: thiscall (master, creature, keep byte, network flag), as SetNPCState's
                                      // 0x4B hires (0x462A63: the keep byte 1)
   slotOf: ptr('0x54acc0'),           // cCreature: thiscall (creature, type), the slot an item of the type goes in
@@ -1141,7 +1141,9 @@ const COMBO = { list: 0x10e, end: 0x112, size: 38, id: 0, arts: 2, levels: 0x12,
 const addEffect = new NativeFunction(WORLD.addEffect, 'void',
   ['pointer', 'uint32', 'int32', 'float', 'float', 'uint32', 'uint32', 'uint32', 'uint32'], 'thiscall');
 const addGold = new NativeFunction(WORLD.addGold, 'void', ['pointer', 'int32'], 'thiscall');
-const makeObject = new NativeFunction(WORLD.makeObject, 'uint32', ['pointer', 'uint32'], 'thiscall');
+// Four arguments past the manager, as the original's callers pass them: the type, an id of 0 for a new one and two flags of
+// 0; with one alone the stack's leftover was taken for the id, and every `wear` made one object again (#3719).
+const makeObject = new NativeFunction(WORLD.makeObject, 'uint32', ['pointer', 'uint32', 'uint32', 'uint32', 'uint32'], 'thiscall');
 const formArt = new NativeFunction(WORLD.formArt, 'uint32', ['pointer', 'uint32', 'uint32'], 'thiscall');
 const sendOrder = new NativeFunction(WORLD.sendOrder, 'void', ['pointer', 'pointer', 'pointer'], 'thiscall');
 const slotOf = new NativeFunction(WORLD.slotOf, 'int32', ['pointer', 'uint32'], 'thiscall');
@@ -1993,7 +1995,7 @@ const COMMANDS = {
       if (into < 0 || into >= SLOTS) {
         throw new Error(`an item of type ${type} goes in no slot of the hero: give --slot`);
       }
-      const id = makeObject(WORLD.objects.readPointer(), type);
+      const id = makeObject(WORLD.objects.readPointer(), type, 0, 0, 0);
       if (id === 0 || objectById(id) === null) {
         throw new Error(`no object of type ${type} was made`);
       }
