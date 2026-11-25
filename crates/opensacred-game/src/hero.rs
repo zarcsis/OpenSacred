@@ -143,6 +143,9 @@ pub struct Hero {
     pub knocked: Option<String>,
     /// Its defending clip under Shift (`forms::Clips::defend`, #3392).
     pub defend: Option<String>,
+    /// Its hit clip, the slot 175, laid over the clip in play as a blow strikes it
+    /// (`forms::Clips::hit`, `hit_clips`, #3637).
+    pub hit: Option<String>,
     pub position: Vec3,
     /// The floor it starts on at [`Self::position`], where the start script's `StartPosition`
     /// names one (45, `0x491B30`: the Vampiress's 2, #1017), and on which it rises before the
@@ -198,6 +201,7 @@ impl Hero {
             riding_attack: None,
             knocked: None,
             defend: None,
+            hit: None,
             position,
             floor: None,
             target: None,
@@ -233,6 +237,7 @@ impl Hero {
         self.riding_attack.clone_from(&form.clips.riding_attack);
         self.knocked.clone_from(&form.clips.knocked);
         self.defend.clone_from(&form.clips.defend);
+        self.hit.clone_from(&form.clips.hit);
         self.gltf = Some(assets.load(self.model.clone()));
         self.bare = !form.armed;
         self.equipment = self.equip(assets);
@@ -503,6 +508,8 @@ pub struct Clips {
     pub knocked: Option<(AnimationNodeIndex, Handle<AnimationClip>)>,
     /// The defending clip's node and clip under Shift, where the model has one (#3392).
     pub defend: Option<(AnimationNodeIndex, Handle<AnimationClip>)>,
+    /// The hit clip's node and clip, laid over the clip in play (`hit_clips`, #3637).
+    pub hit: Option<(AnimationNodeIndex, Handle<AnimationClip>)>,
     /// The entity of the model's animation player.
     pub player: Option<Entity>,
 }
@@ -654,6 +661,10 @@ pub fn spawn(
         let defend = hero.defend.clone().and_then(|name| clip(&name));
         let defend_at = clips.len();
         clips.extend(defend.iter().cloned());
+        // The hit clip, after it (#3637).
+        let hit = hero.hit.clone().and_then(|name| clip(&name));
+        let hit_at = clips.len();
+        clips.extend(hit.iter().cloned());
         let (graph, nodes) = AnimationGraph::from_clips(clips);
         let riding = riding.map(|clip| {
             let clip = clip?;
@@ -665,6 +676,7 @@ pub fn spawn(
             .and_then(|(clip, fractions)| Some((*nodes.get(riding_attack_at)?, clip, fractions)));
         let knocked = knocked.and_then(|clip| Some((*nodes.get(knocked_at)?, clip)));
         let defend = defend.and_then(|clip| Some((*nodes.get(defend_at)?, clip)));
+        let hit = hit.and_then(|clip| Some((*nodes.get(hit_at)?, clip)));
         let mut bolt_nodes = nodes[first_bolt..].iter();
         let bolts = bolts.map(|bolt| {
             let (clip, fractions) = bolt?;
@@ -711,6 +723,7 @@ pub fn spawn(
             riding_attack,
             knocked,
             defend,
+            hit,
             player: None,
         });
     }
@@ -1879,6 +1892,7 @@ mod tests {
                 riding_attack: None,
                 knocked: None,
                 defend: None,
+                hit: None,
                 player: None,
             });
         }
@@ -1940,6 +1954,7 @@ mod tests {
             riding_attack: None,
             knocked: None,
             defend: None,
+            hit: None,
             player: None,
         };
         let with = clips(Some(node(4)));

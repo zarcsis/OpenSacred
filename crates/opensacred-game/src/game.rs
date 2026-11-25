@@ -786,6 +786,7 @@ fn load(
     hero.riding_attack = clips.riding_attack;
     hero.knocked = clips.knocked;
     hero.defend = clips.defend;
+    hero.hit = clips.hit;
     hero.speeds = record.speed.map(|s| f32::from(s) * hero.pace * speed);
     if game.walking {
         hero.walking = true;
@@ -907,6 +908,11 @@ pub fn clips_of(
             .and_then(|slot| slots.slot(slot))
             .map(str::to_owned)
     });
+    // The hit clip laid over the clip in play (#3637).
+    let hit = slots
+        .as_ref()
+        .and_then(|slots| slots.slot(opensacred_rules::arts::HIT_CLIP))
+        .map(str::to_owned);
     let attacks = slots
         .map(|slots| slots.hero_attacks(class))
         .unwrap_or_default()
@@ -925,6 +931,7 @@ pub fn clips_of(
         riding_attack,
         knocked,
         defend,
+        hit,
     }
 }
 

@@ -381,7 +381,7 @@ A creature is held while its `+0x200` has the bit `0x40000`, which its timer's f
 - **What the hold stops.**
   - The AI's idle state: `0x542B20` returns at once (`0x542B4B`), so that the creature neither looks, wakes nor takes a target.
   - Its standing action (`0x544890`, the test at `0x5448CA`) and its moving action (`0x4F4770`, at `0x4F479E`), which return at once: it takes no step, a walk ordered standing in its sub-state 0.
-  - The struck creature's reaction in the event 5's handler, which a held one passes over (`0x53588F`): its hit clip, the slot 175 at the rate 3.0 (`0x535950`–`0x535981`), or for one walking (the action 1) struck from farther than 300 by an attacker whose item `0x427ED0` admits (not read), its standing clip and a stop (`0x5358E0`–`0x53594E`).
+  - The struck creature's reaction in the event 5's handler, which a held one passes over (`0x53588F`): its hit clip, the slot 175 at the rate 3.0 (`0x535950`–`0x535981`), or for one walking (the action 1) struck from farther than 300 with a weapon of the ranged kinds that `0x427ED0` admits (7, 12, 13 and 14), its standing clip and a stop (`0x5358E0`–`0x53594E`; docs/re/fight.md, "The struck creature's hit clip").
   - The tail's turn: one in a throw's flight (`+0x14` bit `0x100000`, `0x535B4F`) and one held (`0x535B5C`) leave for `0x535D94`, so that such a struck creature takes the flags' bit 0 (`0x535AC0` for an NPC, and `0x535DA0` for a held one of any kind) and, in a group, the alarm in one case of three (`0x535DA6`), and keeps its AI's state, its sub-state and its target.
   - `sdk_WAKE`, which skips it ("Dormant and awake").
 - **What it does not stop.**

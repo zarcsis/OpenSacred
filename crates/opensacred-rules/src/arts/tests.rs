@@ -2556,3 +2556,26 @@ fn a_knock_above_10_plays_its_creatures_hit_clip_at_three_times_the_rate() {
     assert!(!knock_plays_hit_clip(0.0));
     assert_eq!((HIT_CLIP, HIT_CLIP_RATE, BOWLED_CLIP), (175, 3.0, 173));
 }
+
+#[test]
+fn a_hit_clips_weight_rises_from_its_start_toward_1_over_10_seconds() {
+    // Seen: a goblin's from 0.25 over its 0.483 s, the Seraphim's from 0.1 over 0.496 s (#3637).
+    let close = |a: f32, b: f32| (a - b).abs() < 1e-5;
+    assert!(close(hit_clip_weight(HIT_CLIP_WEIGHT, 0.0), 0.25));
+    assert!(close(
+        hit_clip_weight(HIT_CLIP_WEIGHT, 0.483),
+        0.25 + 0.75 * 0.0483
+    ));
+    assert!(close(
+        hit_clip_weight(HEROES_HIT_CLIP_WEIGHT, 0.496),
+        0.1 + 0.9 * 0.0496
+    ));
+    assert!(close(hit_clip_weight(0.25, 5.0), 0.625));
+    assert!(close(hit_clip_weight(0.25, 10.0), 1.0));
+    assert!(close(hit_clip_weight(0.25, 20.0), 1.0));
+    assert!(close(hit_clip_weight(0.25, -1.0), 0.25));
+    assert_eq!(
+        (HIT_CLIP_WEIGHT, HEROES_HIT_CLIP_WEIGHT, HIT_CLIP_EASE),
+        (0.25, 0.1, 10.0)
+    );
+}
