@@ -19,20 +19,28 @@ const ACROSS: f32 = 0.002;
 /// apart on screen.
 const CHAIN: f32 = 0.0045;
 
-/// The reversed depth of the point `offset` units in front of `anchor`'s place in the order
-/// (`anchor.w` its place in the cell).
-fn depth(anchor: vec4<f32>, offset: f32) -> f32 {
+/// How far toward the camera, in world units from the point it looks at, the point `offset` units
+/// in front of `anchor`'s place in the order lies (`anchor.w` its place in the cell): later in
+/// the order, greater. Places compared in it keep the precision of a half place in a cell, which
+/// the depth's scale rounds away.
+fn toward(anchor: vec4<f32>, offset: f32) -> f32 {
     // Taken relative to the point the camera looks at: the world's coordinates run to hundreds
     // of thousands of units, and a depth computed from them in full carries rounding of
     // hundredths of a unit that changes as the camera moves.
     let right = view.world_from_view[0].xyz;
     let back = view.world_from_view[2].xyz;
     let relative = anchor.xyz - (view.world_position - back * DISTANCE);
-    let toward = dot(relative, back) + ACROSS * dot(relative, right) + CHAIN * anchor.w + offset;
+    return dot(relative, back) + ACROSS * dot(relative, right) + CHAIN * anchor.w + offset;
+}
+
+/// The reversed depth of the point `offset` units in front of `anchor`'s place in the order
+/// (`anchor.w` its place in the cell).
+fn depth(anchor: vec4<f32>, offset: f32) -> f32 {
+    let nearer = toward(anchor, offset);
     // Reversed depth of an orthographic projection: the view's z times the depth per unit of it,
     // plus the far plane's offset, nearer greater; the looked-at point's depth first, so that
     // the small part keeps its precision.
     let per_unit = view.clip_from_view[2][2];
     let looked_at = view.clip_from_view[3][2] - DISTANCE * per_unit;
-    return looked_at + toward * per_unit;
+    return looked_at + nearer * per_unit;
 }
