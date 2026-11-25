@@ -136,7 +136,7 @@ pub fn approaches(distance: f32, roll: u32) -> bool {
 /// the giant spider (55) and the killer crab queen (348) spit ([`SPIT`], #2099), and the fire
 /// ghoul (73) shoots a fireball ([`GHOUL_FIREBALL`], #3262).
 pub fn coming_on(creature: u32) -> Option<u16> {
-    if creature == 75 {
+    if creature == crate::undead::MEDIUM_SPIDER {
         Some(SPIDER_SHOT)
     } else if creature == FIRE_GHOUL {
         Some(GHOUL_FIREBALL)
@@ -176,6 +176,11 @@ pub fn ghoul_fireball_level(level: u32) -> Option<u32> {
 /// (`rand() % 5` below 4) one of `GIANTSPIDER_FOOTSTEPS01`, `02`, `03` and `04`, at a rate's factor
 /// of 0.5.
 pub const SPIDER_SHOT: u16 = 801;
+
+/// The roll `rand() % 3` on which the medium spider of a group shoots [`SPIDER_SHOT`] at a decision
+/// of its melee; one of no group shoots at each (`0x4D4E50`'s mark 4, its branch `0x4D5BD9`;
+/// docs/re/ai.md, "Its melee is its shot", #3697).
+pub const SPIDER_SHOOTS_ON: u32 = 2;
 pub const SPIDER_SHOT_CLIP: u16 = 0x4F;
 pub const SPIDER_SHOT_SOUNDS: [u32; 4] = [1248, 1249, 1242, 1243];
 
