@@ -146,6 +146,9 @@ pub struct InOrder {
     floors: Handle<ShaderBuffer>,
     #[storage(102, read_only)]
     lights: Handle<ShaderBuffer>,
+    /// The effects' lights that shine ([`Anchors::effect_lights`], `fx_lights`).
+    #[storage(109, read_only)]
+    effect_lights: Handle<ShaderBuffer>,
     /// The effect's texture and the glow's under a [`Pass::Effect`]'s texels, and their offsets,
     /// the effect's in `x` and `y`, the glow's in `z` and `w` (`model_effects`).
     #[texture(103)]
@@ -230,7 +233,8 @@ impl MaterialExtension for InOrder {
         {
             return Ok(());
         }
-        // The fragment stage reads the model's light by its mesh's tag (`standard.wesl`).
+        // The fragment stage reads the model's light by its mesh's tag, and sums the fixed
+        // function's light of it (`standard.wesl`).
         descriptor
             .vertex
             .shader_defs
@@ -243,7 +247,7 @@ impl MaterialExtension for InOrder {
             fragment
                 .shader_defs
                 .push("VERTEX_OUTPUT_INSTANCE_INDEX".into());
-            fragment.shader_defs.push("LIT_BY_SLOT".into());
+            fragment.shader_defs.push("FIXED_LIGHT".into());
             if key.bind_group_data.specular {
                 fragment.shader_defs.push("SPECULAR".into());
             }
@@ -277,9 +281,11 @@ impl MaterialExtension for InOrder {
 /// and the place in the cell. The place in the order is that centre at height 0, as the sprites'
 /// (#112). And the floor that the model stands on, if it stands on an upper storey's
 /// ([`statics::Floor::under`]), zero for any other; but for a [`Sunk`] model, how far back along
-/// the line of sight its place lies, in the third coordinate. And the share of its light's
-/// colour that its ambient light takes while the cursor is over it, first, zero for none, then
-/// the share it takes otherwise (`hover`, #1460, #3108).
+/// the line of sight its place lies, in the third coordinate. And its light: the share of the
+/// world's colour that its ambient light takes, `s`, in `x`, 0.8 for an object and 0.3 for a
+/// creature, pulsing under the cursor (`hover`, #1460, #3108), and the world's colour at its place,
+/// `g`, in the rest, white by day ([`PLAIN_LIGHT`]; `standard.wesl`, #3692). And the effects'
+/// lights that shine, apart from the slots ([`Self::effect_lights`]).
 #[derive(Resource)]
 pub struct Anchors {
     buffer: Handle<ShaderBuffer>,
@@ -288,9 +294,20 @@ pub struct Anchors {
     floors: Vec<Vec4>,
     light_buffer: Handle<ShaderBuffer>,
     lights: Vec<Vec4>,
+    effect_buffer: Handle<ShaderBuffer>,
+    effects: Vec<Vec4>,
     free: Vec<u32>,
     changed: bool,
 }
+
+/// A model's light in its slot until it is given its own: the ambient share of an object's, 0.8
+/// (`0x62FDE9`), and the world's colour at its place white, the day's (docs/re/drawing.md, "The
+/// models' light").
+pub const PLAIN_LIGHT: Vec4 = Vec4::new(0.8, 1.0, 1.0, 1.0);
+
+/// The effects' lights that shine at once at most, the device's lights but the sun's
+/// (`fx_lights`), each two entries of [`Anchors::effect_lights`]' buffer.
+pub const EFFECT_LIGHTS: usize = 7;
 
 impl Anchors {
     /// The shader's buffer of the anchors, by slot.
@@ -309,24 +326,53 @@ impl Anchors {
         Some((*self.anchors.get(slot)?, *self.floors.get(slot)?))
     }
 
-    /// Gives the model of `slot` the ambient share `share` of its light, 0 for none, in place of
-    /// its share `plain` otherwise.
-    pub fn light(&mut self, slot: u32, share: f32, plain: f32) {
+    /// Gives the model of `slot` the ambient share `share` of the world's colour at its place.
+    pub fn light(&mut self, slot: u32, share: f32) {
         if let Some(light) = usize::try_from(slot)
             .ok()
             .and_then(|slot| self.lights.get_mut(slot))
-            && (light.x, light.y) != (share, plain)
+            && light.x != share
         {
             light.x = share;
-            light.y = plain;
             self.changed = true;
         }
+    }
+
+    /// The effects' lights that shine, at most [`EFFECT_LIGHTS`]: each its place in the world and
+    /// its colour, for the shader as its place with the reciprocal of the models' scale, by which
+    /// its distances are in the models' units, then its colour; the rest of the buffer of the
+    /// colour 0, which shines none.
+    pub fn effect_lights(&mut self, lights: impl IntoIterator<Item = (Vec3, [f32; 3])>) {
+        let mut effects = vec![Vec4::ZERO; 2 * EFFECT_LIGHTS];
+        for (at, (place, [r, g, b])) in lights.into_iter().take(EFFECT_LIGHTS).enumerate() {
+            effects[2 * at] = place.extend(iso::MODEL_SCALE.recip());
+            effects[2 * at + 1] = Vec4::new(r, g, b, 0.0);
+        }
+        if effects != self.effects {
+            self.effects = effects;
+            self.changed = true;
+        }
+    }
+
+    /// The effects' lights as the shader takes them ([`Self::effect_lights`]).
+    #[cfg(test)]
+    pub(crate) fn effects(&self) -> &[Vec4] {
+        &self.effects
     }
 }
 
 impl FromWorld for Anchors {
     fn from_world(world: &mut World) -> Self {
         let mut buffers = world.resource_mut::<Assets<ShaderBuffer>>();
+        let effects = vec![Vec4::ZERO; 2 * EFFECT_LIGHTS];
+        let effect_buffer = buffers.add(ShaderBuffer::new(
+            effects.iter().map(|e| e.to_array()).collect::<Vec<_>>(),
+            RenderAssetUsages::default(),
+        ));
+        let light_buffer = buffers.add(ShaderBuffer::new(
+            vec![PLAIN_LIGHT.to_array()],
+            RenderAssetUsages::default(),
+        ));
         let mut zero = || {
             buffers.add(ShaderBuffer::new(
                 vec![[0.0_f32; 4]],
@@ -338,8 +384,10 @@ impl FromWorld for Anchors {
             anchors: vec![Vec4::ZERO],
             floor_buffer: zero(),
             floors: vec![Vec4::ZERO],
-            light_buffer: zero(),
-            lights: vec![Vec4::ZERO],
+            light_buffer,
+            lights: vec![PLAIN_LIGHT],
+            effect_buffer,
+            effects,
             free: Vec::new(),
             changed: false,
         }
@@ -412,6 +460,7 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
             anchors: anchors.buffer.clone(),
             floors: anchors.floor_buffer.clone(),
             lights: anchors.light_buffer.clone(),
+            effect_lights: anchors.effect_buffer.clone(),
             effect: None,
             glow: None,
             offsets: Vec4::ZERO,
@@ -689,12 +738,17 @@ fn hold(added: On<Add<Ordered>>, mut anchors: ResMut<Anchors>, mut roots: Query<
         let slot = u32::try_from(anchors.anchors.len()).ok()?;
         anchors.anchors.push(Vec4::ZERO);
         anchors.floors.push(Vec4::ZERO);
-        anchors.lights.push(Vec4::ZERO);
+        anchors.lights.push(PLAIN_LIGHT);
         Some(slot)
     });
-    // A slot taken again lights its new model plainly.
-    if let Some(slot) = slot {
-        anchors.light(slot, 0.0, 0.0);
+    // A slot taken again lights its new model plainly, as an object by day, until it is given
+    // its own light (`hover`).
+    if let Some(light) = slot
+        .and_then(|slot| usize::try_from(slot).ok())
+        .and_then(|slot| anchors.lights.get_mut(slot))
+    {
+        *light = PLAIN_LIGHT;
+        anchors.changed = true;
     }
     ordered.0 = slot;
 }
@@ -1151,6 +1205,7 @@ pub fn place(
             (&anchors.buffer, &anchors.anchors),
             (&anchors.floor_buffer, &anchors.floors),
             (&anchors.light_buffer, &anchors.lights),
+            (&anchors.effect_buffer, &anchors.effects),
         ] {
             let data: Vec<[f32; 4]> = values.iter().map(|a| a.to_array()).collect();
             if let Some(mut buffer) = buffers.get_mut(handle) {

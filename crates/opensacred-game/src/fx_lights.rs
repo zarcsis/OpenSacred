@@ -3,25 +3,18 @@
 //! `+0xB4`) and moves it to its place at each draw (`0x642EF0`) lights the models about it in its
 //! colour, the manager giving every such light the range 200 and the attenuations
 //! (1, 0, 0.000125), so `1 / (1 + 0.000125 d²)` within 200 of it; the ground and the sprites,
-//! lit by the world's lights alone, take none. Each is a Bevy `PointLight` beside the world's
-//! sun, of the same scale: the sun's illuminance the whole colour of a Direct3D light.
+//! lit by the world's lights alone, take none. The models' shader sums them from their own places
+//! as the fixed function does (`models::Anchors::effect_lights`, `standard.wesl`, #3692).
 //!
 //! The manager has as many slots as the device's lights, 8, the sun's among them, and a light
 //! made with every slot taken goes into the first slot of the lowest priority where its own is at
 //! least as high, putting that light out for good, else it shines nowhere (#2282): so at most
-//! seven effects' lights shine at once, as the game keeps them ([`Slots`]).
+//! seven effects' lights shine at once, as the game keeps them ([`Slots`]), and one hidden with its
+//! owner shines none (#2144, #2201, #3672).
 
 use bevy::prelude::*;
 
-use crate::iso;
-
-/// The sun's illuminance (`game::setup`), the world view's white directional light (1, 1, 1),
-/// which a Direct3D light of the colour 1 at the attenuation 1 matches.
-const SUN: f32 = 4_000.0;
-
-/// Every effect's light's range and its quadratic attenuation (`0x642B90`), in the models' units.
-const RANGE: f32 = 200.0;
-const QUADRATIC: f32 = 0.000_125;
+use crate::models::{Anchors, EFFECT_LIGHTS};
 
 /// The fireball's (778), the fire bolt's (922), the Dwarf's guns' light: (1, 0.8, 0.4).
 pub(crate) const FIRE: [f32; 3] = [1.0, 0.8, 0.4];
@@ -53,11 +46,12 @@ pub(crate) const LOW: u8 = 1;
 /// of them left to the effects beside the sun's.
 const DEVICE_LIGHTS: usize = 8;
 const SLOTS: usize = DEVICE_LIGHTS - 1;
+const _: () = assert!(SLOTS == EFFECT_LIGHTS);
 
 /// An effect's light (`0x642B90`): its colour, the look it lives with, what it follows, else
 /// where it stands, plus an offset, and its priority among the manager's slots ([`Slots`]).
-/// It holds a `Visibility` of its own whoever spawns it, so that the Bevy light [`kindle`] puts
-/// under it hides with its owner (#2144, #2201, #3672).
+/// It holds a `Visibility` of its own whoever spawns it, so that it hides with its owner and
+/// shines none meanwhile (#2144, #2201, #3672).
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 #[require(Transform, Visibility)]
 pub(crate) struct FxLight {
@@ -119,8 +113,8 @@ pub(crate) fn light(
     )
 }
 
-/// A light of `colour` and `priority` at its parent `owner`'s place, a child of it; visible, as
-/// the Bevy light that [`kindle`] puts under it is (#2201).
+/// A light of `colour` and `priority` at its parent `owner`'s place, a child of it, visible with
+/// it (#2201).
 pub(crate) fn child(colour: [f32; 3], priority: u8, owner: Entity) -> impl Bundle {
     (
         FxLight {
@@ -136,55 +130,19 @@ pub(crate) fn child(colour: [f32; 3], priority: u8, owner: Entity) -> impl Bundl
     )
 }
 
-/// How high over its place a Bevy light stands, in the models' units: `1/√0.000125`, 89. Bevy's
-/// light falls by the square of the distance alone, so one at this height over the plane of its
-/// place falls as `1 / (h² + x²)` along it, `x` the distance in the plane, which is the fixed
-/// function's `1 / (1 + 0.000125 x²)` up to its scale: as bright beside the effect as the
-/// original's, at none of the inverse square's glare near it; it lights from above rather than
-/// from the effect's own place (docs/decisions/drawing.md).
-fn lift() -> f32 {
-    QUADRATIC.recip().sqrt()
-}
-
-/// The lumens of a Bevy point light of the colour's brightest channel `brightest`, at
-/// [`lift`] over its place: the sun's illuminance there times `4π h²`.
-fn lumens(brightest: f32) -> f32 {
-    let s = iso::MODEL_SCALE;
-    4.0 * std::f32::consts::PI * SUN * brightest * (lift() * s).powi(2)
-}
-
-/// The Bevy light of an effect's light of `colour`, its range reaching 200 along its place's
-/// plane.
-pub(crate) fn point_light(colour: [f32; 3]) -> PointLight {
-    let brightest = colour.iter().copied().fold(0.0_f32, f32::max);
-    let [r, g, b] = colour.map(|c| c / brightest.max(f32::EPSILON));
-    PointLight {
-        color: Color::linear_rgb(r, g, b),
-        intensity: lumens(brightest),
-        range: RANGE.hypot(lift()) * iso::MODEL_SCALE,
-        shadow_maps_enabled: false,
-        ..default()
-    }
-}
-
-/// Gives each new effect's light a slot of the manager's and its Bevy light, a child of it at
-/// [`lift`] over it; one that takes another's slot puts that one out, and one that takes none
-/// stays dark (`0x642B90`, [`slot_for`]).
+/// Gives each new effect's light a slot of the manager's; one that takes another's slot puts that
+/// one out, and one that takes none stays dark (`0x642B90`, [`slot_for`]).
 fn kindle(
     mut commands: Commands,
     mut slots: ResMut<Slots>,
     lights: Query<(Entity, &FxLight), Added<FxLight>>,
-    children: Query<&Children>,
-    points: Query<(), With<PointLight>>,
 ) {
-    let mut added: Vec<(Entity, u8, [f32; 3])> = lights
+    let mut added: Vec<(Entity, u8)> = lights
         .iter()
-        .map(|(entity, light)| (entity, light.priority, light.colour))
+        .map(|(entity, light)| (entity, light.priority))
         .collect();
-    added.sort_by_key(|&(entity, ..)| entity);
-    // The slots first, in the lights' order: one put out in this frame gets no Bevy light.
-    let mut kindled: Vec<Entity> = Vec::new();
-    for &(entity, priority, _) in &added {
+    added.sort_by_key(|&(entity, _)| entity);
+    for (entity, priority) in added {
         let held = slots.0.map(|slot| slot.map(|(_, held)| held));
         let Some((at, puts_out)) = slot_for(&held, priority) else {
             debug!("fx lights: {entity} finds no slot");
@@ -193,24 +151,9 @@ fn kindle(
         };
         if puts_out && let Some((old, _)) = slots.0[at] {
             debug!("fx lights: {entity} puts {old} out");
-            kindled.retain(|&lit| lit != old);
-            for child in children.iter_descendants(old) {
-                if points.contains(child) {
-                    commands.entity(child).despawn();
-                }
-            }
             commands.entity(old).try_insert(Dark);
         }
         slots.0[at] = Some((entity, priority));
-        kindled.push(entity);
-    }
-    for (entity, _, colour) in added {
-        if kindled.contains(&entity) {
-            commands.entity(entity).with_child((
-                point_light(colour),
-                Transform::from_translation(Vec3::Y * lift() * iso::MODEL_SCALE),
-            ));
-        }
     }
 }
 
@@ -243,19 +186,19 @@ fn follow(
     }
 }
 
-/// Gives the Bevy light of each effect's light whose colour changed that colour, as a system
-/// sets its Direct3D light's colour at a draw (`0x642880`): the Dwarf's armour's and steel's.
-fn recolour(
-    lights: Query<(&FxLight, &Children), Changed<FxLight>>,
-    mut points: Query<&mut PointLight>,
+/// Hands the models' shader the effects' lights that shine: those that hold a slot, in the slots'
+/// order, each at its place in its colour, but one hidden with its owner (#2144, #2201, #3672).
+/// The colour is the light's as its system last set it (`0x642880`): the Dwarf's armour's and
+/// steel's change theirs.
+fn shine(
+    slots: Res<Slots>,
+    lights: Query<(&FxLight, &GlobalTransform, &InheritedVisibility)>,
+    mut anchors: ResMut<Anchors>,
 ) {
-    for (light, children) in &lights {
-        for &child in children {
-            if let Ok(mut point) = points.get_mut(child) {
-                *point = point_light(light.colour);
-            }
-        }
-    }
+    anchors.effect_lights(slots.0.iter().flatten().filter_map(|&(entity, _)| {
+        let (light, place, visible) = lights.get(entity).ok()?;
+        visible.get().then(|| (place.translation(), light.colour))
+    }));
 }
 
 /// The effects' lights.
@@ -265,8 +208,9 @@ impl Plugin for FxLightsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Slots>().add_systems(
             Update,
-            (release, kindle, follow, recolour)
+            (release, kindle, follow, shine)
                 .chain()
+                .before(crate::frame::Step::Models)
                 .run_if(in_state(crate::game::AppState::InGame)),
         );
     }
@@ -276,41 +220,50 @@ impl Plugin for FxLightsPlugin {
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_light_falls_along_its_plane_as_the_fixed_functions() {
-        let s = iso::MODEL_SCALE;
-        assert!((lift() - 89.44).abs() < 1e-2);
-        let point = point_light(FIRE);
-        for x in [0.0_f32, 20.0, 89.0, 150.0] {
-            let fixed = SUN / (1.0 + QUADRATIC * x * x);
-            let bevy =
-                point.intensity / (4.0 * std::f32::consts::PI) / (x.hypot(lift()) * s).powi(2);
-            assert!((bevy / fixed - 1.0).abs() < 1e-3, "{x}: {bevy} {fixed}");
-        }
-        assert!((point.range - 200.0_f32.hypot(lift()) * s).abs() < 1e-2);
-        assert!(!point.shadow_maps_enabled);
+    /// Whether `light` holds a slot of the manager's.
+    fn lit(app: &App, light: Entity) -> bool {
+        app.world()
+            .resource::<Slots>()
+            .0
+            .iter()
+            .flatten()
+            .any(|&(held, _)| held == light)
     }
 
     #[test]
-    fn a_light_under_its_owner_is_visible_as_its_bevy_light_is() {
+    fn a_light_in_a_slot_shines_at_its_place_while_it_is_visible() {
         let mut app = App::new();
-        app.init_resource::<Slots>().add_systems(Update, kindle);
+        app.add_plugins(bevy::asset::AssetPlugin::default())
+            .init_asset::<bevy::render::storage::ShaderBuffer>()
+            .init_resource::<Anchors>()
+            .init_resource::<Slots>()
+            .add_systems(Update, (kindle, shine).chain());
         let owner = app.world_mut().spawn(Visibility::default()).id();
-        let light = app.world_mut().spawn(child(FIRE, HIGH, owner)).id();
+        let place = Vec3::new(1.0, 2.0, 3.0);
+        let light = app
+            .world_mut()
+            .spawn((
+                child(FIRE, HIGH, owner),
+                GlobalTransform::from_translation(place),
+                InheritedVisibility::VISIBLE,
+            ))
+            .id();
         app.update();
-        let world = app.world();
-        assert!(world.entity(light).contains::<InheritedVisibility>());
-        let lit = world
-            .entity(light)
-            .get::<Children>()
-            .map(|children| children.to_vec())
-            .unwrap_or_default();
-        assert_eq!(lit.len(), 1);
-        assert!(world.entity(lit[0]).contains::<PointLight>());
+        assert!(lit(&app, light));
+        let mut shown = Anchors::from_world(app.world_mut());
+        shown.effect_lights([(place, FIRE)]);
+        assert_eq!(app.world().resource::<Anchors>().effects(), shown.effects());
+        // Hidden with its owner: none.
+        app.world_mut()
+            .entity_mut(light)
+            .insert(InheritedVisibility::HIDDEN);
+        app.update();
+        shown.effect_lights([]);
+        assert_eq!(app.world().resource::<Anchors>().effects(), shown.effects());
     }
 
     #[test]
-    fn a_light_spawned_bare_holds_a_visibility_for_its_bevy_light() {
+    fn a_light_spawned_bare_holds_a_visibility_of_its_own() {
         // As a torch's loop makes its light: the component alone under its flame (#3672).
         let mut app = App::new();
         app.init_resource::<Slots>().add_systems(Update, kindle);
@@ -330,15 +283,10 @@ mod tests {
             .id();
         app.update();
         let world = app.world();
-        let light = world.entity(light);
-        assert_eq!(light.get::<Visibility>(), Some(&Visibility::Inherited));
-        assert!(light.contains::<InheritedVisibility>() && light.contains::<Transform>());
-        let lit = light
-            .get::<Children>()
-            .map(|children| children.to_vec())
-            .unwrap_or_default();
-        assert_eq!(lit.len(), 1);
-        assert!(world.entity(lit[0]).contains::<PointLight>());
+        let entity = world.entity(light);
+        assert_eq!(entity.get::<Visibility>(), Some(&Visibility::Inherited));
+        assert!(entity.contains::<InheritedVisibility>() && entity.contains::<Transform>());
+        assert!(lit(&app, light));
     }
 
     #[test]
@@ -363,12 +311,6 @@ mod tests {
             .map(|_| app.world_mut().spawn(child(FIRE, LOW, owner)).id())
             .collect();
         app.update();
-        let lit = |app: &App, light: Entity| {
-            app.world()
-                .entity(light)
-                .get::<Children>()
-                .is_some_and(|children| !children.is_empty())
-        };
         // Seven lit, each later low one of a full manager putting out the first low one's.
         assert_eq!(lows.iter().filter(|&&l| lit(&app, l)).count(), SLOTS);
         let high = app.world_mut().spawn(child(FIRE, HIGH, owner)).id();

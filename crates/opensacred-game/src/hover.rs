@@ -2,7 +2,9 @@
 //! buttons"): the foe under the cursor, or the container under the hand, takes the original's
 //! `+0x14` bit `0x20000000`, which the world's drawing reads (`0x62FE03`): its light's ambient
 //! share, 0.8 of its colour otherwise and 0.3 for a creature's (#3108), pulses from 1.0 down to
-//! 0.2 and back every 0.4 s (`0x642FD0`), by which `standard.wesl` lights its model.
+//! 0.2 and back every 0.4 s (`0x642FD0`). Every model's share is kept in its slot
+//! (`models::Anchors::light`), by which `standard.wesl` sums the fixed function's light of it
+//! (#3692).
 
 use bevy::prelude::*;
 
@@ -40,10 +42,6 @@ fn plain(category: Option<u8>) -> f32 {
     }
 }
 
-/// The slot of the model lit so, if one is.
-#[derive(Resource, Default)]
-struct Lit(Option<u32>);
-
 /// The slot of the model of `entity`: its own root's, else the first of its descendants'.
 fn slot_of(entity: Entity, roots: &Query<&Ordered>, children: &Query<&Children>) -> Option<u32> {
     roots.get(entity).ok().and_then(Ordered::slot).or_else(|| {
@@ -53,31 +51,46 @@ fn slot_of(entity: Entity, roots: &Query<&Ordered>, children: &Query<&Children>)
     })
 }
 
-/// Lights the model under the cursor by the pulse against its own share, and the one before it
-/// plainly again.
-fn pulse(
-    mut lit: ResMut<Lit>,
+/// Gives each model its light's ambient share: the pulse for the one under the cursor, else its
+/// plain share by its type's category (`0x62FDE9`), a creature's by its mind, none for an object,
+/// a container's among them; the hero's 0.3, a creature's (**seen**: the drawing's read at
+/// `0x631C24` gave 0.30 for the Seraphim, the goblin 76, the ogres 40 and a crow at noon, 0.80 for
+/// the waters' fish and the objects 903; #3692).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments, grouped"
+)]
+fn shares(
     mut anchors: ResMut<Anchors>,
     (time, tables): (Res<Time>, Option<Res<crate::drops::Tables>>),
     highlit: Res<Highlit>,
-    (roots, children, minds): (Query<&Ordered>, Query<&Children>, Query<&Mind>),
+    (models, roots, children): (
+        Query<(&Ordered, Option<&Mind>, Has<crate::hero::Body>)>,
+        Query<&Ordered>,
+        Query<&Children>,
+    ),
 ) {
-    let slot = highlit
+    let lit = highlit
         .0
         .and_then(|entity| slot_of(entity, &roots, &children));
-    if lit.0 != slot {
-        if let Some(old) = lit.0 {
-            anchors.light(old, 0.0, 0.0);
+    let pulse = share(time.elapsed().as_millis());
+    for (ordered, mind, is_hero) in &models {
+        let Some(slot) = ordered.slot() else {
+            continue;
+        };
+        if lit == Some(slot) {
+            anchors.light(slot, pulse);
+            continue;
         }
-        lit.0 = slot;
-    }
-    if let Some((slot, entity)) = slot.zip(highlit.0) {
-        let category = minds
-            .get(entity)
-            .ok()
+        if is_hero {
+            anchors.light(slot, CREATURES_PLAIN);
+            continue;
+        }
+        let category = mind
+            .map(|mind| mind.thinks.creature)
             .zip(tables.as_deref())
-            .map(|(mind, tables)| tables.category(mind.thinks.creature));
-        anchors.light(slot, share(time.elapsed().as_millis()), plain(category));
+            .map(|(creature, tables)| tables.category(creature));
+        anchors.light(slot, plain(category));
     }
 }
 
@@ -86,8 +99,7 @@ pub struct HoverPlugin;
 
 impl Plugin for HoverPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Lit>()
-            .add_systems(Update, pulse.in_set(Playing));
+        app.add_systems(Update, shares.in_set(Playing));
     }
 }
 
