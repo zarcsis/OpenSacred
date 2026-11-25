@@ -64,6 +64,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use bevy::camera::visibility::NoFrustumCulling;
+use bevy::ecs::entity::MapEntities;
 use bevy::ecs::query::Or;
 use bevy::gltf::{Gltf, GltfNode};
 use bevy::image::{ImageAddressMode, ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
@@ -90,6 +91,7 @@ use opensacred_rules::{equipment, minds, quests, script_traps, ways};
 
 use crate::files;
 use crate::frame::{Step, WorldTick};
+use crate::names::{Id, Named};
 use crate::sectors::Streamer;
 use crate::tables::Tables;
 use crate::terrain::{Floored, Heights, Level};
@@ -316,6 +318,10 @@ const WOMAN: &str = "_FEM";
 /// An NPC or an object to place.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Placement {
+    /// The serial of the creature made in play of it, a fill's or a summoned one's, by which a
+    /// save names it (`names::Id::Born`, #3755): given as the creature is placed ([`named`]),
+    /// none for the scripts' placements, which their index names.
+    born: Option<u32>,
     /// The model, relative to the asset directory.
     model: String,
     /// Whether its type is a woman's (`minds::Mind::woman`).
@@ -1178,6 +1184,7 @@ struct Kind {
 /// hostile entry adds bit 0.
 fn template(creature: u32, kind: &Kind, slots: &motions::Slots) -> Placement {
     Placement {
+        born: None,
         model: kind.model.clone(),
         horse_class: 0,
         stock: None,
@@ -1446,6 +1453,8 @@ struct Kept {
     times: HashSet<(u32, u32)>,
     /// The region whose sector filled last (`0x94E080`).
     last: Option<u16>,
+    /// The next serial of a creature made in play (`names::Id::Born`, #3755).
+    born: u32,
 }
 
 /// What a sector that comes in does with its fills ([`Kept::enter`]).
@@ -1468,6 +1477,13 @@ enum Again {
 }
 
 impl Kept {
+    /// A new serial of a creature made in play.
+    fn mint(&mut self) -> u32 {
+        let serial = self.born;
+        self.born = self.born.wrapping_add(1);
+        serial
+    }
+
     /// What becomes of kept placement `index` as its sector comes in.
     fn again(&self, index: usize) -> Again {
         if self.out.contains(&index) {
@@ -4254,6 +4270,7 @@ impl Makers {
             0
         };
         Ok(Some(Placement {
+            born: None,
             model: model.clone(),
             woman: item.name.contains(WOMAN),
             horse_class: if record.kind == CREATE_NPC {
@@ -5868,9 +5885,10 @@ pub fn spawn_creatures(
             commands.entity(entity).remove::<fight::Unfought>();
         }
         if request.roams {
-            commands
-                .entity(entity)
-                .insert(bevy::prelude::DespawnOnExit(crate::game::AppState::InGame));
+            commands.entity(entity).insert((
+                bevy::prelude::DespawnOnExit(crate::game::AppState::InGame),
+                Named(Id::Born(npcs.kept.mint())),
+            ));
             made.push(entity);
             continue;
         }
@@ -6196,6 +6214,10 @@ fn place_index(
     }
     if !placement.object {
         commands.entity(entity).insert(PlacementIndex(index));
+    }
+    // Its name in a save's references, an object's too (#3755).
+    if let Ok(index) = u32::try_from(index) {
+        commands.entity(entity).insert(Named(Id::Placed(index)));
     }
     // An object goes by its name for a `DelNPC` (#2758).
     if placement.object
@@ -7219,7 +7241,7 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
 /// the hero gave it (`mercenaries`), and its effects; whether the scripts keep it to rise again
 /// ([`RisesAgain`]), and where it lies dead to rise, how long it has lain, its health its most
 /// (#2947); and the steps of its queue under the scripts' anim mode (#2890).
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, MapEntities)]
 pub struct Following {
     made: Made,
     stood: Stood,
@@ -7230,10 +7252,22 @@ pub struct Following {
     listed: bool,
     hands: Vec<(u32, Hand, Option<fight::ItemValues>)>,
     given: Option<crate::mercenaries::Given>,
+    /// Its effects, their sources by their names (#3755).
+    #[entities]
     effects: Option<crate::effects::Effects>,
     rises: bool,
     lain: Option<f32>,
     queue: SavedQueue,
+}
+
+impl Following {
+    /// Takes the sources of its effects that a load found no creature for for none
+    /// (`effects::Effects::forget_lost`).
+    pub fn forget_lost(&mut self) {
+        if let Some(effects) = &mut self.effects {
+            effects.forget_lost();
+        }
+    }
 }
 
 /// What a saved follower is made of: a kept placement of its sector, a fill's placement of its
@@ -7243,14 +7277,19 @@ pub struct Following {
 enum Made {
     Kept((u32, u32), usize),
     Filled((u32, u32), Box<Placement>),
-    Roams { creature: u32, rank: fight::Rank },
+    Roams {
+        creature: u32,
+        rank: fight::Rank,
+        /// Its serial (`names::Id::Born`, #3755).
+        born: Option<u32>,
+    },
 }
 
 /// What a save keeps of a follower beside its place, mind and stand ([`Following`]): its
 /// placement, its rank, its arms, the items the hero gave it, its effects, whether it rises
 /// again, and how long it has lain dead to rise.
 type FollowerParts<'a> = (
-    Option<&'a Placed>,
+    (Option<&'a Placed>, Option<&'a Named>),
     Option<&'a fight::Ranked>,
     &'a Arms,
     (
@@ -7300,7 +7339,11 @@ pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
         return Vec::new();
     };
     let mut followers = world.query_filtered::<(
-        (Entity, &crate::followers::Follower, Option<&Placed>),
+        (
+            Entity,
+            &crate::followers::Follower,
+            (Option<&Placed>, Option<&Named>),
+        ),
         (&Transform, &crowd::InTheWay, Option<&fight::Health>),
         (&ai::Mind, &Arms, Option<&fight::Ranked>),
         (
@@ -7310,7 +7353,11 @@ pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
         (Has<RisesAgain>, Option<&ScriptQueue>),
     ), Without<Dies>>();
     let mut lying = world.query_filtered::<(
-        (Entity, &crate::followers::Follower, Option<&Placed>),
+        (
+            Entity,
+            &crate::followers::Follower,
+            (Option<&Placed>, Option<&Named>),
+        ),
         (&Transform, &Stashed, Option<&fight::Health>),
         (&Arms, Option<&fight::Ranked>),
         (
@@ -7383,8 +7430,13 @@ pub fn following(world: &mut bevy::prelude::World) -> Vec<Following> {
     kept.into_iter().map(|(_, following)| following).collect()
 }
 
-/// What a saved creature is made of ([`Made`]) by its placement `placed`, else its type and rank.
-fn made_of(placed: Option<&Placed>, mind: &ai::Mind, ranked: Option<&fight::Ranked>) -> Made {
+/// What a saved creature is made of ([`Made`]) by its placement `placed`, else its type, rank and
+/// serial of its name `named`.
+fn made_of(
+    (placed, named): (Option<&Placed>, Option<&Named>),
+    mind: &ai::Mind,
+    ranked: Option<&fight::Ranked>,
+) -> Made {
     match placed {
         Some(Placed {
             at,
@@ -7397,6 +7449,10 @@ fn made_of(placed: Option<&Placed>, mind: &ai::Mind, ranked: Option<&fight::Rank
         None => Made::Roams {
             creature: mind.creature,
             rank: ranked.map_or(fight::Rank::Common, |ranked| ranked.0),
+            born: named.and_then(|named| match named.0 {
+                Id::Born(serial) => Some(serial),
+                _ => None,
+            }),
         },
     }
 }
@@ -7407,7 +7463,7 @@ fn made_of(placed: Option<&Placed>, mind: &ai::Mind, ranked: Option<&fight::Rank
 /// kept aside (#3743); none where the hero owns none, or one dead.
 pub fn mount_of(world: &mut bevy::prelude::World) -> Option<Following> {
     let mut horses = world.query_filtered::<(
-        Option<&Placed>,
+        (Option<&Placed>, Option<&Named>),
         (
             &Transform,
             Option<&crowd::InTheWay>,
@@ -7524,6 +7580,7 @@ fn respawn_following(
         effects,
         ..
     } = following;
+    let mut roams = None;
     let (placement, placed) = match made {
         Made::Kept(at, index) => {
             let placement = npcs
@@ -7539,7 +7596,12 @@ fn respawn_following(
             let source = Source::Filled(placement);
             (made, Some(Placed { at, source }))
         }
-        Made::Roams { creature, rank } => {
+        Made::Roams {
+            creature,
+            rank,
+            born,
+        } => {
+            roams = born;
             let request = Spawn {
                 creature,
                 cells: Vec::new(),
@@ -7575,7 +7637,34 @@ fn respawn_following(
         npcs.kept.spawned(&placed);
         creature.insert(placed);
     }
+    if let Some(serial) = roams {
+        creature.insert(Named(Id::Born(serial)));
+    }
     Ok(entity)
+}
+
+/// Names a placed creature as it is placed (#3755): a kept placement's by its index, a fill's or
+/// a summoned one's by the serial its placement carries, one given here where it carries none
+/// yet, which the placement keeps as its sector keeps it.
+fn named(
+    added: On<bevy::prelude::Add<Placed>>,
+    mut commands: Commands,
+    mut placed: Query<&mut Placed>,
+    npcs: Option<ResMut<Npcs>>,
+) {
+    let (Ok(mut placed), Some(mut npcs)) = (placed.get_mut(added.entity), npcs) else {
+        return;
+    };
+    let id = match &mut placed.source {
+        Source::Kept(index) => match u32::try_from(*index) {
+            Ok(index) => Id::Placed(index),
+            Err(_) => return,
+        },
+        Source::Filled(placement) => {
+            Id::Born(*placement.born.get_or_insert_with(|| npcs.kept.mint()))
+        }
+    };
+    commands.entity(added.entity).insert(Named(id));
 }
 
 /// Puts a loaded save's followers back beside the hero once it stands (#1959): each made as it was
@@ -15382,6 +15471,7 @@ impl Plugin for NpcsPlugin {
             .add_observer(retexture)
             .add_observer(equipment_ready)
             .add_observer(keep)
+            .add_observer(named)
             .add_observer(hear_again)
             .add_systems(
                 Update,
@@ -17417,9 +17507,44 @@ mod tests {
         let summoned = Made::Roams {
             creature: 1026,
             rank: fight::Rank::Common,
+            born: Some(41),
         };
         let bytes = postcard::to_stdvec(&summoned).unwrap();
         assert_eq!(postcard::from_bytes::<Made>(&bytes).unwrap(), summoned);
+    }
+
+    #[test]
+    fn a_fills_creature_keeps_its_serial_through_its_sectors_going_and_coming() {
+        let mut kept = Kept::default();
+        let (first, second) = (kept.mint(), kept.mint());
+        assert_eq!((first, second, kept.born), (0, 1, 2));
+        let wolf = Placed {
+            at: (50, 39),
+            source: Source::Filled(Box::new(Placement {
+                born: Some(second),
+                ..Placement::default()
+            })),
+        };
+        let stood = Stood {
+            cell: (3236, 2511),
+            layer: 0,
+            heading: 0.0,
+            health: fight::Health {
+                current: 20,
+                most: 30,
+                level: 2,
+            },
+            marked: false,
+        };
+        kept.gone(&wolf, Some(stood));
+        // A save keeps the count and the serial.
+        let bytes = postcard::to_stdvec(&kept).unwrap();
+        let mut kept: Kept = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(kept.born, 2);
+        let back = kept.enter((50, 39), None, |_| 0).back;
+        assert_eq!(back.len(), 1);
+        assert_eq!(back[0].0.born, Some(second));
+        assert_eq!(kept.mint(), 2);
     }
 
     #[test]

@@ -306,6 +306,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/motions.rs`: A creature's clips by the original's motion slots
 - `crates/opensacred-game/src/movies.rs`: The movies
 - `crates/opensacred-game/src/music.rs`: Music
+- `crates/opensacred-game/src/names.rs`: The names that a save refers to creatures and things by
 - `crates/opensacred-game/src/nearest.wesl`: The models' true depths
 - `crates/opensacred-game/src/night.wesl`: The night's darkness
 - `crates/opensacred-game/src/npcs.rs`: The NPCs and objects that the scripts place

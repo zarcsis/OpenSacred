@@ -191,6 +191,7 @@ mod models;
 mod motions;
 mod movies;
 mod music;
+mod names;
 mod npcs;
 mod options;
 mod opus;
@@ -738,6 +739,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         motions::MotionsPlugin,
         movies::MoviesPlugin,
         music::MusicPlugin,
+        names::NamesPlugin,
         npcs::NpcsPlugin,
         options::OptionsPlugin,
         opus::OpusPlugin,

@@ -65,7 +65,8 @@ pub fn file(dir: &Path, slot: u8) -> PathBuf {
 pub fn export(world: &mut bevy::prelude::World, slot: u8) -> Result<PathBuf> {
     ensure!(slot < SLOTS, "a hero's slot is 0 to {}", SLOTS - 1);
     let dir = directory(world).context("no directory for the heroes")?;
-    let (header, hero) = saves::gather(world, "export")?;
+    // Its effects go with no sources: an import puts none back.
+    let (header, hero) = saves::gather(world, "export", &mut crate::names::Refs::default())?;
     let wins = world
         .get_resource::<crate::statistics::Wins>()
         .copied()
