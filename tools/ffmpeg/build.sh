@@ -3,9 +3,10 @@
 # cross-built on Linux with MinGW-w64, under the LGPL (no GPL or non-free part enabled), with only
 # what opensacred-convert runs: the demuxers and decoders of the original's WAV, MP3, WMV (WMV3,
 # WMA v2 and Pro) and Bink (the VTex textures), FLAC, FFV1 and libopus and libsvtav1 (both BSD,
-# built static here) to encode, the Ogg, Matroska and WebM muxers, the pipe protocol, and the
-# filters that convert the formats. The sources are those of versions.toml, checked by their
-# SHA-256.
+# built static here) to encode, the Ogg, Matroska and WebM muxers, the pipe protocol, the
+# filters that convert the formats, and those that the movies' graphs name (opensacred-convert's
+# video::content, whose test checks them against this list, #3682). The sources are those of
+# versions.toml, checked by their SHA-256.
 #
 #   tools/ffmpeg/build.sh OUT
 #
@@ -87,7 +88,7 @@ flags=(
     --enable-encoder=flac,libopus,ffv1,libsvtav1,rawvideo,pcm_s16le
     --enable-muxer=flac,ogg,matroska,webm,rawvideo,pcm_s16le,wav
     --enable-parser=mpegaudio,flac,opus,av1
-    --enable-filter=aresample,aformat,format,scale,anull,null
+    --enable-filter=aresample,aformat,format,scale,anull,null,crop,pad,split,trim,setpts,concat
 )
 cd "$work/ffmpeg"
 PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig" ./configure "${flags[@]}"
