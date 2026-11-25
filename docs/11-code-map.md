@@ -186,6 +186,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/demon_fires.rs`: The look of the Daemon's demon fire
 - `crates/opensacred-game/src/demon_forms.rs`: The look of the Daemon's forms
 - `crates/opensacred-game/src/demon_illusions.rs`: The big demon's illusion
+- `crates/opensacred-game/src/doings.rs`: What the creatures are doing, as a save keeps it
 - `crates/opensacred-game/src/doom_signs.rs`: The Daemon's call of death's sign at a kill
 - `crates/opensacred-game/src/doors.rs`: The doors that the hero opens and closes
 - `crates/opensacred-game/src/dragon_fires.rs`: The dragons' breath of fire
