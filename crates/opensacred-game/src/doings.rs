@@ -191,7 +191,19 @@ pub const DERIVED: &[&str] = &[
     "opensacred_game::fight::Regenerates",
     "opensacred_game::crowd::InTheWay",
     "opensacred_game::models::Ordered",
+    "opensacred_game::models::Source",
     "opensacred_game::shadows::Casts",
+    "opensacred_game::arrows::Size",
+    "opensacred_game::buildings::Layered",
+    "opensacred_game::sectors::InSector",
+    "opensacred_game::fight::Ranked",
+    "opensacred_game::fight::Worth",
+    "opensacred_game::icons::Icon",
+    "opensacred_game::npcs::ScriptName",
+    "opensacred_game::npcs::Talk",
+    "opensacred_game::npcs::RisesAgain",
+    "opensacred_game::steps::Stepped",
+    "opensacred_game::voices::Speaking",
 ];
 
 /// The components that a creature's [`Doing`] keeps, by their types' paths.

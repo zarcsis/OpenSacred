@@ -1013,7 +1013,8 @@ fn resume(world: &mut bevy::prelude::World) {
     let (doings, lost) = loaded(world, &live.refs, live.doings);
     let (given, missing) = crate::doings::give(world, doings);
     info!(
-        "saves: what lives is back after {frames} frames: {given} doings, {missing} creatures not          in the world, {lost} references lost"
+        "saves: what lives is back after {frames} frames: {given} doings, {missing} creatures \
+         missing, {lost} references lost"
     );
     if world.get_resource::<Held>().is_some_and(|held| held.0) {
         world.insert_resource(Held(false));
