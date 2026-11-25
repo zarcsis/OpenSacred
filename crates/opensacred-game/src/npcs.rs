@@ -2313,7 +2313,7 @@ fn gear_of<'a>(
     (pools, gear): (&HashMap<i32, Vec<u32>>, &'a HashMap<u32, Gear>),
     (shots, weapon): (
         spawning::Shots,
-        impl FnOnce(u8, &mut spawning::Rng) -> Option<u32>,
+        impl FnMut(u8, &mut spawning::Rng) -> Option<u32>,
     ),
     rng: &mut spawning::Rng,
 ) -> Vec<(u32, &'a Gear)> {
@@ -2328,6 +2328,21 @@ fn gear_of<'a>(
     };
     let first = roll(rule.items[0]);
     let second = roll(rule.items[1]);
+    joined(creature, (first, second), (gear, shots), weapon, rng)
+}
+
+/// The first two items of a creature of `creature` as both the rules' path and the general
+/// maker's join (`0x4805E0`): a crossbow or a musket first that its model of the shots `shots`
+/// cannot shoot replaced by `weapon` of the kind it asks for (`spawning::filled_weapon`), the
+/// two as its type's own list makes them (`spawning::own_items`), the second only after a weapon
+/// of a kind that leaves a hand free.
+fn joined<'a>(
+    creature: u32,
+    (first, second): (Option<u32>, Option<u32>),
+    (gear, shots): (&'a HashMap<u32, Gear>, spawning::Shots),
+    mut weapon: impl FnMut(u8, &mut spawning::Rng) -> Option<u32>,
+    rng: &mut spawning::Rng,
+) -> Vec<(u32, &'a Gear)> {
     let first = first.and_then(|item| {
         match spawning::filled_weapon(gear.get(&item).and_then(|g| g.kind), shots) {
             Some(kind) => weapon(kind, rng),
@@ -2371,6 +2386,18 @@ fn worn_of<'a>(
     let list = pools.get(&pool).filter(|list| !list.is_empty())?;
     let index = usize::try_from(rng.below(u32::try_from(list.len()).ok()?)).ok()?;
     let item = made.then(|| list[index])?;
+    switched(item, creature, gear, switches)
+}
+
+/// A worn piece `item` of a creature of `creature` as the armour switch makes it by `switches`
+/// (`0x43CA20`): the item itself, its variant, or nothing; the switch looks a derived item up by
+/// its root (up to six parents within 2000 to 2999 and 6500 to 7999).
+fn switched<'a>(
+    item: u32,
+    creature: u32,
+    gear: &'a HashMap<u32, Gear>,
+    switches: &[Vec<[u32; 2]>],
+) -> Option<(u32, &'a Gear)> {
     let derived = |item: u32| (2000..=2999).contains(&item) || (6500..=7999).contains(&item);
     let mut root = item;
     for _ in 0..6 {
@@ -2392,6 +2419,49 @@ fn worn_of<'a>(
     Some((item, gear.get(&item)?))
 }
 
+/// The items that the general maker gives a creature of `creature` whose type no rule names, its
+/// model of the clips' slots `slots` and the shots `shots` (`0x47F8E0` from `0x47FD20`;
+/// docs/re/spawning.md, "The general maker", #3185): a weapon of the kind that its slots' draws
+/// choose (`spawning::general_kind`) by `weapon`, the kind 1 with a shield by `shield` at its
+/// draw (`spawning::general_shield`), two weapons as a weapon of the kind 1 in both hands; then
+/// as the rules' path joins them ([`joined`]); and a worn piece of its type's own list
+/// (`spawning::general_worn`) through the armour switch ([`switched`]).
+#[expect(
+    clippy::type_complexity,
+    reason = "the makers' closures as the rules' path takes them"
+)]
+fn general_of<'a>(
+    creature: u32,
+    (slots, shots): (Option<&motions::Slots>, spawning::Shots),
+    (gear, switches): (&'a HashMap<u32, Gear>, &[Vec<[u32; 2]>]),
+    (mut weapon, mut shield): (
+        impl FnMut(u8, &mut spawning::Rng) -> Option<u32>,
+        impl FnMut(&mut spawning::Rng) -> Option<u32>,
+    ),
+    rng: &mut spawning::Rng,
+) -> (Vec<(u32, &'a Gear)>, Option<(u32, &'a Gear)>) {
+    let has = |slot| slots.is_some_and(|slots| slots.slot(slot).is_some());
+    let (first, second) = match spawning::general_kind(creature, has, rng) {
+        Some(spawning::KIND_TWO_WEAPONS) => {
+            let first = weapon(spawning::BLADE, rng);
+            (first, first)
+        }
+        Some(spawning::BLADE) => {
+            let first = weapon(spawning::BLADE, rng);
+            let second = first
+                .filter(|_| spawning::general_shield(rng))
+                .and_then(|_| shield(rng));
+            (first, second)
+        }
+        Some(kind) => (weapon(kind, rng), None),
+        None => (None, None),
+    };
+    let held = joined(creature, (first, second), (gear, shots), weapon, rng);
+    let worn = spawning::general_worn(creature, rng)
+        .and_then(|item| switched(item, creature, gear, switches));
+    (held, worn)
+}
+
 /// What arms a creature by the `MakeGroup` rules ([`arm_by_rules`]): the weapon pools, the items'
 /// gear, the armour switch's groups and the models' clips' slots.
 type Armouries<'a> = (
@@ -2404,24 +2474,42 @@ type Armouries<'a> = (
 /// Arms `placement`, a creature of `creature`, by the rules `rules` as `0x47F8E0` does a fill's
 /// and a `CreateNPC`'s of the operand `54` (#3072): its first two items ([`gear_of`]) in its hands
 /// and its clips by what it holds, a crossbow its model cannot shoot another weapon by `weapon`
-/// where `chooses` (#1217), and its third, a worn piece ([`worn_of`], #2286). It returns the
-/// items in its hands.
+/// where `chooses` (#1217), and its third, a worn piece ([`worn_of`], #2286); a type that no rule
+/// names by the general maker ([`general_of`], #3185), its weapons by `weapon` and its shield by
+/// `shield`. It returns the items in its hands.
 fn arm_by_rules(
     placement: &mut Placement,
     (rules, creature): (&[Rule], u32),
     (pools, gear, switches, slots): Armouries<'_>,
-    (chooses, weapon): (bool, impl FnOnce(u8, &mut spawning::Rng) -> Option<u32>),
+    (chooses, weapon, shield): (
+        bool,
+        impl FnMut(u8, &mut spawning::Rng) -> Option<u32>,
+        impl FnMut(&mut spawning::Rng) -> Option<u32>,
+    ),
     rng: &mut spawning::Rng,
 ) -> Vec<u32> {
-    let shots = match (chooses, slots.get(&placement.model)) {
+    let model_slots = slots.get(&placement.model);
+    let shots = match (chooses, model_slots) {
         (true, Some(slots)) => shots(slots),
         _ => spawning::Shots {
             crossbow: true,
             bow: true,
         },
     };
-    let held = gear_of(rules, creature, (pools, gear), (shots, weapon), rng);
-    let worn = worn_of(rules, creature, (pools, gear), switches, rng);
+    let (held, worn) = if rules.iter().any(|rule| rule.types.contains(&creature)) {
+        (
+            gear_of(rules, creature, (pools, gear), (shots, weapon), rng),
+            worn_of(rules, creature, (pools, gear), switches, rng),
+        )
+    } else {
+        general_of(
+            creature,
+            (model_slots, shots),
+            (gear, switches),
+            (weapon, shield),
+            rng,
+        )
+    };
     let worn_model = worn.and_then(|(item, worn)| {
         placement.worn = vec![(item, worn.category)];
         (!ATTACHED.contains(&worn.category)).then_some(())?;
@@ -4627,6 +4715,20 @@ impl Armoury<'_> {
         };
         self.catalogue.choose(wanted, self.hero, dice)
     }
+
+    /// A shield of any kind at the level `level` as `0x5C7FA0` chooses the general maker's
+    /// (#3185): of the category 13, of the quality 14, of any class and no set piece.
+    fn shield(&self, level: u32, dice: &mut impl spawning::Dice) -> Option<u32> {
+        let wanted = opensacred_rules::drops::Wanted {
+            category: SHIELD,
+            level,
+            class: 0,
+            loose: false,
+            quality: spawning::REARMED_QUALITY,
+            kind: None,
+        };
+        self.catalogue.choose(wanted, self.hero, dice)
+    }
 }
 
 /// The shots of a model of the clips' slots `slots`: whether it has a crossbow's and a bow's.
@@ -5859,11 +5961,13 @@ fn place_index(
         let weapon = |kind, rng: &mut spawning::Rng| {
             armoury.and_then(|armoury| armoury.weapon(kind, hero, rng))
         };
+        let shield =
+            |rng: &mut spawning::Rng| armoury.and_then(|armoury| armoury.shield(hero, rng));
         let held = arm_by_rules(
             &mut placement,
             (rules, creature),
             (&npcs.pools, &npcs.gear, &npcs.makers.switches, &npcs.slots),
-            (armoury.is_some(), weapon),
+            (armoury.is_some(), weapon, shield),
             &mut rng,
         );
         bevy::log::debug!(
@@ -6367,11 +6471,14 @@ pub fn place(
                 let weapon = |kind, rng: &mut spawning::Rng| {
                     armoury.and_then(|armoury| armoury.weapon(kind, shared, rng))
                 };
+                let shield = |rng: &mut spawning::Rng| {
+                    armoury.and_then(|armoury| armoury.shield(shared, rng))
+                };
                 let held = arm_by_rules(
                     &mut placement,
                     (rules, made.creature),
                     (&npcs.pools, &npcs.gear, &npcs.makers.switches, &npcs.slots),
-                    (armoury.is_some(), weapon),
+                    (armoury.is_some(), weapon, shield),
                     &mut rng,
                 );
                 if !held.is_empty() {
@@ -19035,22 +19142,66 @@ mod tests {
             &mut placement,
             (&rules, 313),
             (&pools, &gear, &makers.switches, &HashMap::new()),
-            (false, |_, _: &mut spawning::Rng| None),
+            (
+                false,
+                |_, _: &mut spawning::Rng| None,
+                |_: &mut spawning::Rng| None,
+            ),
             &mut spawning::Rng::of(0, 0, 0),
         );
         assert_eq!(held, [1729]);
         assert_eq!(placement.holding.len(), 1);
         assert_eq!(placement.equipment[0].item, 1729);
-        // A type of no rule takes nothing (its general maker is #3185's).
+        // A type of no rule, whose model has none of the general maker's slots and whose type
+        // has no list of its own, takes nothing (#3185).
         let mut bare = Placement::default();
         let none = arm_by_rules(
             &mut bare,
             (&rules, 43),
             (&pools, &gear, &makers.switches, &HashMap::new()),
-            (false, |_, _: &mut spawning::Rng| None),
+            (
+                false,
+                |_, _: &mut spawning::Rng| None,
+                |_: &mut spawning::Rng| None,
+            ),
             &mut spawning::Rng::of(0, 0, 0),
         );
         assert!(none.is_empty() && bare.equipment.is_empty());
+        // A type of no rule whose model strikes two weapons (`0x77`) takes them by the general
+        // maker at an odd draw: a weapon of the kind 1 asked; at an even one nothing.
+        let slots = HashMap::from([(
+            "bandit.glb".to_owned(),
+            motions::Slots::of([(spawning::GENERAL_TWO_WEAPONS, "attack")]),
+        )]);
+        let (mut armed, mut unarmed, mut asked) = (0, 0, Vec::new());
+        for seed in 0..40 {
+            let mut general = Placement {
+                model: "bandit.glb".to_owned(),
+                ..Placement::default()
+            };
+            let held = arm_by_rules(
+                &mut general,
+                (&rules, 43),
+                (&pools, &gear, &makers.switches, &slots),
+                (
+                    true,
+                    |kind, _: &mut spawning::Rng| {
+                        asked.push(kind);
+                        Some(1729)
+                    },
+                    |_: &mut spawning::Rng| None,
+                ),
+                &mut spawning::Rng::of(0, 0, seed),
+            );
+            if held.is_empty() {
+                unarmed += 1;
+            } else {
+                armed += 1;
+                assert_eq!(held[0], 1729);
+            }
+        }
+        assert!(armed > 0 && unarmed > 0, "{armed} {unarmed}");
+        assert!(asked.iter().all(|&kind| kind == spawning::BLADE));
     }
 
     #[test]

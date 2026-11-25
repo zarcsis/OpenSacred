@@ -56,7 +56,10 @@ const SLOTS: usize = DEVICE_LIGHTS - 1;
 
 /// An effect's light (`0x642B90`): its colour, the look it lives with, what it follows, else
 /// where it stands, plus an offset, and its priority among the manager's slots ([`Slots`]).
+/// It holds a `Visibility` of its own whoever spawns it, so that the Bevy light [`kindle`] puts
+/// under it hides with its owner (#2144, #2201, #3672).
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
+#[require(Transform, Visibility)]
 pub(crate) struct FxLight {
     pub(crate) colour: [f32; 3],
     pub(crate) owner: Entity,
@@ -299,6 +302,38 @@ mod tests {
         assert!(world.entity(light).contains::<InheritedVisibility>());
         let lit = world
             .entity(light)
+            .get::<Children>()
+            .map(|children| children.to_vec())
+            .unwrap_or_default();
+        assert_eq!(lit.len(), 1);
+        assert!(world.entity(lit[0]).contains::<PointLight>());
+    }
+
+    #[test]
+    fn a_light_spawned_bare_holds_a_visibility_for_its_bevy_light() {
+        // As a torch's loop makes its light: the component alone under its flame (#3672).
+        let mut app = App::new();
+        app.init_resource::<Slots>().add_systems(Update, kindle);
+        let owner = app.world_mut().spawn(Visibility::Hidden).id();
+        let light = app
+            .world_mut()
+            .spawn((
+                FxLight {
+                    colour: TORCH,
+                    owner,
+                    follows: None,
+                    offset: Vec3::ZERO,
+                    priority: HIGH,
+                },
+                ChildOf(owner),
+            ))
+            .id();
+        app.update();
+        let world = app.world();
+        let light = world.entity(light);
+        assert_eq!(light.get::<Visibility>(), Some(&Visibility::Inherited));
+        assert!(light.contains::<InheritedVisibility>() && light.contains::<Transform>());
+        let lit = light
             .get::<Children>()
             .map(|children| children.to_vec())
             .unwrap_or_default();
