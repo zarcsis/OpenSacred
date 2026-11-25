@@ -104,8 +104,9 @@ use crate::{arts, drops, making};
 /// version 42 a follower's entry in the portraits' column (#3102); the version 43 the hero's
 /// shots' chain (#3568); the version 44 the marks of the items that the scripts put into the
 /// backpack (#3543); the version 45 the hero's knock-downs' marks (#3673); the version 46 whether a
-/// creature's attack's clips are a stand-in (#3314); the version 47 the camera's zoom (#3740).
-pub const VERSION: u32 = 47;
+/// creature's attack's clips are a stand-in (#3314); the version 47 the camera's zoom (#3740); the
+/// version 48 the hero's and the kept creatures' headings (#3744).
+pub const VERSION: u32 = 48;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -136,6 +137,9 @@ pub struct Hero {
     /// Where it stands, in world units over the ground's plane, and its floor, 0 the ground.
     pub at: (f32, f32),
     pub floor: u8,
+    /// The heading it faces, in a placement's degrees (`npcs::degrees`), as the original's
+    /// creature's record keeps its direction `+0x70` (`0x44FC50`, #3744).
+    pub heading: f32,
     pub experience: Experience,
     pub base: opensacred_rules::fight::Base,
     pub health: u32,
@@ -436,6 +440,7 @@ pub(crate) fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(He
     let now = world
         .get_resource::<Time<Real>>()
         .map_or(0.0, Time::<Real>::elapsed_secs_f64);
+    let heading = crate::npcs::heading_of(transform.rotation);
     let (at, base, health, effects, queue) = (
         (transform.translation.x, transform.translation.z),
         base.0,
@@ -466,6 +471,7 @@ pub(crate) fn gather(world: &mut bevy::prelude::World, name: &str) -> Result<(He
     let hero = Hero {
         at,
         floor,
+        heading,
         experience: experience.0,
         base,
         health,
@@ -715,6 +721,10 @@ fn restore(world: &mut bevy::prelude::World) {
     let position = Vec3::new(hero.at.0, 0.0, hero.at.1);
     if let Err(e) = crate::command::teleport(world, position, Arrival::On(Some(hero.floor))) {
         warn!("saves: putting the hero back: {e}");
+    }
+    // Facing as it faced (#3744).
+    if let Some(mut transform) = world.get_mut::<Transform>(entity) {
+        transform.rotation = crate::hero::facing(crate::npcs::heading(hero.heading));
     }
     // The steps of its queue that the save kept (#2890).
     hero.queue.clone().give_now(world, entity);
@@ -1187,6 +1197,7 @@ pub(crate) mod tests {
         Hero {
             at: (1234.5, 6789.0),
             floor: 1,
+            heading: 135.0,
             experience: Experience::default(),
             base: opensacred_rules::fight::Base::default(),
             health: 99,
@@ -1344,6 +1355,7 @@ pub(crate) mod tests {
             read(&file(&dir, "first").unwrap()).unwrap();
         assert_eq!(read_header, header("first", 10));
         assert_eq!(read_hero.at, (1234.5, 6789.0));
+        assert_eq!(read_hero.heading, 135.0);
         assert_eq!((read_hero.floor, read_hero.health), (1, 99));
         assert_eq!(read_hero.selected, Some(1078));
         assert_eq!(read_hero.runes_given, 3);
@@ -1425,7 +1437,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (47, 0xC41E_E156_E8BA_DC30),
+            (48, 0x124C_B9BB_36C1_7104),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

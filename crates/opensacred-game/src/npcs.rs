@@ -1408,13 +1408,16 @@ enum Source {
     Filled(Box<Placement>),
 }
 
-/// Where a creature that went with its sector stood, on which floor, its health, and whether a
-/// bonus against the undead marked it (`undead::Marked`, #3385): none for a body that its
-/// dialogue holds (#2457), which lies there.
+/// Where a creature that went with its sector stood, on which floor, which way it faced, its
+/// health, and whether a bonus against the undead marked it (`undead::Marked`, #3385): none for a
+/// body that its dialogue holds (#2457), which lies there.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Stood {
     cell: (u32, u32),
     layer: i32,
+    /// The heading it faced, in a placement's degrees ([`degrees`]), as the original's creature
+    /// keeps its direction `+0x70` in its record (`0x44FC50`, #3744).
+    heading: f32,
     health: fight::Health,
     marked: bool,
 }
@@ -1975,6 +1978,22 @@ fn value_i32(value: &Value) -> Option<i32> {
 pub(crate) fn heading(degrees: f32) -> Vec3 {
     let (sin, cos) = degrees.to_radians().sin_cos();
     Vec3::new(cos + 2.0 * sin, 0.0, 2.0 * sin - cos).normalize()
+}
+
+/// The heading in degrees of a direction on the ground, [`heading`]'s inverse: its `x` and `z`
+/// are `cos + 2 sin` and `2 sin − cos` of the heading at some scale (#3744).
+pub(crate) fn degrees(direction: Vec3) -> f32 {
+    let (sin, cos) = (
+        (direction.x + direction.z) / 4.0,
+        (direction.x - direction.z) / 2.0,
+    );
+    sin.atan2(cos).to_degrees()
+}
+
+/// The heading in degrees that a model turned by `rotation` faces ([`hero::facing`]'s model faces
+/// +X in its bind pose).
+pub(crate) fn heading_of(rotation: Quat) -> f32 {
+    degrees(rotation * Vec3::X)
 }
 
 /// The heading a placement faces: an object's when above 0, else its item's own angle, which
@@ -6948,6 +6967,7 @@ fn respawn(
     let mut there = placement.clone();
     there.cell = stood.cell;
     there.layer = stood.layer;
+    there.heading = stood.heading;
     if stood.lies() {
         there.hire = None;
     }
@@ -7080,6 +7100,7 @@ fn stood_of(
     Some(Stood {
         cell: (x, y),
         layer,
+        heading: heading_of(transform.rotation),
         health,
         marked: false,
     })
@@ -15740,6 +15761,32 @@ mod tests {
     }
 
     #[test]
+    fn a_models_heading_is_read_back_from_its_rotation() {
+        // Each heading as the turned model faces it, within (−180, 180].
+        for turned in [0.0_f32, 20.0, 45.0, 135.0, 200.0, 330.0] {
+            let rotation = hero::facing(heading(turned));
+            let back = heading_of(rotation);
+            let apart = (back - turned).rem_euclid(360.0);
+            assert!(apart.min(360.0 - apart) < 1e-3, "{turned}: {back}");
+            assert!(back > -180.0 && back <= 180.0, "{turned}: {back}");
+        }
+    }
+
+    #[test]
+    fn a_creature_comes_back_facing_as_it_faced() {
+        let centre = paths::centre((5617, 2258));
+        let at = Transform::from_xyz(centre.x, 0.0, centre.y)
+            .with_rotation(hero::facing(heading(200.0)));
+        let health = fight::Health {
+            current: 40,
+            most: 72,
+            level: 3,
+        };
+        let stood = stood_of((&at, None), Some(&health), (false, false), None).unwrap();
+        assert!((stood.heading - -160.0).abs() < 1e-3, "{}", stood.heading);
+    }
+
+    #[test]
     fn an_object_without_a_heading_faces_its_items_angle() {
         // `chest.grn`'s −30: without a heading, or with 0, which `CreateObj` leaves alone.
         assert_eq!(facing_degrees(true, None, -30.0), -30.0);
@@ -16942,6 +16989,7 @@ mod tests {
             marked: false,
             cell: (x, 2518),
             layer: 0,
+            heading: 0.0,
             health: health(current),
         };
         let mut kept = Kept::default();
@@ -16986,6 +17034,7 @@ mod tests {
             marked: false,
             cell: (5617, 2258),
             layer: 0,
+            heading: heading_of(Quat::IDENTITY),
             health: fight::Health {
                 current: 0,
                 ..health
@@ -17029,6 +17078,7 @@ mod tests {
             marked: false,
             cell: (x, 2518),
             layer: 0,
+            heading: 0.0,
             health: fight::Health {
                 current: 30,
                 most: 30,
@@ -17087,6 +17137,7 @@ mod tests {
             marked: false,
             cell: (x, 2518),
             layer: 0,
+            heading: 0.0,
             health: fight::Health {
                 current,
                 most: 72,
@@ -17325,6 +17376,7 @@ mod tests {
                 marked: false,
                 cell: (3300, 2518),
                 layer: 1,
+                heading: 0.0,
                 health: fight::Health {
                     current: 30,
                     most: 50,
