@@ -46,7 +46,8 @@ use bevy::pbr::{
 };
 use bevy::prelude::*;
 use bevy::render::render_resource::{
-    AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError, TextureFormat,
+    AsBindGroup, BlendComponent, BlendFactor, BlendOperation, RenderPipelineDescriptor,
+    SpecializedMeshPipelineError, TextureFormat,
 };
 use bevy::render::storage::ShaderBuffer;
 use bevy::shader::{ShaderDefVal, ShaderRef};
@@ -166,6 +167,8 @@ pub struct InOrder {
     pass: Pass,
     /// Whether it draws the device's specular highlights ([`specular`]).
     specular: bool,
+    /// Whether its base is lit, by which its pixels leave the night's pass ([`set_lit`], #3693).
+    lit: bool,
 }
 
 /// What the pipeline of a [`ModelMaterial`] depends on beyond Bevy's own material.
@@ -178,6 +181,10 @@ pub struct InOrderKey {
     vision: bool,
     under: bool,
     specular: bool,
+    /// Lit, of a pass that covers its pixels whole or of one blended over what lies behind
+    /// ([`InOrder::lit`]).
+    lit_opaque: bool,
+    lit_blended: bool,
 }
 
 impl From<&InOrder> for InOrderKey {
@@ -190,6 +197,13 @@ impl From<&InOrder> for InOrderKey {
             vision: extension.pass == Pass::Vision,
             under: matches!(extension.pass, Pass::Under(_) | Pass::UnderBlended(_)),
             specular: extension.specular,
+            lit_opaque: extension.lit
+                && matches!(extension.pass, Pass::Tested | Pass::Body | Pass::Effect),
+            lit_blended: extension.lit
+                && matches!(
+                    extension.pass,
+                    Pass::Fringe(_) | Pass::UnderBlended(_) | Pass::Water
+                ),
         }
     }
 }
@@ -266,6 +280,23 @@ impl MaterialExtension for InOrder {
             if key.bind_group_data.vision {
                 fragment.shader_defs.push("VISION".into());
             }
+            // A lit model took the world's colour at its place in its light, which the night's
+            // pass must not take again: its opaque pixels write the frame's alpha 0, the share of
+            // a pixel that the pass still darkens, and its blended ones take their own share of it
+            // away, as their colour covers what lies behind (`night.wesl`, #3693).
+            if key.bind_group_data.lit_opaque {
+                fragment.shader_defs.push("LEAVES_NIGHT".into());
+            }
+            if key.bind_group_data.lit_blended
+                && let Some(Some(target)) = fragment.targets.first_mut()
+                && let Some(blend) = target.blend.as_mut()
+            {
+                blend.alpha = BlendComponent {
+                    src_factor: BlendFactor::Zero,
+                    dst_factor: BlendFactor::OneMinusSrcAlpha,
+                    operation: BlendOperation::Add,
+                };
+            }
         }
         if (key.bind_group_data.fringe || key.bind_group_data.water || key.bind_group_data.vision)
             && let Some(depth) = descriptor.depth_stencil.as_mut()
@@ -324,6 +355,18 @@ impl Anchors {
     pub fn of(&self, slot: u32) -> Option<(Vec4, Vec4)> {
         let slot = usize::try_from(slot).ok()?;
         Some((*self.anchors.get(slot)?, *self.floors.get(slot)?))
+    }
+
+    /// Gives the model of `slot` the world's colour at its place `colour` (`daynight`, #3693).
+    pub fn colour(&mut self, slot: u32, colour: Vec3) {
+        if let Some(light) = usize::try_from(slot)
+            .ok()
+            .and_then(|slot| self.lights.get_mut(slot))
+            && Vec3::new(light.y, light.z, light.w) != colour
+        {
+            *light = Vec4::new(light.x, colour.x, colour.y, colour.z);
+            self.changed = true;
+        }
     }
 
     /// Gives the model of `slot` the ambient share `share` of the world's colour at its place.
@@ -450,6 +493,7 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
         Pass::Water => (AlphaMode::Blend, Layer::Objects.bias()),
         Pass::Vision => (AlphaMode::Add, Layer::Objects.bias()),
     };
+    let lit = !base.unlit;
     ModelMaterial {
         base: StandardMaterial {
             alpha_mode,
@@ -467,8 +511,16 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
             glows: Vec4::ZERO,
             pass,
             specular: false,
+            lit,
         },
     }
+}
+
+/// Lights `material`'s base or leaves it unlit, its pixels leaving the night's pass or not with it
+/// ([`InOrder::lit`]).
+pub fn set_lit(material: &mut ModelMaterial, lit: bool) {
+    material.base.unlit = !lit;
+    material.extension.lit = lit;
 }
 
 /// The model material of `base` that draws its texels in the water form's look ([`Pass::Water`]):

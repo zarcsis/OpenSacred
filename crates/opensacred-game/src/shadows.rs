@@ -238,8 +238,11 @@ impl Material for ShadowMaterial {
     ) -> Result<(), SpecializedMeshPipelineError> {
         blended::unbias(descriptor);
         // The shader's other fragment stage is the mask's; the vertices move out for the edges.
+        // Its black adds no colour, so it keeps the frame's alpha, the share of a pixel that the
+        // night's pass darkens, as it is: a shadow over a lit model leaves it out (#3693).
         if let Some(fragment) = descriptor.fragment.as_mut() {
             fragment.entry_point = Some("fragment".into());
+            crate::blended::keep_alpha(fragment);
         }
         descriptor.vertex.shader_defs.push("SOFT_EDGES".into());
         if let Some(depth) = descriptor.depth_stencil.as_mut() {

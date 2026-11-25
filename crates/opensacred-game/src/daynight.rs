@@ -12,7 +12,10 @@
 //! and then multiplies it by that colour (`night.wesl`, a fullscreen pass): the same for the art,
 //! which the original multiplies by its vertices' colour, if not for its blending. The effects
 //! that the original leaves untinted, the fires and the fireflies, are drawn after the pass by a
-//! camera of their own (`iso::Untinted`, #1191).
+//! camera of their own (`iso::Untinted`, #1191). Each model takes the colour at its place on the
+//! ground into its light before the clamp, as the original's fixed function does
+//! (`Night::colour_at`, `models::Anchors::colour`), and its lit pixels leave the pass by the
+//! frame's alpha (#3693).
 //!
 //! The light's level at a point is 32 and, for every light source whose radius reaches it, the
 //! radius less the distance, at most 223 each and 255 in all, in the pixels of the original's
@@ -183,8 +186,9 @@ impl Plugin for DayNightPlugin {
             .add_systems(Startup, make_glow)
             .add_systems(
                 Update,
-                (rates, tick, light, glow, shadows)
+                (rates, tick, light, glow, shadows, colour_models)
                     .chain()
+                    .before(crate::frame::Step::Models)
                     // The light of where the hero stands in this frame's picture, a dungeon's from
                     // the frame it arrives in (#1650).
                     .after(crate::frame::Step::Follow)
@@ -441,6 +445,62 @@ pub struct Night {
     scale: Vec4,
     /// The light sources: their texture coordinates and radius in the original's pixels.
     lights: [Vec4; LIGHTS],
+}
+
+impl Night {
+    /// The colour by which the night's pass multiplies the frame at its texture coordinates `uv`,
+    /// as `night.wesl` takes it (the renderer's tables `0x417F00`, the sources' sum `0x41B510`):
+    /// the dark's level and each source's radius less its distance on the original's screen, at
+    /// most 223 each and 255 in all; its ramp with the day's part added to each channel, up to
+    /// white, or in a dungeon the grey ramp.
+    pub fn colour_at(&self, uv: Vec2) -> Vec3 {
+        let mut level = self.params.y;
+        for (at, source) in self.lights.iter().enumerate() {
+            if f32::from(u8::try_from(at).unwrap_or(u8::MAX)) >= self.params.w {
+                break;
+            }
+            let reach = source.z
+                - ((uv - source.truncate().truncate()) * self.scale.truncate().truncate()).length();
+            if reach >= 1.0 {
+                level += reach.min(223.0);
+            }
+        }
+        let level = level.min(255.0);
+        let base = 64.0 + 64.0 * self.params.x;
+        if self.scale.z > 0.5 {
+            return Vec3::splat(((base + level / 3.0) * 0.75 + 64.0) / 255.0);
+        }
+        let ramp = Vec3::new(base + level / 4.0, base + level / 4.0, base + level / 3.0) / 255.0;
+        (ramp + Vec3::splat(self.params.z)).min(Vec3::ONE)
+    }
+}
+
+/// Gives each model the world's colour at its place on the ground, the night's at that place's
+/// point of the world camera's view (`Night::colour_at`), by which the models' shader scales its
+/// light before the clamp, as the original's fixed function takes the colour at the object's
+/// place (docs/re/drawing.md, "The models' light", #3693); white by day.
+fn colour_models(
+    cameras: Query<(&Camera, &GlobalTransform, &Night)>,
+    models: Query<(&crate::models::Ordered, &GlobalTransform)>,
+    mut anchors: ResMut<crate::models::Anchors>,
+) {
+    let Some((camera, view, night)) = cameras.iter().next() else {
+        return;
+    };
+    let Some(size) = camera.logical_viewport_size() else {
+        return;
+    };
+    for (ordered, place) in &models {
+        let Some(slot) = ordered.slot() else {
+            continue;
+        };
+        let colour = camera
+            .world_to_viewport(view, place.translation())
+            .map_or(Vec3::ONE, |p| {
+                night.colour_at(Vec2::new(p.x / size.x, p.y / size.y))
+            });
+        anchors.colour(slot, colour);
+    }
 }
 
 /// The radius of each light source's type, by the type (`items.pak +0x32` of the types flagged
@@ -834,6 +894,34 @@ pub fn light(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_night_gives_a_place_its_ramp_and_a_dungeon_its_grey() {
+        let near = |a: Vec3, b: Vec3| (a * 255.0 - b).abs().max_element() < 0.5;
+        let mut lights = [Vec4::ZERO; LIGHTS];
+        // A source of the radius 200 at the view's centre, the original's 1024 × 768 pixels.
+        lights[0] = Vec4::new(0.5, 0.5, 200.0, 0.0);
+        let night = |day: f32, dungeon: bool, count: f32| Night {
+            params: Vec4::new(DARKNESS, DARK, day, count),
+            scale: Vec4::new(1024.0, 768.0, f32::from(u8::from(dungeon)), 0.0),
+            lights,
+        };
+        // Far from any light by night, (104, 104, 107); at the brightest (160, 160, 181).
+        let dark = night(0.0, false, 1.0).colour_at(Vec2::new(0.0, 0.0));
+        assert!(near(dark, Vec3::new(104.0, 104.0, 106.67)), "{dark}");
+        let lit = night(0.0, false, 1.0).colour_at(Vec2::new(0.5, 0.5));
+        assert!(near(lit, Vec3::new(154.0, 154.0, 173.33)), "{lit}");
+        let mut bright = night(0.0, false, 2.0);
+        bright.lights[1] = Vec4::new(0.5, 0.5, 200.0, 0.0);
+        assert!(near(
+            bright.colour_at(Vec2::splat(0.5)),
+            Vec3::new(159.75, 159.75, 181.0)
+        ));
+        // By day white; in a dungeon the grey ramp, 144 in the dark.
+        assert_eq!(night(1.0, false, 1.0).colour_at(Vec2::ZERO), Vec3::ONE);
+        let grey = night(1.0, true, 0.0).colour_at(Vec2::ZERO);
+        assert!(near(grey, Vec3::splat(144.0)), "{grey}");
+    }
 
     #[test]
     fn the_clock_runs_at_the_days_rate_from_seven_to_eight_at_night() {

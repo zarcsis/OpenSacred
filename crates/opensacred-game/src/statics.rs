@@ -171,6 +171,9 @@ pub struct SpriteMaterial {
     /// Whether some of the sprites stand on an upper storey's floor ([`Standing`]): their
     /// fragments then take their depth from the shader, which keeps them in front of the floor.
     pub on_floor: bool,
+    /// Whether it draws the statics' shadows ([`StaticShadows`]), whose black keeps the frame's
+    /// alpha as it is (#3693).
+    pub shadow: bool,
 }
 
 /// The texels of its sprites that a [`SpriteMaterial`] draws.
@@ -189,6 +192,7 @@ pub struct SpriteKey {
     fringe: bool,
     alpha_test: bool,
     on_floor: bool,
+    shadow: bool,
 }
 
 impl From<&SpriteMaterial> for SpriteKey {
@@ -197,6 +201,7 @@ impl From<&SpriteMaterial> for SpriteKey {
             fringe: material.pass != Pass::Body,
             alpha_test: material.alpha_test,
             on_floor: material.on_floor,
+            shadow: material.shadow,
         }
     }
 }
@@ -253,8 +258,12 @@ impl Material for SpriteMaterial {
             fringe,
             alpha_test,
             on_floor,
+            shadow,
         } = key.bind_group_data;
         if let Some(fragment) = descriptor.fragment.as_mut() {
+            if shadow {
+                blended::keep_alpha(fragment);
+            }
             // In both passes, which take the texels that the test leaves.
             if alpha_test {
                 fragment.shader_defs.push("ALPHA_TEST".into());
@@ -1613,6 +1622,7 @@ fn make_shadows(
             pass: Pass::Fringe(layer),
             alpha_test: false,
             on_floor,
+            shadow: true,
         })
     };
     commands.insert_resource(StaticShadows {
@@ -1721,6 +1731,7 @@ fn sprite_passes(
                 pass,
                 alpha_test,
                 on_floor,
+                shadow: false,
             })
         })
         .collect()

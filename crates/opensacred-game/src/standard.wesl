@@ -4,7 +4,9 @@
 // that the original's alpha test keeps (`FRINGE`). A model's fragment (`NEAREST`) takes only the
 // samples over which no model's texel lies nearer (`nearest.wesl`), and is lit by the fixed
 // function's sum in the frame's values rather than Bevy's physically based light (`FIXED_LIGHT`,
-// docs/re/drawing.md, "The models' light", #3692); its other passes lay its effect under its texels
+// docs/re/drawing.md, "The models' light", #3692), in the world's colour at its place, which the
+// night's pass then leaves by the frame's alpha (`LEAVES_NIGHT`, #3693); its other passes lay its
+// effect under its texels
 // (`EFFECT`, `HOLOGRAM`) or draw it in the water form's look or a vision's (`WATER`, `VISION`).
 // A particle's colour (`fx::Effect`, `PARTICLES`) is encoded before its alpha premultiplies an
 // added one, and a system's added and laid layers drawn as one mesh are premultiplied each by its
@@ -274,6 +276,19 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
     out.color = vec4(mix(under, out.color.rgb, over), 1.0);
 }
 }
+}
+// A lit model took the world's colour at its place in its light (`daynight`, #3693): the night's
+// pass leaves its pixel, the frame's alpha the share of a pixel that it still darkens; of a kind
+// 1's, the effect laid unlit under its texels, the share that the texture leaves.
+@if(LEAVES_NIGHT) {
+    if (pbr_input.material.flags & STANDARD_MATERIAL_FLAGS_UNLIT_BIT) == 0u {
+@if(EFFECT) {
+        out.color.a = 1.0 - over;
+}
+@else {
+        out.color.a = 0.0;
+}
+    }
 }
     return out;
 }
