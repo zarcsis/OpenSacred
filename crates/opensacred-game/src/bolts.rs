@@ -328,6 +328,8 @@ pub struct SavedBolt {
     trail: Option<crate::bolt_trails::SavedTrail>,
     /// Its ice splinters as they were (#3775).
     splinters: Option<crate::ice_splinters::SavedSplinters>,
+    /// Its bubble's look as it was (#3814).
+    bubble_look: Option<crate::bubble_traps::SavedLook>,
 }
 
 impl bevy::ecs::entity::MapEntities for SavedBolt {
@@ -373,6 +375,7 @@ pub fn saved(world: &mut World) -> Vec<SavedBolt> {
             at: at.translation,
             trail: trail_of(entity),
             splinters: splinters_of(entity),
+            bubble_look: crate::bubble_traps::saved_look(world, entity),
         })
         .collect()
 }
@@ -415,6 +418,10 @@ pub fn again(world: &mut World, bolts: Vec<SavedBolt>) {
         // Its ice splinters as they were (#3775).
         if let Some(splinters) = saved.splinters {
             bolt.insert(crate::fx::Resumes(splinters));
+        }
+        // Its bubble's look as it was (#3814).
+        if let Some(look) = saved.bubble_look {
+            bolt.insert(crate::fx::Resumes(look));
         }
         dress(&mut bolt, saved.course, saved.direction, saved.hero);
     }

@@ -38,6 +38,56 @@ struct Shown {
     parts: [Handle<Mesh>; 2],
 }
 
+/// A bubble prison's look as a save keeps it (#3814, the epic #3753): its object by its name and its look's
+/// state; a load gives it to its object made again, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedBubblePrison")]
+pub struct SavedLook {
+    #[serde(with = "crate::names::required")]
+    object: Entity,
+    shown: (BubblePrison, Rng),
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.object = mapper.get_mapped(self.object);
+    }
+}
+
+/// The looks in `world` as a save keeps them (#3814).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut shown = world.query::<(Entity, &Shown)>();
+    shown
+        .iter(world)
+        .map(|(object, shown)| SavedLook {
+            object,
+            shown: (shown.bubble.clone(), shown.dice.clone()),
+        })
+        .collect()
+}
+
+/// Gives a loaded save's looks to their objects made again (#3814): one that shows already takes
+/// its state, another takes it as it shows; one whose object the load finds not is left out.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        let Some(mut object) = crate::names::found(Some(saved.object))
+            .and_then(|object| world.get_entity_mut(object).ok())
+        else {
+            continue;
+        };
+        match object.get_mut::<Shown>() {
+            Some(mut shown) => {
+                let (bubble, dice) = saved.shown;
+                shown.bubble = bubble;
+                shown.dice = dice;
+            }
+            None => {
+                object.insert(crate::fx::Resumes(saved.shown));
+            }
+        }
+    }
+}
+
 /// The prisons' materials, the ring's and the cylinders', made as the first prison shows; none
 /// where a texture is missing.
 #[derive(Resource, Default)]
@@ -50,7 +100,7 @@ struct Looks(Option<[Option<Handle<Effect>>; 2]>);
 )]
 fn show(
     mut commands: Commands,
-    bubbles: Query<Entity, Added<Bubble>>,
+    bubbles: Query<(Entity, Option<&crate::fx::Resumes<(BubblePrison, Rng)>>), Added<Bubble>>,
     (data, assets, mut looks, mut materials, mut meshes): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -59,7 +109,7 @@ fn show(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for bubble in &bubbles {
+    for (bubble, resumed) in &bubbles {
         let made = looks
             .0
             .get_or_insert_with(|| {
@@ -94,13 +144,23 @@ fn show(
                 ChildOf(bubble),
             ));
         }
-        let index = usize::try_from(bubble.index_u32()).unwrap_or(0);
-        let mut dice = crate::seed::dice(SEED ^ index);
-        commands.entity(bubble).insert(Shown {
-            bubble: BubblePrison::new(&mut dice),
-            dice,
-            parts,
-        });
+        // A loaded prison goes on as it went (#3814).
+        let (look, dice) = match resumed {
+            Some(crate::fx::Resumes(shown)) => shown.clone(),
+            None => {
+                let index = usize::try_from(bubble.index_u32()).unwrap_or(0);
+                let mut dice = crate::seed::dice(SEED ^ index);
+                (BubblePrison::new(&mut dice), dice)
+            }
+        };
+        commands
+            .entity(bubble)
+            .remove::<crate::fx::Resumes<(BubblePrison, Rng)>>()
+            .insert(Shown {
+                bubble: look,
+                dice,
+                parts,
+            });
     }
 }
 

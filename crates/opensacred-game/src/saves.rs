@@ -126,8 +126,9 @@ use crate::{arts, drops, making};
 /// the version 72 the bolts' and the guns' looks (#3774); the version 73 the Seraphim's and the
 /// Mage's looks (#3775); the version 74 the elves' looks (#3776); the version 75 the Dwarf's,
 /// the Daemon's and the Gladiator's looks (#3777); the version 76 the fight's and the bodies'
-/// looks (#3778); the version 77 the bearers' looks and the casts' glows (#3779).
-pub const VERSION: u32 = 77;
+/// looks (#3778); the version 77 the bearers' looks and the casts' glows (#3779); the version
+/// 78 the shields', the casts' sights and the scripts' objects' looks (#3814).
+pub const VERSION: u32 = 78;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -416,6 +417,16 @@ pub struct Looks {
     pub trap_landings: Vec<crate::trap_landings::SavedLook>,
     pub homing_fires: Vec<crate::homing_fires::SavedLook>,
     pub flying_skulls: Vec<crate::flying_skulls::SavedLook>,
+    /// The shields', the casts' sights and the scripts' objects' looks (#3814): the shields and
+    /// the regenerations, the casts' sights, the bubbles that outlive their bolts and their sonar
+    /// rings, the bubble prisons, the magic prisons and the stargates.
+    pub shields: Vec<crate::shields::SavedLook>,
+    pub cast_sights: Vec<crate::cast_sights::SavedLook>,
+    pub bubbles: Vec<crate::bubble_traps::SavedLook>,
+    pub sonars: Vec<crate::bubble_traps::SavedSonar>,
+    pub bubble_prisons: Vec<crate::bubble_prisons::SavedLook>,
+    pub prisons: Vec<crate::prisons::SavedLook>,
+    pub stargates: Vec<crate::stargates::SavedLook>,
 }
 
 impl MapEntities for Looks {
@@ -449,6 +460,11 @@ impl MapEntities for Looks {
         self.healing_sights.map_entities(mapper);
         self.speed_sights.map_entities(mapper);
         self.holding_sights.map_entities(mapper);
+        self.shields.map_entities(mapper);
+        self.cast_sights.map_entities(mapper);
+        self.bubble_prisons.map_entities(mapper);
+        self.prisons.map_entities(mapper);
+        self.stargates.map_entities(mapper);
     }
 }
 
@@ -1037,6 +1053,13 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
         trap_landings: crate::trap_landings::saved(world),
         homing_fires: crate::homing_fires::saved(world),
         flying_skulls: crate::flying_skulls::saved(world),
+        shields: crate::shields::saved(world),
+        cast_sights: crate::cast_sights::saved(world),
+        bubbles: crate::bubble_traps::saved(world).0,
+        sonars: crate::bubble_traps::saved(world).1,
+        bubble_prisons: crate::bubble_prisons::saved(world),
+        prisons: crate::prisons::saved(world),
+        stargates: crate::stargates::saved(world),
     };
     let looks = crate::names::mapped(
         looks,
@@ -1408,6 +1431,12 @@ fn resume(world: &mut bevy::prelude::World) {
     crate::trap_landings::again(world, looks.trap_landings);
     crate::homing_fires::again(world, looks.homing_fires);
     crate::flying_skulls::again(world, looks.flying_skulls);
+    crate::shields::again(world, looks.shields);
+    crate::cast_sights::again(world, looks.cast_sights);
+    crate::bubble_traps::again(world, looks.bubbles, looks.sonars);
+    crate::bubble_prisons::again(world, looks.bubble_prisons);
+    crate::prisons::again(world, looks.prisons);
+    crate::stargates::again(world, looks.stargates);
     // The hero's hurled weapon out of his hand, flying or lying (#3769).
     if live.hurled {
         world.write_message(crate::arsenal::Throws(true));
@@ -2235,7 +2264,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (77, 0xF04E_A7B0_28A6_A5A0),
+            (78, 0x9FCA_E89F_F5E2_39DD),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

@@ -32,6 +32,56 @@ struct Shown {
     parts: [Handle<Mesh>; 2],
 }
 
+/// A magic prison's look as a save keeps it (#3814, the epic #3753): its object by its name and its look's
+/// state; a load gives it to its object made again, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedPrison")]
+pub struct SavedLook {
+    #[serde(with = "crate::names::required")]
+    object: Entity,
+    shown: (System, Rng),
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.object = mapper.get_mapped(self.object);
+    }
+}
+
+/// The looks in `world` as a save keeps them (#3814).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut shown = world.query::<(Entity, &Shown)>();
+    shown
+        .iter(world)
+        .map(|(object, shown)| SavedLook {
+            object,
+            shown: (shown.glows.clone(), shown.dice.clone()),
+        })
+        .collect()
+}
+
+/// Gives a loaded save's looks to their objects made again (#3814): one that shows already takes
+/// its state, another takes it as it shows; one whose object the load finds not is left out.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        let Some(mut object) = crate::names::found(Some(saved.object))
+            .and_then(|object| world.get_entity_mut(object).ok())
+        else {
+            continue;
+        };
+        match object.get_mut::<Shown>() {
+            Some(mut shown) => {
+                let (glows, dice) = saved.shown;
+                shown.glows = glows;
+                shown.dice = dice;
+            }
+            None => {
+                object.insert(crate::fx::Resumes(saved.shown));
+            }
+        }
+    }
+}
+
 /// The prisons' system and material, made as the first prison shows; none where the texture is
 /// missing.
 #[derive(Resource)]
@@ -59,7 +109,7 @@ const SEED: usize = 0x356;
 )]
 fn show(
     mut commands: Commands,
-    prisons: Query<Entity, Added<Prison>>,
+    prisons: Query<(Entity, Option<&crate::fx::Resumes<(System, Rng)>>), Added<Prison>>,
     mut sounds: MessageWriter<crate::sfx::Play>,
     (data, assets, mut looks, mut materials, mut meshes): (
         Option<Res<Data>>,
@@ -69,7 +119,7 @@ fn show(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for prison in &prisons {
+    for (prison, resumed) in &prisons {
         let material = looks
             .material
             .get_or_insert_with(|| {
@@ -94,6 +144,19 @@ fn show(
                     ChildOf(prison),
                 ));
             }
+        }
+        // A loaded prison goes on as it went, its sound not made again (#3814): no load sends an
+        // FX object's start.
+        if let Some(crate::fx::Resumes((glows, dice))) = resumed {
+            commands
+                .entity(prison)
+                .remove::<crate::fx::Resumes<(System, Rng)>>()
+                .insert(Shown {
+                    glows: glows.clone(),
+                    dice: dice.clone(),
+                    parts,
+                });
+            continue;
         }
         let index = usize::try_from(prison.index_u32()).unwrap_or(0);
         commands.entity(prison).insert(Shown {
@@ -172,6 +235,43 @@ impl Plugin for PrisonsPlugin {
                 .chain()
                 .in_set(Playing)
                 .run_if(in_state(AppState::InGame)),
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_prisons_look_goes_back_to_its_object_shown_or_not() {
+        let shown = |count: usize, seed: usize| Shown {
+            glows: System::new(count),
+            dice: crate::seed::dice(seed),
+            parts: std::array::from_fn(|_| Handle::default()),
+        };
+        let mut world = World::new();
+        let prison = world.spawn(shown(4, 7)).id();
+        let kept = saved(&mut world);
+        let bytes = postcard::to_stdvec(&kept).unwrap();
+        let kept: Vec<SavedLook> = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].object, prison);
+        let mut loaded = World::new();
+        let showing = loaded.spawn(shown(9, 1)).id();
+        let unshown = loaded.spawn_empty().id();
+        let looks = [showing, unshown].map(|object| SavedLook {
+            object,
+            shown: kept[0].shown.clone(),
+        });
+        again(&mut loaded, looks.to_vec());
+        let now = loaded.get::<Shown>(showing).unwrap();
+        assert_eq!((now.glows.clone(), now.dice.clone()), kept[0].shown);
+        assert_eq!(
+            loaded
+                .get::<crate::fx::Resumes<(System, Rng)>>(unshown)
+                .map(|crate::fx::Resumes(shown)| shown),
+            Some(&kept[0].shown)
         );
     }
 }

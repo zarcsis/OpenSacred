@@ -94,6 +94,79 @@ struct Sight {
     meshes: [Handle<Mesh>; 2],
 }
 
+/// A cast's sight as a save keeps it (#3814, the epic #3753): its caster by its name, its bone,
+/// its system, and its bone's place and the place before; a load makes it again there, going on
+/// as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedCastSight")]
+pub struct SavedLook {
+    #[serde(with = "crate::names::optional")]
+    caster: Option<Entity>,
+    bone: CastBone,
+    look: CastSight,
+    place: Vec3,
+    before: Option<Vec3>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.caster = self.caster.map(|caster| mapper.get_mapped(caster));
+    }
+}
+
+/// The casts' sights in `world` as a save keeps them (#3814).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut sights = world.query::<&Sight>();
+    sights
+        .iter(world)
+        .map(|sight| SavedLook {
+            caster: sight.caster,
+            bone: sight.bone,
+            look: sight.look.clone(),
+            place: sight.place,
+            before: sight.before,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's casts' sights again (#3814).
+pub(crate) fn again(world: &mut World, sights: Vec<SavedLook>) {
+    if sights.is_empty() {
+        return;
+    }
+    if let Err(e) = world.run_system_cached_with(sights_again, sights) {
+        warn!("cast sights: the saved sights are not made: {e}");
+    }
+}
+
+/// Makes the saved sights `sights` again ([`again`]); one whose caster the load finds not ends
+/// where it was.
+fn sights_again(
+    In(sights): In<Vec<SavedLook>>,
+    mut commands: Commands,
+    (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
+    (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
+) {
+    for mut saved in sights {
+        let caster = crate::names::found(saved.caster);
+        if saved.caster.is_some() && caster.is_none() {
+            saved.look.end();
+        }
+        make(
+            &mut commands,
+            (caster, saved.place, saved.before),
+            (saved.bone, saved.look),
+            (
+                data.as_deref(),
+                &assets,
+                &mut looks,
+                &mut effects,
+                &mut meshes,
+            ),
+        );
+    }
+}
+
 /// A creature's cast as its clip begins (`creature_casts`, `0x51E110`): its caster, its spell
 /// and its clip's rate.
 #[derive(Message, Debug, Clone, Copy)]
@@ -120,13 +193,14 @@ type Makers<'a> = (
     &'a mut Assets<Mesh>,
 );
 
-/// Makes a sight of `style` at `caster`'s `bone` on its clip's `rate`.
+/// Makes the sight `look` at `caster`'s `bone`, at its place and the place before.
 fn make(
     commands: &mut Commands,
-    (caster, place): (Entity, Vec3),
-    (bone, style, rate): (CastBone, u8, f32),
+    (caster, place, before): (Option<Entity>, Vec3, Option<Vec3>),
+    (bone, look): (CastBone, CastSight),
     (data, assets, looks, effects, meshes): Makers,
 ) {
+    let style = look.style;
     let (blend, _) = particles::cast_blend(style);
     let dots = looks.get(
         (particles::cast_texture(style), blend == Blend::Whole),
@@ -134,7 +208,6 @@ fn make(
         assets,
         effects,
     );
-    let look = CastSight::new(style, rate);
     let glow = if style == 22 {
         looks.get((TWIRL, true), data, assets, effects)
     } else {
@@ -160,13 +233,13 @@ fn make(
             ));
         }
     }
-    debug!("cast sights: {caster} makes style {style} at {bone:?}");
+    debug!("cast sights: {caster:?} makes style {style} at {bone:?}");
     sight.insert(Sight {
-        caster: Some(caster),
+        caster,
         bone,
         look,
         place,
-        before: None,
+        before,
         meshes: parts,
     });
 }
@@ -197,8 +270,8 @@ fn start(
         for (bone, style) in sights {
             make(
                 &mut commands,
-                (caster, place.translation()),
-                (bone, style, rate),
+                (Some(caster), place.translation(), None),
+                (bone, CastSight::new(style, rate)),
                 (
                     data.as_deref(),
                     &assets,
@@ -216,8 +289,11 @@ fn start(
         for (bone, _) in particles::cast_sights(cast.spell, false) {
             make(
                 &mut commands,
-                (cast.caster, place.translation()),
-                (bone, particles::CREATURES_CAST_STYLE, cast.rate),
+                (Some(cast.caster), place.translation(), None),
+                (
+                    bone,
+                    CastSight::new(particles::CREATURES_CAST_STYLE, cast.rate),
+                ),
                 (
                     data.as_deref(),
                     &assets,
@@ -239,8 +315,8 @@ fn start(
         for (bone, style) in particles::ritual_sights(sights.code) {
             make(
                 &mut commands,
-                (sights.caster, place.translation()),
-                (bone, style, rate),
+                (Some(sights.caster), place.translation(), None),
+                (bone, CastSight::new(style, rate)),
                 (
                     data.as_deref(),
                     &assets,
