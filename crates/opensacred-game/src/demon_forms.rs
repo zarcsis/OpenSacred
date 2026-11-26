@@ -54,12 +54,64 @@ struct Shown {
     light: Entity,
 }
 
+/// A form's look as a save keeps it (#3777): its bearer by its name, its art and its look; a load
+/// makes it again at its bearer, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedForm {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    art: u16,
+    look: DemonForm,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedForm {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The forms' looks in `world` as a save keeps them (#3777).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedForm> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .map(|shown| SavedForm {
+            bearer: shown.bearer,
+            art: shown.art,
+            look: shown.look,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's forms' looks again (#3777); one whose bearer the load finds not is left
+/// out.
+pub(crate) fn again(world: &mut World, forms: Vec<SavedForm>) {
+    for saved in forms {
+        if crate::names::found(Some(saved.bearer)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Form {
+                bearer: saved.bearer,
+                art: saved.art,
+                seconds: 0.0,
+            },
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// Gives each new form's look its parts (`0x7B1D50`, `0x7B27D0`): its crest's squares, each of
 /// a ray burst at random, its ribbons, its flares, its light and its cast's sound; a look of the
 /// bearer's other form goes.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn show(
     mut commands: Commands,
-    forms: Query<(Entity, &Form), Added<Form>>,
+    forms: Query<(Entity, &Form, Option<&crate::fx::Resumes<DemonForm>>), Added<Form>>,
     shown: Query<(Entity, &Shown)>,
     (data, assets, mut looks, mut dice): (
         Option<Res<Data>>,
@@ -73,7 +125,7 @@ fn show(
         MessageWriter<crate::sfx::Play>,
     ),
 ) {
-    for (entity, form) in &forms {
+    for (entity, form, resumed) in &forms {
         for (other, look) in &shown {
             if look.bearer == form.bearer {
                 commands.entity(other).despawn();
@@ -98,7 +150,11 @@ fn show(
                 )
             })
             .clone();
-        let look = DemonForm::new(DemonForm::variant_of(form.art), form.seconds);
+        // A loaded look goes on as it went (#3777).
+        let look = match resumed {
+            Some(crate::fx::Resumes(look)) => *look,
+            None => DemonForm::new(DemonForm::variant_of(form.art), form.seconds),
+        };
         let part = |commands: &mut Commands,
                     meshes: &mut Assets<Mesh>,
                     material: Option<Handle<Effect>>| {
@@ -257,5 +313,58 @@ impl Plugin for DemonFormsPlugin {
                 .in_set(Unpaused)
                 .run_if(in_state(AppState::InGame)),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_forms_look_saved_goes_on_at_its_bearer() {
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut app = App::new();
+        app.add_plugins(NamesPlugin);
+        let daemon = app.world_mut().spawn(Named(Id::Hero)).id();
+        let look = DemonForm::new(DemonForm::variant_of(1097), 12.0);
+        app.world_mut().spawn(Shown {
+            bearer: daemon,
+            art: 1097,
+            look,
+            squares: Vec::new(),
+            ribbons: Handle::default(),
+            flares: Handle::default(),
+            light: Entity::PLACEHOLDER,
+        });
+        let mut refs = Refs::default();
+        let kept = mapped(
+            saved(app.world_mut()),
+            &mut Saving {
+                world: app.world(),
+                refs: &mut refs,
+            },
+        );
+        let bytes = postcard::to_stdvec(&(&refs, &kept)).unwrap();
+        let (refs, kept): (Refs, Vec<SavedForm>) = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..2).map(|_| ()));
+        let daemon = loaded.world_mut().spawn(Named(Id::Hero)).id();
+        let kept = mapped(
+            kept,
+            &mut Loading {
+                refs: &refs,
+                names: loaded.world().resource::<Names>(),
+                lost: 0,
+            },
+        );
+        again(loaded.world_mut(), kept);
+        let world = loaded.world_mut();
+        let made: Vec<(Entity, u16, DemonForm)> = world
+            .query::<(&Form, &crate::fx::Resumes<DemonForm>)>()
+            .iter(world)
+            .map(|(form, resumed)| (form.bearer, form.art, resumed.0))
+            .collect();
+        assert_eq!(made, [(daemon, 1097, look)]);
     }
 }

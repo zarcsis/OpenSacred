@@ -69,6 +69,16 @@ type ModelMesh = (
     Has<NoFrustumCulling>,
 );
 
+/// The hell disk's look of its disk `object` as a save keeps it with the disk (#3777,
+/// `spells::SpellLook`): its look, its place and the place before, if it shows.
+pub(crate) fn saved_look(world: &World, object: Entity) -> Option<(HellDisk, Vec3, Option<Vec3>)> {
+    let mut shown = world.try_query::<&Shown>()?;
+    shown
+        .iter(world)
+        .find(|shown| shown.disk == Some(object))
+        .map(|shown| (shown.look.clone(), shown.place, shown.before))
+}
+
 /// Gives each new disk its look (`0x7AD8C0`, `0x7AE040`): its model, its glow and its trail.
 #[expect(
     clippy::type_complexity,
@@ -77,13 +87,20 @@ type ModelMesh = (
 fn show(
     mut commands: Commands,
     (disks, heights): (
-        Query<(Entity, &Transform), Added<crate::spells::HellDisk>>,
+        Query<
+            (
+                Entity,
+                &Transform,
+                Option<&crate::fx::Resumes<(HellDisk, Vec3, Option<Vec3>)>>,
+            ),
+            Added<crate::spells::HellDisk>,
+        >,
         Res<crate::terrain::Heights>,
     ),
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, place) in &disks {
+    for (entity, place, resumed) in &disks {
         if !looks.made {
             looks.made = true;
             if let Some(data) = data.as_deref() {
@@ -163,12 +180,17 @@ fn show(
                 ));
             }
         }
+        // A loaded disk's look goes on as it went (#3777).
+        let (look, at, before) = match resumed {
+            Some(crate::fx::Resumes(shown)) => shown.clone(),
+            None => (HellDisk::new(), place.translation, None),
+        };
         shown.insert(Shown {
             disk: Some(entity),
-            look: HellDisk::new(),
+            look,
             model,
-            place: place.translation,
-            before: None,
+            place: at,
+            before,
             meshes: parts,
             materials: None,
             playing: false,

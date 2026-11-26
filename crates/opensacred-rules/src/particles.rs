@@ -4873,7 +4873,7 @@ fn forge_whole(value: f32) -> u32 {
 /// 10 to 100 over and over ([`HellScream::ring`]), and a column of light of camera-facing glows
 /// stacked up as it fades in ([`HellScream::column`]). It fades in at 1 a second and out at 0.3
 /// a second after its seconds. Its light is 350.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HellScream {
     pub clock: f32,
     /// Its fade (`+0x20AC`).
@@ -8555,7 +8555,7 @@ const HEROISM: [f32; 2] = [0.65, 1.3];
 /// for 2.6 s under a swelling glow; the awe's (1014) five white snowflake auras on the ground about
 /// his feet, one after another; the heroism's (1015) burst of sparks from his right hand, drawn
 /// back to it under a green star.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GladSight {
     art: u16,
     pub system: System,
@@ -10043,7 +10043,7 @@ pub const FORCE_TEXTURE: &str = "PARTICLE_GLOW01";
 /// between its bones `weapon_fx01` and `weapon_fx02` as they swept since the frame before
 /// (`0x766200`), falling, fading over 0.85 s, riding with the bearer; past its seconds it ends
 /// with its last spark.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ForceOfHell {
     pub system: System,
     seconds: f32,
@@ -10144,7 +10144,7 @@ pub type BerserkRibbon = [[[f32; 3]; 2]; 9];
 /// over his head for the effect's seconds, ribbons along the nine points of its model's clip, an
 /// arc sweeping round and widening, each ribbon turned and tilted its own way, as many and as
 /// wide as his frenzy is high; fading in over a second and out over a second.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Berserk {
     clock: f32,
     seconds: f32,
@@ -10485,7 +10485,7 @@ const WAR_CRY_GROWTH: f32 = 0.013;
 /// one after another from 0.7 s, growing, glowing up and dark again; at 1.1 s a burst of 170
 /// sparks leaping and bouncing on the ground, white through blue to black; the glow shrinking
 /// after it by 10 a second, and with it the cry ends.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct WarCry {
     pub sparks: System,
     clock: f32,
@@ -10647,7 +10647,7 @@ const BURROW_PACE: f32 = 2.7;
 /// built down from its cap in three phases over 1.11 s, whole through the spell's seconds, and
 /// taken back up over 1.30 s; turning a radian a second, its two textures scrolling, its
 /// brightness breathing, a blue glow flat at his feet.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Burrow {
     clock: f32,
     seconds: f32,
@@ -11031,7 +11031,7 @@ pub struct Ray {
 /// blue rays flat about it, each of 40% of the round, its leading rays the longest, going round
 /// once in 2.86 s, the rays flashing where they pass a side; fading in over 2 s and out over 2 s
 /// past its seconds.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct WarCrySign {
     clock: f32,
     seconds: f32,
@@ -11144,7 +11144,7 @@ const GREED_LEAP: f32 = 0.2;
 /// it, swelling, brightening from black to gold, held, then fading over 0.32 s, each with a white
 /// core; and its light leaping about them every 0.2 s, flaring up and out each time; past its
 /// seconds it ends with its last spark.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Greed {
     pub sparks: System,
     seconds: f32,
@@ -11242,7 +11242,7 @@ const DWARF_ARMOUR_TURN: f32 = 0.6524;
 /// bearer's feet and 70 fainter copies stacked over it, a column breathing up and down, turning,
 /// its colour swinging between red and green, fading in over 2 s and out over 2 s from half a
 /// second before its seconds end; its light the same colour, unfaded.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DwarfArmour {
     steel: bool,
     clock: f32,
@@ -13413,7 +13413,7 @@ pub fn ball_heal_level(caster: u32) -> u32 {
 /// `0x7B40D0`, `0x7B4480`, `0x7B41B0`, `0x7B4410`) and the mortar's (1018,
 /// `cParticleSystem_dwarf_grenade`, `0x7B4CB0`, `0x7B50F0`, `0x7B4DC0`, `0x7B5080`), the last two
 /// alike but for their times.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DwarfFire {
     Flamer,
     Shoot,
@@ -13445,7 +13445,7 @@ const fn rgba(r: f32, g: f32, b: f32, a: f32) -> [f32; 4] {
 
 /// The sight of one of the Dwarf's guns ([`DwarfFire`]): its particles in the models' frame, the
 /// flamethrower's smoke, its clock, its emission's end and the smoke's.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DwarfFireSight {
     pub kind: DwarfFire,
     pub system: System,
@@ -16159,7 +16159,7 @@ const DEMON_FORM_RINGS: [[f32; 8]; 3] = [
 /// whirling about him, each a ribbon of nine points along its head's path led by a flare, and a
 /// crest of seven ray bursts fanned over his head, growing over 2 s and pulsing; it goes at once
 /// at its seconds' end.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DemonForm {
     pub clock: f32,
     growth: f32,
@@ -16930,7 +16930,7 @@ pub fn lava_frame(t: f32, rate: f32) -> u8 {
 /// each axis, their life falling by 200 a second, of the ramp [`DemonFire::ramp`], added by their
 /// alpha. Its growth `g` rises from 0 to 1 over 2 s, holds until it strikes no more, and falls to
 /// 0 over 2 s more, when it ends; it makes rays until it strikes no more.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DemonFire {
     pub system: System,
     strikes: f32,
@@ -17041,7 +17041,7 @@ pub const HELL_DISK_GLOW_COLOUR: [f32; 4] = [176.0 / 255.0, 113.0 / 255.0, 81.0 
 /// of the size 10 falling by 4 a second, their life falling by 200 a second, of the ramp
 /// [`HellDisk::ramp`], added by their alpha. Stopped past its seconds, it makes no more and ends
 /// with its last glow, its model and its glow shown till then.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HellDisk {
     pub system: System,
     out: bool,
@@ -17504,7 +17504,7 @@ impl GroundPoison {
 ///   7 to either side of them facing the viewer (the normal `(0, 2, 1) × d`), its `v` `j/8`; while
 ///   it holds, a ray whose `L` passes `30 + 20·U` starts again from 0; the rays at a scale of
 ///   `1 + U` at random, the glows not.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DemonDeath {
     clock: f32,
     state: u8,

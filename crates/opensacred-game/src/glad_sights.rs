@@ -54,17 +54,51 @@ struct Sight {
     meshes: [Handle<Mesh>; 4],
 }
 
+/// The hero's Gladiator's sight as a save keeps it (#3777), if one shows; a load gives it to the
+/// hero, whose art its doing gives back, and it goes on as it went.
+pub(crate) fn saved(world: &mut World) -> Option<GladSight> {
+    let mut sights = world.query::<&Sight>();
+    sights.iter(world).next().map(|sight| sight.look.clone())
+}
+
+/// Gives a loaded save's sight to the hero (#3777).
+pub(crate) fn again(world: &mut World, sight: Option<GladSight>) {
+    let Some(sight) = sight else {
+        return;
+    };
+    let mut heroes = world.query_filtered::<Entity, With<crate::hero::Body>>();
+    if let Some(hero) = heroes.iter(world).next() {
+        world.entity_mut(hero).insert(crate::fx::Resumes(sight));
+    }
+}
+
 /// Makes the sight of each of the Gladiator's three arts whose clip starts (`0x50329F`: the
 /// event `0x41`, at the art's first run).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn start(
     mut commands: Commands,
-    started: Query<(Entity, &Making), Added<Playing>>,
+    started: Query<(Entity, &Making, Option<&crate::fx::Resumes<GladSight>>), Added<Playing>>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (caster, making) in &started {
-        let Some(look) = GladSight::new(making.art) else {
-            continue;
+    for (caster, making, resumed) in &started {
+        // A loaded sight goes on as it went (#3777).
+        let look = match resumed {
+            Some(crate::fx::Resumes(look)) => {
+                commands
+                    .entity(caster)
+                    .remove::<crate::fx::Resumes<GladSight>>();
+                look.clone()
+            }
+            None => {
+                let Some(look) = GladSight::new(making.art) else {
+                    continue;
+                };
+                look
+            }
         };
         let materials = looks
             .0

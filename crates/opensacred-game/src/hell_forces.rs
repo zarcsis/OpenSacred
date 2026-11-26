@@ -67,16 +67,73 @@ struct Blade {
     meshes: [Handle<Mesh>; 2],
 }
 
+/// A force of hell's blades as a save keeps them (#3777): their bearer by its name and each
+/// weapon's look in the order of the weapons; a load lays them again on its weapons.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedForce {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    looks: Vec<ForceOfHell>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedForce {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The forces of hell in `world` as a save keeps them (#3777), each bearer's blades together.
+pub(crate) fn saved(world: &mut World) -> Vec<SavedForce> {
+    let mut blades = world.query::<&Blade>();
+    let mut saved: Vec<SavedForce> = Vec::new();
+    for blade in blades.iter(world) {
+        match saved.iter_mut().find(|kept| kept.bearer == blade.bearer) {
+            Some(kept) => kept.looks.push(blade.look.clone()),
+            None => saved.push(SavedForce {
+                bearer: blade.bearer,
+                looks: vec![blade.look.clone()],
+            }),
+        }
+    }
+    saved
+}
+
+/// Lays a loaded save's forces of hell again (#3777); those of a bearer the load finds not are
+/// left out.
+pub(crate) fn again(world: &mut World, forces: Vec<SavedForce>) {
+    for saved in forces {
+        if crate::names::found(Some(saved.bearer)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade {
+                bearer: saved.bearer,
+                seconds: 0.0,
+            },
+            crate::fx::Resumes(saved.looks),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// Gives each new force a look for each weapon its bearer holds.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(
+        Entity,
+        &Unmade,
+        Option<&crate::fx::Resumes<Vec<ForceOfHell>>>,
+    )>,
     weapons: Query<(Entity, &crate::models::OrderedWith), With<crate::npcs::Wielded>>,
     places: Query<&GlobalTransform>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         commands.entity(entity).despawn();
         let Ok(at) = places.get(unmade.bearer) else {
             continue;
@@ -96,7 +153,11 @@ fn make(
         let Some(material) = material else {
             continue;
         };
-        for (weapon, _) in weapons.iter().filter(|(_, with)| with.0 == unmade.bearer) {
+        for (k, (weapon, _)) in weapons
+            .iter()
+            .filter(|(_, with)| with.0 == unmade.bearer)
+            .enumerate()
+        {
             let parts: [Handle<Mesh>; 2] = std::array::from_fn(|_| meshes.add(empty()));
             let mut blade = commands.spawn((
                 Transform::from_translation(at.translation()),
@@ -115,7 +176,10 @@ fn make(
             blade.insert(Blade {
                 bearer: unmade.bearer,
                 weapon,
-                look: ForceOfHell::new(unmade.seconds),
+                // A loaded force goes on as it went (#3777).
+                look: resumed
+                    .and_then(|crate::fx::Resumes(looks)| looks.get(k).cloned())
+                    .unwrap_or_else(|| ForceOfHell::new(unmade.seconds)),
                 bones: None,
                 last: None,
                 meshes: parts,

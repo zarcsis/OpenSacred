@@ -85,6 +85,66 @@ const GLOW: usize = 3;
 /// The seed of the looks' `rand()` (**estimate**: any).
 const SEED: usize = 0x335;
 
+/// A fire skin's look as a save keeps it with its object (#3777, `spells::SpellLook`): its kind,
+/// whose and its bearer by its name, and its flames, dice, place and the place before, none for
+/// one not shown yet.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedLook {
+    spiral: bool,
+    hero: bool,
+    #[serde(with = "crate::names::optional")]
+    bearer: Option<Entity>,
+    shown: Option<(System, Rng, Vec3, Option<Vec3>)>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = self.bearer.map(|bearer| mapper.get_mapped(bearer));
+    }
+}
+
+/// The look of the object `object` as a save keeps it, if it has one.
+pub(crate) fn saved_look(world: &World, object: Entity) -> Option<SavedLook> {
+    let (spiral, hero, bearer) = match *world.get::<Look>(object)? {
+        Look::Skin { hero, bearer } => (false, hero, bearer),
+        Look::Spiral => (true, false, None),
+    };
+    let shown = world.try_query::<&Skin>().and_then(|mut skins| {
+        skins
+            .iter(world)
+            .find(|skin| skin.object == Some(object))
+            .map(|skin| {
+                (
+                    skin.flames.clone(),
+                    skin.dice.clone(),
+                    skin.place,
+                    skin.before,
+                )
+            })
+    });
+    Some(SavedLook {
+        spiral,
+        hero,
+        bearer,
+        shown,
+    })
+}
+
+/// Gives the loaded object `object` its look as the save kept it.
+pub(crate) fn look_again(object: &mut EntityWorldMut<'_>, saved: SavedLook) {
+    object.insert(if saved.spiral {
+        Look::Spiral
+    } else {
+        Look::Skin {
+            hero: saved.hero,
+            bearer: crate::names::found(saved.bearer),
+        }
+    });
+    if let Some(shown) = saved.shown {
+        object.insert(crate::fx::Resumes(shown));
+    }
+}
+
 /// Gives each new object its look (`0x78BE10`, `0x775DF0`): an entity of its own, its lamp and
 /// its parts.
 #[expect(
@@ -93,7 +153,15 @@ const SEED: usize = 0x335;
 )]
 fn show(
     mut commands: Commands,
-    skins: Query<(Entity, &Look, &GlobalTransform), Added<Look>>,
+    skins: Query<
+        (
+            Entity,
+            &Look,
+            &GlobalTransform,
+            Option<&crate::fx::Resumes<(System, Rng, Vec3, Option<Vec3>)>>,
+        ),
+        Added<Look>,
+    >,
     mut looks: ResMut<Looks>,
     (data, assets, mut materials, mut meshes): (
         Option<Res<Data>>,
@@ -102,7 +170,7 @@ fn show(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (object, look, place) in &skins {
+    for (object, look, place, resumed) in &skins {
         let textures = looks.fires.each_ref().map(|fire| fire.texture);
         let made = looks
             .materials
@@ -157,6 +225,19 @@ fn show(
             }
         }
         let index = usize::try_from(skin.index_u32()).unwrap_or(0);
+        // A loaded look burns on as it burned (#3777).
+        let (flames, dice, place, before) = match resumed {
+            Some(crate::fx::Resumes(shown)) => shown.clone(),
+            None => (
+                System::new(looks.fires[kind].count),
+                crate::seed::dice(SEED ^ index),
+                place,
+                None,
+            ),
+        };
+        commands
+            .entity(object)
+            .remove::<crate::fx::Resumes<(System, Rng, Vec3, Option<Vec3>)>>();
         commands.entity(skin).insert(Skin {
             object: Some(object),
             kind,
@@ -165,10 +246,10 @@ fn show(
                 Look::Spiral => None,
             },
             order: None,
-            flames: System::new(looks.fires[kind].count),
-            dice: crate::seed::dice(SEED ^ index),
+            flames,
+            dice,
             place,
-            before: None,
+            before,
             lamp,
             parts,
         });

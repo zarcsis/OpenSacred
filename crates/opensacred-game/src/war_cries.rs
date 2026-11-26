@@ -64,6 +64,54 @@ struct Shown {
     meshes: [Handle<Mesh>; 2],
 }
 
+/// A war cry as a save keeps it (#3777): its bearer by its name, its look, its facing and where it
+/// burst; a load gives it to its bearer, whose art its doing gives back, and it goes on as it
+/// went, its ghosts made anew.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedCry {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    look: WarCry,
+    facing: Quat,
+    burst_at: Option<Vec3>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedCry {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The war cries in `world` as a save keeps them (#3777).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedCry> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .map(|shown| SavedCry {
+            bearer: shown.bearer,
+            look: shown.look.clone(),
+            facing: shown.facing,
+            burst_at: shown.burst_at,
+        })
+        .collect()
+}
+
+/// Gives a loaded save's war cries to their bearers (#3777).
+pub(crate) fn again(world: &mut World, cries: Vec<SavedCry>) {
+    for saved in cries {
+        let Some(bearer) = crate::names::found(Some(saved.bearer)) else {
+            continue;
+        };
+        if let Ok(mut bearer) = world.get_entity_mut(bearer) {
+            bearer.insert(crate::fx::Resumes((
+                saved.look,
+                saved.facing,
+                saved.burst_at,
+            )));
+        }
+    }
+}
+
 /// Makes the war cry's look as the art starts (`0x518ABA`, `0x7B7DD0`, `0x7B8300`): at the
 /// Dwarf, at his clip's rate, facing as he does.
 #[expect(
@@ -73,7 +121,13 @@ struct Shown {
 fn start(
     mut commands: Commands,
     started: Query<
-        (Entity, &Making, &crate::making::Playing, &GlobalTransform),
+        (
+            Entity,
+            &Making,
+            &crate::making::Playing,
+            &GlobalTransform,
+            Option<&crate::fx::Resumes<(WarCry, Quat, Option<Vec3>)>>,
+        ),
         Added<crate::making::Playing>,
     >,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
@@ -84,7 +138,7 @@ fn start(
         ResMut<Assets<ModelMaterial>>,
     ),
 ) {
-    for (bearer, making, playing, at) in &started {
+    for (bearer, making, playing, at, resumed) in &started {
         if making.art != WAR_CRY {
             continue;
         }
@@ -145,10 +199,14 @@ fn start(
         let mut shown = commands.spawn((
             Shown {
                 bearer,
-                look: WarCry::new(playing.rate()),
-                facing,
+                // A loaded cry goes on as it went (#3777).
+                look: resumed.map_or_else(
+                    || WarCry::new(playing.rate()),
+                    |crate::fx::Resumes((look, _, _))| look.clone(),
+                ),
+                facing: resumed.map_or(facing, |crate::fx::Resumes((_, facing, _))| *facing),
                 ghosts,
-                burst_at: None,
+                burst_at: resumed.and_then(|crate::fx::Resumes((_, _, burst_at))| *burst_at),
                 meshes: parts.clone(),
             },
             Transform::from_translation(place),
