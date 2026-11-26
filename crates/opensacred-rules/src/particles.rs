@@ -9356,8 +9356,9 @@ const GROUND_FIRE_EVERY: f32 = 0.3;
 /// an angle of π ± π, living 0.2 s (−1,300), added whole, turned, its 4 × 4 frames played once
 /// over its life; it lights the night by 400 while it burns, and lays a [`GroundFire`] where its
 /// head is above the ground every 0.3 s from a first moment at random below 0.3 s.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DragonFire {
+    #[serde(skip)]
     pub system: System,
     pub variant: u8,
     clock: f32,
@@ -9474,8 +9475,9 @@ const GROUND_FIRE_COUNT: usize = 100;
 /// 2.55 s (−100), standing on its foot, added whole in a grey of 200/256 that rises from nothing
 /// over the first 10 entries of its ramp and falls to nothing over the last 46, its 4 × 4 frames
 /// played once over its life; it lights the night by 200 while a flame lives.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GroundFire {
+    #[serde(skip)]
     pub system: System,
     pub variant: u8,
     clock: f32,

@@ -42,8 +42,9 @@ use crate::{arrows, daynight, iso, paths};
 const RISE: f32 = 80.0;
 
 /// What a breath and its fires burn with: its maker, its fire a blow and its seconds.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Fire {
+    #[serde(with = "crate::names::required")]
     pub by: Entity,
     pub damage: f32,
     pub seconds: f32,
@@ -52,7 +53,8 @@ pub struct Fire {
 /// A breath on its way: its fire, where it left, its direction, how far it flies, its time, its
 /// level, the creatures it has burned, how many times it has bounced, and once stopped how many
 /// pairs of fires it has laid.
-#[derive(Component)]
+#[derive(Component, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "DaemonBreath")]
 pub struct Breath {
     fire: Fire,
     from: Vec2,
@@ -60,9 +62,183 @@ pub struct Breath {
     distance: f32,
     time: f32,
     level: Level,
+    #[serde(with = "crate::names::many")]
     touched: Vec<Entity>,
     bounces: usize,
     laid: Option<usize>,
+}
+
+impl bevy::ecs::entity::MapEntities for Breath {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.fire.by = mapper.get_mapped(self.fire.by);
+        for touched in &mut self.touched {
+            *touched = mapper.get_mapped(*touched);
+        }
+    }
+}
+
+/// The Daemon's breaths and their walls' fires as a save keeps them (#3772): each breath on its
+/// way with where it is, and each fire of a wall, with their makers and the creatures they
+/// burned by their names; a load makes them again there, their looks anew.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedBreaths {
+    breaths: Vec<(Breath, Vec3)>,
+    walls: Vec<SavedWallFire>,
+}
+
+/// A fire of a breath's wall as a save keeps it ([`SavedBreaths`]).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+struct SavedWallFire {
+    fire: Fire,
+    at: Vec2,
+    ground: f32,
+    level: Level,
+    left: f32,
+    #[serde(with = "crate::names::many")]
+    touched: Vec<Entity>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedBreaths {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        for (breath, _) in &mut self.breaths {
+            breath.map_entities(mapper);
+        }
+        for wall in &mut self.walls {
+            wall.fire.by = mapper.get_mapped(wall.fire.by);
+            for touched in &mut wall.touched {
+                *touched = mapper.get_mapped(*touched);
+            }
+        }
+    }
+}
+
+/// The breaths and their walls' fires in `world` as a save keeps them (#3772).
+pub(crate) fn saved(world: &mut World) -> SavedBreaths {
+    let mut breaths = world.query::<(&Breath, &Transform)>();
+    let breaths = breaths
+        .iter(world)
+        .map(|(breath, at)| (breath.clone(), at.translation))
+        .collect();
+    let mut walls = world.query::<&WallFire>();
+    let walls = walls
+        .iter(world)
+        .map(|wall| SavedWallFire {
+            fire: wall.fire,
+            at: wall.at,
+            ground: wall.ground,
+            level: wall.level,
+            left: wall.left,
+            touched: wall.touched.clone(),
+        })
+        .collect();
+    SavedBreaths { breaths, walls }
+}
+
+/// A loaded breath's place, which its look takes in place of its start's ([`show`]).
+#[derive(Component)]
+struct Resumed(Vec3);
+
+/// Makes a loaded save's breaths and walls' fires again (#3772), each going on as it went, its
+/// look anew; one whose maker the load finds not is left out.
+pub(crate) fn again(world: &mut World, saved: SavedBreaths) {
+    for (breath, at) in saved.breaths {
+        if crate::names::found(Some(breath.fire.by)).is_none() {
+            continue;
+        }
+        world.spawn((breath, Resumed(at)));
+    }
+    let walls: Vec<SavedWallFire> = saved
+        .walls
+        .into_iter()
+        .filter(|wall| crate::names::found(Some(wall.fire.by)).is_some())
+        .collect();
+    if walls.is_empty() {
+        return;
+    }
+    if let Err(e) = world.run_system_cached_with(walls_again, walls) {
+        warn!("breath: the saved walls' fires are not made: {e}");
+    }
+}
+
+/// Makes the saved walls' fires `walls` again ([`again`]).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources as arguments"
+)]
+fn walls_again(
+    In(walls): In<Vec<SavedWallFire>>,
+    mut commands: Commands,
+    mut looks: ResMut<Looks>,
+    (data, assets, mut materials, mut meshes): (
+        Option<Res<Data>>,
+        Res<AssetServer>,
+        ResMut<Assets<Effect>>,
+        ResMut<Assets<Mesh>>,
+    ),
+) {
+    if looks.materials.is_none() {
+        looks.materials = Some(make_looks(data.as_deref(), &assets, &mut materials));
+    }
+    for wall in walls {
+        let fire = wall_fire(
+            &mut commands,
+            &looks,
+            &mut meshes,
+            (wall.fire, wall.at, wall.ground, wall.level),
+        );
+        commands
+            .entity(fire)
+            .entry::<WallFire>()
+            .and_modify(move |mut made| {
+                made.left = wall.left;
+                made.touched = wall.touched;
+            });
+    }
+}
+
+/// Makes a fire of a breath's wall of `fire` at `at` on its ground `ground` of `level`: its light
+/// at its place at the height 0 (`0x41B200`), its flames on the ground.
+fn wall_fire(
+    commands: &mut Commands,
+    looks: &Looks,
+    meshes: &mut Assets<Mesh>,
+    (fire, at, ground, level): (Fire, Vec2, f32, Level),
+) -> Entity {
+    let mesh = meshes.add(empty());
+    let entity = commands
+        .spawn((
+            Transform::from_xyz(at.x, 0.0, at.y),
+            Visibility::default(),
+            daynight::Light(looks.wall.light),
+            DespawnOnExit(AppState::InGame),
+        ))
+        .id();
+    let material = looks.materials.as_ref().and_then(|made| made[3].clone());
+    if let Some(material) = material {
+        let flames = commands
+            .spawn((
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(material),
+                Transform::from_xyz(0.0, ground, 0.0),
+                NoFrustumCulling,
+                RenderLayers::layer(iso::UNTINTED),
+            ))
+            .id();
+        commands.entity(entity).add_child(flames);
+    }
+    let index = usize::try_from(entity.index_u32()).unwrap_or(0);
+    commands.entity(entity).insert(WallFire {
+        fire,
+        at,
+        ground,
+        level,
+        left: WALL_BURNS,
+        touched: Vec::new(),
+        flames: System::new(looks.wall.count),
+        dice: crate::seed::dice(SEED ^ 0x3EF ^ index),
+        mesh,
+    });
+    entity
 }
 
 impl Breath {
@@ -244,7 +420,7 @@ fn burn(commands: &mut Commands, fire: Fire, targets: Vec<Entity>) {
 fn show(
     mut commands: Commands,
     mut looks: ResMut<Looks>,
-    breaths: Query<(Entity, &Breath), Added<Breath>>,
+    breaths: Query<(Entity, &Breath, Option<&Resumed>), Added<Breath>>,
     heights: Res<Heights>,
     (data, assets, mut materials, mut meshes): (
         Option<Res<Data>>,
@@ -253,12 +429,16 @@ fn show(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (entity, breath) in &breaths {
+    for (entity, breath, resumed) in &breaths {
         let ground = heights
             .standing(breath.from.x, breath.from.y, breath.level)
             .unwrap_or(0.0);
-        let place = Vec3::new(breath.from.x, ground + RISE, breath.from.y);
-        commands.entity(entity).insert((
+        // A loaded breath goes on from where it was (#3772).
+        let place = resumed.map_or(
+            Vec3::new(breath.from.x, ground + RISE, breath.from.y),
+            |Resumed(at)| *at,
+        );
+        commands.entity(entity).remove::<Resumed>().insert((
             Transform::from_translation(place),
             DespawnOnExit(AppState::InGame),
         ));
@@ -456,42 +636,12 @@ fn breathe(
                         continue;
                     }
                     let ground = heights.standing(at.x, at.y, breath.level).unwrap_or(0.0);
-                    let mesh = meshes.add(empty());
-                    // Its light at its place at the height 0 (`0x41B200`), its flames on the
-                    // ground.
-                    let fire = commands
-                        .spawn((
-                            Transform::from_xyz(at.x, 0.0, at.y),
-                            Visibility::default(),
-                            daynight::Light(looks.wall.light),
-                            DespawnOnExit(AppState::InGame),
-                        ))
-                        .id();
-                    let material = looks.materials.as_ref().and_then(|made| made[3].clone());
-                    if let Some(material) = material {
-                        let flames = commands
-                            .spawn((
-                                Mesh3d(mesh.clone()),
-                                MeshMaterial3d(material),
-                                Transform::from_xyz(0.0, ground, 0.0),
-                                NoFrustumCulling,
-                                RenderLayers::layer(iso::UNTINTED),
-                            ))
-                            .id();
-                        commands.entity(fire).add_child(flames);
-                    }
-                    let index = usize::try_from(fire.index_u32()).unwrap_or(0);
-                    commands.entity(fire).insert(WallFire {
-                        fire: breath.fire,
-                        at,
-                        ground,
-                        level: breath.level,
-                        left: WALL_BURNS,
-                        touched: Vec::new(),
-                        flames: System::new(looks.wall.count),
-                        dice: crate::seed::dice(SEED ^ 0x3EF ^ index),
-                        mesh,
-                    });
+                    wall_fire(
+                        &mut commands,
+                        &looks,
+                        &mut meshes,
+                        (breath.fire, at, ground, breath.level),
+                    );
                 }
                 laid += 1;
             }
@@ -664,5 +814,66 @@ mod tests {
         }
         let sparks = world.query::<&crate::puffs::Unmade>().iter(world).count();
         assert_eq!(sparks, 2);
+    }
+
+    #[test]
+    fn a_breath_saved_goes_on_from_where_it_was() {
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut app = App::new();
+        app.add_plugins(NamesPlugin);
+        let daemon = app.world_mut().spawn(Named(Id::Hero)).id();
+        let goblin = app.world_mut().spawn(Named(Id::Born(6))).id();
+        let fire = Fire {
+            by: daemon,
+            damage: 12.0,
+            seconds: 3.0,
+        };
+        let mut breath = Breath::new(fire, Vec2::ZERO, Vec2::new(600.0, 0.0), None);
+        breath.time = 0.4;
+        breath.touched = vec![goblin];
+        let at = Vec3::new(150.0, 90.0, 0.0);
+        app.world_mut()
+            .spawn((breath.clone(), Transform::from_translation(at)));
+        let mut refs = Refs::default();
+        let kept = mapped(
+            saved(app.world_mut()),
+            &mut Saving {
+                world: app.world(),
+                refs: &mut refs,
+            },
+        );
+        let bytes = postcard::to_stdvec(&(&refs, &kept)).unwrap();
+        let (refs, kept): (Refs, SavedBreaths) = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..4).map(|_| ()));
+        let daemon = loaded.world_mut().spawn(Named(Id::Hero)).id();
+        let goblin = loaded.world_mut().spawn(Named(Id::Born(6))).id();
+        let kept = mapped(
+            kept,
+            &mut Loading {
+                refs: &refs,
+                names: loaded.world().resource::<Names>(),
+                lost: 0,
+            },
+        );
+        again(loaded.world_mut(), kept);
+        let world = loaded.world_mut();
+        let made: Vec<(Breath, Vec3)> = world
+            .query::<(&Breath, &Resumed)>()
+            .iter(world)
+            .map(|(breath, Resumed(at))| (breath.clone(), *at))
+            .collect();
+        assert_eq!(
+            made,
+            [(
+                Breath {
+                    fire: Fire { by: daemon, ..fire },
+                    touched: vec![goblin],
+                    ..breath
+                },
+                at
+            )]
+        );
     }
 }

@@ -1201,15 +1201,20 @@ pub struct SavedSpellObject {
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 enum SpellObject {
     /// An aura, its classes by its key where its area gives them, with its trap's factor, its
-    /// gust's disarming and its thorn.
+    /// gust's disarming, its thorn and its tentacle.
     Aura {
         aura: Aura,
         area: bool,
         trap_factor: Option<f32>,
         disarms: Option<u32>,
         thorn: Option<Thorn>,
+        tentacle: Option<Tentacle>,
     },
-    Disk(Disk),
+    /// A disk, and whether it is the Daemon's hell disk.
+    Disk {
+        disk: Disk,
+        hell_disk: bool,
+    },
     Frosting(Frosting),
     Meteor(Meteor),
     Chain(Chain),
@@ -1221,6 +1226,15 @@ enum SpellObject {
     Pentagram(Pentagram),
     Confusion(Confusion),
     Fog(Fog),
+    /// The Daemon's tentacles' aura and his demon fire with its fading, and the Dwarf's sign of
+    /// his mines and the mines it laid (#3772).
+    TentacleAura(TentacleAura),
+    DemonFire {
+        fire: DemonFire,
+        fades: Option<f32>,
+    },
+    MineSign(MineSign),
+    Mine(Mine),
 }
 
 impl bevy::ecs::entity::MapEntities for SavedSpellObject {
@@ -1231,7 +1245,7 @@ impl bevy::ecs::entity::MapEntities for SavedSpellObject {
                 map(&mut aura.caster);
                 aura.follows.iter_mut().for_each(&mut map);
             }
-            SpellObject::Disk(disk) => {
+            SpellObject::Disk { disk, .. } => {
                 map(&mut disk.caster);
                 disk.target.iter_mut().for_each(&mut map);
                 disk.last.iter_mut().for_each(&mut map);
@@ -1246,7 +1260,13 @@ impl bevy::ecs::entity::MapEntities for SavedSpellObject {
             SpellObject::Flame(flame) => map(&mut flame.caster),
             SpellObject::Ball(ball) => map(&mut ball.caster),
             SpellObject::Pentagram(pentagram) => map(&mut pentagram.caster),
-            SpellObject::Banishing(_) | SpellObject::Confusion(_) | SpellObject::Fog(_) => {}
+            SpellObject::TentacleAura(aura) => map(&mut aura.bearer),
+            SpellObject::MineSign(sign) => map(&mut sign.caster),
+            SpellObject::Mine(mine) => map(&mut mine.caster),
+            SpellObject::Banishing(_)
+            | SpellObject::Confusion(_)
+            | SpellObject::Fog(_)
+            | SpellObject::DemonFire { .. } => {}
         }
     }
 }
@@ -1256,14 +1276,17 @@ impl SpellObject {
     fn caster(&self) -> Option<Entity> {
         match self {
             Self::Aura { aura, .. } => Some(aura.caster),
-            Self::Disk(disk) => Some(disk.caster),
+            Self::Disk { disk, .. } => Some(disk.caster),
             Self::Frosting(_) => None,
             Self::Meteor(meteor) => Some(meteor.caster),
             Self::Chain(chain) => Some(chain.caster),
             Self::Flame(flame) => Some(flame.caster),
             Self::Ball(ball) => Some(ball.caster),
             Self::Pentagram(pentagram) => Some(pentagram.caster),
-            Self::Banishing(_) | Self::Confusion(_) | Self::Fog(_) => None,
+            Self::TentacleAura(aura) => Some(aura.bearer),
+            Self::MineSign(sign) => Some(sign.caster),
+            Self::Mine(mine) => Some(mine.caster),
+            Self::Banishing(_) | Self::Confusion(_) | Self::Fog(_) | Self::DemonFire { .. } => None,
         }
     }
 }
@@ -1290,7 +1313,12 @@ pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedSpellObject> {
     let mut objects = Vec::new();
     let mut auras = world.query::<(
         &Aura,
-        (Option<&TrapFactor>, Option<&Disarms>, Option<&Thorn>),
+        (
+            Option<&TrapFactor>,
+            Option<&Disarms>,
+            Option<&Thorn>,
+            Option<&Tentacle>,
+        ),
         (
             Option<&Transform>,
             Option<&Visibility>,
@@ -1300,7 +1328,7 @@ pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedSpellObject> {
     objects.extend(
         auras
             .iter(world)
-            .map(|(aura, (factor, disarms, thorn), parts)| {
+            .map(|(aura, (factor, disarms, thorn, tentacle), parts)| {
                 kept(
                     SpellObject::Aura {
                         aura: aura.clone(),
@@ -1308,6 +1336,7 @@ pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedSpellObject> {
                         trap_factor: factor.map(|factor| factor.0),
                         disarms: disarms.map(|disarms| disarms.0),
                         thorn: thorn.copied(),
+                        tentacle: tentacle.copied(),
                     },
                     parts,
                 )
@@ -1330,7 +1359,42 @@ pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedSpellObject> {
             );
         };
     }
-    each!(Disk);
+    let mut disks = world.query::<(
+        &Disk,
+        Has<HellDisk>,
+        (
+            Option<&Transform>,
+            Option<&Visibility>,
+            Option<&crate::hums::Hum>,
+        ),
+    )>();
+    objects.extend(disks.iter(world).map(|(disk, hell_disk, parts)| {
+        kept(
+            SpellObject::Disk {
+                disk: disk.clone(),
+                hell_disk,
+            },
+            parts,
+        )
+    }));
+    let mut fires = world.query::<(
+        &DemonFire,
+        Option<&Fades>,
+        (
+            Option<&Transform>,
+            Option<&Visibility>,
+            Option<&crate::hums::Hum>,
+        ),
+    )>();
+    objects.extend(fires.iter(world).map(|(fire, fades, parts)| {
+        kept(
+            SpellObject::DemonFire {
+                fire: *fire,
+                fades: fades.map(|fades| fades.0),
+            },
+            parts,
+        )
+    }));
     each!(Frosting);
     each!(Meteor);
     each!(Chain);
@@ -1340,6 +1404,9 @@ pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedSpellObject> {
     each!(Pentagram);
     each!(Confusion);
     each!(Fog);
+    each!(TentacleAura);
+    each!(MineSign);
+    each!(Mine);
     objects
 }
 
@@ -1374,6 +1441,7 @@ pub(crate) fn objects_again(world: &mut World, objects: Vec<SavedSpellObject>) {
                 trap_factor,
                 disarms,
                 thorn,
+                tentacle,
             } => {
                 if area {
                     aura.classes = spells::area(aura.key).map_or(&[], |area| area.classes);
@@ -1388,9 +1456,15 @@ pub(crate) fn objects_again(world: &mut World, objects: Vec<SavedSpellObject>) {
                 if let Some(thorn) = thorn {
                     made.insert(thorn);
                 }
+                if let Some(tentacle) = tentacle {
+                    made.insert(tentacle);
+                }
             }
-            SpellObject::Disk(disk) => {
+            SpellObject::Disk { disk, hell_disk } => {
                 made.insert(disk);
+                if hell_disk {
+                    made.insert(HellDisk);
+                }
             }
             SpellObject::Frosting(frosting) => {
                 made.insert(frosting);
@@ -1418,6 +1492,21 @@ pub(crate) fn objects_again(world: &mut World, objects: Vec<SavedSpellObject>) {
             }
             SpellObject::Fog(fog) => {
                 made.insert(fog);
+            }
+            SpellObject::TentacleAura(aura) => {
+                made.insert(aura);
+            }
+            SpellObject::DemonFire { fire, fades } => {
+                made.insert(fire);
+                if let Some(left) = fades {
+                    made.insert(Fades(left));
+                }
+            }
+            SpellObject::MineSign(sign) => {
+                made.insert(sign);
+            }
+            SpellObject::Mine(mine) => {
+                made.insert(mine);
             }
         }
     }
@@ -1490,15 +1579,16 @@ pub(crate) struct Fades(pub(crate) f32);
 
 /// The demon fire's object (1015, `0x528566`): until when it strikes and how long it lives
 /// (`opensacred_rules::spells::hellfire_times`); its look is `demon_fires`'.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct DemonFire {
     pub(crate) times: (f32, f32),
 }
 
 /// The Dwarf's sign of his mines, going with him: its caster, the mines it still carries and
 /// all it carried, its cooldown, the mines' damages and its level; its look is `mines`'.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct MineSign {
+    #[serde(with = "crate::names::required")]
     caster: Entity,
     left: u32,
     total: u32,
@@ -1522,8 +1612,9 @@ impl MineSign {
 
 /// A mine lying where the sign laid it: its caster, its damages, its level and its time left;
 /// its look is `mines`'.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Mine {
+    #[serde(with = "crate::names::required")]
     caster: Entity,
     damages: [f32; 4],
     level: Level,
@@ -3319,7 +3410,7 @@ fn killed(
 
 /// A tentacle at a corpse (1013 of the variant 1, `0x7B1990`): how long it stands before it
 /// sinks; its tendrils and rings rise from it (`tentacles`).
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Tentacle {
     pub(crate) stands: f32,
 }
@@ -3327,8 +3418,9 @@ pub(crate) struct Tentacle {
 /// The tentacles' aura about the Daemon (1013 of the variant 0, `0x52829F`, `0x7B1990`): whom it
 /// follows and for how long, his effect's seconds; its rings turn about his feet
 /// (`tentacles`), which ends it.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct TentacleAura {
+    #[serde(with = "crate::names::required")]
     pub(crate) bearer: Entity,
     pub(crate) seconds: f32,
 }
@@ -5201,5 +5293,100 @@ mod tests {
             .collect();
         assert_eq!(thorns, [(thorn, elf)]);
         assert_eq!(world.query::<&Fog>().iter(world).count(), 1);
+    }
+
+    #[test]
+    fn the_daemons_and_the_dwarfs_objects_saved_go_on() {
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut saved = App::new();
+        saved.add_plugins(NamesPlugin);
+        let hero = saved.world_mut().spawn(Named(Id::Hero)).id();
+        let disk = Disk {
+            caster: hero,
+            target: None,
+            last: None,
+            damages: [1.0; 4],
+            level: None,
+            left: 6.0,
+            cooldown: 0.0,
+            speed: spells::DISK_SPEED,
+            reach: spells::DISK_REACH,
+            all: false,
+            flight: Flight::HellDisk { heading: Vec3::Y },
+        };
+        saved.world_mut().spawn((
+            disk.clone(),
+            HellDisk,
+            Transform::default(),
+            Visibility::Inherited,
+        ));
+        let fire = DemonFire { times: (2.0, 3.0) };
+        saved.world_mut().spawn((
+            fire,
+            Fades(2.5),
+            Transform::default(),
+            Visibility::Inherited,
+        ));
+        let sign = MineSign {
+            caster: hero,
+            left: 3,
+            total: 5,
+            cooldown: 0.2,
+            damages: [4.0; 4],
+            level: None,
+        };
+        saved
+            .world_mut()
+            .spawn((sign.clone(), Transform::default()));
+        let mut refs = Refs::default();
+        let objects = mapped(
+            saved_objects(saved.world_mut()),
+            &mut Saving {
+                world: saved.world(),
+                refs: &mut refs,
+            },
+        );
+        let bytes = postcard::to_stdvec(&(&refs, &objects)).unwrap();
+        let (refs, objects): (Refs, Vec<SavedSpellObject>) = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..2).map(|_| ()));
+        let hero = loaded.world_mut().spawn(Named(Id::Hero)).id();
+        let objects = mapped(
+            objects,
+            &mut Loading {
+                refs: &refs,
+                names: loaded.world().resource::<Names>(),
+                lost: 0,
+            },
+        );
+        objects_again(loaded.world_mut(), objects);
+        let world = loaded.world_mut();
+        let disks: Vec<Disk> = world
+            .query_filtered::<&Disk, With<HellDisk>>()
+            .iter(world)
+            .cloned()
+            .collect();
+        assert_eq!(
+            disks,
+            [Disk {
+                caster: hero,
+                ..disk
+            }]
+        );
+        let fires: Vec<(DemonFire, f32)> = world
+            .query::<(&DemonFire, &Fades)>()
+            .iter(world)
+            .map(|(fire, fades)| (*fire, fades.0))
+            .collect();
+        assert_eq!(fires, [(fire, 2.5)]);
+        let signs: Vec<MineSign> = world.query::<&MineSign>().iter(world).cloned().collect();
+        assert_eq!(
+            signs,
+            [MineSign {
+                caster: hero,
+                ..sign
+            }]
+        );
     }
 }

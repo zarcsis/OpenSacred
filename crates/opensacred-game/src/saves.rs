@@ -121,8 +121,9 @@ use crate::{arts, drops, making};
 /// (#3765); the version 64 the creatures' casts and arts (#3766); the version 65 the spells'
 /// states and the changelings' animals (#3767); the version 66 the special creatures' states
 /// (#3768); the version 67 the things thrown and shot (#3769); the version 68 the spells'
-/// objects (#3770); the version 69 the elves' and the Vampiress's (#3771).
-pub const VERSION: u32 = 69;
+/// objects (#3770); the version 69 the elves' and the Vampiress's (#3771); the version 70 the
+/// Dwarf's and the Daemon's, and the breaths (#3772).
+pub const VERSION: u32 = 70;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -366,6 +367,9 @@ pub struct Things {
     pub skulls: Vec<crate::spells::SavedSkull>,
     /// The spells' objects (#3770).
     pub spells: Vec<crate::spells::SavedSpellObject>,
+    /// The Daemon's breaths and the dragons' fires (#3772).
+    pub breaths: crate::breath::SavedBreaths,
+    pub dragon_fires: Vec<crate::dragon_fires::SavedDragonFire>,
 }
 
 impl MapEntities for Things {
@@ -382,6 +386,8 @@ impl MapEntities for Things {
         self.summonings.map_entities(mapper);
         self.skulls.map_entities(mapper);
         self.spells.map_entities(mapper);
+        self.breaths.map_entities(mapper);
+        self.dragon_fires.map_entities(mapper);
     }
 }
 
@@ -404,6 +410,8 @@ fn things_of(world: &mut bevy::prelude::World, refs: &mut Refs) -> Things {
             summonings: crate::followers::saved_summonings(world),
             skulls: crate::spells::saved_skulls(world),
             spells: crate::spells::saved_objects(world),
+            breaths: crate::breath::saved(world),
+            dragon_fires: crate::dragon_fires::saved(world),
         },
         &mut Saving { world, refs },
     )
@@ -1167,6 +1175,8 @@ fn resume(world: &mut bevy::prelude::World) {
     crate::followers::summonings_again(world, things.summonings);
     crate::spells::skulls_again(world, things.skulls);
     crate::spells::objects_again(world, things.spells);
+    crate::breath::again(world, things.breaths);
+    crate::dragon_fires::again(world, things.dragon_fires);
     // The hero's hurled weapon out of his hand, flying or lying (#3769).
     if live.hurled {
         world.write_message(crate::arsenal::Throws(true));
@@ -1994,7 +2004,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (69, 0x6109_83A4_EC24_83C6),
+            (70, 0xF7F5_D502_B81C_4721),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
