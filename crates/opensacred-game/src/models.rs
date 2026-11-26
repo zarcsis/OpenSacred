@@ -169,6 +169,10 @@ pub struct InOrder {
     specular: bool,
     /// Whether its base is lit, by which its pixels leave the night's pass ([`set_lit`], #3693).
     lit: bool,
+    /// The veil over what the untinted camera draws (`veil::VEIL`, #3856), which a blended pass
+    /// that it draws reads (`standard.wesl`'s `VEILED`).
+    #[texture(111)]
+    veil: Option<Handle<Image>>,
 }
 
 /// What the pipeline of a [`ModelMaterial`] depends on beyond Bevy's own material.
@@ -257,6 +261,11 @@ impl MaterialExtension for InOrder {
             descriptor.vertex.shader_defs.push("UNDER".into());
         }
         if let Some(fragment) = descriptor.fragment.as_mut() {
+            // A blended pass that the untinted camera draws, dimmed by the faded sprites before it
+            // (`veil`, #3856).
+            if crate::veil::veiled(key.mesh_key) {
+                fragment.shader_defs.push("VEILED".into());
+            }
             fragment.shader_defs.push("NEAREST".into());
             fragment
                 .shader_defs
@@ -512,6 +521,7 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
             pass,
             specular: false,
             lit,
+            veil: Some(crate::veil::VEIL),
         },
     }
 }
