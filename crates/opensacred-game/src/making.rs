@@ -51,7 +51,7 @@ const DOMINATION_LOOP: u32 = 2075;
 /// The raising's object's sound as it starts (866, `0x79E5D0`): `VAMP_PENTA`.
 const RAISE_SOUND: u32 = 2082;
 /// The soulcatcher's object's loop (869 `FX_SOULCATCHER`, `0x76AA40`).
-const SOULCATCHER_LOOP: u32 = 2068;
+pub(crate) const SOULCATCHER_LOOP: u32 = 2068;
 /// The Dark Elf's testosterone and adrenaline, whose two objects 864 (`dark_sm_hit`) loop
 /// `DELF_ADRENALIN_LOOP` from their starts (`0x79503D`).
 const ADRENALINE: [u16; 2] = [1047, 1048];

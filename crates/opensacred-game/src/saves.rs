@@ -127,8 +127,9 @@ use crate::{arts, drops, making};
 /// Mage's looks (#3775); the version 74 the elves' looks (#3776); the version 75 the Dwarf's,
 /// the Daemon's and the Gladiator's looks (#3777); the version 76 the fight's and the bodies'
 /// looks (#3778); the version 77 the bearers' looks and the casts' glows (#3779); the version
-/// 78 the shields', the casts' sights and the scripts' objects' looks (#3814).
-pub const VERSION: u32 = 78;
+/// 78 the shields', the casts' sights and the scripts' objects' looks (#3814); the version 79
+/// the Vampiress's and the souls' looks, the souls and the soulcatchers (#3809).
+pub const VERSION: u32 = 79;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -427,6 +428,14 @@ pub struct Looks {
     pub bubble_prisons: Vec<crate::bubble_prisons::SavedLook>,
     pub prisons: Vec<crate::prisons::SavedLook>,
     pub stargates: Vec<crate::stargates::SavedLook>,
+    /// The Vampiress's and the souls' looks (#3809): the domination's rings and the raising's
+    /// pentagrams, the bites' sights, her casts' sights, the souls' sparks that outlive their
+    /// souls, and the soulcatchers with their objects.
+    pub vamp_sights: Vec<crate::vamp_sights::SavedLook>,
+    pub bite_sights: Vec<crate::bite_sights::SavedLook>,
+    pub vamp_casts: crate::vamp_casts::SavedSights,
+    pub soul_sparks: Vec<crate::soul_sparks::SavedLook>,
+    pub soulcatchers: Vec<crate::soulcatchers::SavedCatcher>,
 }
 
 impl MapEntities for Looks {
@@ -465,6 +474,10 @@ impl MapEntities for Looks {
         self.bubble_prisons.map_entities(mapper);
         self.prisons.map_entities(mapper);
         self.stargates.map_entities(mapper);
+        self.vamp_sights.map_entities(mapper);
+        self.bite_sights.map_entities(mapper);
+        self.vamp_casts.map_entities(mapper);
+        self.soulcatchers.map_entities(mapper);
     }
 }
 
@@ -508,6 +521,9 @@ pub struct Things {
     /// The Daemon's breaths and the dragons' fires (#3772).
     pub breaths: crate::breath::SavedBreaths,
     pub dragon_fires: Vec<crate::dragon_fires::SavedDragonFire>,
+    /// The Dark Elf's souls on their way and fading (#3809).
+    pub souls: Vec<crate::souls::SavedSoul>,
+    pub fading_souls: Vec<crate::souls::SavedFading>,
 }
 
 impl MapEntities for Things {
@@ -526,6 +542,8 @@ impl MapEntities for Things {
         self.spells.map_entities(mapper);
         self.breaths.map_entities(mapper);
         self.dragon_fires.map_entities(mapper);
+        self.souls.map_entities(mapper);
+        self.fading_souls.map_entities(mapper);
     }
 }
 
@@ -534,6 +552,7 @@ fn things_of(world: &mut bevy::prelude::World, refs: &mut Refs) -> Things {
     let (arrows, stuck) = crate::arrows::saved(world);
     let bolts = crate::bolts::saved(world);
     let blasts = crate::blast::saved(world);
+    let (souls, fading_souls) = crate::souls::saved(world);
     crate::names::mapped(
         Things {
             arrows,
@@ -550,6 +569,8 @@ fn things_of(world: &mut bevy::prelude::World, refs: &mut Refs) -> Things {
             spells: crate::spells::saved_objects(world),
             breaths: crate::breath::saved(world),
             dragon_fires: crate::dragon_fires::saved(world),
+            souls,
+            fading_souls,
         },
         &mut Saving { world, refs },
     )
@@ -1060,6 +1081,11 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
         bubble_prisons: crate::bubble_prisons::saved(world),
         prisons: crate::prisons::saved(world),
         stargates: crate::stargates::saved(world),
+        vamp_sights: crate::vamp_sights::saved(world),
+        bite_sights: crate::bite_sights::saved(world),
+        vamp_casts: crate::vamp_casts::saved(world),
+        soul_sparks: crate::soul_sparks::saved(world),
+        soulcatchers: crate::soulcatchers::saved(world),
     };
     let looks = crate::names::mapped(
         looks,
@@ -1380,6 +1406,7 @@ fn resume(world: &mut bevy::prelude::World) {
     crate::spells::objects_again(world, things.spells);
     crate::breath::again(world, things.breaths);
     crate::dragon_fires::again(world, things.dragon_fires);
+    crate::souls::again(world, (things.souls, things.fading_souls));
     // The looks, last, once what they are drawn at is back (#3773).
     let (looks, lost_looks) = loaded(world, &live.refs, live.looks);
     let lost = lost + lost_looks;
@@ -1437,6 +1464,11 @@ fn resume(world: &mut bevy::prelude::World) {
     crate::bubble_prisons::again(world, looks.bubble_prisons);
     crate::prisons::again(world, looks.prisons);
     crate::stargates::again(world, looks.stargates);
+    crate::vamp_sights::again(world, looks.vamp_sights);
+    crate::bite_sights::again(world, looks.bite_sights);
+    crate::vamp_casts::again(world, looks.vamp_casts);
+    crate::soul_sparks::again(world, looks.soul_sparks);
+    crate::soulcatchers::again(world, looks.soulcatchers);
     // The hero's hurled weapon out of his hand, flying or lying (#3769).
     if live.hurled {
         world.write_message(crate::arsenal::Throws(true));
@@ -2264,7 +2296,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (78, 0x9FCA_E89F_F5E2_39DD),
+            (79, 0x282A_3BDD_2EAC_4DA1),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

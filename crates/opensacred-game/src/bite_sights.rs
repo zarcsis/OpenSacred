@@ -135,6 +135,9 @@ struct Star {
 struct Ghost {
     target: Entity,
     look: MasterGhost,
+    /// Where she stood, which its lamp lights, and the seconds its clip has played.
+    at: Vec3,
+    clip: f32,
     model: Option<Entity>,
     points: Option<[Entity; 9]>,
     playing: bool,
@@ -151,6 +154,112 @@ struct Curse {
     origin: (Vec3, crate::terrain::Level),
     before: Option<Vec3>,
     meshes: [Handle<Mesh>; 2],
+}
+
+/// A star's kept state: its place once found and its clock.
+type StarState = (Option<Vec3>, f32);
+
+/// A ghost's kept state: its look and the seconds its clip has played.
+type GhostState = (MasterGhost, f32);
+
+/// A curse's kept state: its look, where it was cursed and on which level, and its neck's place
+/// at the last frame.
+type CurseState = (SkullCurse, (Vec3, crate::terrain::Level), Option<Vec3>);
+
+/// A bite's sight as a save keeps it (#3809, the epic #3753): its creature by its name and its
+/// state; a load makes it again at its creature, going on as it went, a ghost's clip run on from
+/// where it was.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedBiteSight")]
+pub enum SavedLook {
+    Star {
+        #[serde(with = "crate::names::required")]
+        on: Entity,
+        kept: StarState,
+    },
+    Ghost {
+        #[serde(with = "crate::names::required")]
+        target: Entity,
+        at: Vec3,
+        kept: GhostState,
+    },
+    Curse {
+        #[serde(with = "crate::names::required")]
+        target: Entity,
+        kept: CurseState,
+    },
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        match self {
+            Self::Star { on: target, .. }
+            | Self::Ghost { target, .. }
+            | Self::Curse { target, .. } => *target = mapper.get_mapped(*target),
+        }
+    }
+}
+
+/// The bites' sights in `world` as a save keeps them (#3809).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut stars = world.query::<&Star>();
+    let mut saved: Vec<SavedLook> = stars
+        .iter(world)
+        .map(|star| SavedLook::Star {
+            on: star.on,
+            kept: (star.place, star.clock),
+        })
+        .collect();
+    let mut ghosts = world.query::<&Ghost>();
+    saved.extend(ghosts.iter(world).map(|ghost| SavedLook::Ghost {
+        target: ghost.target,
+        at: ghost.at,
+        kept: (ghost.look.clone(), ghost.clip),
+    }));
+    let mut curses = world.query::<&Curse>();
+    saved.extend(curses.iter(world).map(|curse| SavedLook::Curse {
+        target: curse.target,
+        kept: (curse.look.clone(), curse.origin, curse.before),
+    }));
+    saved
+}
+
+/// Makes a loaded save's bites' sights again (#3809); one whose creature the load finds not is
+/// left out.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        let gone = DespawnOnExit(AppState::InGame);
+        match saved {
+            SavedLook::Star { on, kept } => {
+                if crate::names::found(Some(on)).is_some() {
+                    world.spawn((Unmade::Star { on }, crate::fx::Resumes(kept), gone));
+                }
+            }
+            SavedLook::Ghost { target, at, kept } => {
+                if crate::names::found(Some(target)).is_some() {
+                    world.spawn((
+                        Unmade::Ghost {
+                            target,
+                            size: 0.0,
+                            seconds: 0.0,
+                            at,
+                        },
+                        crate::fx::Resumes(kept),
+                        gone,
+                    ));
+                }
+            }
+            SavedLook::Curse { target, kept } => {
+                if crate::names::found(Some(target)).is_some() {
+                    world.spawn((
+                        Unmade::Curse { target, size: 0.0 },
+                        crate::fx::Resumes(kept),
+                        gone,
+                    ));
+                }
+            }
+        }
+    }
 }
 
 /// Finds the materials and the model at the first sight (`0x792890`).
@@ -201,9 +310,21 @@ fn quads_mesh(
 }
 
 /// Gives each new sight its look, its meshes, its model and its lamp and loop (`0x7938D0`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(
+        Entity,
+        &Unmade,
+        (
+            Option<&crate::fx::Resumes<StarState>>,
+            Option<&crate::fx::Resumes<GhostState>>,
+            Option<&crate::fx::Resumes<CurseState>>,
+        ),
+    )>,
     (places, ways): (Query<&GlobalTransform>, Query<&crate::crowd::InTheWay>),
     (data, server, mut looks, mut dice): (
         Option<Res<Data>>,
@@ -213,14 +334,19 @@ fn make(
     ),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, (star, ghost, curse)) in &unmade {
         if !looks.made {
             let Some(data) = data.as_deref() else {
                 return;
             };
             find_looks(&mut looks, data, &server, &mut effects);
         }
-        commands.entity(entity).remove::<Unmade>();
+        commands.entity(entity).remove::<(
+            Unmade,
+            crate::fx::Resumes<StarState>,
+            crate::fx::Resumes<GhostState>,
+            crate::fx::Resumes<CurseState>,
+        )>();
         debug!(
             "bite sights: {}",
             match unmade {
@@ -237,11 +363,13 @@ fn make(
                     entity,
                     (looks.star.clone(), true),
                 );
+                // A loaded star goes on as it went (#3809).
+                let (place, clock) = star.map_or((None, 0.0), |crate::fx::Resumes(kept)| *kept);
                 commands.entity(entity).insert((
                     Star {
                         on,
-                        place: None,
-                        clock: 0.0,
+                        place,
+                        clock,
                         mesh,
                     },
                     Transform::IDENTITY,
@@ -278,10 +406,17 @@ fn make(
                     (looks.ghost.clone(), true),
                 );
                 let place = places.get(target).map_or(at, GlobalTransform::translation);
+                // A loaded ghost goes on as it went, its clip run on from where it was (#3809).
+                let (look, clip) = ghost.map_or_else(
+                    || (MasterGhost::new(size, seconds, &mut dice.0), 0.0),
+                    |crate::fx::Resumes(kept)| kept.clone(),
+                );
                 commands.entity(entity).insert((
                     Ghost {
                         target,
-                        look: MasterGhost::new(size, seconds, &mut dice.0),
+                        look,
+                        at,
+                        clip,
                         model,
                         points: None,
                         playing: false,
@@ -313,12 +448,17 @@ fn make(
                         (looks.glow.clone(), true),
                     ),
                 ];
+                // A loaded curse goes on as it went (#3809).
+                let (look, origin, before) = curse.map_or_else(
+                    || (SkullCurse::new(size), (place, level), None),
+                    |crate::fx::Resumes(kept)| kept.clone(),
+                );
                 commands.entity(entity).insert((
                     Curse {
                         target,
-                        look: SkullCurse::new(size),
-                        origin: (place, level),
-                        before: None,
+                        look,
+                        origin,
+                        before,
                         meshes,
                     },
                     Transform::from_translation(place),
@@ -413,7 +553,12 @@ fn play(
                 for entity in children.iter_descendants(model) {
                     if let Ok(mut player) = players.get_mut(entity) {
                         let (graph, node) = AnimationGraph::from_clip(clip.clone());
-                        player.play(node).repeat().set_speed(ghost.look.speed());
+                        // A loaded ghost's clip runs on from where it was (#3809).
+                        player
+                            .play(node)
+                            .repeat()
+                            .set_speed(ghost.look.speed())
+                            .seek_to(ghost.clip * ghost.look.speed());
                         commands
                             .entity(entity)
                             .insert(AnimationGraphHandle(graphs.add(graph)));
@@ -457,6 +602,9 @@ fn ghosts(
     for (entity, mut ghost, mut transform) in &mut ghosts {
         let ghost = &mut *ghost;
         ghost.look.update(dt);
+        if ghost.playing {
+            ghost.clip += dt;
+        }
         let root = places
             .get(ghost.target)
             .map(GlobalTransform::translation)

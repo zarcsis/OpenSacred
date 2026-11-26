@@ -57,6 +57,87 @@ struct Pentagram {
     parts: [Handle<Mesh>; 4],
 }
 
+/// A domination's ring or a raising's pentagram as a save keeps it (#3809, the epic #3753): its
+/// creature by its name, its look and the pentagram's place; a load makes it again there, going
+/// on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedVampSight")]
+pub enum SavedLook {
+    Domination {
+        #[serde(with = "crate::names::required")]
+        target: Entity,
+        look: Domination,
+    },
+    Raising {
+        #[serde(with = "crate::names::required")]
+        target: Entity,
+        look: Raising,
+        place: Vec3,
+    },
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        match self {
+            Self::Domination { target, .. } | Self::Raising { target, .. } => {
+                *target = mapper.get_mapped(*target);
+            }
+        }
+    }
+}
+
+/// The rings and the pentagrams in `world` as a save keeps them (#3809).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut rings = world.query::<&Ring>();
+    let mut saved: Vec<SavedLook> = rings
+        .iter(world)
+        .map(|ring| SavedLook::Domination {
+            target: ring.target,
+            look: ring.look,
+        })
+        .collect();
+    let mut pentagrams = world.query::<&Pentagram>();
+    saved.extend(pentagrams.iter(world).map(|pentagram| SavedLook::Raising {
+        target: pentagram.target,
+        look: pentagram.look,
+        place: pentagram.place,
+    }));
+    saved
+}
+
+/// Makes a loaded save's rings and pentagrams again (#3809): a ring whose creature the load finds
+/// not is left out, a pentagram stays at its place.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        match saved {
+            SavedLook::Domination { target, look } => {
+                if crate::names::found(Some(target)).is_none() {
+                    continue;
+                }
+                world.spawn((
+                    Unmade::Domination {
+                        target,
+                        seconds: 0.0,
+                    },
+                    crate::fx::Resumes(look),
+                    DespawnOnExit(AppState::InGame),
+                ));
+            }
+            SavedLook::Raising {
+                target,
+                look,
+                place,
+            } => {
+                world.spawn((
+                    Unmade::Raising { target, place },
+                    crate::fx::Resumes(look),
+                    DespawnOnExit(AppState::InGame),
+                ));
+            }
+        }
+    }
+}
+
 /// The sights' materials, made as first asked, none where a texture is missing: the ring's runes
 /// laid over by their alpha, their glow and the head's glow added whole; the raising's pentagram
 /// and ring laid over, their glows added whole.
@@ -89,14 +170,23 @@ pub(crate) fn raise(commands: &mut Commands, target: Entity, place: Vec3) {
 
 /// Gives each new sight its look at its creature, its meshes and its materials (`0x79D480`,
 /// `0x79DBF0`; `0x79E180`, `0x79E5D0`), and the ring its light.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(
+        Entity,
+        &Unmade,
+        Option<&crate::fx::Resumes<Domination>>,
+        Option<&crate::fx::Resumes<Raising>>,
+    )>,
     (places, sizes): (Query<&GlobalTransform>, Query<&crate::arrows::Size>),
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, ring, raising) in &unmade {
         let at = match *unmade {
             Unmade::Domination { target, .. } => {
                 places.get(target).map(GlobalTransform::translation)
@@ -151,8 +241,12 @@ fn make(
         };
         let parts: Vec<Handle<Mesh>> = chosen.iter().map(|_| meshes.add(empty())).collect();
         let mut made = commands.entity(entity);
-        made.remove::<Unmade>()
-            .insert((Transform::from_translation(at), Visibility::default()));
+        made.remove::<(
+            Unmade,
+            crate::fx::Resumes<Domination>,
+            crate::fx::Resumes<Raising>,
+        )>()
+        .insert((Transform::from_translation(at), Visibility::default()));
         for (mesh, material) in parts.iter().zip(chosen) {
             if let Some(material) = material {
                 made.with_child((
@@ -184,7 +278,11 @@ fn make(
                     .id();
                 commands.entity(entity).insert(Ring {
                     target,
-                    look: Domination::new(seconds, size),
+                    // A loaded ring goes on as it went (#3809).
+                    look: ring.map_or_else(
+                        || Domination::new(seconds, size),
+                        |crate::fx::Resumes(look)| *look,
+                    ),
                     parts: [parts[0].clone(), parts[1].clone(), parts[2].clone()],
                     light,
                 });
@@ -192,7 +290,7 @@ fn make(
             Unmade::Raising { target, .. } => {
                 commands.entity(entity).insert(Pentagram {
                     target,
-                    look: Raising::default(),
+                    look: raising.map_or_else(Raising::default, |crate::fx::Resumes(look)| *look),
                     place: at,
                     order: None,
                     parts: [

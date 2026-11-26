@@ -62,14 +62,78 @@ struct Shown {
     glow: Handle<Mesh>,
 }
 
+/// A soulcatcher as a save keeps it (#3809, the epic #3753): its bearer by his name, the seconds
+/// its object hangs on and its look; a load hangs it at him again, its loop sounding anew.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedCatcher {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    left: f32,
+    look: Option<Soulcatcher>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedCatcher {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The soulcatchers in `world` as a save keeps them (#3809).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedCatcher> {
+    let mut catchers =
+        world.query_filtered::<(Entity, &ChildOf, &crate::spells::Fades), With<Catcher>>();
+    let catchers: Vec<(Entity, Entity, f32)> = catchers
+        .iter(world)
+        .map(|(catcher, bearer, fades)| (catcher, bearer.parent(), fades.0))
+        .collect();
+    let mut shown = world.query::<&Shown>();
+    catchers
+        .into_iter()
+        .map(|(catcher, bearer, left)| SavedCatcher {
+            bearer,
+            left,
+            look: shown
+                .iter(world)
+                .find(|shown| shown.catcher == catcher)
+                .map(|shown| shown.look.clone()),
+        })
+        .collect()
+}
+
+/// Hangs a loaded save's soulcatchers at their bearers again (#3809); one whose bearer the load
+/// finds not is left out.
+pub(crate) fn again(world: &mut World, catchers: Vec<SavedCatcher>) {
+    for saved in catchers {
+        let Some(bearer) = crate::names::found(Some(saved.bearer))
+            .filter(|&bearer| world.get_entity(bearer).is_ok())
+        else {
+            continue;
+        };
+        let mut catcher = world.spawn((
+            crate::hums::Hum(crate::making::SOULCATCHER_LOOP),
+            crate::spells::Fades(saved.left),
+            Catcher,
+            Transform::default(),
+            ChildOf(bearer),
+        ));
+        if let Some(look) = saved.look {
+            catcher.insert(crate::fx::Resumes(look));
+        }
+    }
+}
+
 /// Gives each new soulcatcher its look (`0x76A6D0`, `0x76AA40`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn show(
     mut commands: Commands,
-    catchers: Query<(Entity, &ChildOf), Added<Catcher>>,
+    catchers: Query<(Entity, &ChildOf, Option<&crate::fx::Resumes<Soulcatcher>>), Added<Catcher>>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (catcher, bearer) in &catchers {
+    for (catcher, bearer, resumed) in &catchers {
         let materials = looks
             .0
             .get_or_insert_with(|| {
@@ -132,10 +196,18 @@ fn show(
         shown.insert(Shown {
             catcher,
             bearer: bearer.parent(),
-            look: Soulcatcher::default(),
+            // A loaded soulcatcher goes on as it went (#3809).
+            look: resumed.map_or_else(Soulcatcher::default, |crate::fx::Resumes(look)| {
+                look.clone()
+            }),
             runs,
             glow,
         });
+        if resumed.is_some() {
+            commands
+                .entity(catcher)
+                .remove::<crate::fx::Resumes<Soulcatcher>>();
+        }
     }
 }
 

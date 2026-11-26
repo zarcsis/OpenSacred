@@ -52,6 +52,101 @@ struct Fading {
     left: f32,
 }
 
+/// A soul on its way to the Dark Elf as a save keeps it (#3809, the epic #3753): its place, him
+/// by his name, its level, its age, the health it gives him, and its look; a load sends it on
+/// again from there.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedSoul {
+    at: Vec3,
+    #[serde(with = "crate::names::required")]
+    to: Entity,
+    level: Level,
+    age: f32,
+    heals: u32,
+    look: Option<crate::soul_sparks::SavedLook>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedSoul {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.to = mapper.get_mapped(self.to);
+    }
+}
+
+/// A soul fading as a save keeps it (#3809): him by his name, and the seconds until his
+/// soulcatcher absorbs it.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedFading {
+    #[serde(with = "crate::names::required")]
+    to: Entity,
+    left: f32,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedFading {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.to = mapper.get_mapped(self.to);
+    }
+}
+
+/// The souls in `world` as a save keeps them (#3809): those on their way and those fading.
+pub(crate) fn saved(world: &mut World) -> (Vec<SavedSoul>, Vec<SavedFading>) {
+    let mut souls = world.query::<(Entity, &Soul, &Transform)>();
+    let flying = souls
+        .iter(world)
+        .map(|(entity, soul, at)| SavedSoul {
+            at: at.translation,
+            to: soul.to,
+            level: soul.level,
+            age: soul.age,
+            heals: soul.heals,
+            look: crate::soul_sparks::saved_look(world, entity),
+        })
+        .collect();
+    let mut fading = world.query::<&Fading>();
+    let fading = fading
+        .iter(world)
+        .map(|soul| SavedFading {
+            to: soul.to,
+            left: soul.left,
+        })
+        .collect();
+    (flying, fading)
+}
+
+/// Sends a loaded save's souls on again and fades its fading ones on (#3809); one whose Dark Elf
+/// the load finds not is left out.
+pub(crate) fn again(world: &mut World, (souls, fading): (Vec<SavedSoul>, Vec<SavedFading>)) {
+    for saved in souls {
+        if crate::names::found(Some(saved.to)).is_none() {
+            continue;
+        }
+        let mut soul = world.spawn((
+            Transform::from_translation(saved.at),
+            Soul {
+                to: saved.to,
+                level: saved.level,
+                age: saved.age,
+                heals: saved.heals,
+            },
+            DespawnOnExit(AppState::InGame),
+        ));
+        if let Some(look) = saved.look {
+            crate::soul_sparks::look_again(&mut soul, look);
+        }
+    }
+    for saved in fading {
+        if crate::names::found(Some(saved.to)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Fading {
+                to: saved.to,
+                left: saved.left,
+            },
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// A body that vanishes as it has lain its time (`0x53ECA0`'s lying step, `0x541491`): the body,
 /// whose figure its soul takes, and where it lies.
 #[derive(Message, Clone, Copy, Debug)]
@@ -217,5 +312,62 @@ impl Plugin for SoulsPlugin {
                 .after(Step::Npcs)
                 .in_set(Playing),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_soul_saved_goes_on_to_the_dark_elf_of_its_name_with_its_heals() {
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut app = App::new();
+        app.add_plugins(NamesPlugin);
+        let elf = app.world_mut().spawn(Named(Id::Hero)).id();
+        app.world_mut().spawn((
+            Soul {
+                to: elf,
+                level: None,
+                age: 1.5,
+                heals: 70,
+            },
+            Transform::from_xyz(10.0, 2.0, 30.0),
+        ));
+        app.world_mut().spawn(Fading { to: elf, left: 0.4 });
+        let mut refs = Refs::default();
+        let (souls, fading) = saved(app.world_mut());
+        let mut saving = Saving {
+            world: app.world(),
+            refs: &mut refs,
+        };
+        let kept = (mapped(souls, &mut saving), mapped(fading, &mut saving));
+        let bytes = postcard::to_stdvec(&(&refs, &kept)).unwrap();
+        let (refs, kept): (Refs, (Vec<SavedSoul>, Vec<SavedFading>)) =
+            postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..3).map(|_| ()));
+        let elf = loaded.world_mut().spawn(Named(Id::Hero)).id();
+        let mut loading = Loading {
+            refs: &refs,
+            names: loaded.world().resource::<Names>(),
+            lost: 0,
+        };
+        let kept = (mapped(kept.0, &mut loading), mapped(kept.1, &mut loading));
+        again(loaded.world_mut(), kept);
+        let world = loaded.world_mut();
+        let souls: Vec<(Entity, f32, u32, Vec3)> = world
+            .query::<(&Soul, &Transform)>()
+            .iter(world)
+            .map(|(soul, at)| (soul.to, soul.age, soul.heals, at.translation))
+            .collect();
+        assert_eq!(souls, [(elf, 1.5, 70, Vec3::new(10.0, 2.0, 30.0))]);
+        let fading: Vec<(Entity, f32)> = world
+            .query::<&Fading>()
+            .iter(world)
+            .map(|soul| (soul.to, soul.left))
+            .collect();
+        assert_eq!(fading, [(elf, 0.4)]);
     }
 }
