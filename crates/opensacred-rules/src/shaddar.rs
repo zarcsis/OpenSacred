@@ -108,9 +108,10 @@ enum Signal {
 /// A slave (`cParticleSystem_shaddar_slave` and its object): its rays, its flash, whether its
 /// rays are red (its ramp's index, `+0x28B0`), whether it hunts (its flags `0x10002`, else
 /// `0x8002`), whether it fades out (its signal 2), its heading and turn, and its touch's
-/// cooldown (`+0x11C`).
-#[derive(Clone, Debug, PartialEq)]
+/// cooldown (`+0x11C`). A save keeps it but its rays, which a load starts anew.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Slave {
+    #[serde(skip)]
     pub system: System,
     pub flash: f32,
     pub red: bool,

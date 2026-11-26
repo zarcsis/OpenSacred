@@ -147,11 +147,36 @@ impl Forms {
     }
 }
 
-/// A change of the hero's form: into its night's for `seconds`, or back to its day's.
+/// A change of the hero's form: into its night's for `seconds`, or back to its day's; `again`
+/// for a load's, which puts back the form that the save kept with its effect 22 ([`wear_again`]):
+/// no ring and no sound, the effect and the day's arts' waits as they are.
 #[derive(Event, Clone, Copy, Debug, PartialEq)]
 pub struct Change {
     pub night: bool,
     pub seconds: f32,
+    pub again: bool,
+}
+
+/// Puts the night's form back on a loaded hero whose save kept her in it, its effect 22 holding
+/// (#3768): her model, her values, her light and her bank of art slots.
+pub(crate) fn wear_again(world: &mut World) {
+    if world
+        .get_resource::<Forms>()
+        .is_none_or(|forms| forms.by_night)
+    {
+        return;
+    }
+    let mut heroes = world.query_filtered::<&Effects, With<Body>>();
+    if heroes
+        .iter(world)
+        .any(|effects| effects.holds(rules::NIGHT_FORM))
+    {
+        world.trigger(Change {
+            night: true,
+            seconds: 0.0,
+            again: true,
+        });
+    }
 }
 
 /// The hero's change of form (`0x50E6C0`'s event of her change): its model and clips, its type
@@ -201,7 +226,9 @@ fn change(
     }
     forms.by_night = change.night;
     // Her day's arts' waits whole (`0x557040`, #2995).
-    if let Some(arts) = arts.as_mut() {
+    if let Some(arts) = arts.as_mut()
+        && !change.again
+    {
         arts.wait_whole(&DAY_ARTS);
     }
     let form = if change.night {
@@ -241,17 +268,19 @@ fn change(
     {
         // The change's event (0x115 of the ring's flag, `0x51285A`) makes the object 781 of the
         // variant 2 at her, riding with her: its ring (`puffs`), and its sound once (`0x76D545`).
-        crate::puffs::spawn(
-            &mut commands,
-            opensacred_rules::particles::change_ring(),
-            Vec3::ZERO,
-            Some(body),
-        );
-        sounds.write(crate::sfx::Play {
-            sound: crate::sfx::Of::Id(CHANGE_SOUND),
-            at: Some(body),
-            rate: (0.5, crate::sfx::Roll::None),
-        });
+        if !change.again {
+            crate::puffs::spawn(
+                &mut commands,
+                opensacred_rules::particles::change_ring(),
+                Vec3::ZERO,
+                Some(body),
+            );
+            sounds.write(crate::sfx::Play {
+                sound: crate::sfx::Of::Id(CHANGE_SOUND),
+                at: Some(body),
+                rate: (0.5, crate::sfx::Roll::None),
+            });
+        }
         // The form's attributes, the points spent and the skills learnt kept (#1522).
         *base = Base(opensacred_rules::fight::Base {
             attributes: form.base.attributes,
@@ -262,10 +291,10 @@ fn change(
         let effect = Effect::new(rules::NIGHT_FORM, 0.0);
         let list = match effects {
             Some(mut effects) => {
-                if change.night {
-                    effects.add(effect, change.seconds);
-                } else {
+                if !change.night {
                     effects.remove(rules::NIGHT_FORM);
+                } else if !change.again {
+                    effects.add(effect, change.seconds);
                 }
                 effects.list()
             }
@@ -323,6 +352,7 @@ fn wear_off(
         commands.trigger(Change {
             night: false,
             seconds: 0.0,
+            again: false,
         });
     }
 }

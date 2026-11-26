@@ -28,7 +28,7 @@ const FADE: f32 = 1.5;
 
 /// A zhadum's state: its kills' cooldown (the object's `+0x11C`), its glow's hold (`+0x20A8`)
 /// and its fade (`+0x20AC`).
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Zhadum {
     pub cooldown: f32,
     pub hold: f32,

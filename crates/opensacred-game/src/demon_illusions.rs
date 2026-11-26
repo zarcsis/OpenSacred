@@ -1,6 +1,7 @@
 //! The big demon's illusion (917, `FX_BIG_DEMON_ILLUSION`; #3059; docs/re/effects.md, "The big
-//! demon's illusion"): the FX object that side quest 402's `take402` makes once (`npcs`), never
-//! made again. A ghost of the big demon's model stands at its place facing the screen's lower
+//! demon's illusion"): the FX object that side quest 402's `take402` makes once (`npcs`), made
+//! again only by a load, of the save that kept it at its clock ([`SavedIllusion`], #3768). A ghost
+//! of the big demon's model stands at its place facing the screen's lower
 //! left, drawn added whole and unlit in `BIG_DEMON_TEX_FX`, its depth tested and not written and
 //! untinted by the night, and plays its clip of the slot 154 once at half its speed, the game's
 //! speed aside, its grey growing in over 1.94 s and fading over its last 1.94 s
@@ -52,6 +53,50 @@ struct Shown {
 #[derive(Component)]
 struct Of(Entity);
 
+/// An illusion as a save keeps it (#3768), as the original's save keeps its FX object: its
+/// placement's name, its place and its clock; a load shows it again there, its clip on at its
+/// clock, and it ends as it would have.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedIllusion {
+    index: u32,
+    at: Vec3,
+    clock: f32,
+}
+
+/// A loaded illusion's clock, which its show takes in place of 0 ([`show`]).
+#[derive(Component)]
+struct Resumed(f32);
+
+/// The illusions in `world` as a save keeps them (#3768).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedIllusion> {
+    let mut illusions = world
+        .query_filtered::<(&crate::names::Named, &Transform, Option<&Shown>), With<Illusion>>();
+    illusions
+        .iter(world)
+        .filter_map(|(named, at, shown)| match named.0 {
+            crate::names::Id::Placed(index) => Some(SavedIllusion {
+                index,
+                at: at.translation,
+                clock: shown.map_or(0.0, |shown| shown.clock),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Shows a loaded save's illusions again, each of its placement at its clock (#3768).
+pub(crate) fn again(world: &mut World, illusions: Vec<SavedIllusion>) {
+    for saved in illusions {
+        match world.run_system_cached_with(crate::npcs::place_again, (saved.index, saved.at)) {
+            Ok(Ok(entity)) => {
+                world.entity_mut(entity).insert(Resumed(saved.clock));
+            }
+            Ok(Err(e)) => warn!("demon illusions: a saved illusion is not made: {e}"),
+            Err(e) => warn!("demon illusions: a saved illusion is not made: {e}"),
+        }
+    }
+}
+
 /// Finds the model, its clip and the texture at the first illusion (`0x7A8550`).
 fn find_looks(looks: &mut Looks, data: &Data, server: &AssetServer) {
     looks.made = true;
@@ -85,11 +130,14 @@ fn find_looks(looks: &mut Looks, data: &Data, server: &AssetServer) {
 )]
 fn show(
     mut commands: Commands,
-    illusions: Query<(Entity, &GlobalTransform), (With<Illusion>, Without<Shown>)>,
+    illusions: Query<
+        (Entity, &GlobalTransform, Option<&Resumed>),
+        (With<Illusion>, Without<Shown>),
+    >,
     (data, server, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (anchors, mut materials): (Res<Anchors>, ResMut<Assets<ModelMaterial>>),
 ) {
-    for (entity, place) in &illusions {
+    for (entity, place, resumed) in &illusions {
         if !looks.made {
             let Some(data) = data.as_deref() else {
                 return;
@@ -131,13 +179,14 @@ fn show(
             Pass::Added(Layer::Objects),
         ));
         debug!("demon illusions: an illusion shows at {place}");
-        commands.entity(entity).insert(Shown {
+        // A loaded illusion shows on at its clock (#3768).
+        commands.entity(entity).remove::<Resumed>().insert(Shown {
             model,
             lamp,
             material,
             dressed: false,
             life: None,
-            clock: 0.0,
+            clock: resumed.map_or(0.0, |Resumed(clock)| *clock),
         });
     }
 }
@@ -220,7 +269,11 @@ fn dress(
         for entity in children.iter_descendants(model) {
             if let Ok(mut player) = players.get_mut(entity) {
                 let (graph, node) = AnimationGraph::from_clip(clip.clone());
-                player.play(node).set_speed(ILLUSION_RATE);
+                // From where its clock stands, a loaded one's on (#3768).
+                player
+                    .play(node)
+                    .set_speed(ILLUSION_RATE)
+                    .seek_to(look.clock * ILLUSION_RATE);
                 commands
                     .entity(entity)
                     .insert(AnimationGraphHandle(graphs.add(graph)));

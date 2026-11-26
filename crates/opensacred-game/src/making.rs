@@ -2067,7 +2067,11 @@ fn make(
                             holding.map_or(1.0, |holding| holding.0.sets.night_form_times()),
                         )
                     });
-                commands.trigger(crate::forms::Change { night, seconds });
+                commands.trigger(crate::forms::Change {
+                    night,
+                    seconds,
+                    again: false,
+                });
                 // 1022 its own start; 1023 its own only out of her night's form, which it is
                 // made in, so none then (`0x5129D7`); her change of form then sets her day's
                 // arts' waits whole (`forms`, `0x557040`; #2995).

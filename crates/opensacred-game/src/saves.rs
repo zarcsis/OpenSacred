@@ -119,8 +119,9 @@ use crate::{arts, drops, making};
 /// (#3762); the version 61 the hero's orders and the drops' names (#3763); the version 62 the hero's
 /// arts and combo under way (#3764); the version 63 the special arts' states and the blasts
 /// (#3765); the version 64 the creatures' casts and arts (#3766); the version 65 the spells'
-/// states and the changelings' animals (#3767).
-pub const VERSION: u32 = 65;
+/// states and the changelings' animals (#3767); the version 66 the special creatures' states
+/// (#3768).
+pub const VERSION: u32 = 66;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -321,6 +322,24 @@ pub struct Live {
     pub bodies: Vec<crate::npcs::SavedBody>,
     /// The changelings' animals, which no sector keeps (#3767).
     pub animals: Vec<crate::npcs::SavedAnimal>,
+    /// The scripts' special objects (#3768).
+    pub specials: Specials,
+}
+
+/// The scripts' special objects as a save keeps them (#3768, the epic #3753): Shaddar's slaves
+/// and the big demon's illusion, which their sectors place no more and a load makes again of
+/// their placements, and the zhadums' guards, whose sector's `Enter` makes them again.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Specials {
+    pub slaves: Vec<crate::shaddar_slaves::SavedSlave>,
+    pub illusions: Vec<crate::demon_illusions::SavedIllusion>,
+    pub zhadums: Vec<crate::zhadums::SavedZhadum>,
+}
+
+impl MapEntities for Specials {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.slaves.map_entities(mapper);
+    }
 }
 
 /// The things in flight as a save keeps them (#3760, the epic #3753): the arrows flying and stuck
@@ -793,12 +812,25 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
     let things = things_of(world, &mut refs);
     let bodies = crate::npcs::bodies(world);
     let animals = crate::npcs::animals(world);
+    let specials = Specials {
+        slaves: crate::shaddar_slaves::saved(world),
+        illusions: crate::demon_illusions::saved(world),
+        zhadums: crate::zhadums::saved(world),
+    };
+    let specials = crate::names::mapped(
+        specials,
+        &mut Saving {
+            world,
+            refs: &mut refs,
+        },
+    );
     let live = Live {
         refs,
         doings,
         things,
         bodies,
         animals,
+        specials,
     };
     // The picture last taken (`save_picture`), as the original's save keeps its last capture.
     let picture = world
@@ -1084,12 +1116,20 @@ fn resume(world: &mut bevy::prelude::World) {
     crate::npcs::lay_again(world, live.bodies);
     let (doings, lost) = loaded(world, &live.refs, live.doings);
     let (given, missing) = crate::doings::give(world, doings);
+    // The Vampiress's night's form, which her effects kept (#3768).
+    crate::forms::wear_again(world);
     // The things in flight, once the creatures they refer to are back.
     let (things, lost_things) = loaded(world, &live.refs, live.things);
     let lost = lost + lost_things;
     crate::arrows::again(world, (things.arrows, things.stuck));
     crate::bolts::again(world, things.bolts);
     crate::blast::again(world, things.blasts);
+    // The scripts' special objects, once the creatures they hunt are back (#3768).
+    let (specials, lost_specials) = loaded(world, &live.refs, live.specials);
+    let lost = lost + lost_specials;
+    crate::shaddar_slaves::again(world, specials.slaves);
+    crate::demon_illusions::again(world, specials.illusions);
+    crate::zhadums::again(world, specials.zhadums);
     info!(
         "saves: what lives is back after {frames} frames: {given} doings, {missing} creatures \
          missing, {lost} references lost"
@@ -1907,7 +1947,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (65, 0x0E5F_9733_1B1B_76B7),
+            (66, 0xE8DF_EB4E_A360_70A7),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

@@ -181,6 +181,9 @@ pub struct Doing {
     unfought: Option<crate::fight::Unfought>,
     /// A follower's step off from its master (#3767).
     follows: Option<crate::followers::SavedFollower>,
+    /// A dryad ghost's dummy's ghost (#3768).
+    #[entities]
+    ghost: Option<crate::dryad_ghosts::SavedGhost>,
     /// Its effects, their sources by their names.
     #[entities]
     effects: Option<Effects>,
@@ -242,6 +245,7 @@ impl Doing {
             bloodlust: saved::<crate::fight::Bloodlust>(world, entity, &at),
             unfought: saved::<crate::fight::Unfought>(world, entity, &at),
             follows: crate::followers::saved_follower(world, entity),
+            ghost: crate::dryad_ghosts::saved_ghost(world, entity),
             combo: world
                 .get::<crate::hero::Body>(entity)
                 .and_then(|_| world.get_resource::<crate::combos::ComboRun>())
@@ -334,6 +338,9 @@ impl Doing {
         // A creature changed into an animal is hidden again, its mind kept for its change back.
         if let Some(changed) = self.changed {
             crate::spells::change_again(world, entity, changed, &at);
+        }
+        if let Some(ghost) = self.ghost {
+            crate::dryad_ghosts::again(world, entity, ghost);
         }
         if hero {
             world.insert_resource(
@@ -470,6 +477,8 @@ pub const DERIVED: &[&str] = &[
     "opensacred_game::creature_arts::Bolted",
     "opensacred_game::creature_casts::DruidThorns",
     "opensacred_game::spells::Banished",
+    "opensacred_game::dryad_ghosts::Dummy",
+    "opensacred_game::shaddar_slaves::Wears",
 ];
 
 /// The components that a creature's [`Doing`] keeps, by their types' paths.
@@ -524,6 +533,7 @@ pub const SAVED: &[&str] = &[
     "opensacred_game::fight::Bloodlust",
     "opensacred_game::fight::Unfought",
     "opensacred_game::followers::Follower",
+    "opensacred_game::dryad_ghosts::Ghost",
     "opensacred_game::effects::Effects",
     "opensacred_game::fight::KnockMarks",
 ];

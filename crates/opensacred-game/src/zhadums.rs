@@ -30,6 +30,55 @@ struct Guarding {
     mesh: Handle<Mesh>,
 }
 
+/// A zhadum's guard as a save keeps it (#3768): its placement's name and its rules, its kills'
+/// cooldown and its glow's; its sector's `Enter` makes it again as it comes in, and its guard
+/// goes on.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedZhadum {
+    index: u32,
+    zhadum: zhadum::Zhadum,
+}
+
+/// A loaded zhadum's rules, which its guard takes in place of new ones ([`make`]).
+#[derive(Component)]
+struct Resumed(zhadum::Zhadum);
+
+/// The zhadums on guard in `world` as a save keeps them (#3768).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedZhadum> {
+    let mut zhadums = world.query::<(&crate::names::Named, &Guarding)>();
+    zhadums
+        .iter(world)
+        .filter_map(|(named, guarding)| match named.0 {
+            crate::names::Id::Placed(index) => Some(SavedZhadum {
+                index,
+                zhadum: guarding.zhadum.clone(),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Gives each loaded zhadum its guard as the save kept it (#3768), by its name.
+pub(crate) fn again(world: &mut World, zhadums: Vec<SavedZhadum>) {
+    for saved in zhadums {
+        let Some(entity) = world
+            .get_resource::<crate::names::Names>()
+            .and_then(|names| names.get(crate::names::Id::Placed(saved.index)))
+        else {
+            continue;
+        };
+        let Ok(mut zhadum) = world.get_entity_mut(entity) else {
+            continue;
+        };
+        match zhadum.get_mut::<Guarding>() {
+            Some(mut guarding) => guarding.zhadum = saved.zhadum,
+            None => {
+                zhadum.insert(Resumed(saved.zhadum));
+            }
+        }
+    }
+}
+
 /// The glow's material, made as the first zhadum guards; none where its texture is missing.
 #[derive(Resource, Default)]
 struct Made(Option<Option<Handle<Effect>>>);
@@ -51,7 +100,7 @@ impl Default for Dice {
 )]
 fn make(
     mut commands: Commands,
-    zhadums: Query<Entity, (With<Zhadum>, Without<Guarding>)>,
+    zhadums: Query<(Entity, Option<&Resumed>), (With<Zhadum>, Without<Guarding>)>,
     (data, assets, mut made, mut materials, mut meshes): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -60,7 +109,7 @@ fn make(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for entity in &zhadums {
+    for (entity, resumed) in &zhadums {
         let material = made
             .0
             .get_or_insert_with(|| {
@@ -84,8 +133,11 @@ fn make(
                 RenderLayers::layer(iso::UNTINTED),
             ));
         }
-        guard.insert(Guarding {
-            zhadum: zhadum::Zhadum::default(),
+        // A loaded zhadum guards on as it guarded (#3768).
+        guard.remove::<Resumed>().insert(Guarding {
+            zhadum: resumed
+                .map(|Resumed(zhadum)| zhadum.clone())
+                .unwrap_or_default(),
             mesh,
         });
         debug!("zhadums: {entity} guards");
@@ -263,5 +315,60 @@ mod tests {
         assert!(((down - from).length() - 2712.0).abs() < 2.0);
         // A neck right over it: the beam stays level.
         assert_eq!(beam_end(from, from + Vec3::Y * 50.0), from);
+    }
+
+    #[test]
+    fn a_zhadum_loaded_guards_on_as_it_guarded() {
+        use crate::names::{Id, Named, NamesPlugin};
+        let mut app = App::new();
+        app.add_plugins(NamesPlugin);
+        let state = zhadum::Zhadum {
+            cooldown: 0.4,
+            hold: 0.2,
+            fade: 0.5,
+        };
+        let world = app.world_mut();
+        world.spawn((
+            Zhadum,
+            Named(Id::Placed(7)),
+            Guarding {
+                zhadum: state.clone(),
+                mesh: Handle::default(),
+            },
+        ));
+        let kept = saved(world);
+        assert_eq!(
+            kept,
+            [SavedZhadum {
+                index: 7,
+                zhadum: state.clone(),
+            }]
+        );
+        let bytes = postcard::to_stdvec(&kept).unwrap();
+        let kept: Vec<SavedZhadum> = postcard::from_bytes(&bytes).unwrap();
+        // Made again by its sector's `Enter`, one guarding already and one not yet.
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        let world = loaded.world_mut();
+        let waiting = world.spawn((Zhadum, Named(Id::Placed(7)))).id();
+        again(world, kept.clone());
+        assert_eq!(
+            world.get::<Resumed>(waiting).map(|Resumed(zhadum)| zhadum),
+            Some(&state)
+        );
+        world
+            .entity_mut(waiting)
+            .remove::<Resumed>()
+            .insert(Guarding {
+                zhadum: zhadum::Zhadum::default(),
+                mesh: Handle::default(),
+            });
+        again(world, kept);
+        assert_eq!(
+            world
+                .get::<Guarding>(waiting)
+                .map(|guarding| &guarding.zhadum),
+            Some(&state)
+        );
     }
 }
