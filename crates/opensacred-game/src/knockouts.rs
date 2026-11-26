@@ -142,6 +142,8 @@ pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
                 seconds: 0.0,
                 colour: saved.colour,
             },
+            Transform::default(),
+            Visibility::default(),
             crate::fx::Resumes(saved.system),
             DespawnOnExit(AppState::InGame),
         ));

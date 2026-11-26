@@ -40,13 +40,14 @@ struct Shown {
 }
 
 /// A teleport's sight as a save keeps it (#3778): its caster by its name, whether at the
-/// departure, and its look.
+/// departure, its place and its look.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename = "SavedTeleport")]
 pub struct SavedLook {
     #[serde(with = "crate::names::required")]
     caster: Entity,
     departure: bool,
+    at: Vec3,
     look: TeleportSight,
 }
 
@@ -58,12 +59,13 @@ impl bevy::ecs::entity::MapEntities for SavedLook {
 
 /// The looks in `world` as a save keeps them (#3778).
 pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
-    let mut shown = world.query::<&Shown>();
+    let mut shown = world.query::<(&Shown, &Transform)>();
     shown
         .iter(world)
-        .map(|shown| SavedLook {
+        .map(|(shown, at)| SavedLook {
             caster: shown.caster,
             departure: shown.departure,
+            at: at.translation,
             look: shown.look.clone(),
         })
         .collect()
@@ -82,6 +84,10 @@ pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
                 departure: saved.departure,
                 rate: 1.0,
             },
+            // At its place and lit, as its making gives it (#3822).
+            crate::daynight::Light(TELEPORT_LIGHT),
+            Transform::from_translation(saved.at),
+            Visibility::default(),
             crate::fx::Resumes(saved.look),
             DespawnOnExit(AppState::InGame),
         ));
@@ -230,5 +236,43 @@ impl Plugin for TeleportsPlugin {
                     .in_set(Unpaused)
                     .run_if(in_state(AppState::InGame)),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_teleports_sight_comes_back_at_its_place_lit() {
+        let mut world = World::new();
+        let caster = world.spawn_empty().id();
+        let look = TeleportSight::new(1.0, &mut crate::seed::dice(1));
+        world.spawn((
+            Shown {
+                caster,
+                rides: false,
+                departure: true,
+                look: look.clone(),
+                mesh: Handle::default(),
+            },
+            Transform::from_xyz(7.0, 1.0, 3.0),
+        ));
+        let kept = saved(&mut world);
+        let bytes = postcard::to_stdvec(&kept).unwrap();
+        let kept: Vec<SavedLook> = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = World::new();
+        again(&mut loaded, kept);
+        let made: Vec<(Vec3, f32, bool)> = loaded
+            .query::<(
+                &Transform,
+                &crate::daynight::Light,
+                Has<Visibility>,
+                &Unmade,
+            )>()
+            .iter(&loaded)
+            .map(|(at, light, shows, _)| (at.translation, light.0, shows))
+            .collect();
+        assert_eq!(made, [(Vec3::new(7.0, 1.0, 3.0), TELEPORT_LIGHT, true)]);
     }
 }

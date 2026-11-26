@@ -129,8 +129,9 @@ use crate::{arts, drops, making};
 /// looks (#3778); the version 77 the bearers' looks and the casts' glows (#3779); the version
 /// 78 the shields', the casts' sights and the scripts' objects' looks (#3814); the version 79
 /// the Vampiress's and the souls' looks, the souls and the soulcatchers (#3809); the version 80
-/// the marks', the blood's and the strikes' looks (#3812).
-pub const VERSION: u32 = 80;
+/// the marks', the blood's and the strikes' looks (#3812); the version 81 the teleports' sights'
+/// places (#3822).
+pub const VERSION: u32 = 81;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -2335,7 +2336,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (80, 0xCF70_39E2_D33E_6676),
+            (81, 0x0D25_DE71_BA96_B063),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
