@@ -364,6 +364,14 @@ fn sector_of(p: Vec3) -> (i64, i64) {
     ((p.x / size).floor() as i64, (p.z / size).floor() as i64)
 }
 
+/// Whether the world point `at` lies in the sectors that a load brings in about the hero at
+/// `hero` before it gives the creatures their doings back, those within [`LOAD_RADIUS`] of its
+/// sector, which [`Streamer::settled`] waits for (`doings::gather`, #3820).
+pub fn brought_in(hero: Vec3, at: Vec3) -> bool {
+    let ((hx, hy), (x, y)) = (sector_of(hero), sector_of(at));
+    (x - hx).abs() <= LOAD_RADIUS && (y - hy).abs() <= LOAD_RADIUS
+}
+
 /// The sectors within `radius` of `(x, y)` on the grid.
 fn around((x, y): (i64, i64), radius: i64) -> impl Iterator<Item = (u32, u32)> {
     (-radius..=radius)

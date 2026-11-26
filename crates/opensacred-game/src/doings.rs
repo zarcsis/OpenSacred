@@ -392,16 +392,33 @@ fn put<T: Saves>(creature: &mut EntityWorldMut<'_>, saved: Option<T::Saved>, at:
 }
 
 /// Each named creature's doing, the hero's among them, by name, in the order of their names
-/// (`names::Id`), its references kept by their names in `refs`.
+/// (`names::Id`), its references kept by their names in `refs`: of the creatures in the sectors
+/// that a load brings in about the hero (`sectors::brought_in`), whose coming its resume waits
+/// for, and of the hero's followers, which it puts back beside the hero; a creature beyond them
+/// comes back standing from its sector's record as that comes in (#3820; docs/decisions/ai.md,
+/// "Doings kept within the sectors a load brings in").
 pub fn gather(world: &mut World, refs: &mut crate::names::Refs) -> Doings {
-    let mut named = world.query_filtered::<(Entity, &Named), bevy::ecs::query::Or<(
+    let mut heroes = world.query_filtered::<&Transform, With<crate::hero::Body>>();
+    let hero = heroes.iter(world).next().map(|at| at.translation);
+    let mut named = world.query_filtered::<(
+        Entity,
+        &Named,
+        Option<&Transform>,
+        Has<crate::followers::Follower>,
+    ), bevy::ecs::query::Or<(
         With<crate::ai::Mind>,
         With<crate::hero::Body>,
         With<crate::spells::Changed>,
     )>>();
     let mut creatures: Vec<(Id, Entity)> = named
         .iter(world)
-        .map(|(entity, named)| (named.0, entity))
+        .filter(|&(_, _, at, follows)| {
+            follows
+                || hero
+                    .zip(at)
+                    .is_none_or(|(hero, at)| crate::sectors::brought_in(hero, at.translation))
+        })
+        .map(|(entity, named, ..)| (named.0, entity))
         .collect();
     creatures.sort_by_key(|&(id, _)| order(id));
     let world = &*world;
@@ -603,6 +620,30 @@ mod tests {
     /// A creature's mind, which the doings' creatures bear.
     fn mind() -> crate::ai::Mind {
         crate::ai::Mind::new(Vec3::ZERO, 0, (false, false), None, [70.0, 180.0], (76, 2))
+    }
+
+    #[test]
+    fn a_save_keeps_the_doings_within_the_sectors_a_load_brings_in() {
+        let mut world = World::new();
+        world.spawn((
+            Named(Id::Hero),
+            crate::hero::Body::standing(),
+            KnockMarks(KnockMarks::SECOND),
+            Transform::default(),
+        ));
+        world.spawn((
+            Named(Id::Born(1)),
+            mind(),
+            Transform::from_xyz(500.0, 0.0, 500.0),
+        ));
+        // A creature of a sector kept beyond them, which a load does not bring in.
+        world.spawn((
+            Named(Id::Born(2)),
+            mind(),
+            Transform::from_xyz(100_000.0, 0.0, 0.0),
+        ));
+        let doings = gather(&mut world, &mut Refs::default());
+        assert_eq!(doings.owners().collect::<Vec<_>>(), [Id::Hero, Id::Born(1)]);
     }
 
     #[test]
