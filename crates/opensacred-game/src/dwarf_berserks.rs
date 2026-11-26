@@ -64,6 +64,55 @@ struct Shown {
     mesh: Handle<Mesh>,
 }
 
+/// A Dwarf's berserk as a save keeps it (#3777, the epic #3753): its bearer by its name and its look; a
+/// load makes it again on its bearer, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedBerserk")]
+pub struct SavedSight {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    whole: f32,
+    look: Berserk,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedSight {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The sights in `world` as a save keeps them (#3777).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedSight> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .map(|shown| SavedSight {
+            bearer: shown.bearer,
+            whole: shown.whole,
+            look: shown.look.clone(),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's sights again on their bearers (#3777); one whose bearer the load finds
+/// not is left out.
+pub(crate) fn again(world: &mut World, sights: Vec<SavedSight>) {
+    for saved in sights {
+        if crate::names::found(Some(saved.bearer)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade {
+                bearer: saved.bearer,
+                seconds: 0.0,
+                whole: saved.whole,
+            },
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// Shows the berserk's ribbons over `bearer` for `seconds`, the effect 47's, of the whole value
 /// `whole` (`0x5160AA`).
 pub(crate) fn show(commands: &mut Commands, bearer: Entity, seconds: f32, whole: f32) {
@@ -81,7 +130,7 @@ pub(crate) fn show(commands: &mut Commands, bearer: Entity, seconds: f32, whole:
 /// light (`0x7B5950`, `0x7B64D0`).
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<Berserk>>)>,
     places: Query<&GlobalTransform>,
     (data, assets, mut looks, mut dice): (
         Option<Res<Data>>,
@@ -91,7 +140,7 @@ fn make(
     ),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let Ok(at) = places.get(unmade.bearer).map(GlobalTransform::translation) else {
             commands.entity(entity).despawn();
             continue;
@@ -124,20 +173,25 @@ fn make(
         });
         let mesh = meshes.add(empty());
         let mut shown = commands.entity(entity);
-        shown.remove::<Unmade>().insert((
-            Shown {
-                bearer: unmade.bearer,
-                whole: unmade.whole,
-                look: Berserk::new(unmade.seconds, &mut dice.0),
-                model,
-                points: None,
-                playing: false,
-                mesh: mesh.clone(),
-            },
-            Transform::from_translation(at),
-            Visibility::default(),
-            daynight::Light(BERSERK_LIGHT),
-        ));
+        shown
+            .remove::<(Unmade, crate::fx::Resumes<Berserk>)>()
+            .insert((
+                Shown {
+                    bearer: unmade.bearer,
+                    whole: unmade.whole,
+                    look: resumed.map_or_else(
+                        || Berserk::new(unmade.seconds, &mut dice.0),
+                        |crate::fx::Resumes(look)| look.clone(),
+                    ),
+                    model,
+                    points: None,
+                    playing: false,
+                    mesh: mesh.clone(),
+                },
+                Transform::from_translation(at),
+                Visibility::default(),
+                daynight::Light(BERSERK_LIGHT),
+            ));
         if let Some(material) = looks.material.clone() {
             shown.with_child((
                 Mesh3d(mesh),

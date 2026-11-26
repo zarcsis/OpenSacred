@@ -37,6 +37,52 @@ struct Shown {
     meshes: [Handle<Mesh>; 2],
 }
 
+/// A war cry's sign as a save keeps it (#3777, the epic #3753): its bearer by its name and its look; a
+/// load makes it again on its bearer, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedWarCrySign")]
+pub struct SavedSight {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    look: WarCrySign,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedSight {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The sights in `world` as a save keeps them (#3777).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedSight> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .map(|shown| SavedSight {
+            bearer: shown.bearer,
+            look: shown.look.clone(),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's sights again on their bearers (#3777); one whose bearer the load finds
+/// not is left out.
+pub(crate) fn again(world: &mut World, sights: Vec<SavedSight>) {
+    for saved in sights {
+        if crate::names::found(Some(saved.bearer)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade {
+                bearer: saved.bearer,
+                seconds: 0.0,
+            },
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// The signs' materials, the glow's added whole and the rays' added by their alpha, made as the
 /// first asks; `None` where a texture is missing.
 #[derive(Resource, Default)]
@@ -111,12 +157,12 @@ pub(crate) fn share(
 /// Gives each new sign its meshes and its materials (`0x7B8740`, `0x7B8E10`).
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<WarCrySign>>)>,
     places: Query<&GlobalTransform>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let Ok(at) = places.get(unmade.bearer).map(GlobalTransform::translation) else {
             commands.entity(entity).despawn();
             continue;
@@ -141,15 +187,19 @@ fn make(
             .clone();
         let parts: [Handle<Mesh>; 2] = std::array::from_fn(|_| meshes.add(empty()));
         let mut made = commands.entity(entity);
-        made.remove::<Unmade>().insert((
-            Shown {
-                bearer: unmade.bearer,
-                look: WarCrySign::new(unmade.seconds),
-                meshes: parts.clone(),
-            },
-            Transform::from_translation(at),
-            Visibility::default(),
-        ));
+        made.remove::<(Unmade, crate::fx::Resumes<WarCrySign>)>()
+            .insert((
+                Shown {
+                    bearer: unmade.bearer,
+                    look: resumed.map_or_else(
+                        || WarCrySign::new(unmade.seconds),
+                        |crate::fx::Resumes(look)| look.clone(),
+                    ),
+                    meshes: parts.clone(),
+                },
+                Transform::from_translation(at),
+                Visibility::default(),
+            ));
         for (mesh, material) in parts.into_iter().zip(materials) {
             if let Some(material) = material {
                 made.with_child((

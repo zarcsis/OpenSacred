@@ -68,6 +68,52 @@ struct Shown {
     glow: Handle<Mesh>,
 }
 
+/// A Dwarf's burrowing as a save keeps it (#3777, the epic #3753): its bearer by its name and its look; a
+/// load makes it again on its bearer, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedBurrow")]
+pub struct SavedSight {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    look: Burrow,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedSight {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The sights in `world` as a save keeps them (#3777).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedSight> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .map(|shown| SavedSight {
+            bearer: shown.bearer,
+            look: shown.look.clone(),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's sights again on their bearers (#3777); one whose bearer the load finds
+/// not is left out.
+pub(crate) fn again(world: &mut World, sights: Vec<SavedSight>) {
+    for saved in sights {
+        if crate::names::found(Some(saved.bearer)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade {
+                bearer: saved.bearer,
+                seconds: 0.0,
+            },
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// Shows the burrowing's dome over `bearer` for `seconds`, the spell's value 0 at its level
 /// (`0x5287B9`).
 pub(crate) fn show(commands: &mut Commands, bearer: Entity, seconds: f32) {
@@ -82,7 +128,7 @@ pub(crate) fn show(commands: &mut Commands, bearer: Entity, seconds: f32) {
 )]
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<Burrow>>)>,
     places: Query<&GlobalTransform>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes, anchors, mut materials): (
@@ -92,7 +138,7 @@ fn make(
         ResMut<Assets<ModelMaterial>>,
     ),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let Ok(at) = places.get(unmade.bearer).map(GlobalTransform::translation) else {
             commands.entity(entity).despawn();
             continue;
@@ -120,7 +166,10 @@ fn make(
                     .map(|image| effects.add(whole_material(image)));
             }
         }
-        let look = Burrow::new(unmade.seconds);
+        let look = resumed.map_or_else(
+            || Burrow::new(unmade.seconds),
+            |crate::fx::Resumes(look)| look.clone(),
+        );
         let models = std::array::from_fn(|phase| {
             looks.models[phase].as_ref().map(|model| {
                 let visible = if phase == look.phase() {
@@ -168,18 +217,20 @@ fn make(
         .map(|material| materials.add(material));
         let glow = meshes.add(empty());
         let mut shown = commands.entity(entity);
-        shown.remove::<Unmade>().insert((
-            Shown {
-                bearer: unmade.bearer,
-                look,
-                models,
-                dressed: [false; 4],
-                materials: Some(made),
-                glow: glow.clone(),
-            },
-            Transform::from_translation(at),
-            Visibility::default(),
-        ));
+        shown
+            .remove::<(Unmade, crate::fx::Resumes<Burrow>)>()
+            .insert((
+                Shown {
+                    bearer: unmade.bearer,
+                    look,
+                    models,
+                    dressed: [false; 4],
+                    materials: Some(made),
+                    glow: glow.clone(),
+                },
+                Transform::from_translation(at),
+                Visibility::default(),
+            ));
         if let Some(material) = looks.glow.clone() {
             shown.with_child((
                 Mesh3d(glow),

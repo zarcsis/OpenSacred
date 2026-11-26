@@ -54,14 +54,32 @@ struct Shown {
 #[derive(Component)]
 struct SphereOf(Entity);
 
+/// The demon fire's look on its object `object` as a save keeps it with the object (#3777,
+/// `spells::SpellLook`), if it shows.
+pub(crate) fn saved_look(world: &World, object: Entity) -> Option<DemonFire> {
+    world.get::<Shown>(object).map(|shown| shown.fire.clone())
+}
+
 /// Gives each new fire its look (`0x7B2B00`, `0x7B3110`): its two spheres and its rays.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn show(
     mut commands: Commands,
-    fires: Query<(Entity, &crate::spells::DemonFire, &Transform), Added<crate::spells::DemonFire>>,
+    fires: Query<
+        (
+            Entity,
+            &crate::spells::DemonFire,
+            &Transform,
+            Option<&crate::fx::Resumes<DemonFire>>,
+        ),
+        Added<crate::spells::DemonFire>,
+    >,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, fire, place) in &fires {
+    for (entity, fire, place, resumed) in &fires {
         if !looks.made {
             looks.made = true;
             if let Some(data) = data.as_deref() {
@@ -137,8 +155,13 @@ fn show(
                 RenderLayers::layer(iso::UNTINTED),
             ));
         }
+        shown.remove::<crate::fx::Resumes<DemonFire>>();
         shown.insert(Shown {
-            fire: DemonFire::new(fire.times),
+            // A loaded fire's look goes on as it went (#3777).
+            fire: resumed.map_or_else(
+                || DemonFire::new(fire.times),
+                |crate::fx::Resumes(look)| look.clone(),
+            ),
             spheres,
             materials: None,
             mesh,

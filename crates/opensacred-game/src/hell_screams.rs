@@ -41,6 +41,42 @@ struct Shown {
 #[derive(Resource, Default)]
 struct Materials(Option<[Option<Handle<Effect>>; 3]>);
 
+/// A hell scream's look as a save keeps it with its aura (#3777, `spells::SpellLook`): its seconds
+/// and level, and its scream, none for one not shown yet.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedLook {
+    seconds: f32,
+    level: Level,
+    shown: Option<HellScream>,
+}
+
+/// The look of the aura `object` as a save keeps it, if it has one.
+pub(crate) fn saved_look(world: &World, object: Entity) -> Option<SavedLook> {
+    let look = world.get::<Look>(object)?;
+    let shown = world.try_query::<&Shown>().and_then(|mut shown| {
+        shown
+            .iter(world)
+            .find(|shown| shown.object == Some(object))
+            .map(|shown| shown.scream.clone())
+    });
+    Some(SavedLook {
+        seconds: look.seconds,
+        level: look.level,
+        shown,
+    })
+}
+
+/// Gives the loaded aura `object` its look as the save kept it.
+pub(crate) fn look_again(object: &mut EntityWorldMut<'_>, saved: SavedLook) {
+    object.insert(Look {
+        seconds: saved.seconds,
+        level: saved.level,
+    });
+    if let Some(shown) = saved.shown {
+        object.insert(crate::fx::Resumes(shown));
+    }
+}
+
 /// Gives each new fear object its look (`0x7B0AF0`): an entity of its own on the ground under
 /// it, its lamp and its parts.
 #[expect(
@@ -49,7 +85,15 @@ struct Materials(Option<[Option<Handle<Effect>>; 3]>);
 )]
 fn show(
     mut commands: Commands,
-    objects: Query<(Entity, &Look, &GlobalTransform), Added<Look>>,
+    objects: Query<
+        (
+            Entity,
+            &Look,
+            &GlobalTransform,
+            Option<&crate::fx::Resumes<HellScream>>,
+        ),
+        Added<Look>,
+    >,
     heights: Res<Heights>,
     (data, assets, mut made, mut materials, mut meshes): (
         Option<Res<Data>>,
@@ -59,7 +103,7 @@ fn show(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (object, look, place) in &objects {
+    for (object, look, place, resumed) in &objects {
         let parts_materials = made
             .0
             .get_or_insert_with(|| {
@@ -109,9 +153,16 @@ fn show(
                 ));
             }
         }
+        commands
+            .entity(object)
+            .remove::<crate::fx::Resumes<HellScream>>();
         commands.entity(shown).insert(Shown {
             object: Some(object),
-            scream: HellScream::new(look.seconds),
+            // A loaded scream goes on as it went (#3777).
+            scream: resumed.map_or_else(
+                || HellScream::new(look.seconds),
+                |crate::fx::Resumes(scream)| scream.clone(),
+            ),
             lamp,
             parts,
         });

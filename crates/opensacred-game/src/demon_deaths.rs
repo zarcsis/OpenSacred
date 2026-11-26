@@ -51,6 +51,41 @@ struct Shown {
     light: Entity,
 }
 
+/// A demon's death's look as a save keeps it (#3777): where it was and its look; a load makes it
+/// again there, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedDeath {
+    at: Vec3,
+    death: DemonDeath,
+}
+
+/// The demons' deaths in `world` as a save keeps them (#3777).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedDeath> {
+    let mut shown = world.query::<(&Shown, &Transform)>();
+    shown
+        .iter(world)
+        .map(|(shown, at)| SavedDeath {
+            at: at.translation,
+            death: shown.death.clone(),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's demons' deaths again where they were (#3777).
+pub(crate) fn again(world: &mut World, deaths: Vec<SavedDeath>) {
+    for saved in deaths {
+        world.spawn((
+            Unmade {
+                body: Entity::PLACEHOLDER,
+            },
+            Transform::from_translation(saved.at),
+            Visibility::default(),
+            crate::fx::Resumes(saved.death),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// The glows' and the rays' materials, added whole, made at the first death; none where a texture
 /// is missing.
 #[derive(Resource, Default)]
@@ -72,7 +107,12 @@ impl Default for Dice {
 /// (0.8, 0.8, 1), the priority 2, on the models about it (`fx_lights`).
 fn make(
     mut commands: Commands,
-    mut unmade: Query<(Entity, &Unmade, &mut Transform)>,
+    mut unmade: Query<(
+        Entity,
+        &Unmade,
+        &mut Transform,
+        Option<&crate::fx::Resumes<DemonDeath>>,
+    )>,
     (children, bones, worn): (
         Query<&Children>,
         Query<(&Name, &GlobalTransform)>,
@@ -86,7 +126,7 @@ fn make(
     ),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade, mut transform) in &mut unmade {
+    for (entity, unmade, mut transform, resumed) in &mut unmade {
         if let Some(head) = crate::making::bone(unmade.body, &HEAD, &children, (&bones, &worn)) {
             transform.translation = head;
         }
@@ -123,12 +163,19 @@ fn make(
             .id();
         commands.spawn(crate::fx_lights::child(DEMON_DEATH_D3D, PRIORITY, entity));
         debug!("demon deaths: {entity} starts");
-        commands.entity(entity).remove::<Unmade>().insert(Shown {
-            death: DemonDeath::new(&mut dice.0),
-            glows,
-            rays,
-            light,
-        });
+        commands
+            .entity(entity)
+            .remove::<(Unmade, crate::fx::Resumes<DemonDeath>)>()
+            .insert(Shown {
+                // A loaded death goes on as it went (#3777).
+                death: resumed.map_or_else(
+                    || DemonDeath::new(&mut dice.0),
+                    |crate::fx::Resumes(death)| death.clone(),
+                ),
+                glows,
+                rays,
+                light,
+            });
     }
 }
 

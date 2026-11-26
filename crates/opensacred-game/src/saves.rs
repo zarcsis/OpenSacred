@@ -124,8 +124,9 @@ use crate::{arts, drops, making};
 /// objects (#3770); the version 69 the elves' and the Vampiress's (#3771); the version 70 the
 /// Dwarf's and the Daemon's, and the breaths (#3772); the version 71 the looks' bursts (#3773);
 /// the version 72 the bolts' and the guns' looks (#3774); the version 73 the Seraphim's and the
-/// Mage's looks (#3775); the version 74 the elves' looks (#3776).
-pub const VERSION: u32 = 74;
+/// Mage's looks (#3775); the version 74 the elves' looks (#3776); the version 75 the Dwarf's,
+/// the Daemon's and the Gladiator's looks (#3777).
+pub const VERSION: u32 = 75;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -377,6 +378,21 @@ pub struct Looks {
     pub healings: Vec<crate::plant_healings::SavedHealing>,
     pub wards: Vec<crate::dark_wards::SavedWard>,
     pub helices: Vec<crate::dark_helices::SavedHelix>,
+    /// The Dwarf's, the Daemon's and the Gladiator's looks (#3777): the armours, the berserks, the
+    /// burrowings, the greeds, the war cries' signs, the guns' sights, the forces of hell, the
+    /// demons' deaths, the forms, the Gladiator's sight and the war cries; the spells' objects'
+    /// own looks go with their objects (`spells::SpellLook`).
+    pub armours: Vec<crate::dwarf_armours::SavedSight>,
+    pub berserks: Vec<crate::dwarf_berserks::SavedSight>,
+    pub burrows: Vec<crate::dwarf_burrows::SavedSight>,
+    pub greeds: Vec<crate::dwarf_greeds::SavedSight>,
+    pub cry_signs: Vec<crate::war_cry_signs::SavedSight>,
+    pub gun_sights: Vec<crate::dwarf_fires::SavedSight>,
+    pub forces: Vec<crate::hell_forces::SavedForce>,
+    pub deaths: Vec<crate::demon_deaths::SavedDeath>,
+    pub forms: Vec<crate::demon_forms::SavedForm>,
+    pub glad_sight: Option<opensacred_rules::particles::GladSight>,
+    pub cries: Vec<crate::war_cries::SavedCry>,
 }
 
 impl MapEntities for Looks {
@@ -394,6 +410,15 @@ impl MapEntities for Looks {
         self.healings.map_entities(mapper);
         self.wards.map_entities(mapper);
         self.helices.map_entities(mapper);
+        self.armours.map_entities(mapper);
+        self.berserks.map_entities(mapper);
+        self.burrows.map_entities(mapper);
+        self.greeds.map_entities(mapper);
+        self.cry_signs.map_entities(mapper);
+        self.gun_sights.map_entities(mapper);
+        self.forces.map_entities(mapper);
+        self.forms.map_entities(mapper);
+        self.cries.map_entities(mapper);
     }
 }
 
@@ -955,6 +980,17 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
         healings: crate::plant_healings::saved(world),
         wards: crate::dark_wards::saved(world),
         helices: crate::dark_helices::saved(world),
+        armours: crate::dwarf_armours::saved(world),
+        berserks: crate::dwarf_berserks::saved(world),
+        burrows: crate::dwarf_burrows::saved(world),
+        greeds: crate::dwarf_greeds::saved(world),
+        cry_signs: crate::war_cry_signs::saved(world),
+        gun_sights: crate::dwarf_fires::saved(world),
+        forces: crate::hell_forces::saved(world),
+        deaths: crate::demon_deaths::saved(world),
+        forms: crate::demon_forms::saved(world),
+        glad_sight: crate::glad_sights::saved(world),
+        cries: crate::war_cries::saved(world),
     };
     let looks = crate::names::mapped(
         looks,
@@ -1299,6 +1335,17 @@ fn resume(world: &mut bevy::prelude::World) {
     crate::plant_healings::again(world, looks.healings);
     crate::dark_wards::again(world, looks.wards);
     crate::dark_helices::again(world, looks.helices);
+    crate::dwarf_armours::again(world, looks.armours);
+    crate::dwarf_berserks::again(world, looks.berserks);
+    crate::dwarf_burrows::again(world, looks.burrows);
+    crate::dwarf_greeds::again(world, looks.greeds);
+    crate::war_cry_signs::again(world, looks.cry_signs);
+    crate::dwarf_fires::again(world, looks.gun_sights);
+    crate::hell_forces::again(world, looks.forces);
+    crate::demon_deaths::again(world, looks.deaths);
+    crate::demon_forms::again(world, looks.forms);
+    crate::glad_sights::again(world, looks.glad_sight);
+    crate::war_cries::again(world, looks.cries);
     // The hero's hurled weapon out of his hand, flying or lying (#3769).
     if live.hurled {
         world.write_message(crate::arsenal::Throws(true));
@@ -2126,7 +2173,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (74, 0x1DF7_DF79_7522_E5BF),
+            (75, 0x879D_07D8_DE54_B04F),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

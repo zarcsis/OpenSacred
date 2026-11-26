@@ -31,9 +31,60 @@ struct Unmade {
 #[derive(Component)]
 struct Shown {
     bearer: Entity,
+    /// Whether the steel's, of which its material is.
+    steel: bool,
     look: DwarfArmour,
     light: Entity,
     mesh: Handle<Mesh>,
+}
+
+/// A Dwarf's armour or steel as a save keeps it (#3777, the epic #3753): its bearer by its name and its look; a
+/// load makes it again on its bearer, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedArmour")]
+pub struct SavedSight {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    steel: bool,
+    look: DwarfArmour,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedSight {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The sights in `world` as a save keeps them (#3777).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedSight> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .map(|shown| SavedSight {
+            bearer: shown.bearer,
+            steel: shown.steel,
+            look: shown.look.clone(),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's sights again on their bearers (#3777); one whose bearer the load finds
+/// not is left out.
+pub(crate) fn again(world: &mut World, sights: Vec<SavedSight>) {
+    for saved in sights {
+        if crate::names::found(Some(saved.bearer)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade {
+                bearer: saved.bearer,
+                steel: saved.steel,
+                seconds: 0.0,
+            },
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
 }
 
 /// The looks' materials, their textures added by their alpha, made as the first asks; `None`
@@ -57,12 +108,12 @@ pub(crate) fn show(commands: &mut Commands, bearer: Entity, steel: bool, seconds
 /// Gives each new look its rings' mesh, its material and its light (`0x7B7800`, `0x7B7B50`).
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<DwarfArmour>>)>,
     places: Query<&GlobalTransform>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let Ok(at) = places.get(unmade.bearer).map(GlobalTransform::translation) else {
             commands.entity(entity).despawn();
             continue;
@@ -81,7 +132,10 @@ fn make(
                 })
             })
             .clone();
-        let look = DwarfArmour::new(unmade.steel, unmade.seconds);
+        let look = resumed.map_or_else(
+            || DwarfArmour::new(unmade.steel, unmade.seconds),
+            |crate::fx::Resumes(look)| look.clone(),
+        );
         let light = commands
             .spawn(crate::fx_lights::light(
                 look.colour(),
@@ -93,16 +147,18 @@ fn make(
             .id();
         let mesh = meshes.add(empty());
         let mut made = commands.entity(entity);
-        made.remove::<Unmade>().insert((
-            Shown {
-                bearer: unmade.bearer,
-                look,
-                light,
-                mesh: mesh.clone(),
-            },
-            Transform::from_translation(at),
-            Visibility::default(),
-        ));
+        made.remove::<(Unmade, crate::fx::Resumes<DwarfArmour>)>()
+            .insert((
+                Shown {
+                    bearer: unmade.bearer,
+                    steel: unmade.steel,
+                    look,
+                    light,
+                    mesh: mesh.clone(),
+                },
+                Transform::from_translation(at),
+                Visibility::default(),
+            ));
         if let Some(material) = materials[usize::from(unmade.steel)].clone() {
             made.with_child((
                 Mesh3d(mesh),

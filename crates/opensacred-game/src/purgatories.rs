@@ -83,6 +83,49 @@ fn on_ground(heights: &Heights, place: Vec3, level: Level) -> Vec3 {
     place.with_y(heights.standing(place.x, place.z, level).unwrap_or(place.y))
 }
 
+/// A purgatory's look as a save keeps it with its disk (#3777, `spells::SpellLook`): whose and its
+/// level, and its flames, dice, place and the place before, none for one not shown yet.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedLook {
+    hero: bool,
+    level: Level,
+    shown: Option<(System, Rng, Vec3, Option<Vec3>)>,
+}
+
+/// The look of the disk `object` as a save keeps it, if it has one.
+pub(crate) fn saved_look(world: &World, object: Entity) -> Option<SavedLook> {
+    let look = world.get::<Look>(object)?;
+    let shown = world.try_query::<&Shown>().and_then(|mut shown| {
+        shown
+            .iter(world)
+            .find(|shown| shown.object == Some(object))
+            .map(|shown| {
+                (
+                    shown.flames.clone(),
+                    shown.dice.clone(),
+                    shown.place,
+                    shown.before,
+                )
+            })
+    });
+    Some(SavedLook {
+        hero: look.hero,
+        level: look.level,
+        shown,
+    })
+}
+
+/// Gives the loaded disk `object` its look as the save kept it.
+pub(crate) fn look_again(object: &mut EntityWorldMut<'_>, saved: SavedLook) {
+    object.insert(Look {
+        hero: saved.hero,
+        level: saved.level,
+    });
+    if let Some(shown) = saved.shown {
+        object.insert(crate::fx::Resumes(shown));
+    }
+}
+
 /// Gives each new purgatory its look (`0x776860`): an entity of its own, its lamp and its parts.
 #[expect(
     clippy::type_complexity,
@@ -90,7 +133,15 @@ fn on_ground(heights: &Heights, place: Vec3, level: Level) -> Vec3 {
 )]
 fn show(
     mut commands: Commands,
-    purgatories: Query<(Entity, &Look, &GlobalTransform), Added<Look>>,
+    purgatories: Query<
+        (
+            Entity,
+            &Look,
+            &GlobalTransform,
+            Option<&crate::fx::Resumes<(System, Rng, Vec3, Option<Vec3>)>>,
+        ),
+        Added<Look>,
+    >,
     mut looks: ResMut<Looks>,
     heights: Res<Heights>,
     (data, assets, mut materials, mut meshes): (
@@ -100,7 +151,7 @@ fn show(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (object, look, place) in &purgatories {
+    for (object, look, place, resumed) in &purgatories {
         let textures = looks.fires.each_ref().map(|fire| fire.texture);
         let made = looks
             .materials
@@ -159,14 +210,27 @@ fn show(
             }
         }
         let index = usize::try_from(shown.index_u32()).unwrap_or(0);
+        // A loaded look burns on as it burned (#3777).
+        let (flames, dice, place, before) = match resumed {
+            Some(crate::fx::Resumes(shown)) => shown.clone(),
+            None => (
+                System::new(looks.fires[kind].count),
+                crate::seed::dice(SEED ^ index),
+                place,
+                None,
+            ),
+        };
+        commands
+            .entity(object)
+            .remove::<crate::fx::Resumes<(System, Rng, Vec3, Option<Vec3>)>>();
         commands.entity(shown).insert(Shown {
             object: Some(object),
             kind,
             level: look.level,
-            flames: System::new(looks.fires[kind].count),
-            dice: crate::seed::dice(SEED ^ index),
+            flames,
+            dice,
             place,
-            before: None,
+            before,
             lamp,
             parts,
         });

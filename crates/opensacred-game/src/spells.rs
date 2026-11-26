@@ -1215,6 +1215,12 @@ pub enum SpellLook {
     Mine(opensacred_rules::particles::DwarfMine),
     MineSign(opensacred_rules::particles::MineSign),
     LostSoul(crate::lost_souls::SavedLook),
+    /// The Daemon's objects' and the fire skins' looks (#3777).
+    DemonFire(opensacred_rules::particles::DemonFire),
+    HellDisk(opensacred_rules::particles::HellDisk, Vec3, Option<Vec3>),
+    HellScream(crate::hell_screams::SavedLook),
+    Purgatory(crate::purgatories::SavedLook),
+    FireSkin(crate::fire_skins::SavedLook),
 }
 
 impl bevy::ecs::entity::MapEntities for SpellLook {
@@ -1230,7 +1236,12 @@ impl bevy::ecs::entity::MapEntities for SpellLook {
             | Self::TentacleAura(_)
             | Self::Mine(_)
             | Self::MineSign(_)
-            | Self::LostSoul(_) => {}
+            | Self::LostSoul(_)
+            | Self::DemonFire(_)
+            | Self::HellDisk(..)
+            | Self::HellScream(_)
+            | Self::Purgatory(_) => {}
+            Self::FireSkin(look) => look.map_entities(mapper),
         }
     }
 }
@@ -1249,6 +1260,14 @@ fn look_of(world: &World, object: Entity) -> Option<SpellLook> {
         .or_else(|| crate::mines::saved_mine(world, object).map(SpellLook::Mine))
         .or_else(|| crate::mines::saved_sign(world, object).map(SpellLook::MineSign))
         .or_else(|| crate::lost_souls::saved_look(world, object).map(SpellLook::LostSoul))
+        .or_else(|| crate::demon_fires::saved_look(world, object).map(SpellLook::DemonFire))
+        .or_else(|| {
+            crate::hell_disks::saved_look(world, object)
+                .map(|(look, place, before)| SpellLook::HellDisk(look, place, before))
+        })
+        .or_else(|| crate::hell_screams::saved_look(world, object).map(SpellLook::HellScream))
+        .or_else(|| crate::purgatories::saved_look(world, object).map(SpellLook::Purgatory))
+        .or_else(|| crate::fire_skins::saved_look(world, object).map(SpellLook::FireSkin))
 }
 
 /// Gives the loaded object `object` its look as the save kept it.
@@ -1273,6 +1292,15 @@ fn look_again(object: &mut EntityWorldMut<'_>, look: SpellLook) {
         SpellLook::MineSign(look) => {
             object.insert(crate::fx::Resumes(look));
         }
+        SpellLook::DemonFire(look) => {
+            object.insert(crate::fx::Resumes(look));
+        }
+        SpellLook::HellDisk(look, place, before) => {
+            object.insert(crate::fx::Resumes((look, place, before)));
+        }
+        SpellLook::HellScream(look) => crate::hell_screams::look_again(object, look),
+        SpellLook::Purgatory(look) => crate::purgatories::look_again(object, look),
+        SpellLook::FireSkin(look) => crate::fire_skins::look_again(object, look),
     }
 }
 

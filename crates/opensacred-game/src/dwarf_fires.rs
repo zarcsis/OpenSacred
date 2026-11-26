@@ -37,6 +37,52 @@ struct Firing {
     light: Option<Entity>,
 }
 
+/// A Dwarf's gun's sight as a save keeps it (#3777): its shooter by its name and its look; a
+/// load makes it again at his cannon, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedGunSight")]
+pub struct SavedSight {
+    #[serde(with = "crate::names::required")]
+    shooter: Entity,
+    look: DwarfFireSight,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedSight {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.shooter = mapper.get_mapped(self.shooter);
+    }
+}
+
+/// The sights in `world` as a save keeps them (#3777).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedSight> {
+    let mut shown = world.query::<&Firing>();
+    shown
+        .iter(world)
+        .map(|shown| SavedSight {
+            shooter: shown.shooter,
+            look: shown.look.clone(),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's sights again on their bearers (#3777); one whose bearer the load finds
+/// not is left out.
+pub(crate) fn again(world: &mut World, sights: Vec<SavedSight>) {
+    for saved in sights {
+        if crate::names::found(Some(saved.shooter)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade {
+                kind: saved.look.kind,
+                shooter: saved.shooter,
+            },
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// The sights' materials by their texture and whether laid over; none where a texture is missing.
 #[derive(Resource, Default)]
 struct Looks(HashMap<(&'static str, bool), Option<Handle<Effect>>>);
@@ -73,11 +119,11 @@ struct Unmade {
 /// the night's pass.
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<DwarfFireSight>>)>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let mut material = |name: &'static str, over: bool| {
             looks
                 .0
@@ -106,13 +152,17 @@ fn make(
         ];
         let meshes_of: [Handle<Mesh>; 3] = std::array::from_fn(|_| meshes.add(empty()));
         let mut made = commands.entity(entity);
-        made.remove::<Unmade>().insert(Firing {
-            shooter: unmade.shooter,
-            look: DwarfFireSight::new(unmade.kind, opensacred_rules::arts::GUN_RATE),
-            muzzle: None,
-            meshes: meshes_of.clone(),
-            light: None,
-        });
+        made.remove::<(Unmade, crate::fx::Resumes<DwarfFireSight>)>()
+            .insert(Firing {
+                shooter: unmade.shooter,
+                look: resumed.map_or_else(
+                    || DwarfFireSight::new(unmade.kind, opensacred_rules::arts::GUN_RATE),
+                    |crate::fx::Resumes(look)| look.clone(),
+                ),
+                muzzle: None,
+                meshes: meshes_of.clone(),
+                light: None,
+            });
         for (mesh, material) in meshes_of.into_iter().zip(parts) {
             if let Some(material) = material {
                 made.with_child((
