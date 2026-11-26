@@ -638,16 +638,13 @@ fn clips(
             // Its last pose at once: the clip at a speed that ends it in a frame.
             transitions
                 .play(&mut player, clip, Duration::ZERO)
-                .set_speed(EMPTIED_AT_ONCE);
+                .set_speed(crate::npcs::AT_ONCE);
         }
         commands
             .entity(entity)
             .insert((AnimationGraphHandle(graphs.add(graph)), transitions));
     }
 }
-
-/// The speed of the opening's clip of a container placed again emptied, which ends it in a frame.
-const EMPTIED_AT_ONCE: f32 = 1000.0;
 
 /// As the inventory hides with a town stash's window shown, the window hides with it (`0x6ACD80`):
 /// its (14, 2, 24), `UI_CLICK01` (seen, #1767); the stash is no more emptied and its trigger

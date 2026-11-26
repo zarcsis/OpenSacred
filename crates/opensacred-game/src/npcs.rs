@@ -6358,15 +6358,15 @@ fn place_index(
             .entity(entity)
             .insert(Remakes(Box::new(placement.clone())));
     }
-    // A door whose trigger is open, as it was left or as the scripts set it while it was
-    // gone, opens as it comes (#952).
+    // A door whose trigger is open, as it was left, as the scripts set it while it was gone or
+    // as a save keeps it, stands open as it comes (#952, #3830).
     if placement.door
         && placement
             .trigger
             .as_ref()
             .is_some_and(|trigger| npcs.opened.contains(trigger))
     {
-        commands.entity(entity).insert(Swing::by_script(true));
+        commands.entity(entity).insert(Swing::placed_open());
     }
     // A container, emptied for good once opened (#1380).
     if let Some(function) = &placement.container {
@@ -10768,6 +10768,8 @@ pub struct Swing {
     /// The scripts' setting of its trigger's bit (`SetObjState`, `0x415F00`, `0x416280`), which
     /// turns it whatever its bar and its mark (#952).
     scripted: bool,
+    /// A door placed with its trigger open, which stands open at once, without its sound.
+    at_once: bool,
 }
 
 impl Swing {
@@ -10777,6 +10779,7 @@ impl Swing {
             open,
             by_hero: false,
             scripted: false,
+            at_once: false,
         }
     }
 
@@ -10786,6 +10789,7 @@ impl Swing {
             open,
             by_hero: true,
             scripted: false,
+            at_once: false,
         }
     }
 
@@ -10795,9 +10799,27 @@ impl Swing {
             open,
             by_hero: false,
             scripted: true,
+            at_once: false,
+        }
+    }
+
+    /// A door's whose trigger is open as it is placed: open at once, its clip of opening at its
+    /// end and no sound, as the original gives a door or a container whose trigger is open its
+    /// opening's clip moved to its last tenth of a second (`0x450960` at `0x4509DD`,
+    /// `0x450B70`; docs/re/fight.md, "Doors in the way"; #3830).
+    pub fn placed_open() -> Self {
+        Self {
+            open: true,
+            by_hero: false,
+            scripted: true,
+            at_once: true,
         }
     }
 }
+
+/// The speed of an opening's clip that ends it in a frame: a door placed open ([`Swing::placed_open`])
+/// and a container placed again emptied (`containers`).
+pub(crate) const AT_ONCE: f32 = 1000.0;
 
 /// The cells and levels that a trigger's cell `(x, y, floor)` closes: the ground's for the
 /// floors 0 and 1, the building's floor's for 1 and above (`0x463F50`, which keys the floors 0
@@ -10817,16 +10839,17 @@ fn spot_levels(heights: &Heights, (x, y, floor): Spot) -> Vec<((i32, i32), Level
     levels
 }
 
-/// Gives each door's animation player its clips of opening and closing.
+/// Gives each door's animation player its clips of opening and closing, the opening's played to
+/// its end at once for a door that stands open already ([`Swing::placed_open`]).
 fn door_clips(
     mut commands: Commands,
     mut doors: Query<&mut Door>,
     gltfs: Res<Assets<Gltf>>,
     mut graphs: ResMut<Assets<AnimationGraph>>,
-    players: Query<Entity, (With<AnimationPlayer>, Without<AnimationGraphHandle>)>,
+    mut players: Query<(Entity, &mut AnimationPlayer), Without<AnimationGraphHandle>>,
     parents: Query<&ChildOf>,
 ) {
-    for entity in &players {
+    for (entity, mut player) in &mut players {
         // The door this player belongs to: the nearest ancestor with `Door`.
         let mut ancestor = entity;
         let door = loop {
@@ -10859,10 +10882,15 @@ fn door_clips(
             ));
         }
         door.player = Some(entity);
-        commands.entity(entity).insert((
-            AnimationGraphHandle(graphs.add(graph)),
-            AnimationTransitions::new(),
-        ));
+        let mut transitions = AnimationTransitions::new();
+        if let Some((open, _)) = door.clips.filter(|_| door.open) {
+            transitions
+                .play(&mut player, open, Duration::ZERO)
+                .set_speed(AT_ONCE);
+        }
+        commands
+            .entity(entity)
+            .insert((AnimationGraphHandle(graphs.add(graph)), transitions));
     }
 }
 
@@ -10898,6 +10926,10 @@ fn swing(
         });
     };
     for (entity, mut door, swing) in &mut doors {
+        // Placed open: [`stand_open`]'s.
+        if swing.at_once {
+            continue;
+        }
         if !swing.open && !swing.by_hero && !swing.scripted && npcs.marked(&door) {
             commands.entity(entity).remove::<Swing>();
             continue;
@@ -10929,6 +10961,30 @@ fn swing(
         sound(entity, &door, swing.open);
         turn_trigger(&mut npcs, &mut heights, &door, swing);
         door.open = swing.open;
+        commands.entity(entity).remove::<Swing>();
+    }
+}
+
+/// Stands each door placed open ([`Swing::placed_open`]) open at once: its trigger's cells free
+/// already, as its sector came in with the trigger open, no sound, and its clip of opening at its
+/// end, here or as [`door_clips`] gives it.
+fn stand_open(
+    mut commands: Commands,
+    mut doors: Query<(Entity, &mut Door, &Swing)>,
+    mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
+) {
+    for (entity, mut door, swing) in &mut doors {
+        if !swing.at_once {
+            continue;
+        }
+        door.open = true;
+        if let (Some((open, _)), Some(player)) = (door.clips, door.player)
+            && let Ok((mut player, mut transitions)) = players.get_mut(player)
+        {
+            transitions
+                .play(&mut player, open, Duration::ZERO)
+                .set_speed(AT_ONCE);
+        }
         commands.entity(entity).remove::<Swing>();
     }
 }
@@ -16111,7 +16167,7 @@ impl Plugin for NpcsPlugin {
                     (take_steps, take_hero_steps, cinema_holds).chain(),
                     (walk, carry_riders).chain(),
                     put,
-                    swing,
+                    (stand_open, swing).chain(),
                     instrument,
                     (hold_shots, strike).chain(),
                     die,
@@ -18817,6 +18873,59 @@ mod tests {
             },
         ];
         assert_eq!(morphs(&back)[0].level, Morphed::Kept);
+    }
+
+    #[test]
+    fn a_door_placed_with_its_trigger_open_stands_open_at_once() {
+        let mut app = App::new();
+        app.add_message::<sfx::Play>()
+            .add_systems(Update, stand_open);
+        let door = |clips, player| Door {
+            kind: 5700,
+            gltf: Handle::default(),
+            clips,
+            player,
+            open: false,
+            trigger: Some("tor".into()),
+            along: Vec2::X,
+        };
+        // Its model not yet in: open, its swing done, no sound.
+        let waiting = app
+            .world_mut()
+            .spawn((door(None, None), Swing::placed_open()))
+            .id();
+        // Its clips given: the opening's played at once to its end.
+        let opening = AnimationNodeIndex::new(1);
+        let player = app
+            .world_mut()
+            .spawn((AnimationPlayer::default(), AnimationTransitions::new()))
+            .id();
+        let given = app
+            .world_mut()
+            .spawn((
+                door(Some((opening, AnimationNodeIndex::new(2))), Some(player)),
+                Swing::placed_open(),
+            ))
+            .id();
+        // Any other swing is `swing`'s.
+        let scripted = app
+            .world_mut()
+            .spawn((door(None, None), Swing::by_script(true)))
+            .id();
+        app.update();
+        for placed in [waiting, given] {
+            assert!(app.world().get::<Door>(placed).unwrap().open);
+            assert!(app.world().get::<Swing>(placed).is_none());
+        }
+        let played = app.world().get::<AnimationPlayer>(player).unwrap();
+        assert_eq!(played.animation(opening).map(|a| a.speed()), Some(AT_ONCE));
+        assert!(!app.world().get::<Door>(scripted).unwrap().open);
+        assert!(app.world().get::<Swing>(scripted).is_some());
+        assert!(
+            app.world()
+                .resource::<bevy::ecs::message::Messages<sfx::Play>>()
+                .is_empty()
+        );
     }
 
     #[test]
