@@ -51,6 +51,52 @@ struct Blast {
 /// Starts a blast at `at`, a mine's place on the ground, or the bomb trap's where `trap` (the
 /// action 1 for the type 794, `0x5B2895`), its maker shaking the screen by 21 as it makes it (the
 /// mine's run `0x7BAD70`, the trap's ball `0x79E730`).
+/// An explosion as a save keeps it (#3775, the epic #3753): its place, whether a trap's, and
+/// its look, none for one not made yet; a load makes it again there, going on as it went, with
+/// no quake.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedBlast {
+    at: Vec3,
+    trap: bool,
+    blast: Option<Explosion>,
+}
+
+/// The explosions in `world` as a save keeps them (#3775).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedBlast> {
+    let mut blasts = world.query::<(&Transform, Option<&Blast>, Option<&Unmade>)>();
+    blasts
+        .iter(world)
+        .filter_map(|(at, blast, unmade)| match (blast, unmade) {
+            (Some(blast), _) => Some(SavedBlast {
+                at: at.translation,
+                trap: blast.blast.trap(),
+                blast: Some(blast.blast.clone()),
+            }),
+            (None, Some(&Unmade(trap))) => Some(SavedBlast {
+                at: at.translation,
+                trap,
+                blast: None,
+            }),
+            (None, None) => None,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's explosions again where they were (#3775).
+pub(crate) fn again(world: &mut World, blasts: Vec<SavedBlast>) {
+    for saved in blasts {
+        let mut made = world.spawn((
+            Unmade(saved.trap),
+            Transform::from_translation(saved.at),
+            Visibility::default(),
+            DespawnOnExit(AppState::InGame),
+        ));
+        if let Some(blast) = saved.blast {
+            made.insert(crate::fx::Resumes(blast));
+        }
+    }
+}
+
 pub fn blast(commands: &mut Commands, at: Vec3, trap: bool) {
     commands.queue(|world: &mut World| {
         if let Some(mut weather) = world.get_resource_mut::<crate::weather::Weather>() {
@@ -70,7 +116,7 @@ pub fn blast(commands: &mut Commands, at: Vec3, trap: bool) {
 /// Gives each new blast its parts.
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<Explosion>>)>,
     (data, assets): (Option<Res<Data>>, Res<AssetServer>),
     mut dice: ResMut<Dice>,
     (mut made, mut materials, mut meshes): (
@@ -79,7 +125,7 @@ fn make(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (entity, &Unmade(trap)) in &unmade {
+    for (entity, &Unmade(trap), resumed) in &unmade {
         let made = made
             .0
             .get_or_insert_with(|| {
@@ -110,7 +156,11 @@ fn make(
                 [f0, f1, s0, s1, ring]
             })
             .clone();
-        let blast = Explosion::new(trap, &mut dice.0);
+        // A loaded explosion goes on as it went (#3775).
+        let blast = match resumed {
+            Some(crate::fx::Resumes(blast)) => blast.clone(),
+            None => Explosion::new(trap, &mut dice.0),
+        };
         let parts: [Handle<Mesh>; 3] = std::array::from_fn(|_| meshes.add(empty()));
         let chosen = [
             made[blast.flames()].clone(),
@@ -118,7 +168,7 @@ fn make(
             made[4].clone(),
         ];
         let mut shown = commands.entity(entity);
-        shown.remove::<Unmade>();
+        shown.remove::<(Unmade, crate::fx::Resumes<Explosion>)>();
         shown.with_children(|children| {
             for (k, (mesh, material)) in parts.iter().zip(chosen).enumerate() {
                 let Some(material) = material else {

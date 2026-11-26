@@ -3185,7 +3185,7 @@ pub fn holy_pulse(t: f32) -> f32 {
 
 /// The holy light's sparks and its fade (`+0x20B0`): from 1 down by `dt / seconds` a run, its
 /// column's and its sparks' breadth and its sparks' size; at 0.01 it ends.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HolyLight {
     pub system: System,
     pub fade: f32,
@@ -3270,7 +3270,7 @@ pub const BLADES_SPARK_TEXTURE: &str = "PARTICLE_SPARK06";
 pub const BLADES_SPARK_HALF: (f32, f32) = (15.0, 10.0);
 
 /// The blades of light's turn and height (`+0x20A8`, `+0x20AC`).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Blades {
     pub angle: f32,
     pub height: f32,
@@ -3730,7 +3730,7 @@ pub fn soul_glow(t: f32) -> (f32, [f32; 4]) {
 /// second, rising ever faster by 20 ± 15 a second, fading over 2.55 s, laid over by their
 /// alpha (the flags 2); and five black discs under it ([`Choir::discs`]). Its seconds over, it
 /// makes no more and ends with its last wisp.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Choir {
     pub system: System,
     pub clock: f32,
@@ -5282,7 +5282,7 @@ pub fn hellfire_column(hero: bool) -> Column {
 /// leaving fire and smoke behind it; at the ground a quake of [`METEOR_QUAKE`] and a burst of 10
 /// of them at its place, and its crater ([`METEOR_CRATERS`]) under them, which lies 15 s after
 /// they are gone and fades over 3. No light.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Meteor {
     pub system: System,
     pub phase: MeteorPhase,
@@ -5295,7 +5295,7 @@ pub struct Meteor {
 }
 
 /// A meteor's phase (`+0x29B4`).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum MeteorPhase {
     /// Before it falls, its seconds left (its event's `+0x38` in milliseconds).
     Waiting(f32),
@@ -5567,7 +5567,7 @@ pub fn argb(word: u32) -> [f32; 4] {
 /// seconds: 250 puffs of `PARTICLE_CLOUD01` circling it in the colour of the ground under it,
 /// laid over by their alpha and tinted by the light at it, their column rising to 100 over its
 /// first seconds, and once its seconds are over spinning faster and climbing for 2 s more.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Twister {
     pub puffs: Vec<Puff>,
     /// Its column's height (`+0x20AC`), its phase (`+0x20B4`: 0 rising, 1 standing, 2 going),
@@ -5581,7 +5581,7 @@ pub struct Twister {
 
 /// A puff of the gust: its angle about its bearer, its radius, its share of the column's height,
 /// its turn's speed a second, and its quad's angle in the screen's plane.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Puff {
     pub angle: f32,
     pub radius: f32,
@@ -5785,7 +5785,7 @@ const RUNE_SPARKS: usize = 50;
 /// down on its place ([`ICE_STRIKE_QUAD`]), its frame of eight rolled anew every 0.07 s, over a
 /// glow; then a burst of sparks falling about it, and its iceberg ([`ICE_MODELS`], turned at
 /// random) standing on a wider glow to its end. Its light is 150.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Iceberg {
     pub sparks: System,
     /// Its clock (`+0x20A0`).
@@ -5934,7 +5934,7 @@ pub fn strike_frame(frame: u8) -> (usize, [f32; 2]) {
 /// "The light strikes"): the Mage's stone skin (2, 769 `FX_SHIELDED`), his water form (4, 783
 /// `FX_SUPERFLUID`), the Seraphim's crusader's strength (21, 818 `FX_CRUSADERSTRENGTH`) and the
 /// Mage's quickening (27, 825 `FX_SPEEDUP`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum StrikeKind {
     StoneSkin,
     WaterForm,
@@ -5993,7 +5993,7 @@ pub const LIGHT_STRIKE_LIGHT: f32 = 200.0;
 /// #1092): a strike of light flickering down onto its bearer's neck, its frame of eight rolled
 /// anew every 0.07 s, over a glow, for 1.6 s of its clock ([`crate::spells::SHIELD_TIME`]), when
 /// its spell gives its effects; no particle.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LightStrike {
     pub kind: StrikeKind,
     /// Its frame (`+0x20B0`, `+0x20AC`: 0 to 7, [`strike_frame`]).
@@ -7109,7 +7109,7 @@ fn turned(v: [f32; 3], axis: [f32; 3], angle: f32) -> [f32; 3] {
 /// `0x790CE0`, its run `0x790680`, its draw `0x790820`) is the same but for its comets, four
 /// headless ones going round 6 from the hand, their glows of the half sides `k/10`, and its
 /// colours, blue ([`MultiShot::seraphim`]).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MultiShot {
     pub sparks: System,
     axes: Vec<[f32; 3]>,
@@ -7259,7 +7259,7 @@ fn ramp_entry(life: f32) -> [f32; 2] {
 /// up to 45 along each axis, pulled back at 50, shrinking, pale blue fading to black over 0.85 s,
 /// and from 3 s its light (0.7, 0.7, 1); past 4.3 s it ends with its last spark; all added whole,
 /// untinted.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SeraCharge {
     pub sparks: System,
     clock: f32,
@@ -11898,7 +11898,7 @@ const EXPLOSION_RING_TO: f32 = 50.0;
 /// laid over by its alpha; and the trap's alone, a ring of `Fx_ExplosionCircle01` from 10 out to
 /// 50 at 50 a second, 20 wide, added whole. It strikes while it burns (its flags `0x400`) and it
 /// ends with its scorch.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Explosion {
     pub system: System,
     trap: bool,
@@ -11911,6 +11911,11 @@ pub struct Explosion {
 }
 
 impl Explosion {
+    /// Whether it is a trap's, the explosive charge's (#3775).
+    pub fn trap(&self) -> bool {
+        self.trap
+    }
+
     /// A mine's blast, or the bomb trap's where `trap`: its scorch's coin rolled as it is made,
     /// then its turn as it starts.
     pub fn new(trap: bool, dice: &mut impl Dice) -> Self {
@@ -12178,7 +12183,7 @@ const FLOOPS_RATE: f32 = 400.0;
 /// at a turn of ±0.1, 400 a second while the trample runs, as the mines' sign makes its own
 /// ([`MineSign`]); of a size of 6 ± 3 growing by 8 a second, living 1.7 s (−150), of the ramp
 /// [`HorseFloops::ramp`], added by their alpha (the flags `0x8D`).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HorseFloops {
     pub system: System,
     due: f32,
@@ -15137,7 +15142,7 @@ pub const SPLINTER_RINGS: usize = 4;
 /// and turning about it at a radian a second, each trailing rings at the places they passed, one
 /// every 0.1 s; at their end they burst into 40 sparks each, which fall and bounce off the
 /// ground.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct IceSplinters {
     pub system: System,
     /// The icicles' offsets from their place.
@@ -23774,5 +23779,12 @@ mod tests {
     fn a_laser_segment_tells_its_variant() {
         assert_eq!(LaserSegment::new(5, (2, 7)).variant(), 5);
         assert_eq!(LaserSegment::new(1, (0, 1)).variant(), 1);
+    }
+
+    #[test]
+    fn an_explosion_tells_whether_a_traps() {
+        let mut dice = crate::spawning::Rng::of(1, 2, 3);
+        assert!(Explosion::new(true, &mut dice).trap());
+        assert!(!Explosion::new(false, &mut dice).trap());
     }
 }

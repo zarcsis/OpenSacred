@@ -45,6 +45,8 @@ struct Unmade {
 }
 
 /// A sight's look.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SeraSightLook")]
 enum Look {
     Charge(SeraCharge),
     Bolts(MultiShot),
@@ -90,6 +92,64 @@ pub(crate) fn bolts(commands: &mut Commands, bearer: Entity, seconds: f32) {
 
 /// Shows the BFG's charge at `bearer`'s hand as its art starts (`0x506077`): the hero's, or a
 /// creature's that makes it (`creature_arts`, #2899).
+/// A sight as a save keeps it (#3775): its bearer by its name, its bolts' seconds and hand where
+/// it is the multiple shot's, its look and whether its light is lit; a load makes it again on
+/// its bearer, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedSight {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    bolts: Option<(f32, usize)>,
+    look: Look,
+    lit: bool,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedSight {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The sights in `world` as a save keeps them (#3775).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedSight> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .map(|shown| SavedSight {
+            bearer: shown.bearer,
+            bolts: match shown.look {
+                Look::Bolts(_) => Some((
+                    0.0,
+                    SERA_BOLTS_BONES
+                        .iter()
+                        .position(|bone| *bone == shown.bone)
+                        .unwrap_or(0),
+                )),
+                Look::Charge(_) => None,
+            },
+            look: shown.look.clone(),
+            lit: shown.lit,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's sights again (#3775); one whose bearer the load finds not is left out.
+pub(crate) fn again(world: &mut World, sights: Vec<SavedSight>) {
+    for saved in sights {
+        if crate::names::found(Some(saved.bearer)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade {
+                bearer: saved.bearer,
+                bolts: saved.bolts,
+            },
+            crate::fx::Resumes((saved.look, saved.lit)),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 pub(crate) fn charge_on(commands: &mut Commands, bearer: Entity) {
     commands.spawn((
         Unmade {
@@ -113,9 +173,13 @@ fn charge(
 }
 
 /// Gives each new sight its look, its meshes and its materials (`0x7905E0`, `0x790CE0`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<(Look, bool)>>)>,
     places: Query<&GlobalTransform>,
     (data, assets, mut looks, mut dice): (
         Option<Res<Data>>,
@@ -125,7 +189,7 @@ fn make(
     ),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let Ok(at) = places.get(unmade.bearer) else {
             commands.entity(entity).despawn();
             continue;
@@ -156,19 +220,25 @@ fn make(
                 [0, 1],
             ),
         };
+        // A loaded sight goes on as it went (#3775).
+        let (look, lit) = match resumed {
+            Some(crate::fx::Resumes((look, lit))) => (look.clone(), *lit),
+            None => (look, false),
+        };
         let parts: [Handle<Mesh>; 2] = std::array::from_fn(|_| meshes.add(empty()));
         let mut made = commands.entity(entity);
-        made.remove::<Unmade>().insert((
-            Shown {
-                bearer: unmade.bearer,
-                bone,
-                look,
-                lit: false,
-                parts: parts.clone(),
-            },
-            Transform::from_translation(at.translation()),
-            Visibility::default(),
-        ));
+        made.remove::<(Unmade, crate::fx::Resumes<(Look, bool)>)>()
+            .insert((
+                Shown {
+                    bearer: unmade.bearer,
+                    bone,
+                    look,
+                    lit,
+                    parts: parts.clone(),
+                },
+                Transform::from_translation(at.translation()),
+                Visibility::default(),
+            ));
         for (mesh, material) in parts
             .into_iter()
             .zip([first, second].map(|k| materials[k].clone()))

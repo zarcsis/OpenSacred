@@ -32,6 +32,56 @@ struct Unmade {
 }
 
 /// A meteor that lands at `at` on `level` after `wait` seconds and its fall (`spells`).
+/// A meteor's look as a save keeps it (#3775): its place, its level, its wait as it was asked,
+/// and its system with its dice, none for one not made yet; a load makes it again there, going
+/// on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedMeteor {
+    at: Vec3,
+    level: Level,
+    wait: f32,
+    meteor: Option<(Meteor, Rng)>,
+}
+
+/// The meteors' looks in `world` as a save keeps them (#3775).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedMeteor> {
+    let mut shown = world.query::<(&Shown, &Transform)>();
+    let mut saved: Vec<SavedMeteor> = shown
+        .iter(world)
+        .map(|(shown, at)| SavedMeteor {
+            at: at.translation,
+            level: None,
+            wait: 0.0,
+            meteor: Some((shown.meteor.clone(), shown.dice.clone())),
+        })
+        .collect();
+    let mut unmade = world.query::<(&Unmade, &Transform)>();
+    saved.extend(unmade.iter(world).map(|(unmade, at)| SavedMeteor {
+        at: at.translation,
+        level: unmade.level,
+        wait: unmade.wait,
+        meteor: None,
+    }));
+    saved
+}
+
+/// Makes a loaded save's meteors' looks again (#3775).
+pub(crate) fn again(world: &mut World, meteors: Vec<SavedMeteor>) {
+    for saved in meteors {
+        let mut made = world.spawn((
+            Unmade {
+                level: saved.level,
+                wait: saved.wait,
+            },
+            Transform::from_translation(saved.at),
+            DespawnOnExit(AppState::InGame),
+        ));
+        if let Some(meteor) = saved.meteor {
+            made.insert(crate::fx::Resumes(meteor));
+        }
+    }
+}
+
 pub(crate) fn fall(commands: &mut Commands, at: Vec3, level: Level, wait: f32) {
     commands.spawn((
         Unmade { level, wait },
@@ -72,7 +122,12 @@ const SEED: usize = 0x337;
 )]
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade, &Transform)>,
+    unmade: Query<(
+        Entity,
+        &Unmade,
+        &Transform,
+        Option<&crate::fx::Resumes<(Meteor, Rng)>>,
+    )>,
     heights: Res<Heights>,
     (data, assets, mut looks, mut materials, mut meshes): (
         Option<Res<Data>>,
@@ -82,7 +137,7 @@ fn make(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (entity, unmade, transform) in &unmade {
+    for (entity, unmade, transform, resumed) in &unmade {
         commands.entity(entity).despawn();
         let Some(data) = data.as_deref() else {
             continue;
@@ -123,8 +178,15 @@ fn make(
         let at = transform.translation;
         let ground = heights.standing(at.x, at.z, unmade.level).unwrap_or(at.y);
         let index = usize::try_from(entity.index_u32()).unwrap_or(0);
-        let mut dice = crate::seed::dice(SEED ^ index);
-        let meteor = Meteor::new(unmade.wait, &mut dice);
+        // A loaded meteor goes on as it went, where it was (#3775).
+        let (meteor, dice) = match resumed {
+            Some(crate::fx::Resumes((meteor, dice))) => (meteor.clone(), dice.clone()),
+            None => {
+                let mut dice = crate::seed::dice(SEED ^ index);
+                (Meteor::new(unmade.wait, &mut dice), dice)
+            }
+        };
+        let ground = if resumed.is_some() { at.y } else { ground };
         let shown = commands
             .spawn((
                 Transform::from_translation(at.with_y(ground)),

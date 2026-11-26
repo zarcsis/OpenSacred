@@ -326,6 +326,8 @@ pub struct SavedBolt {
     at: Vec3,
     /// Its trail's look as it was (#3774).
     trail: Option<crate::bolt_trails::SavedTrail>,
+    /// Its ice splinters as they were (#3775).
+    splinters: Option<crate::ice_splinters::SavedSplinters>,
 }
 
 impl bevy::ecs::entity::MapEntities for SavedBolt {
@@ -339,6 +341,13 @@ pub fn saved(world: &mut World) -> Vec<SavedBolt> {
     let mut heroes = world.query_filtered::<Entity, With<Body>>();
     let hero = heroes.iter(world).next();
     let (trails, _) = crate::bolt_trails::saved(world);
+    let (splinters, _) = crate::ice_splinters::saved(world);
+    let splinters_of = |entity: Entity| {
+        splinters
+            .iter()
+            .find(|(bolt, _)| *bolt == entity)
+            .map(|(_, splinters)| splinters.clone())
+    };
     let trail_of = |entity: Entity| {
         trails
             .iter()
@@ -363,6 +372,7 @@ pub fn saved(world: &mut World) -> Vec<SavedBolt> {
             bubble: bubble.copied(),
             at: at.translation,
             trail: trail_of(entity),
+            splinters: splinters_of(entity),
         })
         .collect()
 }
@@ -401,6 +411,10 @@ pub fn again(world: &mut World, bolts: Vec<SavedBolt>) {
         // Its trail as it was, which its look takes (#3774).
         if let Some(trail) = saved.trail {
             bolt.insert(crate::fx::Resumes(trail));
+        }
+        // Its ice splinters as they were (#3775).
+        if let Some(splinters) = saved.splinters {
+            bolt.insert(crate::fx::Resumes(splinters));
         }
         dress(&mut bolt, saved.course, saved.direction, saved.hero);
     }

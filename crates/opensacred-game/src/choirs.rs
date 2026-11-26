@@ -42,6 +42,46 @@ struct Shown {
 #[derive(Resource, Default)]
 struct Material(Option<Option<Handle<Effect>>>);
 
+/// A choir's look as a save keeps it with its object (#3775): its size and seconds, and its
+/// wisps and discs, dice and place, none for one not shown yet.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedLook {
+    size: f32,
+    seconds: f32,
+    shown: Option<(Choir, Rng, Vec3)>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// The look of the choir's object `object` as a save keeps it, if it has one.
+pub(crate) fn saved_look(world: &World, object: Entity) -> Option<SavedLook> {
+    let look = world.get::<Look>(object)?;
+    let shown = world.try_query::<&Shown>().and_then(|mut shown| {
+        shown
+            .iter(world)
+            .find(|shown| shown.object == Some(object))
+            .map(|shown| (shown.choir.clone(), shown.dice.clone(), shown.place))
+    });
+    Some(SavedLook {
+        size: look.size,
+        seconds: look.seconds,
+        shown,
+    })
+}
+
+/// Gives the loaded object `object` its look as the save kept it.
+pub(crate) fn look_again(object: &mut EntityWorldMut<'_>, saved: SavedLook) {
+    object.insert(Look {
+        size: saved.size,
+        seconds: saved.seconds,
+    });
+    if let Some(shown) = saved.shown {
+        object.insert(crate::fx::Resumes(shown));
+    }
+}
+
 /// The seed of the choirs' `rand()` (**estimate**: any).
 const SEED: usize = 0x3F3;
 
@@ -52,7 +92,15 @@ const SEED: usize = 0x3F3;
 )]
 fn show(
     mut commands: Commands,
-    choirs: Query<(Entity, &Look, &GlobalTransform), Added<Look>>,
+    choirs: Query<
+        (
+            Entity,
+            &Look,
+            &GlobalTransform,
+            Option<&crate::fx::Resumes<(Choir, Rng, Vec3)>>,
+        ),
+        Added<Look>,
+    >,
     (data, assets, mut made, mut materials, mut meshes): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -61,7 +109,7 @@ fn show(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (object, look, place) in &choirs {
+    for (object, look, place, resumed) in &choirs {
         let material = made
             .0
             .get_or_insert_with(|| {
@@ -96,10 +144,22 @@ fn show(
             }
         }
         let index = usize::try_from(shown.index_u32()).unwrap_or(0);
+        // A loaded look shows on as it showed (#3775).
+        let (choir, dice, place) = match resumed {
+            Some(crate::fx::Resumes(shown)) => shown.clone(),
+            None => (
+                Choir::new(look.size, look.seconds),
+                crate::seed::dice(SEED ^ index),
+                place,
+            ),
+        };
+        commands
+            .entity(object)
+            .remove::<crate::fx::Resumes<(Choir, Rng, Vec3)>>();
         commands.entity(shown).insert(Shown {
             object: Some(object),
-            choir: Choir::new(look.size, look.seconds),
-            dice: crate::seed::dice(SEED ^ index),
+            choir,
+            dice,
             place,
             parts,
         });
