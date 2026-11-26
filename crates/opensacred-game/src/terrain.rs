@@ -814,6 +814,21 @@ impl Heights {
         }
     }
 
+    /// The level on which a straight line of a walker on the floor number `floor` tests `cell`
+    /// (`0x4FCC80` through `0x4F7DD0` and `0x6354D0`; docs/re/fight.md, "Across a building's
+    /// levels", #3852): the ground for the floor 0 and at a cell that is no building's; else that
+    /// floor of the building of the cell on the ground, `None` where the building has no such
+    /// floor, which closes the line.
+    pub fn line_level(&self, cell: (i32, i32), floor: usize) -> Option<Level> {
+        if floor == 0 {
+            return Some(None);
+        }
+        match self.building_at(cell) {
+            None => Some(None),
+            Some(building) => self.floor_level(building, floor).map(Some),
+        }
+    }
+
     /// The floor of a level, from 1, 0 for the ground.
     pub fn floor_number(&self, level: Level) -> usize {
         self.floor(level).map_or(0, |(_, floor)| usize::from(floor))
@@ -1890,6 +1905,14 @@ mod tests {
         assert_eq!(heights.level_of((5, 5)), first);
         // A walker on the building's mass goes onto its floor 1 (#3847).
         assert_eq!(heights.lifted_onto((5, 5)), first);
+        // A line from a floor tests a cell of the building on that floor of it, a cell of no
+        // building on the ground, and closes where the building has no such floor; from the
+        // ground, the ground (#3852).
+        assert_eq!(heights.line_level((5, 5), 1), Some(first));
+        assert_eq!(heights.line_level((5, 5), 2), Some(second));
+        assert_eq!(heights.line_level((5, 5), 3), None);
+        assert_eq!(heights.line_level((0, 0), 1), Some(None));
+        assert_eq!(heights.line_level((5, 5), 0), Some(None));
         assert_eq!(heights.floor(second), Some(((4, 4), 2)));
         // Floor 2 112 units of the models' height up, 192 pixels on the original's screen; the
         // ground and floor 1 at the ground's.
