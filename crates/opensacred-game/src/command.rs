@@ -693,6 +693,17 @@ fn make_art(world: &mut World, art: u16) -> Result<String, String> {
             return Err(format!("{art} is refused at {target}, of a level too high"));
         }
     }
+    // A target on another level than the hero's is refused, as the right button's (`0x51D840`,
+    // #3857): the creature's place is the point of one at a point.
+    let hero_level = world
+        .get::<crate::hero::Body>(hero)
+        .and_then(crate::hero::Body::level);
+    let target_level = world
+        .get::<crate::crowd::InTheWay>(target)
+        .and_then(|way| way.level);
+    if matches!(launch, Some(1..=4)) && target_level != hero_level {
+        return Err(format!("{art} is refused at {target}, on another level"));
+    }
     // An art aimed at a point takes the creature's place (the launch type 3, and the dash).
     let aimed = launch == Some(3)
         || opensacred_rules::arts::style(art) == Some(opensacred_rules::arts::Style::Dash);

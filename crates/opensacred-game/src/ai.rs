@@ -898,8 +898,8 @@ pub(crate) fn way_onto(
 
 /// Whether the launch test of a spell of the launch type `launch` wants its target on its caster's
 /// level (`0x51D840` at `0x449930`): one on an enemy (1), at a point of the ground (3), whose
-/// building's floor there is the caster's, or on the dead (4); one on a friend (2), on itself (5)
-/// or of none (0) not here, whose target the cast chooses after (#3852).
+/// building's floor there is the caster's, or on the dead (4); one on a friend (2) is tested once
+/// the cast chooses its friend (#3857), and one on itself (5) or of none (0) never (#3852).
 fn levels_tested(launch: u16) -> bool {
     matches!(launch, 1 | 3 | 4)
 }
@@ -2259,12 +2259,26 @@ fn pursue(
                 } else {
                     (aimed, hero)
                 };
-                let d = (hero - here).xz().length();
-                debug!("ai: {entity} casts {spell} at {aimed} from {d:.0}");
+                // A friend on another level the launch test refuses, the caster itself passing
+                // (`0x51D840`; docs/re/fight.md, "A friend on another level", #3857): it casts
+                // nothing this time, and may choose the friend again at its next decision.
+                let friend_level = if aimed == entity {
+                    way.level
+                } else if aimed == the_hero {
+                    hero_layer
+                } else {
+                    foes.get(&aimed).map_or(way.level, |&(.., level)| level)
+                };
                 transform.rotation = crate::hero::facing(hero - here);
-                commands.entity(entity).remove::<Walk>().insert(
-                    crate::creature_casts::Casting::new(spell, variant, aimed, hero),
-                );
+                if opensacred_rules::casts::on_a_friend(spell) && friend_level != way.level {
+                    debug!("ai: {entity} would cast {spell} at {aimed} on another level, refused");
+                } else {
+                    let d = (hero - here).xz().length();
+                    debug!("ai: {entity} casts {spell} at {aimed} from {d:.0}");
+                    commands.entity(entity).remove::<Walk>().insert(
+                        crate::creature_casts::Casting::new(spell, variant, aimed, hero),
+                    );
+                }
             }
             // A hold that the hero's set 52 turns (#3437): cast toward the hero still, at the
             // caster itself or at the hero's nearest hostile; with none listed it casts nothing
@@ -2366,6 +2380,23 @@ fn pursue(
                 commands.queue(move |world: &mut World| {
                     crate::creature_arts::stare(world, (entity, aimed), (creature, strength), roll);
                 });
+            }
+            // A weapon art on an enemy, a friend, a point or the dead at a target on another
+            // level the launch test refuses, its creature standing; one on itself is made
+            // (`0x51D840`, #3857).
+            Pursues::MakesArt { art }
+                if target_level != way.level
+                    && arts.as_deref().is_some_and(|arts| {
+                        arts.tables
+                            .weapon_arts
+                            .iter()
+                            .find(|known| known.id == art)
+                            .is_some_and(|known| levels_tested(u16::from(known.launch)))
+                    }) =>
+            {
+                debug!(
+                    "ai: {entity} would make the art {art} at {aimed} on another level, refused"
+                );
             }
             Pursues::MakesArt { art } => {
                 debug!("ai: {entity} is ordered the art {art} at {aimed}");

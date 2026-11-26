@@ -504,6 +504,13 @@ pub(crate) fn point_reached(
         && stands(crate::paths::cell_of(point.x, point.z))
 }
 
+/// Whether the launch test refuses an art of the launch type 3 made from the level `level` at a
+/// point on the level `on` (`0x51D840` at `0x51DEF3`, #3857): where either stands above the
+/// ground, the point's floor not the maker's.
+fn point_refused(level: crate::terrain::Level, on: crate::terrain::Level) -> bool {
+    (level.is_some() || on.is_some()) && on != level
+}
+
 /// On a press of the right button on a hostile creature alive that the cursor picks
 /// (`under_cursor`), the hero makes the selected art on it (a launch on an enemy, the type 1), its
 /// attack ending; with the art not ready it walks to the creature's place instead, as the
@@ -518,10 +525,11 @@ pub(crate) fn point_reached(
 pub(crate) fn aim(
     mut commands: Commands,
     (buttons, keys): (Res<ButtonInput<MouseButton>>, crate::controls::Keys),
-    (pointer, under, heights): (
+    (pointer, under, heights, buildings): (
         Res<crate::hud::Pointer>,
         Res<crate::under_cursor::UnderCursor>,
         Option<Res<crate::terrain::Heights>>,
+        Option<Res<crate::buildings::Buildings>>,
     ),
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     (selected, arts, pack, mut tramples): (
@@ -530,12 +538,13 @@ pub(crate) fn aim(
         Option<Res<crate::pickup::Pack>>,
         MessageWriter<crate::trample::Start>,
     ),
-    (creatures, corpses, ranks, experience, followers): (
+    (creatures, corpses, ranks, experience, followers, ways): (
         Query<(Entity, &GlobalTransform, &Mind, &Health), Without<Dies>>,
         Query<(Entity, &GlobalTransform), With<crate::npcs::Corpse>>,
         Query<&fight::Ranked>,
         Option<Res<fight::Experience>>,
         Query<(&crate::followers::Follower, Option<&crate::crowd::InTheWay>)>,
+        Query<&crate::crowd::InTheWay>,
     ),
     mut heroes: Query<
         (
@@ -659,6 +668,29 @@ pub(crate) fn aim(
             && !arts.on_horseback(art, bow)
         {
             tramples.write(crate::trample::Start);
+            continue;
+        }
+        // The launch test's levels (`0x51D840`; docs/re/fight.md, "Across a building's levels",
+        // #3857): an art or a spell on an enemy, a friend or the dead wants its target on the
+        // hero's level, one at a point, where he or the point stands above the ground, the floor
+        // under the cursor his own; refused, he stands, nothing played, nothing told.
+        let point_level = || {
+            let (Some(heights), Some(buildings)) = (heights.as_deref(), buildings.as_deref())
+            else {
+                return body.level();
+            };
+            crate::pick::pick(ray, heights, buildings, (at.translation().y, body.level()))
+                .and_then(|picked| picked.level)
+        };
+        let other_level = match launch {
+            Some(1 | 2 | 4) => {
+                target != hero && ways.get(target).is_ok_and(|way| way.level != body.level())
+            }
+            Some(3) => point_refused(body.level(), point_level()),
+            _ => false,
+        };
+        if other_level {
+            info!("making: {art} refused at {target}, on another level");
             continue;
         }
         // An art on an enemy wants a line of sight or a way to it (`0x51DD7B`, `0x51DDC5`,
@@ -3997,6 +4029,18 @@ impl Plugin for MakingPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_point_on_another_floor_is_refused_where_either_stands_above_the_ground() {
+        let floor = Some((0, 0, 1));
+        // Both on the ground, or both on one floor: made.
+        assert!(!point_refused(None, None));
+        assert!(!point_refused(floor, floor));
+        // From a floor at the ground outside, or from the ground at a floor: refused (#3857).
+        assert!(point_refused(floor, None));
+        assert!(point_refused(None, floor));
+        assert!(point_refused(floor, Some((0, 0, 2))));
+    }
 
     #[test]
     fn an_art_playing_plays_its_clip_again_after_a_load_its_hits_counted_on() {
