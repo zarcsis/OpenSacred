@@ -7160,6 +7160,7 @@ fn keep(
             Option<&crowd::InTheWay>,
             Option<&crate::riding::Ridden>,
             Option<&Corpse>,
+            Option<&crate::spells::Changed>,
         ),
         Option<&fight::Health>,
         (Has<Dies>, Has<Talk>),
@@ -7170,12 +7171,22 @@ fn keep(
     npcs: Option<ResMut<Npcs>>,
 ) {
     let (
-        Ok((placed, transform, (way, ridden, corpse), health, dying, on_death, (remade, marked))),
+        Ok((
+            placed,
+            transform,
+            (way, ridden, corpse, changed),
+            health,
+            dying,
+            on_death,
+            (remade, marked),
+        )),
         Some(mut npcs),
     ) = (creatures.get(removed.entity), npcs)
     else {
         return;
     };
+    // A creature changed into an animal stands where it is hidden (#3767).
+    let way = way.or_else(|| changed.map(crate::spells::Changed::way));
     let Some(level) = level_of(way, ridden, corpse) else {
         return;
     };
@@ -7290,6 +7301,7 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
             Option<&crowd::InTheWay>,
             Option<&crate::riding::Ridden>,
             Option<&Corpse>,
+            Option<&crate::spells::Changed>,
         ),
         Option<&fight::Health>,
         (Has<Dies>, Has<Talk>),
@@ -7312,13 +7324,14 @@ pub fn creatures(world: &mut bevy::prelude::World) -> Option<Creatures> {
     let mut gone = Vec::new();
     for (
         placed,
-        (at, way, ridden, corpse),
+        (at, way, ridden, corpse, changed),
         health,
         dying,
         (on_death, queue),
         (follows, owned, rises, marked),
     ) in standing.iter(world)
     {
+        let way = way.or_else(|| changed.map(crate::spells::Changed::way));
         let Some(level) = level_of(way, ridden, corpse) else {
             continue;
         };
@@ -7387,6 +7400,7 @@ fn entered_of(world: &mut bevy::prelude::World) -> Vec<(usize, Option<Stood>)> {
             Option<&crowd::InTheWay>,
             Option<&crate::riding::Ridden>,
             Option<&Corpse>,
+            Option<&crate::spells::Changed>,
         ),
         Option<&fight::Health>,
         (Has<Dies>, Has<Talk>, Has<crate::undead::Marked>),
@@ -7407,7 +7421,8 @@ fn entered_of(world: &mut bevy::prelude::World) -> Vec<(usize, Option<Stood>)> {
                 .is_some_and(|placement| placement.made.0 && !placement.object)
         })
         .map(
-            |(index, (at, way, ridden, corpse), health, (dying, held, marked))| {
+            |(index, (at, way, ridden, corpse, changed), health, (dying, held, marked))| {
+                let way = way.or_else(|| changed.map(crate::spells::Changed::way));
                 let stood = level_of(way, ridden, corpse)
                     .and_then(|level| stood_of((at, level), health, (dying, held), heights))
                     .map(|stood| Stood { marked, ..stood });
@@ -7769,6 +7784,65 @@ pub fn lay_again(world: &mut bevy::prelude::World, bodies: Vec<SavedBody>) {
         }
     }
     bevy::log::info!("npcs: the save's {count} bodies lie again");
+}
+
+/// A changeling's animal as a save keeps it (#3767): its type, rank and serial
+/// (`names::Id::Born`), where it stands with its health; no sector keeps it, and a load makes it
+/// again under its name once the hero's sectors are in, before the doings, which give it back
+/// its change (`spells::Changeling`) with its creature by its name.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedAnimal {
+    made: Made,
+    stood: Stood,
+}
+
+/// The changelings' animals in `world` as a save keeps them (#3767).
+pub fn animals(world: &mut bevy::prelude::World) -> Vec<SavedAnimal> {
+    let mut animals = world.query_filtered::<(
+        (&Named, &ai::Mind, Option<&fight::Ranked>),
+        (&Transform, &crowd::InTheWay, Option<&fight::Health>),
+    ), (With<crate::spells::Changeling>, Without<Dies>)>();
+    let world = &*world;
+    let heights = world.get_resource::<Heights>();
+    animals
+        .iter(world)
+        .filter_map(|((named, mind, ranked), (at, way, health))| {
+            let stood = stood_of((at, way.level), health, (false, false), heights)?;
+            Some(SavedAnimal {
+                made: made_of((None, Some(named)), mind, ranked),
+                stood,
+            })
+        })
+        .collect()
+}
+
+/// Makes a loaded save's changelings' animals again where they stood, each under its name
+/// (#3767).
+pub fn animals_again(world: &mut bevy::prelude::World, animals: Vec<SavedAnimal>) {
+    let count = animals.len();
+    for animal in animals {
+        let following = Following {
+            made: animal.made,
+            stood: animal.stood,
+            flags: 0,
+            side: 0,
+            stands: ways::InTheWay::object(),
+            escorted: false,
+            listed: false,
+            hands: Vec::new(),
+            given: None,
+            effects: None,
+            rises: false,
+            lain: None,
+            queue: SavedQueue::default(),
+        };
+        match world.run_system_cached_with(respawn_following, following) {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => bevy::log::warn!("npcs: a saved changeling's animal is not made: {e}"),
+            Err(e) => bevy::log::warn!("npcs: a saved changeling's animal is not made: {e}"),
+        }
+    }
+    bevy::log::info!("npcs: the save's {count} changelings' animals stand again");
 }
 
 /// What a saved creature is made of ([`Made`]) by its placement `placed`, else its type, rank and

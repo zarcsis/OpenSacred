@@ -159,14 +159,52 @@ pub struct Combat(pub opensacred_rules::fight::Combat);
 /// The Dwarf's frenzy (the creature's float `+0x584`): with the effect of his 1082 his strikes
 /// raise it and it falls by the frame, and it quickens his attack (`opensacred_rules::arts::
 /// quickened`); 0 without the effect.
-#[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
+#[derive(
+    Component, Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize,
+)]
 pub struct Frenzy(pub f32);
+
+impl bevy::ecs::entity::MapEntities for Frenzy {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// The Dwarf's frenzy, which a save keeps (#3767).
+impl crate::doings::Saves for Frenzy {
+    type Saved = Frenzy;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
+}
 
 /// The Vampiress's bloodlust (the creature's float `+0x584`, as the Dwarf's [`Frenzy`]): her
 /// strikes in her night form raise it and draw more health by it (`opensacred_rules::arts::
 /// bloodlust_damage`), by day they set it to 0, and it falls by the frame.
-#[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
+#[derive(
+    Component, Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize,
+)]
 pub struct Bloodlust(pub f32);
+
+impl bevy::ecs::entity::MapEntities for Bloodlust {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// The Vampiress's bloodlust, which a save keeps (#3767).
+impl crate::doings::Saves for Bloodlust {
+    type Saved = Bloodlust;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
+}
 
 /// A creature's rank, a fill's boss or champion (`opensacred_rules::fight::Rank`).
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -178,9 +216,27 @@ pub struct Ranked(pub Rank);
 /// (docs/decisions/fight.md, "Bosses and champions levelled when made"), but not the others, which
 /// take their first opponent's; and whether its type is big (`Creature.pak` flag `0x02`), which its
 /// sector's highest level does not hold (`npcs::first_fight`).
-#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Unfought {
     pub big: bool,
+}
+
+impl bevy::ecs::entity::MapEntities for Unfought {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// A levelling that waits for its first fight, which a save keeps, so that a creature that
+/// has fought before the save is not levelled again after its load (#3767).
+impl crate::doings::Saves for Unfought {
+    type Saved = Unfought;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 /// What a creature is worth: `Creature.pak`'s experience `a + E·b` (`+0x08`, `+0x0A`).

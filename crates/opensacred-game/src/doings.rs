@@ -8,8 +8,8 @@
 //! ([`SAVED`] names them): the mind (`ai::Mind`, #3757) with its wake and its shooing, its walk
 //! and its height aloft (#3758), its action under way (a strike, a shot, the scripts' clip, a
 //! juggler's play, a rearming, the hero's attack, a pick-up, a talk, an opening, a ride, an art,
-//! a combo, a creature's cast; #3759–#3766), the effects, whose sources go by their names, and
-//! the knock-downs' marks.
+//! a combo, a creature's cast; #3759–#3766), the spells' states and a follower's step (#3767),
+//! the effects, whose sources go by their names, and the knock-downs' marks.
 //!
 //! The commands `doings` and `unsaved` show each named creature's doing and the components of
 //! the game that neither a save keeps nor a load makes again ([`DERIVED`]).
@@ -166,6 +166,21 @@ pub struct Doing {
     leaps: Option<crate::creature_arts::Leaps>,
     #[entities]
     volley: Option<crate::creature_arts::Volley>,
+    /// The spells' states (#3767): a creature changed into an animal, an animal's change, the
+    /// hero's water form and teleport, a spell's shield waiting, and the Dwarf's frenzy, the
+    /// Vampiress's bloodlust and a levelling that waits for its first fight.
+    #[entities]
+    changed: Option<crate::spells::SavedChanged>,
+    #[entities]
+    changeling: Option<crate::spells::Changeling>,
+    unseen: Option<crate::spells::Unseen>,
+    teleporting: Option<crate::spells::Teleporting>,
+    shielding: Option<crate::spells::Shielding>,
+    frenzy: Option<crate::fight::Frenzy>,
+    bloodlust: Option<crate::fight::Bloodlust>,
+    unfought: Option<crate::fight::Unfought>,
+    /// A follower's step off from its master (#3767).
+    follows: Option<crate::followers::SavedFollower>,
     /// Its effects, their sources by their names.
     #[entities]
     effects: Option<Effects>,
@@ -218,6 +233,15 @@ impl Doing {
             makes: saved::<crate::creature_arts::Makes>(world, entity, &at),
             leaps: saved::<crate::creature_arts::Leaps>(world, entity, &at),
             volley: saved::<crate::creature_arts::Volley>(world, entity, &at),
+            changed: crate::spells::saved_changed(world, entity, &at),
+            changeling: saved::<crate::spells::Changeling>(world, entity, &at),
+            unseen: saved::<crate::spells::Unseen>(world, entity, &at),
+            teleporting: saved::<crate::spells::Teleporting>(world, entity, &at),
+            shielding: saved::<crate::spells::Shielding>(world, entity, &at),
+            frenzy: saved::<crate::fight::Frenzy>(world, entity, &at),
+            bloodlust: saved::<crate::fight::Bloodlust>(world, entity, &at),
+            unfought: saved::<crate::fight::Unfought>(world, entity, &at),
+            follows: crate::followers::saved_follower(world, entity),
             combo: world
                 .get::<crate::hero::Body>(entity)
                 .and_then(|_| world.get_resource::<crate::combos::ComboRun>())
@@ -277,6 +301,16 @@ impl Doing {
         put::<crate::creature_arts::Makes>(&mut creature, self.makes, &at);
         put::<crate::creature_arts::Leaps>(&mut creature, self.leaps, &at);
         put::<crate::creature_arts::Volley>(&mut creature, self.volley, &at);
+        put::<crate::spells::Changeling>(&mut creature, self.changeling, &at);
+        put::<crate::spells::Unseen>(&mut creature, self.unseen, &at);
+        put::<crate::spells::Teleporting>(&mut creature, self.teleporting, &at);
+        put::<crate::spells::Shielding>(&mut creature, self.shielding, &at);
+        put::<crate::fight::Frenzy>(&mut creature, self.frenzy, &at);
+        put::<crate::fight::Bloodlust>(&mut creature, self.bloodlust, &at);
+        put::<crate::fight::Unfought>(&mut creature, self.unfought, &at);
+        if let Some(follows) = self.follows {
+            crate::followers::follow_again(&mut creature, follows);
+        }
         let hero = creature.contains::<crate::hero::Body>();
         // The ride itself is the save's world's (#3743): a walk to a horse or a dismount under
         // way goes on, a mount ends at once, seated as a loaded rider is.
@@ -296,6 +330,10 @@ impl Doing {
         put::<KnockMarks>(&mut creature, self.marks, &at);
         if let Some(horse) = mounting {
             crate::riding::seat_again(world, entity, horse);
+        }
+        // A creature changed into an animal is hidden again, its mind kept for its change back.
+        if let Some(changed) = self.changed {
+            crate::spells::change_again(world, entity, changed, &at);
         }
         if hero {
             world.insert_resource(
@@ -349,10 +387,11 @@ fn put<T: Saves>(creature: &mut EntityWorldMut<'_>, saved: Option<T::Saved>, at:
 /// Each named creature's doing, the hero's among them, by name, in the order of their names
 /// (`names::Id`), its references kept by their names in `refs`.
 pub fn gather(world: &mut World, refs: &mut crate::names::Refs) -> Doings {
-    let mut named = world.query_filtered::<
-        (Entity, &Named),
-        bevy::ecs::query::Or<(With<crate::ai::Mind>, With<crate::hero::Body>)>,
-    >();
+    let mut named = world.query_filtered::<(Entity, &Named), bevy::ecs::query::Or<(
+        With<crate::ai::Mind>,
+        With<crate::hero::Body>,
+        With<crate::spells::Changed>,
+    )>>();
     let mut creatures: Vec<(Id, Entity)> = named
         .iter(world)
         .map(|(entity, named)| (named.0, entity))
@@ -430,6 +469,7 @@ pub const DERIVED: &[&str] = &[
     "opensacred_game::voices::Speaking",
     "opensacred_game::creature_arts::Bolted",
     "opensacred_game::creature_casts::DruidThorns",
+    "opensacred_game::spells::Banished",
 ];
 
 /// The components that a creature's [`Doing`] keeps, by their types' paths.
@@ -475,6 +515,15 @@ pub const SAVED: &[&str] = &[
     "opensacred_game::creature_arts::Makes",
     "opensacred_game::creature_arts::Leaps",
     "opensacred_game::creature_arts::Volley",
+    "opensacred_game::spells::Changed",
+    "opensacred_game::spells::Changeling",
+    "opensacred_game::spells::Unseen",
+    "opensacred_game::spells::Teleporting",
+    "opensacred_game::spells::Shielding",
+    "opensacred_game::fight::Frenzy",
+    "opensacred_game::fight::Bloodlust",
+    "opensacred_game::fight::Unfought",
+    "opensacred_game::followers::Follower",
     "opensacred_game::effects::Effects",
     "opensacred_game::fight::KnockMarks",
 ];

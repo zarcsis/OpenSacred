@@ -54,6 +54,27 @@ pub struct Follower {
     listed: bool,
 }
 
+/// A follower's doing as a save keeps it (#3767): whether it steps off from its master; its
+/// master, its flag and its entry are its party's (`npcs::Following`), which a load hires again.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedFollower {
+    stepping_off: bool,
+}
+
+/// The doing of the follower `entity`, if it follows.
+pub(crate) fn saved_follower(world: &World, entity: Entity) -> Option<SavedFollower> {
+    world.get::<Follower>(entity).map(|follower| SavedFollower {
+        stepping_off: follower.stepping_off,
+    })
+}
+
+/// Gives a loaded follower its doing again.
+pub(crate) fn follow_again(creature: &mut EntityWorldMut<'_>, saved: SavedFollower) {
+    if let Some(mut follower) = creature.get_mut::<Follower>() {
+        follower.stepping_off = saved.stepping_off;
+    }
+}
+
 impl Follower {
     /// Whether it is of the flag 4, which never fights.
     pub fn escorted(&self) -> bool {

@@ -91,6 +91,67 @@ fn bloodlines_grey(t: f64) -> f32 {
 /// The emerging glow's seconds in all.
 pub(crate) const EMERGING_SECONDS: f32 = EMERGING_RISES + EMERGING_FALLS;
 
+/// A skin asked for its seconds as a save keeps it (#3767), `#[serde(with)]`: any overlay but a
+/// vision's look, which its creature's placement asks as it is made and no saved state carries.
+pub(crate) mod kept {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    use super::Overlay;
+
+    #[derive(Clone, Copy, Serialize, Deserialize)]
+    #[serde(rename = "Overlay")]
+    enum Kept {
+        Lava,
+        Speed,
+        Cross,
+        Glow,
+        Stone,
+        Water,
+        Emerging,
+        Bloodlines,
+    }
+
+    pub fn serialize<S: Serializer>(
+        skin: &Option<(Overlay, f32)>,
+        to: S,
+    ) -> Result<S::Ok, S::Error> {
+        skin.and_then(|(overlay, seconds)| {
+            let kept = match overlay {
+                Overlay::Lava => Kept::Lava,
+                Overlay::Speed => Kept::Speed,
+                Overlay::Cross => Kept::Cross,
+                Overlay::Glow => Kept::Glow,
+                Overlay::Stone => Kept::Stone,
+                Overlay::Water => Kept::Water,
+                Overlay::Emerging => Kept::Emerging,
+                Overlay::Bloodlines => Kept::Bloodlines,
+                Overlay::Vision(_) => return None,
+            };
+            Some((kept, seconds))
+        })
+        .serialize(to)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(
+        from: D,
+    ) -> Result<Option<(Overlay, f32)>, D::Error> {
+        let skin = Option::<(Kept, f32)>::deserialize(from)?;
+        Ok(skin.map(|(kept, seconds)| {
+            let overlay = match kept {
+                Kept::Lava => Overlay::Lava,
+                Kept::Speed => Overlay::Speed,
+                Kept::Cross => Overlay::Cross,
+                Kept::Glow => Overlay::Glow,
+                Kept::Stone => Overlay::Stone,
+                Kept::Water => Overlay::Water,
+                Kept::Emerging => Overlay::Emerging,
+                Kept::Bloodlines => Overlay::Bloodlines,
+            };
+            (overlay, seconds)
+        }))
+    }
+}
+
 impl Overlay {
     /// The texture its model is drawn in.
     fn texture(self) -> &'static str {
