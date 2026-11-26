@@ -123,6 +123,22 @@ impl Layered {
     }
 }
 
+/// Puts `made`, a look of its own that follows a creature or an object, on the layer of the
+/// first of `from` that has one, as it is made: it then shows and hides with that layer as the
+/// buildings' states show their floors ([`enter`]), as the original chains an FX object on the
+/// layer of the place it is made at and leaves it there (`0x5FBA40`; docs/re/effects.md, "Where
+/// in the frame", #3843). Nothing where none of `from` has a layer.
+pub fn take_layer(commands: &mut Commands, made: Entity, from: Vec<Entity>) {
+    commands.queue(move |world: &mut World| {
+        let layered = from
+            .iter()
+            .find_map(|&entity| world.get::<Layered>(entity).copied());
+        if let (Some(layered), Ok(mut made)) = (layered, world.get_entity_mut(made)) {
+            made.insert(layered);
+        }
+    });
+}
+
 fn visibility(shown: bool) -> Visibility {
     if shown {
         Visibility::Inherited
@@ -342,6 +358,32 @@ mod tests {
     use opensacred_data::world::{Cell, Layer, LayerCell};
 
     use super::*;
+
+    #[test]
+    fn a_look_takes_the_layer_of_the_first_that_has_one_as_it_is_made() {
+        let mut world = World::new();
+        let layered = Layered {
+            building: None,
+            layer: 1,
+            open: false,
+        };
+        let bearer = world.spawn(layered).id();
+        let object = world.spawn_empty().id();
+        let (sight, bare) = (world.spawn_empty().id(), world.spawn_empty().id());
+        let mut queue = bevy::ecs::world::CommandQueue::default();
+        let mut commands = Commands::new(&mut queue, &world);
+        take_layer(&mut commands, sight, vec![object, bearer]);
+        take_layer(&mut commands, bare, vec![object]);
+        queue.apply(&mut world);
+        assert_eq!(world.get::<Layered>(sight), Some(&layered));
+        assert_eq!(world.get::<Layered>(bare), None);
+        // Then the floor it was made on, whatever the bearer's after (#3843).
+        world.entity_mut(bearer).insert(Layered {
+            layer: 0,
+            ..layered
+        });
+        assert_eq!(world.get::<Layered>(sight), Some(&layered));
+    }
 
     /// The buildings with the hero in `building` on `floor`.
     fn inside(building: Anchor, floor: u8) -> Buildings {

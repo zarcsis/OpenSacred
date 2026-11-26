@@ -238,6 +238,17 @@ fn show(
         commands
             .entity(object)
             .remove::<crate::fx::Resumes<(System, Rng, Vec3, Option<Vec3>)>>();
+        // On the layer its bearer, else its object, stands on as it is made, hidden with that
+        // floor (#3843).
+        let bearer = match *look {
+            Look::Skin { bearer, .. } => bearer,
+            Look::Spiral => None,
+        };
+        crate::buildings::take_layer(
+            &mut commands,
+            skin,
+            bearer.into_iter().chain(std::iter::once(object)).collect(),
+        );
         commands.entity(skin).insert(Skin {
             object: Some(object),
             kind,
