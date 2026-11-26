@@ -255,7 +255,12 @@ fn run(
     mut commands: Commands,
     time: Res<Time>,
     mut shown: Query<(Entity, &mut Shown, &GlobalTransform)>,
-    (mut meshes, orders, mut dice): (ResMut<Assets<Mesh>>, Orders, ResMut<Dice>),
+    (mut meshes, orders, mut dice, preroll): (
+        ResMut<Assets<Mesh>>,
+        Orders,
+        ResMut<Dice>,
+        Res<crate::fx::Preroll>,
+    ),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -290,7 +295,10 @@ fn run(
                 vec![glows, pools]
             }
             Run::Down(down) => {
-                down.update(dt, &mut dice.0);
+                // A load's first frame runs it on first (#3805).
+                for (dt, _) in preroll.steps(dt) {
+                    down.update(dt, &mut dice.0);
+                }
                 let ramps = HellgateDown::ramps();
                 (0..2u8)
                     .map(|layer| flat_quads(&down.system, layer, &ramps[usize::from(layer)]))

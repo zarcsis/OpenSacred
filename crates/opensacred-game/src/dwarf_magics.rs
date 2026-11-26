@@ -91,13 +91,21 @@ fn show(
 fn twinkle(
     time: Res<Time>,
     mut magics: Query<(&mut Shown, &GlobalTransform)>,
-    (mut dice, mut meshes, orders): (ResMut<Dice>, ResMut<Assets<Mesh>>, crate::fx::Orders),
+    (mut dice, mut meshes, orders, preroll): (
+        ResMut<Dice>,
+        ResMut<Assets<Mesh>>,
+        crate::fx::Orders,
+        Res<crate::fx::Preroll>,
+    ),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
     for (mut look, place) in &mut magics {
         let look = &mut *look;
-        look.magic.update(dt, &mut dice.0);
+        // A load's first frame runs it on first (#3805).
+        for (dt, _) in preroll.steps(dt) {
+            look.magic.update(dt, &mut dice.0);
+        }
         let ramp = look.magic.ramp();
         let mut quads = Quads::default();
         for star in &look.magic.system.particles {

@@ -1524,6 +1524,10 @@ fn resume(world: &mut bevy::prelude::World) {
             .resource_mut::<NextState<crate::pause::Play>>()
             .set(crate::pause::Play::Running);
     }
+    // The fixed systems that the sectors made anew run on at the first frame played (#3805).
+    if let Some(mut preroll) = world.get_resource_mut::<crate::fx::Preroll>() {
+        preroll.0 = true;
+    }
 }
 
 /// Puts the character of `hero` on the hero `entity` (#1095, #2552): its values and health at its
