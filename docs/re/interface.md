@@ -452,7 +452,9 @@ Read 2026-11-26 for #3837 (**confirmed** by code, and **seen** where marked).
   - the dialogues' window (`UI_WND_TOOLTIP`, the window of the statue of 50,39 that the scripts' `F_Stein_0010` opens by a `Popup`) draws through the same pen, its 779 lookups in a second −1 too; the items' and the bar's tooltips are that window, of the fonts 1, 3 or 7 ("The tooltip (`cUI_Tooltip`)" above).
 
 `opensacred-game` lays its texts out with Bevy's text (parley, which shapes by harfrust), whose `kern` feature takes a face's legacy `kern` table by default; until #3837 its letters stood by their advances and AntiquaSSK's 819 pairs, so that an h before an apostrophe drew the next letter over the h.
-Since #3837 every `TextFont` takes the feature off as it is inserted (`kerning`), and its letters stand by their own advances, as the original's; not yet a pixel closer, as the original's pen steps them (#3840).
+Since #3837 every `TextFont` takes the feature off as it is inserted (`kerning`), and its letters stand by their own advances, as the original's.
+**Seen** 2026-11-26 for #3840 at 1024 × 768 beside the original's frame of quest 154's book: the face's fractional advances at the game's size come to the original's whole pixels' advances less one, its lines as wide to a pixel (the left page's entry 187 pixels in both, two lines of the right page that are not justified 281 and 133 in the original, 280 and 133 in the game), so that the pen's pixel less needs no letter spacing of its own.
+Where the right page's lines break differs (#3859): in two paragraphs the original moves a line's last word to the next line where the game keeps it, at the same width of the page.
 
 ## In `opensacred-game`
 
