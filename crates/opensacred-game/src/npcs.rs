@@ -10756,6 +10756,18 @@ impl Npcs {
             .as_ref()
             .is_some_and(|name| self.locked.contains(name))
     }
+
+    /// The cells and levels that `door`'s trigger closes ([`spot_levels`]); none for a door that
+    /// names no trigger.
+    pub fn door_cells(&self, door: &Door, heights: &Heights) -> Vec<((i32, i32), Level)> {
+        door.trigger
+            .as_ref()
+            .and_then(|name| self.triggers.get(name))
+            .into_iter()
+            .flatten()
+            .flat_map(|&spot| spot_levels(heights, spot))
+            .collect()
+    }
 }
 
 /// A door that `ai` or the hero (`doors`) opens or closes, as the event `0x21` turns it

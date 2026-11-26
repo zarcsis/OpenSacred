@@ -9,6 +9,13 @@
 //! (`opensacred_rules::ways::DoorPoints`, `ai::door_point`, #3831), in place of the click's
 //! ground, which over a door's tall model lies in the room behind it, and turns the door once it
 //! stands within 300 of it.
+//!
+//! The hero's way passes the cells of a closed door that no barred trigger holds ([`ClosedDoors`]),
+//! and as its next step would enter one the hero stands, opens the door as a hero and goes on
+//! once its cells are free (`hero::run`, #3832), where the original's way never passes a closed
+//! door (docs/decisions/movement.md, "Hero opens the doors on its way").
+
+use std::collections::HashMap;
 
 use bevy::prelude::*;
 
@@ -16,7 +23,8 @@ use crate::attack::{self, Aim};
 use crate::frame::{Control, Step, Unpaused};
 use crate::hero::{self, Body};
 use crate::hud::Pointer;
-use crate::npcs::{Door, Object, Swing};
+use crate::npcs::{Door, Npcs, Object, Swing};
+use crate::terrain::{Heights, Level};
 
 /// How near a door the hero turns it, standing, in world units (`0x53A170`).
 const TURNS_WITHIN: f32 = 300.0;
@@ -117,6 +125,38 @@ fn stands(hero: Vec3, point: Vec3) -> bool {
     off.x <= STANDS_WITHIN && off.z <= STANDS_WITHIN
 }
 
+/// The cells of the doors that the hero opens on its way, at their levels: those of each door
+/// closed whose trigger is not barred (#3832).
+#[derive(Resource, Default)]
+pub struct ClosedDoors(HashMap<((i32, i32), Level), Entity>);
+
+impl ClosedDoors {
+    /// The closed door whose trigger closes `cell` at `level`, if any.
+    pub fn at(&self, cell: (i32, i32), level: Level) -> Option<Entity> {
+        self.0.get(&(cell, level)).copied()
+    }
+}
+
+/// Lists the cells of the doors closed and not barred, for the hero's way (`hero::run`).
+fn list_closed(
+    mut closed: ResMut<ClosedDoors>,
+    doors: Query<(Entity, &Door)>,
+    (npcs, heights): (Option<Res<Npcs>>, Option<Res<Heights>>),
+) {
+    closed.0.clear();
+    let (Some(npcs), Some(heights)) = (npcs, heights) else {
+        return;
+    };
+    for (entity, door) in &doors {
+        if door.open || npcs.locked(door) {
+            continue;
+        }
+        for cell in npcs.door_cells(door, &heights) {
+            closed.0.insert(cell, entity);
+        }
+    }
+}
+
 /// The hero that stands, once its way to a door it was sent to ends: within 300 of the door's
 /// logical position (`npcs::Object`) it turns it, as a hero, else it gives up (`0x53BE8C`).
 fn turn(
@@ -151,9 +191,10 @@ pub struct DoorsPlugin;
 
 impl Plugin for DoorsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
+        app.init_resource::<ClosedDoors>().add_systems(
             Update,
             (
+                list_closed.before(hero::run),
                 pick.in_set(Control)
                     .in_set(crate::frame::OnWorld)
                     .after(attack::aim)
@@ -176,6 +217,17 @@ mod tests {
         assert!(turns(door + Vec3::new(200.0, 50.0, 200.0), door));
         assert!(turns(door + Vec3::new(300.0, 0.0, 0.0), door));
         assert!(!turns(door + Vec3::new(250.0, 0.0, 250.0), door));
+    }
+
+    #[test]
+    fn a_closed_doors_cells_are_found_while_they_are_listed() {
+        let door = Entity::from_raw_u32(7).unwrap();
+        let mut closed = ClosedDoors::default();
+        closed.0.insert(((3724, 88), None), door);
+        assert_eq!(closed.at((3724, 88), None), Some(door));
+        assert_eq!(closed.at((3723, 88), None), None);
+        closed.0.clear();
+        assert_eq!(closed.at((3724, 88), None), None);
     }
 
     #[test]
