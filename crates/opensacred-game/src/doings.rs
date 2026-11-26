@@ -188,6 +188,8 @@ pub struct Doing {
     #[entities]
     effects: Option<Effects>,
     marks: Option<Marks>,
+    /// Its health ring's timer while it shows (#3780).
+    ring: Option<crate::health_rings::RingTimer>,
 }
 
 impl Doing {
@@ -253,6 +255,7 @@ impl Doing {
                 .filter(|run| *run != crate::combos::ComboRun::default()),
             effects: saved::<Effects>(world, entity, &at),
             marks: saved::<KnockMarks>(world, entity, &at),
+            ring: saved::<crate::health_rings::Ring>(world, entity, &at),
         };
         (doing != Self::default()).then_some(doing)
     }
@@ -332,6 +335,7 @@ impl Doing {
         };
         put::<Effects>(&mut creature, self.effects, &at);
         put::<KnockMarks>(&mut creature, self.marks, &at);
+        put::<crate::health_rings::Ring>(&mut creature, self.ring, &at);
         if let Some(horse) = mounting {
             crate::riding::seat_again(world, entity, horse);
         }
@@ -463,8 +467,10 @@ pub fn give(world: &mut World, doings: Doings) -> (usize, usize) {
     (given, missing)
 }
 
-/// The components of the game that a load makes again of what a save keeps otherwise, or that
-/// last a frame, by their types' paths: the command `unsaved` leaves them out.
+/// The components of the game that a load makes again of what a save keeps otherwise (the
+/// placements, the types' tables, the scripts' state, the ranks), that last a frame or a few, or
+/// that the development's commands give (`fight::Immortal`), by their types' paths: the command
+/// `unsaved` leaves them out.
 pub const DERIVED: &[&str] = &[
     "opensacred_game::names::Named",
     "opensacred_game::npcs::Placed",
@@ -496,6 +502,12 @@ pub const DERIVED: &[&str] = &[
     "opensacred_game::spells::Banished",
     "opensacred_game::dryad_ghosts::Dummy",
     "opensacred_game::shaddar_slaves::Wears",
+    "opensacred_game::npcs::Remakes",
+    "opensacred_game::npcs::Retexture",
+    "opensacred_game::npcs::OnDeath",
+    "opensacred_game::rank_symbols::Symbol",
+    "opensacred_game::voices::Motions",
+    "opensacred_game::fight::Immortal",
 ];
 
 /// The components that a creature's [`Doing`] keeps, by their types' paths.
@@ -553,6 +565,7 @@ pub const SAVED: &[&str] = &[
     "opensacred_game::dryad_ghosts::Ghost",
     "opensacred_game::effects::Effects",
     "opensacred_game::fight::KnockMarks",
+    "opensacred_game::health_rings::Ring",
 ];
 
 /// The named creatures within `radius` cells of the hero, the nearest first, each with what it

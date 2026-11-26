@@ -53,6 +53,31 @@ pub(crate) struct Ring {
     look: Option<Entity>,
 }
 
+/// A ring's timer as a save keeps it with its creature's doing (#3780): its seconds left.
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RingTimer(f32);
+
+impl bevy::ecs::entity::MapEntities for RingTimer {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// A ring that shows, which a save keeps with its creature's doing (#3780): its look is made again
+/// as it shows.
+impl crate::doings::Saves for Ring {
+    type Saved = RingTimer;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<RingTimer> {
+        (self.timer > 0.0).then_some(RingTimer(self.timer))
+    }
+
+    fn again(saved: RingTimer, _: &crate::doings::Moment) -> Option<Self> {
+        Some(Self {
+            timer: saved.0,
+            look: None,
+        })
+    }
+}
+
 impl Ring {
     /// Its timer at least `seconds`.
     fn at_least(&mut self, seconds: f32) {
@@ -405,6 +430,22 @@ impl Plugin for HealthRingsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_ring_that_shows_is_kept_with_its_timer_and_one_put_out_not() {
+        use crate::doings::{Moment, Saves};
+        let at = Moment::default();
+        let shows = Ring {
+            timer: 2.5,
+            look: None,
+        };
+        let kept = shows.saved(&at).unwrap();
+        let bytes = postcard::to_stdvec(&kept).unwrap();
+        let kept: RingTimer = postcard::from_bytes(&bytes).unwrap();
+        let again = Ring::again(kept, &at).unwrap();
+        assert_eq!((again.timer, again.look), (2.5, None));
+        assert_eq!(Ring::default().saved(&at), None);
+    }
 
     #[test]
     fn the_heros_strike_sets_its_targets_ring_and_its_own_at_itself() {
