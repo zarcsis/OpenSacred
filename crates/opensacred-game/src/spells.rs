@@ -92,11 +92,16 @@ impl crate::doings::Saves for Shielding {
 /// area`): its caster, the bearer it follows, if any, its reach, the classes it strikes alone,
 /// its damages, if any, the effects it gives a creature it strikes that holds none keyed by its
 /// spell `key` (the Daemon's fear's), the level it strikes on, its time left and its cooldown.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SpellAura")]
 struct Aura {
+    #[serde(with = "crate::names::required")]
     caster: Entity,
+    #[serde(with = "crate::names::optional")]
     follows: Option<Entity>,
     reach: f32,
+    /// Its area's classes, which a save keeps by its key ([`SpellObject::Aura`]).
+    #[serde(skip)]
     classes: &'static [u8],
     damages: Option<[f32; 4]>,
     gives: Vec<(Effect, f32)>,
@@ -120,7 +125,7 @@ struct TrapFactor(f32);
 struct Disarms(u32);
 
 /// Whom an [`Aura`] strikes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum Strikes {
     About,
     Bearer,
@@ -135,10 +140,13 @@ const SOUL_HAND: [&str; 1] = ["Bip01 L Hand"];
 /// cooldown, its speed, how near it strikes a creature with the creature's size, whether it
 /// strikes every creature within its reach rather than the first it touches (the purgatory's),
 /// and how it flies.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Disk {
+    #[serde(with = "crate::names::required")]
     caster: Entity,
+    #[serde(with = "crate::names::optional")]
     target: Option<Entity>,
+    #[serde(with = "crate::names::optional")]
     last: Option<Entity>,
     damages: [f32; 4],
     level: Level,
@@ -153,7 +161,8 @@ struct Disk {
 /// How a [`Disk`] flies: homing over the ground at once (the purgatory's), along a soul's heading
 /// in three dimensions turning at its turn a second (#2058), or along the hell disk's, turning
 /// past its slack toward its target's neck or a point over its caster's (#2115).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "DiskFlight")]
 enum Flight {
     Homes,
     Soul { heading: Vec3, turn: f32 },
@@ -1104,7 +1113,7 @@ fn skulls(
 
 /// A zone of the ring of frost (the kind 3, `0xAD2530`): its cell, its level, the ring's level
 /// in play, and its time left.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Frosting {
     cell: (i32, i32),
     level: Level,
@@ -1127,8 +1136,9 @@ fn inside(zone: &Banishing, at: Vec3) -> bool {
 
 /// A meteor of the Mage's hail: its caster, where it lands, its damages, its level, and how long
 /// until it lands.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Meteor {
+    #[serde(with = "crate::names::required")]
     caster: Entity,
     at: Vec3,
     damages: [f32; 4],
@@ -1139,10 +1149,14 @@ struct Meteor {
 /// A chain lightning, the Mage's or a creature's: its caster, the one it struck last (its caster
 /// before its first strike), the target of its first strike until it is made, the strikes left,
 /// its damages, its level, and how long until it leaps on.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "ChainLightning")]
 struct Chain {
+    #[serde(with = "crate::names::required")]
     caster: Entity,
+    #[serde(with = "crate::names::required")]
     last: Entity,
+    #[serde(with = "crate::names::optional")]
     first: Option<Entity>,
     left: u32,
     damages: [f32; 4],
@@ -1152,8 +1166,10 @@ struct Chain {
 
 /// A flame of the Mage's fire spiral: its caster, its centre, its index, its angle and growth,
 /// its damages, its level, its time left and its cooldown.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SpiralFlame")]
 struct Flame {
+    #[serde(with = "crate::names::required")]
     caster: Entity,
     centre: Vec3,
     index: u8,
@@ -1163,6 +1179,203 @@ struct Flame {
     level: Level,
     left: f32,
     cooldown: f32,
+}
+
+/// A spell's object as a save keeps it (#3770, the epic #3753), as the original's save keeps
+/// its FX object (docs/re/saves.md, "What a load gives back of the doings"): its state with its
+/// references by their names, its place where it has one, whether it is hidden yet, and its
+/// loop; a load makes it again there once the creatures are back, and leaves out one whose
+/// caster it finds not. Its look is its looks' to give back (#3774–#3779).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedSpellObject {
+    object: SpellObject,
+    at: Option<Vec3>,
+    hidden: bool,
+    hum: Option<u32>,
+}
+
+/// The spells' objects that a save keeps ([`SavedSpellObject`]).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+enum SpellObject {
+    /// An aura, its classes by its key where its area gives them, with its trap's factor and its
+    /// gust's disarming.
+    Aura {
+        aura: Aura,
+        area: bool,
+        trap_factor: Option<f32>,
+        disarms: Option<u32>,
+    },
+    Disk(Disk),
+    Frosting(Frosting),
+    Meteor(Meteor),
+    Chain(Chain),
+    Flame(Flame),
+}
+
+impl bevy::ecs::entity::MapEntities for SavedSpellObject {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        let mut map = |entity: &mut Entity| *entity = mapper.get_mapped(*entity);
+        match &mut self.object {
+            SpellObject::Aura { aura, .. } => {
+                map(&mut aura.caster);
+                aura.follows.iter_mut().for_each(&mut map);
+            }
+            SpellObject::Disk(disk) => {
+                map(&mut disk.caster);
+                disk.target.iter_mut().for_each(&mut map);
+                disk.last.iter_mut().for_each(&mut map);
+            }
+            SpellObject::Frosting(_) => {}
+            SpellObject::Meteor(meteor) => map(&mut meteor.caster),
+            SpellObject::Chain(chain) => {
+                map(&mut chain.caster);
+                map(&mut chain.last);
+                chain.first.iter_mut().for_each(&mut map);
+            }
+            SpellObject::Flame(flame) => map(&mut flame.caster),
+        }
+    }
+}
+
+impl SpellObject {
+    /// Its caster, whom the load must find; none for a zone, which has none.
+    fn caster(&self) -> Option<Entity> {
+        match self {
+            Self::Aura { aura, .. } => Some(aura.caster),
+            Self::Disk(disk) => Some(disk.caster),
+            Self::Frosting(_) => None,
+            Self::Meteor(meteor) => Some(meteor.caster),
+            Self::Chain(chain) => Some(chain.caster),
+            Self::Flame(flame) => Some(flame.caster),
+        }
+    }
+}
+
+/// The parts of a spell's object beside its state: its place, whether it is hidden, its loop.
+type ObjectParts<'a> = (
+    Option<&'a Transform>,
+    Option<&'a Visibility>,
+    Option<&'a crate::hums::Hum>,
+);
+
+/// A spell's object as a save keeps it, of its state `object` and its parts.
+fn kept(object: SpellObject, (at, shown, hum): ObjectParts<'_>) -> SavedSpellObject {
+    SavedSpellObject {
+        object,
+        at: at.map(|at| at.translation),
+        hidden: shown.is_some_and(|shown| *shown == Visibility::Hidden),
+        hum: hum.map(|hum| hum.0),
+    }
+}
+
+/// The spells' objects in `world` as a save keeps them (#3770).
+pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedSpellObject> {
+    let mut objects = Vec::new();
+    let mut auras = world.query::<(
+        &Aura,
+        Option<&TrapFactor>,
+        Option<&Disarms>,
+        (
+            Option<&Transform>,
+            Option<&Visibility>,
+            Option<&crate::hums::Hum>,
+        ),
+    )>();
+    objects.extend(auras.iter(world).map(|(aura, factor, disarms, parts)| {
+        kept(
+            SpellObject::Aura {
+                aura: aura.clone(),
+                area: !aura.classes.is_empty(),
+                trap_factor: factor.map(|factor| factor.0),
+                disarms: disarms.map(|disarms| disarms.0),
+            },
+            parts,
+        )
+    }));
+    macro_rules! each {
+        ($kind:ident) => {
+            let mut found = world.query::<(
+                &$kind,
+                (
+                    Option<&Transform>,
+                    Option<&Visibility>,
+                    Option<&crate::hums::Hum>,
+                ),
+            )>();
+            objects.extend(
+                found
+                    .iter(world)
+                    .map(|(object, parts)| kept(SpellObject::$kind(object.clone()), parts)),
+            );
+        };
+    }
+    each!(Disk);
+    each!(Frosting);
+    each!(Meteor);
+    each!(Chain);
+    each!(Flame);
+    objects
+}
+
+/// Makes a loaded save's spells' objects again (#3770), each going on as it went.
+pub(crate) fn objects_again(world: &mut World, objects: Vec<SavedSpellObject>) {
+    for saved in objects {
+        if saved
+            .object
+            .caster()
+            .is_some_and(|caster| crate::names::found(Some(caster)).is_none())
+        {
+            continue;
+        }
+        let mut made = world.spawn(DespawnOnExit(AppState::InGame));
+        if let Some(at) = saved.at {
+            made.insert((
+                Transform::from_translation(at),
+                if saved.hidden {
+                    Visibility::Hidden
+                } else {
+                    Visibility::Inherited
+                },
+            ));
+        }
+        if let Some(sound) = saved.hum {
+            made.insert(crate::hums::Hum(sound));
+        }
+        match saved.object {
+            SpellObject::Aura {
+                mut aura,
+                area,
+                trap_factor,
+                disarms,
+            } => {
+                if area {
+                    aura.classes = spells::area(aura.key).map_or(&[], |area| area.classes);
+                }
+                made.insert(aura);
+                if let Some(factor) = trap_factor {
+                    made.insert(TrapFactor(factor));
+                }
+                if let Some(level) = disarms {
+                    made.insert(Disarms(level));
+                }
+            }
+            SpellObject::Disk(disk) => {
+                made.insert(disk);
+            }
+            SpellObject::Frosting(frosting) => {
+                made.insert(frosting);
+            }
+            SpellObject::Meteor(meteor) => {
+                made.insert(meteor);
+            }
+            SpellObject::Chain(chain) => {
+                made.insert(chain);
+            }
+            SpellObject::Flame(flame) => {
+                made.insert(flame);
+            }
+        }
+    }
 }
 
 /// The hero in its water form, which no creature takes for its target (`0x54A6D0`; docs/re/
@@ -4739,5 +4952,110 @@ mod tests {
                 left: 7.5,
             })
         );
+    }
+
+    #[test]
+    fn a_spells_object_saved_goes_on_with_its_areas_classes_by_its_key() {
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut saved = App::new();
+        saved.add_plugins(NamesPlugin);
+        let mage = saved.world_mut().spawn(Named(Id::Hero)).id();
+        let goblin = saved.world_mut().spawn(Named(Id::Born(2))).id();
+        let gone = saved.world_mut().spawn_empty().id();
+        let area = spells::area(spells::LIGHT).unwrap();
+        let aura = Aura {
+            caster: mage,
+            follows: None,
+            reach: area.reach,
+            classes: area.classes,
+            damages: Some([1.0; 4]),
+            gives: Vec::new(),
+            key: spells::LIGHT,
+            level: None,
+            left: 4.0,
+            cooldown: 0.5,
+            strikes: Strikes::About,
+        };
+        let at = Vec3::new(3.0, 0.0, 4.0);
+        saved.world_mut().spawn((
+            aura.clone(),
+            Transform::from_translation(at),
+            Visibility::Inherited,
+            crate::hums::Hum(2031),
+        ));
+        let chain = Chain {
+            caster: mage,
+            last: goblin,
+            first: None,
+            left: 2,
+            damages: [2.0; 4],
+            level: None,
+            leaps: 0.1,
+        };
+        saved.world_mut().spawn(chain.clone());
+        // A meteor of a caster that no save names, which the load leaves out.
+        saved.world_mut().spawn((
+            Meteor {
+                caster: gone,
+                at,
+                damages: [0.0; 4],
+                level: None,
+                lands: 1.0,
+            },
+            Transform::default(),
+            Visibility::Hidden,
+        ));
+        let mut refs = Refs::default();
+        let objects = saved_objects(saved.world_mut());
+        let objects = mapped(
+            objects,
+            &mut Saving {
+                world: saved.world(),
+                refs: &mut refs,
+            },
+        );
+        let bytes = postcard::to_stdvec(&(&refs, &objects)).unwrap();
+        let (refs, objects): (Refs, Vec<SavedSpellObject>) = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..4).map(|_| ()));
+        let mage = loaded.world_mut().spawn(Named(Id::Hero)).id();
+        let goblin = loaded.world_mut().spawn(Named(Id::Born(2))).id();
+        let objects = mapped(
+            objects,
+            &mut Loading {
+                refs: &refs,
+                names: loaded.world().resource::<Names>(),
+                lost: 0,
+            },
+        );
+        objects_again(loaded.world_mut(), objects);
+        let world = loaded.world_mut();
+        let auras: Vec<_> = world
+            .query::<(&Aura, &Transform, &crate::hums::Hum)>()
+            .iter(world)
+            .map(|(aura, place, hum)| (aura.clone(), place.translation, hum.0))
+            .collect();
+        assert_eq!(
+            auras,
+            [(
+                Aura {
+                    caster: mage,
+                    ..aura
+                },
+                at,
+                2031
+            )]
+        );
+        let chains: Vec<Chain> = world.query::<&Chain>().iter(world).cloned().collect();
+        assert_eq!(
+            chains,
+            [Chain {
+                caster: mage,
+                last: goblin,
+                ..chain
+            }]
+        );
+        assert_eq!(world.query::<&Meteor>().iter(world).count(), 0);
     }
 }
