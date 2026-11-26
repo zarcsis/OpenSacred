@@ -42,14 +42,53 @@ struct Floops {
     mesh: Handle<Mesh>,
 }
 
+/// A horse's floops as a save keeps them (#3775): their horse by its name and their look; a load
+/// gives them to the horse, whose trample its doing gives back, and they go on as they went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedFloops {
+    #[serde(with = "crate::names::required")]
+    horse: Entity,
+    look: HorseFloops,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedFloops {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.horse = mapper.get_mapped(self.horse);
+    }
+}
+
+/// The floops in `world` as a save keeps them (#3775).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedFloops> {
+    let mut floops = world.query::<&Floops>();
+    floops
+        .iter(world)
+        .map(|floops| SavedFloops {
+            horse: floops.horse,
+            look: floops.look.clone(),
+        })
+        .collect()
+}
+
+/// Gives a loaded save's floops to their horses (#3775).
+pub(crate) fn again(world: &mut World, floops: Vec<SavedFloops>) {
+    for saved in floops {
+        let Some(horse) = crate::names::found(Some(saved.horse)) else {
+            continue;
+        };
+        if let Ok(mut horse) = world.get_entity_mut(horse) {
+            horse.insert(crate::fx::Resumes(saved.look));
+        }
+    }
+}
+
 /// Gives each horse whose trample starts its floops, riding with it.
 fn start(
     mut commands: Commands,
-    horses: Query<Entity, Added<Trampling>>,
+    horses: Query<(Entity, Option<&crate::fx::Resumes<HorseFloops>>), Added<Trampling>>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for horse in &horses {
+    for (horse, resumed) in &horses {
         let material = looks
             .0
             .get_or_insert_with(|| {
@@ -68,7 +107,9 @@ fn start(
             Visibility::default(),
             Floops {
                 horse,
-                look: HorseFloops::new(),
+                // Loaded floops go on as they went (#3775).
+                look: resumed
+                    .map_or_else(HorseFloops::new, |crate::fx::Resumes(look)| look.clone()),
                 mesh: mesh.clone(),
             },
             // Its light, a source of the night's while it is drawn (`+0x9C`).

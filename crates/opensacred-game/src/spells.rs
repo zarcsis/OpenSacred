@@ -1195,6 +1195,51 @@ pub struct SavedSpellObject {
     at: Option<Vec3>,
     hidden: bool,
     hum: Option<u32>,
+    /// Its look, which a load gives it again (#3775).
+    look: Option<SpellLook>,
+}
+
+/// The look of a spell's object as a save keeps it with the object (#3775): each module's own.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum SpellLook {
+    HolyLight(crate::holy_lights::SavedLook),
+    LightBlades(crate::light_blades::SavedLook),
+    MagicLight(crate::magic_lights::SavedLook),
+    Choir(crate::choirs::SavedLook),
+    Iceberg(crate::icebergs::SavedLook),
+}
+
+impl bevy::ecs::entity::MapEntities for SpellLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        match self {
+            Self::HolyLight(look) => look.map_entities(mapper),
+            Self::LightBlades(look) => look.map_entities(mapper),
+            Self::MagicLight(look) => look.map_entities(mapper),
+            Self::Choir(look) => look.map_entities(mapper),
+            Self::Iceberg(look) => look.map_entities(mapper),
+        }
+    }
+}
+
+/// The look of the spell's object `object` as a save keeps it, if it has one.
+fn look_of(world: &World, object: Entity) -> Option<SpellLook> {
+    crate::holy_lights::saved_look(world, object)
+        .map(SpellLook::HolyLight)
+        .or_else(|| crate::light_blades::saved_look(world, object).map(SpellLook::LightBlades))
+        .or_else(|| crate::magic_lights::saved_look(world, object).map(SpellLook::MagicLight))
+        .or_else(|| crate::choirs::saved_look(world, object).map(SpellLook::Choir))
+        .or_else(|| crate::icebergs::saved_look(world, object).map(SpellLook::Iceberg))
+}
+
+/// Gives the loaded object `object` its look as the save kept it.
+fn look_again(object: &mut EntityWorldMut<'_>, look: SpellLook) {
+    match look {
+        SpellLook::HolyLight(look) => crate::holy_lights::look_again(object, look),
+        SpellLook::LightBlades(look) => crate::light_blades::look_again(object, look),
+        SpellLook::MagicLight(look) => crate::magic_lights::look_again(object, look),
+        SpellLook::Choir(look) => crate::choirs::look_again(object, look),
+        SpellLook::Iceberg(look) => crate::icebergs::look_again(object, look),
+    }
 }
 
 /// The spells' objects that a save keeps ([`SavedSpellObject`]).
@@ -1239,6 +1284,9 @@ enum SpellObject {
 
 impl bevy::ecs::entity::MapEntities for SavedSpellObject {
     fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        if let Some(look) = &mut self.look {
+            look.map_entities(mapper);
+        }
         let mut map = |entity: &mut Entity| *entity = mapper.get_mapped(*entity);
         match &mut self.object {
             SpellObject::Aura { aura, .. } => {
@@ -1305,6 +1353,7 @@ fn kept(object: SpellObject, (at, shown, hum): ObjectParts<'_>) -> SavedSpellObj
         at: at.map(|at| at.translation),
         hidden: shown.is_some_and(|shown| *shown == Visibility::Hidden),
         hum: hum.map(|hum| hum.0),
+        look: None,
     }
 }
 
@@ -1312,6 +1361,7 @@ fn kept(object: SpellObject, (at, shown, hum): ObjectParts<'_>) -> SavedSpellObj
 pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedSpellObject> {
     let mut objects = Vec::new();
     let mut auras = world.query::<(
+        Entity,
         &Aura,
         (
             Option<&TrapFactor>,
@@ -1325,23 +1375,23 @@ pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedSpellObject> {
             Option<&crate::hums::Hum>,
         ),
     )>();
-    objects.extend(
-        auras
-            .iter(world)
-            .map(|(aura, (factor, disarms, thorn, tentacle), parts)| {
-                kept(
-                    SpellObject::Aura {
-                        aura: aura.clone(),
-                        area: !aura.classes.is_empty(),
-                        trap_factor: factor.map(|factor| factor.0),
-                        disarms: disarms.map(|disarms| disarms.0),
-                        thorn: thorn.copied(),
-                        tentacle: tentacle.copied(),
-                    },
-                    parts,
-                )
-            }),
-    );
+    objects.extend(auras.iter(world).map(
+        |(entity, aura, (factor, disarms, thorn, tentacle), parts)| {
+            let mut saved = kept(
+                SpellObject::Aura {
+                    aura: aura.clone(),
+                    area: !aura.classes.is_empty(),
+                    trap_factor: factor.map(|factor| factor.0),
+                    disarms: disarms.map(|disarms| disarms.0),
+                    thorn: thorn.copied(),
+                    tentacle: tentacle.copied(),
+                },
+                parts,
+            );
+            saved.look = look_of(world, entity);
+            saved
+        },
+    ));
     macro_rules! each {
         ($kind:ident) => {
             let mut found = world.query::<(
@@ -1433,6 +1483,9 @@ pub(crate) fn objects_again(world: &mut World, objects: Vec<SavedSpellObject>) {
         }
         if let Some(sound) = saved.hum {
             made.insert(crate::hums::Hum(sound));
+        }
+        if let Some(look) = saved.look {
+            look_again(&mut made, look);
         }
         match saved.object {
             SpellObject::Aura {
@@ -5388,5 +5441,62 @@ mod tests {
                 ..sign
             }]
         );
+    }
+
+    #[test]
+    fn an_auras_look_saved_goes_with_its_aura() {
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut app = App::new();
+        app.add_plugins(NamesPlugin);
+        let seraphim = app.world_mut().spawn(Named(Id::Hero)).id();
+        let area = spells::area(spells::HOLY_LIGHT).unwrap();
+        let aura = Aura {
+            caster: seraphim,
+            follows: None,
+            reach: area.reach,
+            classes: area.classes,
+            damages: Some([1.0; 4]),
+            gives: Vec::new(),
+            key: spells::HOLY_LIGHT,
+            level: None,
+            left: 6.0,
+            cooldown: 0.0,
+            strikes: Strikes::About,
+        };
+        app.world_mut().spawn((
+            aura,
+            crate::holy_lights::Look(8.0),
+            Transform::default(),
+            Visibility::Inherited,
+        ));
+        let mut refs = Refs::default();
+        let objects = mapped(
+            saved_objects(app.world_mut()),
+            &mut Saving {
+                world: app.world(),
+                refs: &mut refs,
+            },
+        );
+        let bytes = postcard::to_stdvec(&(&refs, &objects)).unwrap();
+        let (refs, objects): (Refs, Vec<SavedSpellObject>) = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn(Named(Id::Hero));
+        let objects = mapped(
+            objects,
+            &mut Loading {
+                refs: &refs,
+                names: loaded.world().resource::<Names>(),
+                lost: 0,
+            },
+        );
+        objects_again(loaded.world_mut(), objects);
+        let world = loaded.world_mut();
+        let looks: Vec<f32> = world
+            .query_filtered::<&crate::holy_lights::Look, With<Aura>>()
+            .iter(world)
+            .map(|look| look.0)
+            .collect();
+        assert_eq!(looks, [8.0]);
     }
 }

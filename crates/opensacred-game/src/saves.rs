@@ -123,8 +123,9 @@ use crate::{arts, drops, making};
 /// (#3768); the version 67 the things thrown and shot (#3769); the version 68 the spells'
 /// objects (#3770); the version 69 the elves' and the Vampiress's (#3771); the version 70 the
 /// Dwarf's and the Daemon's, and the breaths (#3772); the version 71 the looks' bursts (#3773);
-/// the version 72 the bolts' and the guns' looks (#3774).
-pub const VERSION: u32 = 72;
+/// the version 72 the bolts' and the guns' looks (#3774); the version 73 the Seraphim's and the
+/// Mage's looks (#3775).
+pub const VERSION: u32 = 73;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -354,6 +355,16 @@ pub struct Looks {
     pub beams: Vec<crate::beams::SavedSegment>,
     pub rings: Vec<crate::arrow_sights::SavedRing>,
     pub streaks: Vec<crate::weapon_streaks::SavedStreaks>,
+    /// The Seraphim's and the Mage's looks (#3775): the explosions, the meteors, the light
+    /// strikes, the Seraphim's sights, the gusts, the ice splinters that outlive their bolts and
+    /// the horses' floops; the auras' own looks go with their auras (`spells::SavedSpellObject`).
+    pub blasts: Vec<crate::explosions::SavedBlast>,
+    pub meteors: Vec<crate::meteors::SavedMeteor>,
+    pub light_strikes: Vec<crate::light_strikes::SavedLightStrike>,
+    pub sera_sights: Vec<crate::sera_sights::SavedSight>,
+    pub gusts: Vec<crate::twisters::SavedGust>,
+    pub splinters: Vec<crate::ice_splinters::SavedSplinters>,
+    pub floops: Vec<crate::floops::SavedFloops>,
 }
 
 impl MapEntities for Looks {
@@ -361,6 +372,10 @@ impl MapEntities for Looks {
         self.puffs.map_entities(mapper);
         self.flashes.map_entities(mapper);
         self.streaks.map_entities(mapper);
+        self.light_strikes.map_entities(mapper);
+        self.sera_sights.map_entities(mapper);
+        self.gusts.map_entities(mapper);
+        self.floops.map_entities(mapper);
     }
 }
 
@@ -910,6 +925,13 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
         beams: crate::beams::saved(world),
         rings: crate::arrow_sights::saved(world),
         streaks: crate::weapon_streaks::saved(world),
+        blasts: crate::explosions::saved(world),
+        meteors: crate::meteors::saved(world),
+        light_strikes: crate::light_strikes::saved(world),
+        sera_sights: crate::sera_sights::saved(world),
+        gusts: crate::twisters::saved(world),
+        splinters: crate::ice_splinters::saved(world).1,
+        floops: crate::floops::saved(world),
     };
     let looks = crate::names::mapped(
         looks,
@@ -1242,6 +1264,13 @@ fn resume(world: &mut bevy::prelude::World) {
     crate::beams::again(world, looks.beams);
     crate::arrow_sights::again(world, looks.rings);
     crate::weapon_streaks::again(world, looks.streaks);
+    crate::explosions::again(world, looks.blasts);
+    crate::meteors::again(world, looks.meteors);
+    crate::light_strikes::again(world, looks.light_strikes);
+    crate::sera_sights::again(world, looks.sera_sights);
+    crate::twisters::again(world, looks.gusts);
+    crate::ice_splinters::again(world, looks.splinters);
+    crate::floops::again(world, looks.floops);
     // The hero's hurled weapon out of his hand, flying or lying (#3769).
     if live.hurled {
         world.write_message(crate::arsenal::Throws(true));
@@ -2069,7 +2098,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (72, 0x4D28_B08C_0C3A_2286),
+            (73, 0x5C68_1AD2_851B_4116),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

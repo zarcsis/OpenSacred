@@ -106,9 +106,80 @@ struct Shown {
 
 /// Gives each new splinter bolt its look (`0x78CA30`, `0x78D640`): its five icicles, its rings
 /// and its sparks.
+/// A bolt's ice splinters as a save keeps them (#3775): their look, their place and way, whose
+/// caster they are and their bolt's direction, and whether their bolt still flies; a load gives a
+/// flying bolt's to its bolt made again (`bolts::SavedBolt`), and makes those that outlive their
+/// bolt again on their own.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedSplinters {
+    look: IceSplinters,
+    place: Vec3,
+    along: Vec3,
+    hero: bool,
+    direction: Vec2,
+    flies: bool,
+}
+
+/// The ice splinters in `world` as a save keeps them (#3775): of each flying bolt by its entity,
+/// and those that outlive their bolts.
+pub(crate) fn saved(world: &mut World) -> (Vec<(Entity, SavedSplinters)>, Vec<SavedSplinters>) {
+    let mut shown = world.query::<&Shown>();
+    let shown: Vec<(Option<Entity>, IceSplinters, Vec3, Vec3)> = shown
+        .iter(world)
+        .map(|shown| (shown.bolt, shown.look.clone(), shown.place, shown.along))
+        .collect();
+    let mut flying = Vec::new();
+    let mut alone = Vec::new();
+    for (bolt, look, place, along) in shown {
+        let marker = bolt
+            .and_then(|bolt| world.get::<Splinters>(bolt))
+            .map(|marker| (marker.hero, marker.direction));
+        let kept = SavedSplinters {
+            look,
+            place,
+            along,
+            hero: marker.is_some_and(|(hero, _)| hero),
+            direction: marker.map_or(along.xz(), |(_, direction)| direction),
+            flies: bolt.is_some(),
+        };
+        match bolt {
+            Some(bolt) => flying.push((bolt, kept)),
+            None => alone.push(kept),
+        }
+    }
+    (flying, alone)
+}
+
+/// Makes a loaded save's ice splinters that outlive their bolts again (#3775), each on its own.
+pub(crate) fn again(world: &mut World, splinters: Vec<SavedSplinters>) {
+    for saved in splinters {
+        world.spawn((
+            Splinters {
+                hero: saved.hero,
+                direction: saved.direction,
+            },
+            Transform::from_translation(saved.place),
+            crate::fx::Resumes(saved),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn show(
     mut commands: Commands,
-    bolts: Query<(Entity, &Splinters, &Transform), Added<Splinters>>,
+    bolts: Query<
+        (
+            Entity,
+            &Splinters,
+            &Transform,
+            Option<&crate::fx::Resumes<SavedSplinters>>,
+        ),
+        Added<Splinters>,
+    >,
     (data, assets, mut looks, mut dice): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -117,12 +188,21 @@ fn show(
     ),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (bolt, splinters, place) in &bolts {
+    for (bolt, splinters, place, resumed) in &bolts {
         looks.make(data.as_deref(), &assets, &mut effects);
-        let at = place.translation;
-        let look = IceSplinters::new(models(at), splinters.hero, &mut dice.0);
-        let along =
-            Vec3::new(splinters.direction.x, 0.0, splinters.direction.y).normalize_or(Vec3::X);
+        // Loaded splinters go on as they went, those that outlived their bolt on their own
+        // (#3775).
+        let resumed = resumed.map(|crate::fx::Resumes(saved)| saved);
+        let alone = resumed.is_some_and(|saved| !saved.flies);
+        let at = resumed.map_or(place.translation, |saved| saved.place);
+        let look = resumed.map_or_else(
+            || IceSplinters::new(models(at), splinters.hero, &mut dice.0),
+            |saved| saved.look.clone(),
+        );
+        let along = resumed.map_or_else(
+            || Vec3::new(splinters.direction.x, 0.0, splinters.direction.y).normalize_or(Vec3::X),
+            |saved| saved.along,
+        );
         let icicles = looks
             .model
             .as_ref()
@@ -170,13 +250,20 @@ fn show(
             }
         }
         shown.insert(Shown {
-            bolt: Some(bolt),
+            bolt: (!alone).then_some(bolt),
             look,
             icicles,
             place: at,
             along,
             meshes: parts,
         });
+        if alone {
+            commands.entity(bolt).despawn();
+        } else {
+            commands
+                .entity(bolt)
+                .remove::<crate::fx::Resumes<SavedSplinters>>();
+        }
     }
 }
 

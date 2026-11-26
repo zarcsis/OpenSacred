@@ -38,6 +38,36 @@ struct Shown {
     parts: [Handle<Mesh>; 4],
 }
 
+/// A holy light's look as a save keeps it with its object (#3775, `spells::SavedSpellObject`):
+/// its seconds and its sparks, fade, clock and dice, none for one not shown yet; a load gives it
+/// to its object made again, which shows on as it showed.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedLook {
+    seconds: f32,
+    shown: Option<(HolyLight, f32, Rng)>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// The look of the holy light's object `object` as a save keeps it, if it has one.
+pub(crate) fn saved_look(world: &World, object: Entity) -> Option<SavedLook> {
+    let Look(seconds) = *world.get::<Look>(object)?;
+    let shown = world
+        .get::<Shown>(object)
+        .map(|shown| (shown.light.clone(), shown.clock, shown.dice.clone()));
+    Some(SavedLook { seconds, shown })
+}
+
+/// Gives the loaded object `object` its look as the save kept it.
+pub(crate) fn look_again(object: &mut EntityWorldMut<'_>, saved: SavedLook) {
+    object.insert(Look(saved.seconds));
+    if let Some(shown) = saved.shown {
+        object.insert(crate::fx::Resumes(shown));
+    }
+}
+
 /// A holy light's lamp, of the object it lights.
 #[derive(Component)]
 struct Lamp(Entity);
@@ -57,7 +87,15 @@ const SEED: usize = 0x324;
 )]
 fn show(
     mut commands: Commands,
-    looks: Query<(Entity, &Look, &Transform), Added<Look>>,
+    looks: Query<
+        (
+            Entity,
+            &Look,
+            &Transform,
+            Option<&crate::fx::Resumes<(HolyLight, f32, Rng)>>,
+        ),
+        Added<Look>,
+    >,
     (data, assets, mut made, mut materials, mut meshes): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -66,7 +104,7 @@ fn show(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (entity, &Look(seconds), transform) in &looks {
+    for (entity, &Look(seconds), transform, resumed) in &looks {
         let [column, symbol, glow] = made
             .0
             .get_or_insert_with(|| {
@@ -115,12 +153,24 @@ fn show(
             entity,
         ));
         let index = usize::try_from(entity.index_u32()).unwrap_or(0);
-        commands.entity(entity).insert(Shown {
-            light: HolyLight::new(seconds),
-            clock: 0.0,
-            dice: crate::seed::dice(SEED ^ index),
-            parts,
-        });
+        // A loaded look shows on as it showed (#3775).
+        let (light, clock, dice) = match resumed {
+            Some(crate::fx::Resumes(shown)) => shown.clone(),
+            None => (
+                HolyLight::new(seconds),
+                0.0,
+                crate::seed::dice(SEED ^ index),
+            ),
+        };
+        commands
+            .entity(entity)
+            .remove::<crate::fx::Resumes<(HolyLight, f32, Rng)>>()
+            .insert(Shown {
+                light,
+                clock,
+                dice,
+                parts,
+            });
     }
 }
 

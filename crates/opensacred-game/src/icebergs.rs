@@ -56,6 +56,38 @@ struct Looks {
 /// The seed of the objects' `rand()` (**estimate**: any).
 const SEED: usize = 0x348;
 
+/// An iceberg's look as a save keeps it with its object (#3775): its seconds, and its ice and
+/// dice, none for one not shown yet.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedLook {
+    seconds: f32,
+    shown: Option<(Iceberg, Rng)>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// The look of the iceberg's object `object` as a save keeps it, if it has one.
+pub(crate) fn saved_look(world: &World, object: Entity) -> Option<SavedLook> {
+    let Look(seconds) = *world.get::<Look>(object)?;
+    let shown = world.try_query::<&Shown>().and_then(|mut shown| {
+        shown
+            .iter(world)
+            .find(|shown| shown.object == object)
+            .map(|shown| (shown.ice.clone(), shown.dice.clone()))
+    });
+    Some(SavedLook { seconds, shown })
+}
+
+/// Gives the loaded object `object` its look as the save kept it.
+pub(crate) fn look_again(object: &mut EntityWorldMut<'_>, saved: SavedLook) {
+    object.insert(Look(saved.seconds));
+    if let Some(shown) = saved.shown {
+        object.insert(crate::fx::Resumes(shown));
+    }
+}
+
 /// Gives each new object its look (`0x78D870`, `0x78E070`): an entity of its own at its place,
 /// its lamp, its iceberg hidden until it stands, and its parts.
 #[expect(
@@ -64,7 +96,15 @@ const SEED: usize = 0x348;
 )]
 fn show(
     mut commands: Commands,
-    objects: Query<(Entity, &Look, &GlobalTransform), Added<Look>>,
+    objects: Query<
+        (
+            Entity,
+            &Look,
+            &GlobalTransform,
+            Option<&crate::fx::Resumes<(Iceberg, Rng)>>,
+        ),
+        Added<Look>,
+    >,
     (data, assets, mut looks, mut materials, mut meshes): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -73,7 +113,7 @@ fn show(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (object, &Look(seconds), place) in &objects {
+    for (object, &Look(seconds), place, resumed) in &objects {
         let Some(data) = data.as_deref() else {
             continue;
         };
@@ -103,8 +143,17 @@ fn show(
         }
         let place = place.translation();
         let index = usize::try_from(object.index_u32()).unwrap_or(0);
-        let mut dice = crate::seed::dice(SEED ^ index);
-        let ice = Iceberg::new(seconds, &mut dice);
+        // A loaded look shows on as it showed (#3775).
+        let (ice, dice) = match resumed {
+            Some(crate::fx::Resumes(shown)) => shown.clone(),
+            None => {
+                let mut dice = crate::seed::dice(SEED ^ index);
+                (Iceberg::new(seconds, &mut dice), dice)
+            }
+        };
+        commands
+            .entity(object)
+            .remove::<crate::fx::Resumes<(Iceberg, Rng)>>();
         let lamp = commands
             .spawn((
                 Transform::from_translation(place.with_y(0.0)),

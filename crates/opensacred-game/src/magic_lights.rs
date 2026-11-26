@@ -34,6 +34,38 @@ struct Shown {
     mesh: Handle<Mesh>,
 }
 
+/// A magic light's look as a save keeps it with its object (#3775): its light and the bearer
+/// it follows by its name; it has no state of its own to go on with.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedLook {
+    light: f32,
+    #[serde(with = "crate::names::optional")]
+    bearer: Option<Entity>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = self.bearer.map(|bearer| mapper.get_mapped(bearer));
+    }
+}
+
+/// The look of the magic light's object `object` as a save keeps it, if it has one.
+pub(crate) fn saved_look(world: &World, object: Entity) -> Option<SavedLook> {
+    let look = world.get::<Look>(object)?;
+    Some(SavedLook {
+        light: look.light,
+        bearer: look.bearer,
+    })
+}
+
+/// Gives the loaded object `object` its look as the save kept it.
+pub(crate) fn look_again(object: &mut EntityWorldMut<'_>, saved: SavedLook) {
+    object.insert(Look {
+        light: saved.light,
+        bearer: crate::names::found(saved.bearer),
+    });
+}
+
 /// A light's lamp, of the object it goes with.
 #[derive(Component)]
 struct Lamp(Entity);

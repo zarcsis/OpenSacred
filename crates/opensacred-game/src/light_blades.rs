@@ -38,6 +38,38 @@ struct Shown {
 #[derive(Resource, Default)]
 struct Materials(Option<[Option<Handle<Effect>>; 3]>);
 
+/// A blades of light's look as a save keeps it with its object (#3775): its caster by its
+/// name and its blades, radius and dice, none for one not shown yet.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedLook {
+    #[serde(with = "crate::names::required")]
+    caster: Entity,
+    shown: Option<(Blades, f32, Rng)>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.caster = mapper.get_mapped(self.caster);
+    }
+}
+
+/// The look of the blades of light's object `object` as a save keeps it, if it has one.
+pub(crate) fn saved_look(world: &World, object: Entity) -> Option<SavedLook> {
+    let Look(caster) = *world.get::<Look>(object)?;
+    let shown = world
+        .get::<Shown>(object)
+        .map(|shown| (shown.blades, shown.radius, shown.dice.clone()));
+    Some(SavedLook { caster, shown })
+}
+
+/// Gives the loaded object `object` its look as the save kept it.
+pub(crate) fn look_again(object: &mut EntityWorldMut<'_>, saved: SavedLook) {
+    object.insert(Look(saved.caster));
+    if let Some(shown) = saved.shown {
+        object.insert(crate::fx::Resumes(shown));
+    }
+}
+
 /// The seed of the looks' `rand()` (**estimate**: any).
 const SEED: usize = 0x32E;
 
@@ -48,7 +80,14 @@ const SEED: usize = 0x32E;
 )]
 fn show(
     mut commands: Commands,
-    looks: Query<(Entity, &Look), Added<Look>>,
+    looks: Query<
+        (
+            Entity,
+            &Look,
+            Option<&crate::fx::Resumes<(Blades, f32, Rng)>>,
+        ),
+        Added<Look>,
+    >,
     sizes: Query<&crate::arrows::Size>,
     (data, assets, mut made, mut materials, mut meshes): (
         Option<Res<Data>>,
@@ -58,7 +97,7 @@ fn show(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (entity, &Look(caster)) in &looks {
+    for (entity, &Look(caster), resumed) in &looks {
         let parts_materials = made
             .0
             .get_or_insert_with(|| {
@@ -102,12 +141,20 @@ fn show(
             .get(caster)
             .map_or(crate::arrows::size(0), |size| size.0);
         let index = usize::try_from(entity.index_u32()).unwrap_or(0);
-        commands.entity(entity).insert(Shown {
-            blades: Blades::default(),
-            radius,
-            dice: crate::seed::dice(SEED ^ index),
-            parts,
-        });
+        // A loaded look shows on as it showed (#3775).
+        let (blades, radius, dice) = match resumed {
+            Some(crate::fx::Resumes(shown)) => shown.clone(),
+            None => (Blades::default(), radius, crate::seed::dice(SEED ^ index)),
+        };
+        commands
+            .entity(entity)
+            .remove::<crate::fx::Resumes<(Blades, f32, Rng)>>()
+            .insert(Shown {
+                blades,
+                radius,
+                dice,
+                parts,
+            });
     }
 }
 

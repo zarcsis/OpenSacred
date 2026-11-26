@@ -68,6 +68,53 @@ impl Default for Dice {
     }
 }
 
+/// A light strike as a save keeps it (#3775): its bearer by its name and its look; a load makes
+/// it again on its bearer, its lamp at the bearer's place, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedLightStrike {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    look: LightStrike,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLightStrike {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The light strikes in `world` as a save keeps them (#3775).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLightStrike> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .map(|shown| SavedLightStrike {
+            bearer: shown.bearer,
+            look: shown.look,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's light strikes again (#3775); one whose bearer the load finds not is
+/// left out.
+pub(crate) fn again(world: &mut World, strikes: Vec<SavedLightStrike>) {
+    for saved in strikes {
+        if crate::names::found(Some(saved.bearer)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade {
+                kind: saved.look.kind,
+                bearer: saved.bearer,
+                made_at: saved.bearer,
+                rate: 1.0,
+            },
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// Starts the strike of `kind` on `bearer`, its object made at `made_at`'s place (the stone
 /// skin's at its bearer, the others' at their caster), its clock at the cast's rate `rate`.
 pub(crate) fn strike(
@@ -91,12 +138,12 @@ pub(crate) fn strike(
 /// (`0x770C70`, `0x7712E0` and their copies).
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<LightStrike>>)>,
     (places, heroes): (Query<&GlobalTransform>, Query<(), With<crate::hero::Body>>),
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let Ok(at) = places.get(unmade.bearer) else {
             commands.entity(entity).despawn();
             continue;
@@ -140,17 +187,22 @@ fn make(
             .id();
         let parts: [Handle<Mesh>; 5] = std::array::from_fn(|_| meshes.add(empty()));
         let mut made = commands.entity(entity);
-        made.remove::<Unmade>().insert((
-            Shown {
-                bearer: unmade.bearer,
-                look: LightStrike::new(unmade.kind, unmade.rate),
-                creature: !heroes.contains(unmade.bearer),
-                lamp,
-                parts: parts.clone(),
-            },
-            Transform::from_translation(at.translation()),
-            Visibility::default(),
-        ));
+        made.remove::<(Unmade, crate::fx::Resumes<LightStrike>)>()
+            .insert((
+                Shown {
+                    bearer: unmade.bearer,
+                    // A loaded strike goes on as it went (#3775).
+                    look: resumed.map_or_else(
+                        || LightStrike::new(unmade.kind, unmade.rate),
+                        |crate::fx::Resumes(look)| *look,
+                    ),
+                    creature: !heroes.contains(unmade.bearer),
+                    lamp,
+                    parts: parts.clone(),
+                },
+                Transform::from_translation(at.translation()),
+                Visibility::default(),
+            ));
         let chosen = [0, 1, 2, 3, glow].map(|index| materials[index].clone());
         for (mesh, material) in parts.into_iter().zip(chosen) {
             if let Some(material) = material {
