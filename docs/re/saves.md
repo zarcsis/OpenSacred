@@ -262,6 +262,7 @@ Since #3809 the things keep the Dark Elf's souls on their way, with the health e
 Since #3812 the looks keep the marks and the puddles on the ground, the blood fountains at their creatures' bones, the body parts hopping on, the blows' bleeds and parades, the summonings' sights in their colours and runes, the big demon's summonings on their objects by their names (their growls not made again), the lightnings at their creatures' necks, the poison rings and the hit sparks' lights; the saves' version 80.
 Since #3805 the steady systems that the sectors, the scripts and the worn items make anew as they come in run on for 6 s at a load's first frame played before they are drawn (`fx::Preroll`), so that a fire in view comes back burning rather than building up (docs/decisions/drawing.md, "The sectors' fixed systems come back burning, not particle for particle").
 Since #3820 a save keeps the doings of the creatures in the sectors that a load brings in about the hero and of its followers, so that the load gives them back as soon as those sectors are in (docs/decisions/ai.md, "Doings kept within the sectors a load brings in").
+Since #3822 a load gives the knockouts' stars, the dwarves' guns' sights and the teleports' sights their places and their visibility as their making does, a teleport's sight its light too; the saves' version 81.
 
 ## What the original keeps that the game does not
 

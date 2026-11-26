@@ -77,6 +77,8 @@ pub(crate) fn again(world: &mut World, sights: Vec<SavedSight>) {
                 kind: saved.look.kind,
                 shooter: saved.shooter,
             },
+            Transform::IDENTITY,
+            Visibility::default(),
             crate::fx::Resumes(saved.look),
             DespawnOnExit(AppState::InGame),
         ));
