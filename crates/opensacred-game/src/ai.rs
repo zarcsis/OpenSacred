@@ -896,6 +896,32 @@ pub(crate) fn way_onto(
     .is_some()
 }
 
+/// Whether the launch test of a spell of the launch type `launch` wants its target on its caster's
+/// level (`0x51D840` at `0x449930`): one on an enemy (1), at a point of the ground (3), whose
+/// building's floor there is the caster's, or on the dead (4); one on a friend (2), on itself (5)
+/// or of none (0) not here, whose target the cast chooses after (#3852).
+fn levels_tested(launch: u16) -> bool {
+    matches!(launch, 1 | 3 | 4)
+}
+
+/// Whether a straight line of a creature on the floor number `floor` passes `cell` by `test`, the
+/// walker's or the flyer's, on the level that the original's line tests there: that floor of the
+/// building of the cell on the ground, the ground where the cell is no building's, closed where
+/// the building has no such floor (`terrain::Heights::line_level`, `0x4F7DD0`; docs/re/fight.md,
+/// "Across a building's levels", #3852). So a line from a floor passes out through an open door
+/// onto the ground beyond, and over a floor's grid above ground of no building it tests the
+/// ground.
+fn line_passes(
+    heights: &Heights,
+    floor: usize,
+    cell: (i32, i32),
+    test: impl Fn((i32, i32), Level) -> bool,
+) -> bool {
+    heights
+        .line_level(cell, floor)
+        .is_some_and(|at| test(cell, at))
+}
+
 /// Each creature that went for a door in its way, once it stands, opens it within 300 of it on
 /// its layer or the ground and the first floor either way (`opensacred_rules::minds::opens`):
 /// the event `0x21` of a creature that is no hero (`Swing::to`), which opens the closed door
@@ -1148,10 +1174,14 @@ fn think(
             own,
         };
         // A line of sight to its target, the straight way's test with the flyer's flag, over the
-        // water and the fences (`0x4FCC80` from `0x544138`, #3358).
+        // water and the fences (`0x4FCC80` from `0x544138`, #3358), on its floor of the building
+        // at each cell (#3852).
+        let floor = heights.floor_number(way.level);
         let clear = |to: Spot| {
             paths::straight(here.xz(), Vec2::new(to.x, to.y), |cell| {
-                heights.flown_onto(cell, way.level)
+                line_passes(&heights, floor, cell, |cell, at| {
+                    heights.flown_onto(cell, at)
+                })
             })
         };
         // The door in its way, if no straight line leads to the hero (`0x5442E8`).
@@ -1337,8 +1367,9 @@ fn pursue(
             Option<&crate::fight::Holding>,
             Has<crate::hero_held::HeroHeld>,
             Option<&crate::fight::Health>,
+            &Body,
         ),
-        (With<Body>, Without<crate::npcs::Dies>),
+        (Without<crate::npcs::Dies>,),
     >,
     kind: Option<Res<crate::hero::Hero>>,
     mut creatures: Query<
@@ -1368,11 +1399,12 @@ fn pursue(
             Without<crate::backbreaker::Flung>,
         ),
     >,
-    (real, experience, rules, difficulty): (
+    (real, experience, rules, difficulty, arts): (
         Res<Time<bevy::time::Real>>,
         Option<Res<crate::fight::Experience>>,
         Option<Res<crate::fight::Rules>>,
         Option<Res<crate::game::Difficulty>>,
+        Option<Res<crate::arts::HeroArts>>,
     ),
     (clips, scripted, makers, arms): (
         Query<&crate::npcs::Npc>,
@@ -1401,10 +1433,13 @@ fn pursue(
         holding,
         hero_held,
         hero_health,
+        body,
     )) = hero.iter().next()
     else {
         return;
     };
+    // The level the hero stands on, against which a creature in melee strikes it (#3852).
+    let hero_layer = body.level();
     let hero_health = hero_health.map(|health| (health.current, health.most));
     let attacking = hero_strikes || attack.and_then(crate::attack::Attack::target).is_some();
     let unseen = unseen_hero(
@@ -1422,12 +1457,12 @@ fn pursue(
         .and_then(|&first| creatures.get(first).ok())
         .map(|(_, transform, ..)| spot(transform.translation));
     let seen = doors.seen(&heights);
-    // Where each creature stands, whether it casts, the creature it fights, its size and whether
-    // it fights: the foes.
-    let foes: std::collections::HashMap<Entity, (Vec3, bool, Option<Entity>, u32, bool)> =
+    // Where each creature stands, whether it casts, the creature it fights, its size, whether it
+    // fights and its level: the foes.
+    let foes: std::collections::HashMap<Entity, (Vec3, bool, Option<Entity>, u32, bool, Level)> =
         creatures
             .iter()
-            .map(|(entity, transform, _, mind, .., (_, casting, ..))| {
+            .map(|(entity, transform, way, mind, .., (_, casting, ..))| {
                 (
                     entity,
                     (
@@ -1436,6 +1471,7 @@ fn pursue(
                         mind.foe(),
                         mind.size(),
                         mind.fighting(),
+                        way.level,
                     ),
                 )
             })
@@ -1614,10 +1650,10 @@ fn pursue(
         }
         // Whether its target makes an art or a spell, which refuses its flight: the hero's art
         // under way, a creature's cast (#2497).
-        let (target, aimed, target_makes, listed, targeted, target_size) = match foe {
+        let (target, aimed, target_makes, listed, targeted, target_size, target_level) = match foe {
             Some(foe) => match foes.get(&foe) {
-                Some(&(at, casts, its_foe, size, _)) => {
-                    (at, foe, casts, None, its_foe == Some(entity), size)
+                Some(&(at, casts, its_foe, size, _, level)) => {
+                    (at, foe, casts, None, its_foe == Some(entity), size, level)
                 }
                 _ => {
                     debug!("ai: {entity} leaves its fight with {foe}, dead or gone");
@@ -1637,6 +1673,7 @@ fn pursue(
                     .zip(first),
                 attacked == Some(entity),
                 hero_size,
+                hero_layer,
             ),
         };
         // A walk begun outside the fight (an idle step, a walk home) it ends as it fights: the
@@ -1674,6 +1711,7 @@ fn pursue(
                 && rules.as_deref().is_some_and(|rules| {
                     minds::struck_down(hero_level, difficulty, rules.on_bronze(mind.level))
                 }),
+            levels_meet: target_level == way.level,
         };
         // The hero itself, which a magician casts at in place of its follower (#1869).
         let heros_place = hero;
@@ -1681,14 +1719,20 @@ fn pursue(
         // A straight line of walkable cells to its target, asked again below (`0x4FCC80`), and a
         // line of sight, the test with the flyer's flag, over the water and the fences: the fight
         // at range's (`0x4DC89C`) and the brain-footers' stare's (`0x4D9D7C`; #3358).
+        // Each on its floor of the building at each cell (#3852).
+        let floor = heights.floor_number(way.level);
         let clear = || {
             paths::straight(here.xz(), hero.xz(), |cell| {
-                heights.walkable_on(cell, way.level)
+                line_passes(&heights, floor, cell, |cell, at| {
+                    heights.walkable_on(cell, at)
+                })
             })
         };
         let sighted = || {
             paths::straight(here.xz(), hero.xz(), |cell| {
-                heights.flown_onto(cell, way.level)
+                line_passes(&heights, floor, cell, |cell, at| {
+                    heights.flown_onto(cell, at)
+                })
             })
         };
         // And a walk's line that the creatures on it stop but its target (`0x4FCC80` with the
@@ -1696,8 +1740,10 @@ fn pursue(
         // cast (`0x4D5E0B`; #3360).
         let walked = || {
             paths::straight(here.xz(), hero.xz(), |cell| {
-                heights.walkable_on(cell, way.level)
-                    && !crowd.stops_but(cell, way.level, (entity, false), aimed)
+                line_passes(&heights, floor, cell, |cell, at| {
+                    heights.walkable_on(cell, at)
+                        && !crowd.stops_but(cell, at, (entity, false), aimed)
+                })
             })
         };
         let stares = opensacred_rules::casts::stare(mind.creature).is_some();
@@ -2051,7 +2097,7 @@ fn pursue(
                     // model has its defending clip: it plays the clip once in place of the strike,
                     // neither striking nor speaking (`0x4E4ECF`–`0x4E4F85`, #2487).
                     let target_fights = match foe {
-                        Some(foe) => foes.get(&foe).is_some_and(|&(.., fighting)| fighting),
+                        Some(foe) => foes.get(&foe).is_some_and(|&(.., fighting, _)| fighting),
                         None => attacking,
                     };
                     if !chains
@@ -2146,9 +2192,19 @@ fn pursue(
             }
             // The terror sprinter mage's aura while its key holds it, refused (`0x51D840`).
             // On itself, a spell refused while its key holds the caster (`0x51D840`); the stone
-            // and the cage at a hero above their bound of levels (`0x51D90D`, #3239).
+            // and the cage at a hero above their bound of levels (`0x51D90D`, #3239); one on an
+            // enemy, on the ground or on the dead at a target on another level than its own
+            // (`0x51D840` at `0x449930`, docs/re/fight.md, "Across a building's levels", #3852).
             Pursues::Casts { spell, .. }
                 if !crate::creature_casts::follows(spell)
+                    || (target_level != way.level
+                        && arts.as_deref().is_some_and(|arts| {
+                            arts.tables
+                                .spells
+                                .iter()
+                                .find(|known| known.id == spell)
+                                .is_some_and(|known| levels_tested(known.launch))
+                        }))
                     || ((spell == opensacred_rules::casts::SPRINTERS_AURA
                         || opensacred_rules::casts::on_itself(spell))
                         && opensacred_rules::casts::refused_while_keyed(spell)
@@ -3757,9 +3813,11 @@ fn sight(
         }
         let heading = transform.rotation * Vec3::X;
         if !minds::sees(here, Spot::new(heading.x, heading.z), at)
-            // A line of sight, over the water and the fences (`0x59F6B2`, #3358).
+            // A line of sight, over the water and the fences (`0x59F6B2`, #3358), on its floor of
+            // the building at each cell (#3852).
             || !paths::straight(transform.translation.xz(), hero.translation.xz(), |cell| {
-                heights.flown_onto(cell, way.level)
+                let floor = heights.floor_number(way.level);
+                line_passes(&heights, floor, cell, |cell, at| heights.flown_onto(cell, at))
             })
         {
             continue;
@@ -3823,6 +3881,13 @@ impl Plugin for AiPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cast_at_an_enemy_the_ground_or_the_dead_wants_its_caster_s_level() {
+        // On an enemy, at a point, on the dead: tested; on a friend, on itself, of none: not.
+        assert!([1, 3, 4].into_iter().all(levels_tested));
+        assert!(![0, 2, 5].into_iter().any(levels_tested));
+    }
 
     #[test]
     fn a_swooping_bat_struck_aloft_may_fall_and_a_blow_of_nothing_never_fells_it() {

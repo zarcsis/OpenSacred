@@ -2703,6 +2703,7 @@ impl Mind {
             hero_size,
             outdoors,
             strikes_down,
+            levels_meet,
             ..
         } = *sight;
         let reach = reach_f32(self.size(), hero_size);
@@ -2818,7 +2819,9 @@ impl Mind {
                 self.stepped = stepped;
                 None
             }
-            None if d > hi => Some(Pursues::ComesOn {
+            // Its target on another level it does not strike, in its band or not: it comes on,
+            // its way taking the door (`0x4E1DE8`–`0x4E1E12`, #3852).
+            None if d > hi || !levels_meet => Some(Pursues::ComesOn {
                 runs: self.comes_on_runs(rng),
                 within,
             }),
@@ -3601,6 +3604,10 @@ pub struct Pursuit {
     /// Whether its target strikes it down as it would flee wounded: the hero of set 58's six
     /// pieces ([`crate::set_bonuses::STRIKES_FLEEING`]) by the levels ([`struck_down`]).
     pub strikes_down: bool,
+    /// Whether its target stands on its own level, the layer and the floor (`0x4E1DE8`–`0x4E1E12`):
+    /// the melee's decision strikes it only so, and else comes on, its way through the door
+    /// (docs/re/fight.md, "Across a building's levels", #3852).
+    pub levels_meet: bool,
 }
 
 /// The types whose models have the slot 179 (`*_FLY_LOOP`), of the flying types the crows alone
@@ -5405,6 +5412,7 @@ mod tests {
             hero_size: SIZE,
             outdoors: true,
             strikes_down: false,
+            levels_meet: true,
         };
         let cast = CastSight {
             ranged_target: false,
@@ -5563,6 +5571,7 @@ mod tests {
             hero_size: SIZE,
             outdoors: true,
             strikes_down: false,
+            levels_meet: true,
         };
         let cast = CastSight {
             ranged_target: false,
@@ -5675,6 +5684,7 @@ mod tests {
             hero_size: SIZE,
             outdoors: true,
             strikes_down: false,
+            levels_meet: true,
         };
         let cast = CastSight {
             ranged_target: false,
@@ -5758,6 +5768,7 @@ mod tests {
             hero_size: SIZE,
             outdoors: true,
             strikes_down: false,
+            levels_meet: true,
         };
         let cast = |ranged_target| CastSight {
             ranged_target,
@@ -5842,6 +5853,7 @@ mod tests {
             hero_size: SIZE,
             outdoors: true,
             strikes_down: false,
+            levels_meet: true,
         };
         let cast = CastSight {
             ranged_target: false,
@@ -5924,6 +5936,7 @@ mod tests {
             hero_size: SIZE,
             outdoors: true,
             strikes_down: false,
+            levels_meet: true,
         }
     }
 
@@ -6967,6 +6980,7 @@ mod tests {
             hero_size: SIZE,
             outdoors: true,
             strikes_down: false,
+            levels_meet: true,
         };
         let cast = CastSight {
             ranged_target: false,
@@ -7303,6 +7317,7 @@ mod tests {
             hero_size: SIZE,
             outdoors: true,
             strikes_down: false,
+            levels_meet: true,
             here: at(0.0, 0.0),
             hero: at(300.0, 0.0),
             walk: Some(Walking {
@@ -7358,6 +7373,7 @@ mod tests {
             hero_size: SIZE,
             outdoors: true,
             strikes_down,
+            levels_meet: true,
             here: at(0.0, 0.0),
             hero: at(150.0, 0.0),
             walk: None,
@@ -7418,6 +7434,7 @@ mod tests {
             hero_size: SIZE,
             outdoors,
             strikes_down: false,
+            levels_meet: true,
             here: at(0.0, 0.0),
             hero: at(150.0, 0.0),
             walk: None,
@@ -7459,6 +7476,7 @@ mod tests {
             hero_size: SIZE,
             outdoors: true,
             strikes_down: false,
+            levels_meet: true,
             here: at(0.0, 0.0),
             hero: at(150.0, 0.0),
             walk: Some(Walking {
@@ -7493,6 +7511,7 @@ mod tests {
             hero_size: SIZE,
             outdoors: true,
             strikes_down: false,
+            levels_meet: true,
             here: Spot::default(),
             hero: at(d, 0.0),
             walk,
@@ -8117,6 +8136,7 @@ mod tests {
             hero_size: SIZE,
             outdoors: true,
             strikes_down: false,
+            levels_meet: true,
             here,
             hero: Spot::default(),
             walk: None,
@@ -8125,6 +8145,32 @@ mod tests {
             target_makes: false,
             listed: Some((index, first)),
             targeted: false,
+        }
+    }
+
+    #[test]
+    fn a_creature_strikes_its_target_on_its_own_level_alone() {
+        let mut rng = Rng::of(7, 0, 1);
+        let at = |x, y| Spot::new(x, y);
+        // In the band of an armed goblin and a hero of the size 130, 115 to 145, its far edge
+        // too, on one level: it strikes.
+        for x in [130.0, 145.0] {
+            let sight = listed(at(x, 0.0), 0, at(x, 0.0));
+            assert!(matches!(
+                goblin().pursue(&sight, || true, &mut rng),
+                Some(Pursues::Strikes(_))
+            ));
+        }
+        // On another, as through a doorway, it comes on, in its band or nearer (#3852).
+        for x in [130.0, 60.0] {
+            let apart = Pursuit {
+                levels_meet: false,
+                ..listed(at(x, 0.0), 0, at(x, 0.0))
+            };
+            assert!(matches!(
+                goblin().pursue(&apart, || true, &mut rng),
+                Some(Pursues::ComesOn { .. })
+            ));
         }
     }
 
