@@ -3826,7 +3826,7 @@ pub type BubbleSide = ([[f32; 3]; 4], [[f32; 2]; 4]);
 /// each turning about the upright at its own speed at its own height, its texture once around;
 /// nine stand within the first 64 over the ground, and the last rises ever faster to 150 and
 /// starts again from the ground. It has no particles and no light, and stands until its `DelNPC`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BubblePrison {
     turns: [f32; BUBBLE_CYLINDERS],
     speeds: [f32; BUBBLE_CYLINDERS],
@@ -6066,7 +6066,7 @@ const HOLY_SHIELD_TURN: f32 = 0.5;
 /// radius 35 and 120 high, lit only by a band of eight columns at its foot that sweeps round
 /// clockwise on the screen every 2 s, over a matching arc on the ground; an arrow it turns aside
 /// lights it whole for some 0.6 s; it goes at once at the end of its seconds. No particle.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HolyShield {
     clock: f32,
     seconds: f32,
@@ -6192,7 +6192,7 @@ const SHIELD_WALL_FADE: f32 = 0.75;
 /// glow at each built column's foot; they stand bobbing between 56 and 84 high out of step with
 /// each other, a spell or an arrow turned aside doubling their height at once, which falls back
 /// over 1.33 s; past its seconds they are unbuilt the other way over a second. No particle.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ShieldWall {
     clock: f32,
     seconds: f32,
@@ -6372,7 +6372,7 @@ impl DarkWard {
 
 /// The two regenerations' sights: the mana's spring's (835, `cParticleSystem_manaregen`, its
 /// draw `0x78B230`) and the regeneration's (836, `cParticleSystem_hpregen`, `0x78B680`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Regen {
     Mana,
     Health,
@@ -15289,7 +15289,7 @@ pub const BUBBLE_BURST_LIGHT: f32 = 150.0;
 pub const SONAR_LIGHT: f32 = 200.0;
 
 /// The bubble's stages (`+0x20B1`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum BubbleStage {
     Grows,
     Flies,
@@ -15301,7 +15301,7 @@ enum BubbleStage {
 /// `0x798030`): its bush grows to its size in a third of a second, flies, and shrinks away over
 /// its last half second, or at once where a cell stops it; an arrow that bursts it leaves 75
 /// green glows drifting about where it was.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BubbleTrap {
     pub system: System,
     pub clock: f32,
@@ -15410,7 +15410,7 @@ impl BubbleTrap {
 /// The bubble's burst's sonar ring (906, `cParticleSystem_bubbletrap_explo`, `0x7985D0`,
 /// `0x7984F0`, `0x798530`): a flat green ring on the ground from the radius 10, 30 wide, growing
 /// by 250 a second and fading for half a second.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SonarRing {
     pub clock: f32,
 }
@@ -15880,7 +15880,7 @@ pub struct GateVertex {
 /// edges fading in a capsule, its ripples running out from its middle; its picture changes every
 /// 5 s, the next fading in over a second and the shown out over the next; two whirls turn about
 /// it in an ellipse of 250 by 440; it grows from nothing over 2 s.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Stargate {
     clock: f32,
     /// Its ripples' phase, by 5 a second (`+0x20AC`).
@@ -16291,7 +16291,7 @@ impl DemonForm {
 
 /// Where a cast's sight follows its caster (the FX event's bone, `+0x38`): the left hand's ring
 /// finger (21), the right's (22), the root (0), or the feet (36, 37).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CastBone {
     Left,
     Right,
@@ -16401,7 +16401,7 @@ pub fn cast_blend(style: u8) -> (Blend, bool) {
 /// from its clock's first time to its second, on its caster's clip's rate, or a glow growing and
 /// shrinking between them, or the style 22's twirl on the ground; it ends past its second time
 /// with its last particle.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CastSight {
     pub system: System,
     pub style: u8,

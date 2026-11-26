@@ -58,6 +58,8 @@ struct Unmade {
 }
 
 /// What a sight shows and how far it has run.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "ShieldLook")]
 enum Look {
     Holy(HolyShield),
     Wall(ShieldWall),
@@ -71,6 +73,15 @@ impl Look {
             Self::Holy(shield) => shield.update(dt),
             Self::Wall(wall) => wall.update(dt),
             Self::Regen(_, clock, _) => *clock += dt,
+        }
+    }
+
+    /// Its kind.
+    fn kind(&self) -> Kind {
+        match self {
+            Self::Holy(_) => Kind::Holy,
+            Self::Wall(_) => Kind::Wall,
+            Self::Regen(regen, ..) => Kind::Regen(*regen),
         }
     }
 
@@ -90,6 +101,53 @@ struct Shown {
     bearer: Entity,
     look: Look,
     parts: Vec<Handle<Mesh>>,
+}
+
+/// A sight about its bearer as a save keeps it (#3814, the epic #3753): its bearer by its name
+/// and its look; a load makes it again at its bearer, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedShield")]
+pub struct SavedLook {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    look: Look,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The sights in `world` as a save keeps them (#3814).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .map(|shown| SavedLook {
+            bearer: shown.bearer,
+            look: shown.look.clone(),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's sights again (#3814); one whose bearer the load finds not is left out.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        if crate::names::found(Some(saved.bearer)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade {
+                kind: saved.look.kind(),
+                bearer: saved.bearer,
+                // Any seconds: the kept look holds its own.
+                seconds: 1.0,
+            },
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
 }
 
 /// The sights' materials, made as the first asks, by kind: the holy shield's cylinder and ground
@@ -123,13 +181,13 @@ pub(crate) fn show(commands: &mut Commands, kind: Kind, bearer: Entity, seconds:
 /// shields their light; a bearer's new sight of a kind takes the place of the one it had.
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<Look>>)>,
     shown: Query<(Entity, &Shown)>,
     places: Query<&GlobalTransform>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let Ok(at) = places.get(unmade.bearer) else {
             commands.entity(entity).despawn();
             continue;
@@ -180,26 +238,22 @@ fn make(
                 health: [material(Regen::Health.texture(), false, false), regen_glow],
             }
         });
-        let (look, chosen): (Look, Vec<Option<Handle<Effect>>>) = match unmade.kind {
-            Kind::Holy => (
-                Look::Holy(HolyShield::new(unmade.seconds)),
-                materials.holy.to_vec(),
-            ),
-            Kind::Wall => (
-                Look::Wall(ShieldWall::new(unmade.seconds)),
-                materials.wall.to_vec(),
-            ),
-            Kind::Regen(regen) => (
-                Look::Regen(regen, 0.0, unmade.seconds),
-                match regen {
-                    Regen::Mana => materials.mana.to_vec(),
-                    Regen::Health => materials.health.to_vec(),
-                },
-            ),
+        let chosen: Vec<Option<Handle<Effect>>> = match unmade.kind {
+            Kind::Holy => materials.holy.to_vec(),
+            Kind::Wall => materials.wall.to_vec(),
+            Kind::Regen(Regen::Mana) => materials.mana.to_vec(),
+            Kind::Regen(Regen::Health) => materials.health.to_vec(),
+        };
+        // A loaded sight goes on as it went (#3814).
+        let look = match (resumed, unmade.kind) {
+            (Some(crate::fx::Resumes(look)), _) => look.clone(),
+            (None, Kind::Holy) => Look::Holy(HolyShield::new(unmade.seconds)),
+            (None, Kind::Wall) => Look::Wall(ShieldWall::new(unmade.seconds)),
+            (None, Kind::Regen(regen)) => Look::Regen(regen, 0.0, unmade.seconds),
         };
         let parts: Vec<Handle<Mesh>> = chosen.iter().map(|_| meshes.add(empty())).collect();
         let mut made = commands.entity(entity);
-        made.remove::<Unmade>().insert((
+        made.remove::<(Unmade, crate::fx::Resumes<Look>)>().insert((
             Shown {
                 bearer: unmade.bearer,
                 look,

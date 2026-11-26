@@ -84,6 +84,68 @@ struct Shown {
     whirls: [Handle<Mesh>; 2],
 }
 
+/// A stargate's look as a save keeps it (#3814, the epic #3753): its object by its name and its
+/// system; a load gives it to its object made again, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedStargate")]
+pub struct SavedLook {
+    #[serde(with = "crate::names::required")]
+    object: Entity,
+    gate: Stargate,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.object = mapper.get_mapped(self.object);
+    }
+}
+
+/// The gates' looks in `world` as a save keeps them (#3814).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut shown = world.query::<(Entity, &Shown)>();
+    shown
+        .iter(world)
+        .map(|(object, shown)| SavedLook {
+            object,
+            gate: shown.gate.clone(),
+        })
+        .collect()
+}
+
+/// Gives a loaded save's gates' looks to their objects made again (#3814): one that shows already
+/// takes its system and its windows their pictures, another takes it as it shows; one whose
+/// object the load finds not is left out.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        let Some(object) = crate::names::found(Some(saved.object))
+            .filter(|&object| world.get_entity(object).is_ok())
+        else {
+            continue;
+        };
+        let Some(mut shown) = world.get_mut::<Shown>(object) else {
+            world
+                .entity_mut(object)
+                .insert(crate::fx::Resumes(saved.gate));
+            continue;
+        };
+        let pictures = saved.gate.pictures;
+        let windows = shown.windows.clone().map(|(_, window)| window);
+        let underworld = usize::from(shown.underworld);
+        shown.gate = saved.gate;
+        let made = world.resource::<Looks>().0[underworld]
+            .as_ref()
+            .map(|made| made.pictures.clone())
+            .unwrap_or_default();
+        for (window, picture) in windows.into_iter().zip(pictures) {
+            if let Some(Some(material)) = made.get(picture)
+                && let Some(mut drawn) = world.get_mut::<MeshMaterial3d<Effect>>(window)
+            {
+                drawn.0 = material.clone();
+            }
+        }
+    }
+}
+
 /// A window's mesh of no triangles yet, kept in the main world to be rewritten each frame.
 fn window_mesh() -> Mesh {
     let mut mesh = Mesh::new(
@@ -99,9 +161,13 @@ fn window_mesh() -> Mesh {
 
 /// Gives each new gate its look (`0x77FBE0`, `0x780BB0`): its window's copies, its whirls and its
 /// light on the ground.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn show(
     mut commands: Commands,
-    gates: Query<(Entity, &Gate), Added<Gate>>,
+    gates: Query<(Entity, &Gate, Option<&crate::fx::Resumes<Stargate>>), Added<Gate>>,
     (data, assets, mut looks, mut dice): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -110,7 +176,7 @@ fn show(
     ),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, gate) in &gates {
+    for (entity, gate, resumed) in &gates {
         let kind = usize::from(gate.underworld);
         let made = looks.0[kind]
             .get_or_insert_with(|| {
@@ -149,7 +215,11 @@ fn show(
                 Materials { pictures, whirls }
             })
             .clone();
-        let look = Stargate::new(&mut dice.0);
+        // A loaded gate goes on as it went (#3814).
+        let look = resumed.map_or_else(
+            || Stargate::new(&mut dice.0),
+            |crate::fx::Resumes(look)| look.clone(),
+        );
         // Its two copies of the window, the shown picture and the next over it, and its whirls,
         // all untinted by the night (`+0xA0` unread).
         let windows = look.pictures.map(|picture| {
@@ -187,12 +257,15 @@ fn show(
             Transform::IDENTITY,
             ChildOf(entity),
         ));
-        commands.entity(entity).insert(Shown {
-            gate: look,
-            underworld: gate.underworld,
-            windows,
-            whirls,
-        });
+        commands
+            .entity(entity)
+            .remove::<crate::fx::Resumes<Stargate>>()
+            .insert(Shown {
+                gate: look,
+                underworld: gate.underworld,
+                windows,
+                whirls,
+            });
     }
 }
 

@@ -103,6 +103,8 @@ struct Shown {
     popped: bool,
     mesh: Handle<Mesh>,
     playing: bool,
+    /// Whether a hero cast it, which its bush's texture tells.
+    hero: bool,
 }
 
 /// A bubble's burst's sonar ring on the ground: its system, its centre and its mesh.
@@ -113,6 +115,110 @@ struct Sonar {
     mesh: Handle<Mesh>,
 }
 
+/// A look carried alone by a load, its bolt gone, which [`show`] makes and then lets go (#3814).
+#[derive(Component)]
+struct Alone;
+
+/// A bubble's look as a save keeps it (#3814, the epic #3753): its system, its place and its
+/// direction, whether an arrow burst it and whether a hero cast it. A load gives a flying
+/// bubble's to its bolt made again (`bolts::SavedBolt`), and makes one that outlives its bolt
+/// again on its own.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedBubble")]
+pub struct SavedLook {
+    look: BubbleTrap,
+    place: Vec3,
+    along: Vec3,
+    popped: bool,
+    hero: bool,
+}
+
+impl SavedLook {
+    /// The look `shown` as a save keeps it.
+    fn of(shown: &Shown) -> Self {
+        Self {
+            look: shown.look.clone(),
+            place: shown.place,
+            along: shown.along,
+            popped: shown.popped,
+            hero: shown.hero,
+        }
+    }
+}
+
+/// A sonar ring as a save keeps it (#3814): its system and its centre.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedSonar {
+    ring: SonarRing,
+    centre: Vec3,
+}
+
+/// The look of the bubble's bolt `bolt` as a save keeps it with its bolt, if it shows (#3814).
+pub(crate) fn saved_look(world: &World, bolt: Entity) -> Option<SavedLook> {
+    let mut shown = world.try_query::<&Shown>()?;
+    shown
+        .iter(world)
+        .find(|shown| shown.bolt == Some(bolt))
+        .map(SavedLook::of)
+}
+
+/// The bubbles' looks in `world` that outlive their bolts, and the sonar rings, as a save keeps
+/// them (#3814).
+pub(crate) fn saved(world: &mut World) -> (Vec<SavedLook>, Vec<SavedSonar>) {
+    let mut shown = world.query::<&Shown>();
+    let looks = shown
+        .iter(world)
+        .filter(|shown| shown.bolt.is_none())
+        .map(SavedLook::of)
+        .collect();
+    let mut rings = world.query::<&Sonar>();
+    let rings = rings
+        .iter(world)
+        .map(|sonar| SavedSonar {
+            ring: sonar.ring,
+            centre: sonar.centre,
+        })
+        .collect();
+    (looks, rings)
+}
+
+/// Makes a loaded save's bubbles' looks that outlived their bolts again, each on its own, and its
+/// sonar rings (#3814).
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>, rings: Vec<SavedSonar>) {
+    for saved in looks {
+        world.spawn((
+            Alone,
+            Transform::from_translation(saved.place),
+            crate::fx::Resumes(saved),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+    if rings.is_empty() {
+        return;
+    }
+    if let Err(e) = world.run_system_cached_with(rings_again, rings) {
+        warn!("bubbles: the saved sonar rings are not made: {e}");
+    }
+}
+
+/// Makes the saved sonar rings `rings` again ([`again`]).
+fn rings_again(
+    In(rings): In<Vec<SavedSonar>>,
+    mut commands: Commands,
+    (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
+    (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
+) {
+    looks.make(data.as_deref(), &assets, &mut effects);
+    for saved in rings {
+        sonar(
+            &mut commands,
+            (saved.centre, saved.ring),
+            looks.sonar.clone(),
+            &mut meshes,
+        );
+    }
+}
+
 /// Gives each new bubble its look (`0x797B30`, `0x798380`): its bush and its glows' mesh.
 #[expect(
     clippy::type_complexity,
@@ -121,17 +227,37 @@ struct Sonar {
 fn show(
     mut commands: Commands,
     (bolts, heights): (
-        Query<(Entity, &Bubble, &Transform), Added<Bubble>>,
+        Query<
+            (
+                Entity,
+                Option<&Bubble>,
+                &Transform,
+                Option<&crate::fx::Resumes<SavedLook>>,
+                Has<Alone>,
+            ),
+            Or<(Added<Bubble>, Added<Alone>)>,
+        >,
         Res<Heights>,
     ),
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (bolt, bubble, place) in &bolts {
+    for (bolt, bubble, place, resumed, alone) in &bolts {
+        // A loaded bubble's look goes on as it went, one whose bolt had ended on its own (#3814).
+        let kept = match (resumed, bubble) {
+            (Some(crate::fx::Resumes(saved)), _) => saved.clone(),
+            (None, Some(bubble)) => SavedLook {
+                look: BubbleTrap::new(bubble.seconds),
+                place: place.translation,
+                along: Vec3::new(bubble.direction.x, 0.0, bubble.direction.y).normalize_or(Vec3::X),
+                popped: false,
+                hero: bubble.hero,
+            },
+            (None, None) => continue,
+        };
         looks.make(data.as_deref(), &assets, &mut effects);
-        let at = place.translation;
-        let along = Vec3::new(bubble.direction.x, 0.0, bubble.direction.y).normalize_or(Vec3::X);
-        let texture = looks.textures[usize::from(!bubble.hero)].clone();
+        let (at, along) = (kept.place, kept.along);
+        let texture = looks.textures[usize::from(!kept.hero)].clone();
         let model = looks.model.as_ref().map(|model| {
             let mut made = commands.spawn((
                 model_looks::scene(&assets, model),
@@ -173,16 +299,24 @@ fn show(
             ));
         }
         shown.insert(Shown {
-            bolt: Some(bolt),
-            look: BubbleTrap::new(bubble.seconds),
+            bolt: (!alone).then_some(bolt),
+            look: kept.look,
             model,
             lamp,
             place: at,
             along,
-            popped: false,
+            popped: kept.popped,
             mesh,
             playing: false,
+            hero: kept.hero,
         });
+        if alone {
+            commands.entity(bolt).despawn();
+        } else if resumed.is_some() {
+            commands
+                .entity(bolt)
+                .remove::<crate::fx::Resumes<SavedLook>>();
+        }
     }
 }
 
@@ -307,7 +441,10 @@ fn fly(
                         let ground = ground_of(&heights, look.place);
                         sonar(
                             &mut commands,
-                            Vec3::new(look.place.x, ground + GROUND_LIFT, look.place.z),
+                            (
+                                Vec3::new(look.place.x, ground + GROUND_LIFT, look.place.z),
+                                SonarRing::default(),
+                            ),
                             looks.sonar.clone(),
                             &mut meshes,
                         );
@@ -358,17 +495,17 @@ fn fly(
     }
 }
 
-/// Makes a sonar ring at `centre` on the ground (`0x798460`).
+/// Makes the sonar ring `ring` at `centre` on the ground (`0x798460`).
 fn sonar(
     commands: &mut Commands,
-    centre: Vec3,
+    (centre, ring): (Vec3, SonarRing),
     material: Option<Handle<Effect>>,
     meshes: &mut Assets<Mesh>,
 ) {
     let mesh = meshes.add(empty());
     let mut ring = commands.spawn((
         Sonar {
-            ring: SonarRing::default(),
+            ring,
             centre,
             mesh: mesh.clone(),
         },
