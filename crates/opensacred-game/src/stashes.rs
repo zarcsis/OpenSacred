@@ -27,11 +27,11 @@
 //! event's cell", #3089), so that one on a building's floor is found far below its drawn floor,
 //! from that floor; an event on a floor neither blinks, nor sparks, nor lays its box.
 //!
-//! As the hero arrives it searches the event only where it reaches the event's point by a straight
-//! way, or cramped from near it (`0x53BB60`, [`reaches`], #3086).
-//!
-//! Not followed yet: the hero's walk of the order 7 (the click's own walk takes it there; its
-//! reach not read).
+//! A click sends the hero by a way to the event's point, on the event's floor, unless its cell
+//! lies less than 2 from the event's (`0x53B7A6`–`0x53B945`, [`event_point`], [`walks_to`], #3839;
+//! docs/re/containers.md, "The walk"), in place of the cell that the click picks; as it arrives,
+//! wherever its walk ended, it searches the event only where it reaches the event's point by a
+//! straight way, or cramped from near it (`0x53BB60`, [`reaches`], #3086).
 
 use std::collections::HashSet;
 
@@ -50,9 +50,9 @@ use crate::iso;
 use crate::scripts::Live;
 use crate::terrain::Heights;
 
-/// How near a stash the hero searches it, standing, in world units (as a container's, `0x53BE8C`;
-/// **hypothesis**: the order 7's reach is not read).
-const SEARCHES_WITHIN: f32 = 300.0;
+/// How near the event's cell, in cells, the hero's stands for it to search the event without a
+/// walk (`0x53B7A6`: the distance between the cells, its whole square root rounded, below 2).
+const NO_WALK_WITHIN: i32 = 2;
 /// The function that runs as the hero arrives wherever it stands, its name compared case aside
 /// (`0x53BBC5`; the air's element of the ancestors' forge).
 const ANYWHERE: &str = "NimmtElementLuft";
@@ -107,8 +107,6 @@ pub(crate) const PICKED_ABOVE: f32 = 40.0;
 /// How far about the hero a random item lands, along each axis (as a container's, `R(20, 50)`).
 const LANDS_FROM: u32 = 20;
 const LANDS_TO: u32 = 50;
-/// The frames the hero waits for its walk to begin before it searches from where it stands.
-const WALK_BEGINS_WITHIN: u8 = 10;
 /// The blink (`0x40A230`): its texture (the glitter's grey one, `0x401030`'s `+0xC0`), its period
 /// and its length in milliseconds of the game's clock, its square's largest half side in the
 /// glitter's units of two world units (`glitter`), the square's tint and the grey of the half
@@ -157,18 +155,15 @@ pub(crate) fn box_rect(point: Vec2, boxed: [i16; 4], zoom: f32) -> opensacred_ru
 #[derive(Message, Clone, Copy, Debug)]
 pub struct RandomItem;
 
-/// The stash that the hero was sent to by a click, which it searches as it stands near once its
-/// walk there ends, whether the walk began, and the frames it waited for it.
+/// The stash that the hero was sent to by a click, which it searches once its walk there ends.
 #[derive(Component)]
-pub(crate) struct Searches(Entity, bool, u8);
+pub(crate) struct Searches(Entity);
 
 /// The hero's search of a hidden stash as a save keeps it (#3763): the stash by its name.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SavedSearches {
     #[serde(with = "crate::names::required")]
     target: Entity,
-    first: bool,
-    count: u8,
 }
 
 impl bevy::ecs::entity::MapEntities for SavedSearches {
@@ -181,19 +176,11 @@ impl crate::doings::Saves for Searches {
     type Saved = SavedSearches;
 
     fn saved(&self, _: &crate::doings::Moment) -> Option<SavedSearches> {
-        Some(SavedSearches {
-            target: self.0,
-            first: self.1,
-            count: self.2,
-        })
+        Some(SavedSearches { target: self.0 })
     }
 
     fn again(saved: SavedSearches, _: &crate::doings::Moment) -> Option<Self> {
-        Some(Self(
-            crate::names::found(Some(saved.target))?,
-            saved.first,
-            saved.count,
-        ))
+        Some(Self(crate::names::found(Some(saved.target))?))
     }
 }
 
@@ -275,7 +262,10 @@ fn place(
 /// On a press of the left button that went to no attack, the event of a box that the cursor
 /// picks (`under_cursor`), else, where it picks nothing, the event without one of the cell under
 /// the cursor at the height 0 on the hero's floor ([`cell_at_zero`], [`Stash::found`]) becomes the
-/// hero's to search (`0x617A5B`); any press ends the last such order.
+/// hero's to search (`0x617A5B`), and the hero goes by a way to the event's point on the event's
+/// floor ([`event_point`]), or stands where it is with its cell less than 2 from the event's
+/// ([`walks_to`]), in place of the click's cell (`hero::steer`; `0x53B7A6`–`0x53B945`); any press
+/// ends the last such order.
 fn pick(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
@@ -283,12 +273,12 @@ fn pick(
     aim: Res<Aim>,
     camera: Single<(&Camera, &GlobalTransform), crate::iso::Eye<With<Camera>>>,
     stashes: Query<(Entity, &Stash)>,
-    (heroes, heights): (Query<(Entity, &Body)>, Res<Heights>),
+    (mut heroes, heights): (Query<(Entity, &Transform, &mut Body)>, Res<Heights>),
 ) {
     if !buttons.just_pressed(MouseButton::Left) {
         return;
     }
-    for (hero, _) in &heroes {
+    for (hero, ..) in &heroes {
         commands.entity(hero).remove::<Searches>();
     }
     let Some(cursor) = pointer.0 else {
@@ -305,51 +295,63 @@ fn pick(
     });
     let unboxed = || {
         let cell = cell_at_zero(ray)?;
-        let (_, body) = heroes.iter().next()?;
+        let (_, _, body) = heroes.iter().next()?;
         let floor = floor_of(&heights, body.level());
         stashes
             .iter()
             .find(|(_, stash)| stash.found(cell, floor))
             .map(|(entity, _)| entity)
     };
-    let Some(stash) = boxed.or_else(|| under.0.is_none().then(unboxed).flatten()) else {
+    let Some((stash, event)) = boxed
+        .or_else(|| under.0.is_none().then(unboxed).flatten())
+        .and_then(|entity| stashes.get(entity).ok())
+    else {
         return;
     };
-    for (hero, _) in &heroes {
-        debug!("stashes: the hero goes to search {stash}");
-        commands.entity(hero).insert(Searches(stash, false, 0));
+    let point = event_point(event.cell, event.boxed);
+    for (hero, transform, mut body) in &mut heroes {
+        let here = transform.translation;
+        debug!("stashes: the hero goes to search {stash} from {point}");
+        if walks_to(crate::paths::cell_of(here.x, here.z), event.cell) {
+            // On the event's floor: the ground's, or the hero's own, from which alone one on a
+            // building's floor is found.
+            let level = if event.floor == 0 { None } else { body.level() };
+            body.send_onto(Vec3::new(point.x, here.y, point.y), level);
+        } else {
+            body.stop();
+        }
+        commands.entity(hero).insert(Searches(stash));
     }
 }
 
-/// The hero that stands, once its way to a stash it was sent to ends: within 300 of it it searches
-/// it (`0x53BA29`) where it reaches the event's point ([`reaches`]) or the event's function runs
-/// anywhere ([`ANYWHERE`]): the stash leaves the scripts' list and its function runs
-/// (`scripts::run_function`); farther, or out of its reach, it gives up, the stash kept (#3086).
+/// Whether the hero, its cell at `hero`, walks to an event at `event` to search it: its cell
+/// [`NO_WALK_WITHIN`] cells or more from the event's, the distance's whole square root rounded
+/// (`0x53B7A6`).
+fn walks_to(hero: (i32, i32), event: (i32, i32)) -> bool {
+    let (dx, dy) = (f64::from(hero.0 - event.0), f64::from(hero.1 - event.1));
+    (dx * dx + dy * dy).sqrt().round() >= f64::from(NO_WALK_WITHIN)
+}
+
+/// The hero that stands, once its way to a stash it was sent to ends, wherever it ends (the
+/// original's arrival tests no distance, `0x53BA29`): it searches the stash where it reaches the
+/// event's point ([`reaches`]) or the event's function runs anywhere ([`ANYWHERE`]): the stash
+/// leaves the scripts' list and its function runs (`scripts::run_function`); out of its reach it
+/// gives up, the stash kept (#3086).
 fn search(
     mut commands: Commands,
     heights: Res<Heights>,
-    stashes: Query<(&Transform, &Stash)>,
-    mut heroes: Query<(Entity, &Transform, &Body, &mut Searches)>,
+    stashes: Query<&Stash>,
+    heroes: Query<(Entity, &Transform, &Body, &Searches)>,
 ) {
-    for (hero, transform, body, mut searches) in &mut heroes {
+    for (hero, transform, body, searches) in &heroes {
         // Its walk there, ordered for the world's next tick or begun (`hero::Body`).
         if body.target().is_some() || body.ordered() {
-            searches.1 = true;
-            continue;
-        }
-        let Ok((at, stash)) = stashes.get(searches.0) else {
-            commands.entity(hero).remove::<Searches>();
-            continue;
-        };
-        let near = (at.translation - transform.translation).xz().length() <= SEARCHES_WITHIN;
-        if !searches.1 && !near && searches.2 < WALK_BEGINS_WITHIN {
-            searches.2 += 1;
             continue;
         }
         commands.entity(hero).remove::<Searches>();
-        if !near {
+        let Ok(stash) = stashes.get(searches.0) else {
             continue;
-        }
+        };
         let cell = stash.cell;
         let level = body.level();
         let reached = reaches(
@@ -622,7 +624,7 @@ impl Plugin for StashesPlugin {
                     pick.in_set(Control)
                         .in_set(crate::frame::OnWorld)
                         .after(attack::aim)
-                        .before(hero::steer),
+                        .after(hero::steer),
                     search.after(hero::run),
                 )
                     .in_set(Unpaused)
@@ -634,6 +636,19 @@ impl Plugin for StashesPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_hero_walks_to_an_event_from_2_cells_or_more() {
+        let event = (3236, 2529);
+        // The same cell and a neighbour's, its diagonal's root 1.41 rounded to 1: no walk.
+        assert!(!walks_to(event, event));
+        assert!(!walks_to((3237, 2530), event));
+        // Two cells along an axis, and the knight's move's root 2.24: a walk.
+        assert!(walks_to((3238, 2529), event));
+        assert!(walks_to((3237, 2531), event));
+        // The statue's, from where the maintainer clicked it.
+        assert!(walks_to((3240, 2534), event));
+    }
 
     #[test]
     fn an_event_without_a_box_is_found_by_its_cell_at_the_height_0_on_its_floor() {
