@@ -39,6 +39,55 @@ struct Shown {
     mesh: Handle<Mesh>,
 }
 
+/// A teleport's sight as a save keeps it (#3778): its caster by its name, whether at the
+/// departure, and its look.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedTeleport")]
+pub struct SavedLook {
+    #[serde(with = "crate::names::required")]
+    caster: Entity,
+    departure: bool,
+    look: TeleportSight,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.caster = mapper.get_mapped(self.caster);
+    }
+}
+
+/// The looks in `world` as a save keeps them (#3778).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .map(|shown| SavedLook {
+            caster: shown.caster,
+            departure: shown.departure,
+            look: shown.look.clone(),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's looks again (#3778), each going on as it went; one of a creature the
+/// load finds not is left out.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        if crate::names::found(Some(saved.caster)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade {
+                caster: saved.caster,
+                departure: saved.departure,
+                rate: 1.0,
+            },
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// The sparks' material, made as first asked; none where its texture is missing.
 #[derive(Resource, Default)]
 struct Looks(Option<Option<Handle<Effect>>>);
@@ -74,7 +123,7 @@ pub(crate) fn spawn(commands: &mut Commands, caster: Entity, (from, to): (Vec3, 
 /// Gives each new sight its sparks, its mesh and its material (`0x771370`, `0x771E20`).
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<TeleportSight>>)>,
     (data, assets, mut looks, mut dice): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -83,7 +132,7 @@ fn make(
     ),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let material = looks
             .0
             .get_or_insert_with(|| {
@@ -98,13 +147,18 @@ fn make(
             .clone();
         let mesh = meshes.add(empty());
         let mut shown = commands.entity(entity);
-        shown.remove::<Unmade>().insert(Shown {
-            caster: unmade.caster,
-            rides: unmade.departure,
-            departure: unmade.departure,
-            look: TeleportSight::new(unmade.rate, &mut dice.0),
-            mesh: mesh.clone(),
-        });
+        shown
+            .remove::<(Unmade, crate::fx::Resumes<TeleportSight>)>()
+            .insert(Shown {
+                caster: unmade.caster,
+                rides: unmade.departure,
+                departure: unmade.departure,
+                look: resumed.map_or_else(
+                    || TeleportSight::new(unmade.rate, &mut dice.0),
+                    |crate::fx::Resumes(look)| look.clone(),
+                ),
+                mesh: mesh.clone(),
+            });
         if let Some(material) = material {
             shown.with_child((
                 Mesh3d(mesh),

@@ -35,10 +35,49 @@ struct Fog {
     mesh: Handle<Mesh>,
 }
 
+/// A battle fog as a save keeps it (#3778): its place, its seconds and variant, and its puffs and
+/// dice; a load makes it again there, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedBattleFog")]
+pub struct SavedLook {
+    at: Vec3,
+    seconds: f32,
+    variant: Variant,
+    shown: (System, Rng),
+}
+
+/// The battle fogs in `world` as a save keeps them (#3778).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut fogs = world.query::<(&Fog, &Transform)>();
+    fogs.iter(world)
+        .map(|(fog, at)| SavedLook {
+            at: at.translation,
+            seconds: fog.seconds,
+            variant: fog.variant,
+            shown: (fog.puffs.clone(), fog.dice.clone()),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's battle fogs again (#3778).
+pub(crate) fn again(world: &mut World, fogs: Vec<SavedLook>) {
+    for saved in fogs {
+        world.spawn((
+            Unmade {
+                at: saved.at,
+                seconds: saved.seconds,
+                variant: saved.variant,
+            },
+            crate::fx::Resumes(saved.shown),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// A battle fog's variant, its event's `+0x3C` (`0x7709F0`): a fog trap's of none, a blink's warm
 /// one where it leaves (1) and its cool one where it lands (2) (`0x4D9166`, `0x4D929A`; the dryad
 /// druid's `0x4D6533`, `0x4D6663`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum Variant {
     Plain = 0,
     Leaves = 1,
@@ -92,7 +131,7 @@ pub(crate) fn rise(commands: &mut Commands, at: Vec3, seconds: f32, variant: Var
 )]
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<(System, Rng)>>)>,
     mut looks: ResMut<Looks>,
     (data, assets, mut materials, mut meshes): (
         Option<Res<Data>>,
@@ -108,6 +147,7 @@ fn make(
             seconds,
             variant,
         },
+        resumed,
     ) in &unmade
     {
         let texture = looks.fog(variant).texture;
@@ -131,10 +171,18 @@ fn make(
         commands.entity(entity).despawn();
         let mesh = meshes.add(empty());
         let index = usize::try_from(entity.index_u32()).unwrap_or(0);
+        // A loaded fog goes on as it went (#3778).
+        let (puffs, dice) = match resumed {
+            Some(crate::fx::Resumes(shown)) => shown.clone(),
+            None => (
+                System::new(looks.fog(variant).count),
+                crate::seed::dice(SEED ^ index),
+            ),
+        };
         let mut fog = commands.spawn((
             Fog {
-                puffs: System::new(looks.fog(variant).count),
-                dice: crate::seed::dice(SEED ^ index),
+                puffs,
+                dice,
                 seconds,
                 variant,
                 mesh: mesh.clone(),

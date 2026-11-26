@@ -33,6 +33,45 @@ struct Shown {
     mesh: Handle<Mesh>,
 }
 
+/// A doom sign as a save keeps it (#3778): its place and its look.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedDoomSign")]
+pub struct SavedLook {
+    at: Vec3,
+    look: DoomSign,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// The looks in `world` as a save keeps them (#3778).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut shown = world.query::<(&Shown, &Transform)>();
+    shown
+        .iter(world)
+        .map(|(shown, at)| SavedLook {
+            at: at.translation,
+            look: shown.look.clone(),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's looks again (#3778), each going on as it went; one of a creature the
+/// load finds not is left out.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        world.spawn((
+            Unmade {
+                place: saved.at,
+                size: 0.0,
+            },
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// The signs' material, `fx_transdim_sign` added by its alpha, made as the first asks; `None`
 /// where the texture is missing.
 #[derive(Resource, Default)]
@@ -47,11 +86,11 @@ pub(crate) fn show(commands: &mut Commands, place: Vec3, size: f32) {
 /// Gives each new sign its look, its mesh and its material (`0x7AFB80`, `0x7AFD70`).
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<DoomSign>>)>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let material = looks
             .0
             .get_or_insert_with(|| {
@@ -71,10 +110,13 @@ fn make(
         let mesh = meshes.add(empty());
         commands
             .entity(entity)
-            .remove::<Unmade>()
+            .remove::<(Unmade, crate::fx::Resumes<DoomSign>)>()
             .insert((
                 Shown {
-                    look: DoomSign::new(unmade.size),
+                    look: resumed.map_or_else(
+                        || DoomSign::new(unmade.size),
+                        |crate::fx::Resumes(look)| look.clone(),
+                    ),
                     mesh: mesh.clone(),
                 },
                 Transform::from_translation(unmade.place),

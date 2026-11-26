@@ -5734,7 +5734,7 @@ const BATTLE_FOG_COUNT: usize = 100;
 /// circle's runes"), standing for its seconds: its rune `runeshield<n>` facing the camera, laid
 /// over by its alpha, with its two glows added over it, its first pulsing by its clock; light
 /// bars of `runeshield_gradient` rising above it in a warm colour; and tiny sparks rising.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Rune {
     pub sparks: System,
     seconds: f32,
@@ -6621,7 +6621,7 @@ impl Puddle {
 /// second, of half side 3 to 5, its frame playing the 64 over 2.55 s; in the event's colour (`+0x3C`)
 /// laid over by its alpha and tinted by the light (the draw's flags `0x40`), for the event's
 /// milliseconds (`+0x38`).
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Knockout {
     butterflies: [Butterfly; KNOCKOUT_COUNT],
     age: f32,
@@ -6631,7 +6631,7 @@ pub struct Knockout {
 
 /// A butterfly of [`Knockout`]: where it flies from its bearer's head in the models' frame, its
 /// half side, its life of 0 to 255, which plays its frames, and its turn's speed.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Butterfly {
     pub offset: [f32; 3],
     pub size: f32,
@@ -8073,7 +8073,7 @@ pub const GOBLIN_STREAK_WIDTH: f32 = 0.125;
 /// strikes (the variant 0, `0x5AED3E`), or, landing on no creature, a summoning at its own place
 /// (`0x5A7531`): the variant 2 for a caster of the type 144, 3 for 143, else 1, of which the
 /// variant 1 alone draws its streaks.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum GoblinLanding {
     Hit,
     Summons(u8),
@@ -8113,7 +8113,7 @@ impl GoblinLanding {
 /// `0x774730` and draw `0x774910`; docs/re/effects.md, "The goblin mages' ball"): its variant,
 /// its particles, the glow's half side that falls from 20 by 5 a second (`+0x20AC`) and its turn
 /// (`+0x20A4`).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GoblinImpact {
     pub landing: GoblinLanding,
     pub system: System,
@@ -11349,7 +11349,7 @@ pub const DOOM_SIGN_TEXTURE: &str = "fx_transdim_sign";
 /// sign"): at the corpse of each creature killed by one who holds the call of death, flat on the
 /// ground, its sign of the half side 1.4 times the dead type's size three times over, each turned
 /// the less the later it is drawn, braking, fading from the third on over 1.76 s.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DoomSign {
     clock: f32,
     fade: f32,
@@ -11531,7 +11531,7 @@ const BURNING_BONE_BURNS: f32 = 0.5;
 /// `+0x34` (10 for 0, a fifth of it up to 60, else 12) growing by 4 a second, living 0.36 s
 /// (−700), in a grey of `+0x34 + 35` (white for 0 and above 220), added whole, turned, its 4 × 4
 /// frames played once over its life; it lights the night by 150 and ends with its last flame.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BurningBone {
     pub system: System,
     clock: f32,
@@ -11795,7 +11795,7 @@ const REANIMATE_RADIUS: f32 = 25.0;
 /// 10 entries of their life, holds over 200 and fades over the last 46 ([`Reanimate::ramp`]);
 /// drawn standing on their feet at an eighth of their size, the ramp's colour added by its alpha
 /// (the flags `0x89`); it lights the night by 200 and ends with its last particle.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Reanimate {
     pub system: System,
     angle: f32,
@@ -13935,7 +13935,7 @@ const TELEPORT_HOLDS: f32 = 0.3;
 
 /// A spark of the teleport: its angle about the ring and its rate, its bob's phase, its star's
 /// turn, and for one that broke away its place, its velocity and its life.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct TeleportSpark {
     angle: f32,
     rate: f32,
@@ -13945,7 +13945,9 @@ struct TeleportSpark {
 }
 
 /// The stages of a teleport's sight (`+0x20B0`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 enum TeleportStage {
     Opens,
     Rises,
@@ -13964,7 +13966,7 @@ enum TeleportStage {
 /// falls bouncing on the ground and shrinks, and comes back to the ring. Its time runs at the
 /// cast's rate; it is added by its alpha in its blue corners, each star at a turn rolled over a
 /// whole turn as it is put on the ring and never turned after (the billboards' flags 5, #3455).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeleportSight {
     sparks: Vec<TeleportSpark>,
     arc: f32,

@@ -38,6 +38,44 @@ struct Ring {
     mesh: Handle<Mesh>,
 }
 
+/// A reanimation's ring as a save keeps it (#3778): its place and its look.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedReanimation")]
+pub struct SavedLook {
+    at: Vec3,
+    ring: Reanimate,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// The looks in `world` as a save keeps them (#3778).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut rings = world.query::<(&Ring, &Transform)>();
+    rings
+        .iter(world)
+        .map(|(ring, at)| SavedLook {
+            at: at.translation,
+            ring: ring.ring.clone(),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's looks again (#3778), each going on as it went; one of a creature the
+/// load finds not is left out.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        world.spawn((
+            Unmade,
+            Transform::from_translation(saved.at),
+            Visibility::default(),
+            crate::fx::Resumes(saved.ring),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// Starts a ring at `at`, a raised creature's place (the FX event `0x84`).
 pub fn ring_in(world: &mut World, at: Vec3) {
     world.spawn((
@@ -51,7 +89,7 @@ pub fn ring_in(world: &mut World, at: Vec3) {
 /// Gives each new ring its mesh, its material and its light.
 fn make(
     mut commands: Commands,
-    unmade: Query<Entity, With<Unmade>>,
+    unmade: Query<(Entity, Option<&crate::fx::Resumes<Reanimate>>), With<Unmade>>,
     (data, assets): (Option<Res<Data>>, Res<AssetServer>),
     (mut made, mut materials, mut meshes): (
         ResMut<Material>,
@@ -59,7 +97,7 @@ fn make(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for entity in &unmade {
+    for (entity, resumed) in &unmade {
         let material = made
             .0
             .get_or_insert_with(|| {
@@ -77,13 +115,15 @@ fn make(
             .clone();
         let mesh = meshes.add(empty());
         let mut ring = commands.entity(entity);
-        ring.remove::<Unmade>().insert((
-            daynight::Light(particles::REANIMATE_LIGHT),
-            Ring {
-                ring: Reanimate::new(),
-                mesh: mesh.clone(),
-            },
-        ));
+        ring.remove::<(Unmade, crate::fx::Resumes<Reanimate>)>()
+            .insert((
+                daynight::Light(particles::REANIMATE_LIGHT),
+                Ring {
+                    ring: resumed
+                        .map_or_else(Reanimate::new, |crate::fx::Resumes(ring)| ring.clone()),
+                    mesh: mesh.clone(),
+                },
+            ));
         if let Some(material) = material {
             ring.with_children(|children| {
                 children.spawn((

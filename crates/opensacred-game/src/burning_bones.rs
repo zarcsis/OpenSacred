@@ -46,6 +46,48 @@ struct Burning {
     mesh: Handle<Mesh>,
 }
 
+/// A burning bone as a save keeps it (#3778): its creature by its name and its look.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedBurningBone")]
+pub struct SavedLook {
+    #[serde(with = "crate::names::required")]
+    target: Entity,
+    bone: BurningBone,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = mapper.get_mapped(self.target);
+    }
+}
+
+/// The looks in `world` as a save keeps them (#3778).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut burning = world.query::<&Burning>();
+    burning
+        .iter(world)
+        .map(|burning| SavedLook {
+            target: burning.target,
+            bone: burning.bone.clone(),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's looks again (#3778), each going on as it went; one of a creature the
+/// load finds not is left out.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        if crate::names::found(Some(saved.target)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade(saved.target),
+            crate::fx::Resumes(saved.bone),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// Sets `target`'s head burning, unless one burns there already (`0x5FA150`).
 pub fn burn(commands: &mut Commands, target: Entity) {
     commands.spawn(Unmade(target));
@@ -54,7 +96,7 @@ pub fn burn(commands: &mut Commands, target: Entity) {
 /// Starts each burning asked for on a target that has none, at its place.
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<BurningBone>>)>,
     burning: Query<&Burning>,
     places: Query<&GlobalTransform>,
     (data, assets): (Option<Res<Data>>, Res<AssetServer>),
@@ -64,7 +106,7 @@ fn make(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (entity, &Unmade(target)) in &unmade {
+    for (entity, &Unmade(target), resumed) in &unmade {
         commands.entity(entity).despawn();
         let Ok(at) = places.get(target) else {
             continue;
@@ -107,7 +149,10 @@ fn make(
             });
         }
         shown.insert(Burning {
-            bone: BurningBone::new(0.0, 0),
+            bone: resumed.map_or_else(
+                || BurningBone::new(0.0, 0),
+                |crate::fx::Resumes(bone)| bone.clone(),
+            ),
             target,
             head: None,
             last: None,
