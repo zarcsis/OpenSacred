@@ -842,6 +842,17 @@ impl Heights {
         }
     }
 
+    /// The inside layer that a creature or the hero on the ground at a cell it may not walk on
+    /// goes onto ([`Self::level_of`]), only where the ground's cell belongs to a building: the
+    /// object manager's move keeps an object on a layer above the ground only over a building's
+    /// cells and drops it to the ground anywhere else (`0x5FCCB0`, `0x634EC0`; docs/re/drawing.md,
+    /// "Buildings: masks and layers", #3847), so that a creature in a garden that a floor's grid
+    /// covers stands on the ground there.
+    pub fn lifted_onto(&self, cell: (i32, i32)) -> Level {
+        self.building_at(cell)?;
+        self.level_of(cell)
+    }
+
     /// The inside layer that a hero at a cell of a building goes onto, through its entrance or
     /// at a start on its mass: the building's floor 1, the first child of its object
     /// (`0x5FCCB0`, `0x635440`), where its grid holds the cell walkable; for a building whose
@@ -1792,6 +1803,11 @@ mod tests {
         assert_eq!(through[0].0.1, 7);
         // A hero on the mass is inside.
         assert_eq!(heights.level_of((5, 5)), house);
+        // A walker on it goes onto its floor 1, its cells the building's; at a cell that the
+        // floor's grid covers but no building owns, it stays on the ground (#3847).
+        assert_eq!(heights.lifted_onto((5, 5)), house);
+        assert_eq!(heights.level_of((7, 5)), house);
+        assert_eq!(heights.lifted_onto((7, 5)), None);
     }
 
     #[test]
@@ -1872,6 +1888,8 @@ mod tests {
         // In at the door onto floor 1; the floors of the building at (4, 4).
         assert_eq!(heights.transition((5, 6), None), first);
         assert_eq!(heights.level_of((5, 5)), first);
+        // A walker on the building's mass goes onto its floor 1 (#3847).
+        assert_eq!(heights.lifted_onto((5, 5)), first);
         assert_eq!(heights.floor(second), Some(((4, 4), 2)));
         // Floor 2 112 units of the models' height up, 192 pixels on the original's screen; the
         // ground and floor 1 at the ground's.
