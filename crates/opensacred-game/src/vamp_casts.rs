@@ -155,21 +155,12 @@ fn claws(
             let Some(look) = VampClaw::new(making.art) else {
                 continue;
             };
-            let mesh = meshes.add(empty());
-            let mut claw = commands.spawn((
-                Transform::IDENTITY,
-                Visibility::default(),
-                DespawnOnExit(AppState::InGame),
-            ));
-            part(&mut claw, &mesh, glow.clone());
-            claw.insert(Claw {
-                caster,
-                bones,
-                look,
-                place: at.translation(),
-                before: None,
-                mesh,
-            });
+            spawn_claw(
+                &mut commands,
+                (glow.clone(), &mut meshes),
+                (caster, bones, look),
+                (at.translation(), None),
+            );
         }
         debug!("vamp_casts: {caster}'s claws glow for {}", making.art);
     }
@@ -232,7 +223,7 @@ fn run_claws(
 /// Gives each new bat's sight its look, its meshes and its materials.
 fn make_bats(
     mut commands: Commands,
-    unmade: Query<Entity, With<UnmadeBats>>,
+    unmade: Query<(Entity, Option<&crate::fx::Resumes<VampBats>>), With<UnmadeBats>>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes, mut dice): (
         ResMut<Assets<Effect>>,
@@ -240,7 +231,7 @@ fn make_bats(
         ResMut<Dice>,
     ),
 ) {
-    for entity in &unmade {
+    for (entity, resumed) in &unmade {
         let [_, sparks, plain, glowing, ..] = looks.get(data.as_deref(), &assets, &mut effects);
         let parts = [
             meshes.add(empty()),
@@ -248,10 +239,16 @@ fn make_bats(
             meshes.add(empty()),
         ];
         let mut sight = commands.entity(entity);
-        sight.remove::<UnmadeBats>().insert(Bats {
-            look: VampBats::new(&mut dice.0),
-            meshes: parts.clone(),
-        });
+        sight
+            .remove::<(UnmadeBats, crate::fx::Resumes<VampBats>)>()
+            .insert(Bats {
+                // A loaded bat's sight goes on as it went (#3809).
+                look: resumed.map_or_else(
+                    || VampBats::new(&mut dice.0),
+                    |crate::fx::Resumes(look)| look.clone(),
+                ),
+                meshes: parts.clone(),
+            });
         // The runes first, then the sparks over them (`0x791AB0`).
         part(&mut sight, &parts[1], plain);
         part(&mut sight, &parts[2], glowing);
@@ -329,6 +326,8 @@ fn run_bats(
 struct RibbonPath {
     playing: bool,
     left: f32,
+    /// Where in its clip it starts, in seconds: a loaded change's where it was.
+    from: f32,
 }
 
 /// How long a ribbons' model outlives their clip: their particles' longest life (1.7 s).
@@ -344,6 +343,188 @@ struct Ribbon {
     before: Option<[f32; 3]>,
     meshes: [Handle<Mesh>; 3],
     light: Entity,
+}
+
+/// The Vampiress's casts' sights as a save keeps them (#3809, the epic #3753): the claws' glows
+/// on their casters by their names, the bats' sights at their places, and the changes' ribbons
+/// with how long their model has left; a load makes each again, going on as it went, a change's
+/// model's clip run on from where it was.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedVampCasts")]
+pub struct SavedSights {
+    claws: Vec<SavedClaw>,
+    bats: Vec<SavedBats>,
+    changes: Vec<SavedChange>,
+}
+
+/// A claw's glow as a save keeps it: its caster, its claw among [`CLAWS`], its look, and its
+/// bone's place and the place before.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedClaw {
+    #[serde(with = "crate::names::required")]
+    caster: Entity,
+    claw: usize,
+    look: VampClaw,
+    place: Vec3,
+    before: Option<Vec3>,
+}
+
+/// A bat's sight as a save keeps it: its place and its look.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedBats {
+    at: Vec3,
+    look: VampBats,
+}
+
+/// A change as a save keeps it: its ribbons' place, how long its model has left, and its ribbons.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedChange {
+    place: Vec3,
+    left: f32,
+    ribbons: Vec<SavedRibbon>,
+}
+
+/// A change's ribbon as a save keeps it: its look, its head's point a frame before, and whether
+/// it lights the night.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedRibbon {
+    look: VampRibbon,
+    before: Option<[f32; 3]>,
+    lit: bool,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedSights {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        for claw in &mut self.claws {
+            claw.caster = mapper.get_mapped(claw.caster);
+        }
+    }
+}
+
+/// The Vampiress's casts' sights in `world` as a save keeps them (#3809).
+pub(crate) fn saved(world: &mut World) -> SavedSights {
+    let mut claws = world.query::<&Claw>();
+    let claws = claws
+        .iter(world)
+        .map(|claw| SavedClaw {
+            caster: claw.caster,
+            claw: CLAWS
+                .iter()
+                .position(|bones| *bones == claw.bones)
+                .unwrap_or(0),
+            look: claw.look.clone(),
+            place: claw.place,
+            before: claw.before,
+        })
+        .collect();
+    let mut bats = world.query::<(&Bats, &Transform)>();
+    let bats = bats
+        .iter(world)
+        .map(|(bats, at)| SavedBats {
+            at: at.translation,
+            look: bats.look.clone(),
+        })
+        .collect();
+    let mut paths = world.query::<(Entity, &RibbonPath)>();
+    let paths: Vec<(Entity, f32)> = paths
+        .iter(world)
+        .map(|(path, model)| (path, model.left))
+        .collect();
+    let mut ribbons = world.query::<(&Ribbon, &Transform, Has<crate::daynight::Light>)>();
+    let changes = paths
+        .into_iter()
+        .filter_map(|(path, left)| {
+            let mut place = None;
+            let kept: Vec<SavedRibbon> = ribbons
+                .iter(world)
+                .filter(|(ribbon, ..)| ribbon.path == path)
+                .map(|(ribbon, at, lit)| {
+                    place = Some(at.translation);
+                    SavedRibbon {
+                        look: ribbon.look.clone(),
+                        before: ribbon.before,
+                        lit,
+                    }
+                })
+                .collect();
+            Some(SavedChange {
+                place: place?,
+                left,
+                ribbons: kept,
+            })
+        })
+        .collect();
+    SavedSights {
+        claws,
+        bats,
+        changes,
+    }
+}
+
+/// Makes a loaded save's Vampiress's casts' sights again (#3809); a claw whose caster the load
+/// finds not is left out.
+pub(crate) fn again(world: &mut World, saved: SavedSights) {
+    for bats in saved.bats {
+        world.spawn((
+            UnmadeBats,
+            Transform::from_translation(bats.at),
+            Visibility::default(),
+            crate::fx::Resumes(bats.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+    if saved.claws.is_empty() && saved.changes.is_empty() {
+        return;
+    }
+    if let Err(e) = world.run_system_cached_with(sights_again, (saved.claws, saved.changes)) {
+        warn!("vamp_casts: the saved sights are not made: {e}");
+    }
+}
+
+/// Makes the saved claws `claws` and changes `changes` again ([`again`]).
+fn sights_again(
+    In((claws, changes)): In<(Vec<SavedClaw>, Vec<SavedChange>)>,
+    mut commands: Commands,
+    (data, assets, mut looks, mut model): (
+        Option<Res<Data>>,
+        Res<AssetServer>,
+        ResMut<Looks>,
+        ResMut<RibbonModel>,
+    ),
+    (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
+) {
+    let [glow, _, _, _, grid, spark] = looks.get(data.as_deref(), &assets, &mut effects);
+    for saved in claws {
+        if crate::names::found(Some(saved.caster)).is_none() {
+            continue;
+        }
+        spawn_claw(
+            &mut commands,
+            (glow.clone(), &mut meshes),
+            (
+                saved.caster,
+                CLAWS.get(saved.claw).copied().unwrap_or(CLAWS[0]),
+                saved.look,
+            ),
+            (saved.place, saved.before),
+        );
+    }
+    if changes.is_empty() {
+        return;
+    }
+    let Some(file) = ribbon_file(&mut model, data.as_deref()) else {
+        return;
+    };
+    for saved in changes {
+        spawn_change(
+            &mut commands,
+            (&assets, &file),
+            [glow.clone(), grid.clone(), spark.clone()],
+            &mut meshes,
+            (saved.place, saved.left),
+            saved.ribbons,
+        );
+    }
 }
 
 /// The change's model's file, once looked for.
@@ -367,79 +548,137 @@ fn change(
         if !matches!(making.art, 1022 | 1023) {
             continue;
         }
-        let file = model
-            .0
-            .get_or_insert_with(|| {
-                let file = data.as_deref().and_then(|data| {
-                    crate::npcs::model_files(&data.0.assets)
-                        .ok()
-                        .and_then(|files| files.get(VAMP_RIBBON_MODEL).cloned())
-                });
-                if file.is_none() {
-                    warn!("vamp_casts: no {VAMP_RIBBON_MODEL}; the change's ribbons are not drawn");
-                }
-                file
-            })
-            .clone();
-        let Some(file) = file else {
+        let Some(file) = ribbon_file(&mut model, data.as_deref()) else {
             continue;
         };
         let [glow, _, _, _, grid, spark] = looks.get(data.as_deref(), &assets, &mut effects);
-        let path = commands
-            .spawn((
-                crate::models::scene(&assets, &file),
-                Transform::IDENTITY,
-                Visibility::Hidden,
-                RibbonPath {
-                    playing: false,
-                    left: VAMP_RIBBON_SECONDS + PATH_OUTLIVES,
-                },
-                DespawnOnExit(AppState::InGame),
-            ))
-            .id();
-        let place = at.translation();
-        for (index, angle) in VAMP_RIBBON_ANGLES.into_iter().enumerate() {
-            let parts = [
-                meshes.add(empty()),
-                meshes.add(empty()),
-                meshes.add(empty()),
-            ];
-            let mut ribbon = commands.spawn((
-                Transform::from_translation(place),
-                Visibility::default(),
-                DespawnOnExit(AppState::InGame),
-            ));
-            if index == 0 {
-                ribbon.insert(crate::daynight::Light(VAMP_RIBBON_LIGHT));
-            }
-            for (mesh, material) in parts
-                .iter()
-                .zip([grid.clone(), glow.clone(), spark.clone()])
-            {
-                part(&mut ribbon, mesh, material);
-            }
-            let owner = ribbon.id();
-            let light = commands
-                .spawn(crate::fx_lights::light(
-                    crate::fx_lights::PALE_BLUE,
-                    crate::fx_lights::LOW,
-                    place,
-                    owner,
-                    (None, Vec3::ZERO),
-                ))
-                .id();
-            commands.entity(owner).insert(Ribbon {
-                path,
+        let ribbons = VAMP_RIBBON_ANGLES
+            .into_iter()
+            .enumerate()
+            .map(|(index, angle)| SavedRibbon {
                 look: VampRibbon::new(angle, VAMP_RIBBON_SECONDS),
                 before: None,
-                meshes: parts,
-                light,
-            });
-        }
+                lit: index == 0,
+            })
+            .collect();
+        spawn_change(
+            &mut commands,
+            (&assets, &file),
+            [glow, grid, spark],
+            &mut meshes,
+            (at.translation(), VAMP_RIBBON_SECONDS + PATH_OUTLIVES),
+            ribbons,
+        );
         debug!(
             "vamp_casts: {caster}'s change makes its ribbons for {}",
             making.art
         );
+    }
+}
+
+/// The change's model's file, looked for once.
+fn ribbon_file(model: &mut RibbonModel, data: Option<&Data>) -> Option<String> {
+    model
+        .0
+        .get_or_insert_with(|| {
+            let file = data.and_then(|data| {
+                crate::npcs::model_files(&data.0.assets)
+                    .ok()
+                    .and_then(|files| files.get(VAMP_RIBBON_MODEL).cloned())
+            });
+            if file.is_none() {
+                warn!("vamp_casts: no {VAMP_RIBBON_MODEL}; the change's ribbons are not drawn");
+            }
+            file
+        })
+        .clone()
+}
+
+/// Makes a claw's glow of `look` at `caster`'s `bones`, at its place and the place before.
+fn spawn_claw(
+    commands: &mut Commands,
+    (glow, meshes): (Option<Handle<Effect>>, &mut Assets<Mesh>),
+    (caster, bones, look): (Entity, [&'static str; 2], VampClaw),
+    (place, before): (Vec3, Option<Vec3>),
+) {
+    let mesh = meshes.add(empty());
+    let mut claw = commands.spawn((
+        Transform::IDENTITY,
+        Visibility::default(),
+        DespawnOnExit(AppState::InGame),
+    ));
+    part(&mut claw, &mesh, glow);
+    claw.insert(Claw {
+        caster,
+        bones,
+        look,
+        place,
+        before,
+        mesh,
+    });
+}
+
+/// Makes a change's `ribbons` at `place` in the materials of their particles, their heads' glow
+/// and their heads' spark, and the model whose bone they follow, of the model's file `file`, its
+/// clip run on from where `left` of its time is left.
+fn spawn_change(
+    commands: &mut Commands,
+    (assets, file): (&AssetServer, &str),
+    [glow, grid, spark]: [Option<Handle<Effect>>; 3],
+    meshes: &mut Assets<Mesh>,
+    (place, left): (Vec3, f32),
+    ribbons: Vec<SavedRibbon>,
+) {
+    let path = commands
+        .spawn((
+            crate::models::scene(assets, file),
+            Transform::IDENTITY,
+            Visibility::Hidden,
+            RibbonPath {
+                playing: false,
+                left,
+                from: VAMP_RIBBON_SECONDS + PATH_OUTLIVES - left,
+            },
+            DespawnOnExit(AppState::InGame),
+        ))
+        .id();
+    for saved in ribbons {
+        let parts = [
+            meshes.add(empty()),
+            meshes.add(empty()),
+            meshes.add(empty()),
+        ];
+        let mut ribbon = commands.spawn((
+            Transform::from_translation(place),
+            Visibility::default(),
+            DespawnOnExit(AppState::InGame),
+        ));
+        if saved.lit {
+            ribbon.insert(crate::daynight::Light(VAMP_RIBBON_LIGHT));
+        }
+        for (mesh, material) in parts
+            .iter()
+            .zip([grid.clone(), glow.clone(), spark.clone()])
+        {
+            part(&mut ribbon, mesh, material);
+        }
+        let owner = ribbon.id();
+        let light = commands
+            .spawn(crate::fx_lights::light(
+                crate::fx_lights::PALE_BLUE,
+                crate::fx_lights::LOW,
+                place,
+                owner,
+                (None, Vec3::ZERO),
+            ))
+            .id();
+        commands.entity(owner).insert(Ribbon {
+            path,
+            look: saved.look,
+            before: saved.before,
+            meshes: parts,
+            light,
+        });
     }
 }
 
@@ -478,7 +717,8 @@ fn play_paths(
         for entity in children.iter_descendants(entity) {
             if let Ok(mut player) = players.get_mut(entity) {
                 let (graph, node) = AnimationGraph::from_clip(clip.clone());
-                player.play(node);
+                // A loaded change's clip runs on from where it was (#3809).
+                player.play(node).seek_to(path.from);
                 commands
                     .entity(entity)
                     .insert(AnimationGraphHandle(graphs.add(graph)));

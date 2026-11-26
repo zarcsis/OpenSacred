@@ -8709,7 +8709,7 @@ pub const DOMINATION_LIGHT: [f32; 3] = [1.0, 0.28, 0.28];
 /// screen at 0.5 rad a second and swelling by a tenth once a second, a bright red band of twelve
 /// columns with a glow at its head sweeping round it the other way; for the domination's seconds,
 /// then it shrinks away over a second. No particle.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Domination {
     clock: f32,
     seconds: f32,
@@ -8813,7 +8813,7 @@ pub const RAISING_HALVES: [f32; 2] = [30.0, 40.0];
 /// and raising"): a pentagram inside a ring of runes flat on the ground under the rising dead,
 /// both glowing red, the pentagram turning counterclockwise on the screen at 2 rad a second and
 /// the ring the other way; up in a third of a second, gone in 1.33 s more. No particle.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Raising {
     turn: f32,
     fade: f32,
@@ -8895,7 +8895,7 @@ pub const VAMP_HEAD_SPARK_LOOK: (f32, [f32; 4]) = (12.0, [1.0; 4]);
 /// (`0x51431A`, placed there once, the flag `0x40`): at each run the model's bone's point, turned
 /// about the upright by its angle, and its particles born along that way of three blocks, each of
 /// its layer and its frame of the grid, until the clip's length.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct VampRibbon {
     pub system: System,
     angle: f32,
@@ -9038,7 +9038,7 @@ pub fn vamp_claws_until(art: u16) -> Option<f32> {
 /// The glow of a claw of the Vampiress's night arts at a finger, one of the two at her bones 22
 /// and 21 (`Bip01 R Finger3`, `Bip01 L Finger3`) that the art's start makes (`0x513E3B`): it
 /// stands at its bone each frame and leaves its glows where they are born (the flag `0x200`).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct VampClaw {
     pub system: System,
     until: f32,
@@ -9102,7 +9102,7 @@ impl VampClaw {
 /// bat's place as it comes (`0x510B89`, `0x51190A`, `0x51210B`): ten red sparks burst up and
 /// falling, each with its trail, over the bats' runes flat on the ground, two of each ring turning
 /// either way and fading.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct VampBats {
     pub system: System,
     turn: f32,
@@ -10287,7 +10287,7 @@ pub const MASTER_GHOSTS: usize = 3;
 /// `0x792F60` and draw `0x793230`): a ribbon of `FX_GHOST` along its clip's nine points about the
 /// bitten creature's head, at its own scale, turn and tilt, widening over its first second, held
 /// through the bite's seconds and thinning away over a second more.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MasterGhost {
     clock: f32,
     seconds: f32,
@@ -10374,7 +10374,7 @@ const CURSE_COUNT: usize = 250;
 /// and draw `0x793230`): drops of blood born over its neck for 5 s that fall and grow, darkening
 /// from red to nothing over 1.7 s, the drops lying in the world as the neck moves on; and a blood
 /// splash beside it at 1.5 s and every 1 to 2 s after.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SkullCurse {
     pub system: System,
     size: f32,
@@ -15452,7 +15452,7 @@ pub const SOULCATCHER_GLOW: [f32; 4] = [1.0, 239.0 / 255.0, 128.0 / 255.0, 1.0];
 /// `0x76A960`): twirls spinning 40 over his neck, four in five of a layer added in gold, one in
 /// five of a longer one laid over in black, riding with him; each soul it absorbs swells them by
 /// 20, which falls by 13 a second, and lights a pale yellow glow of a half side of twice that.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Soulcatcher {
     pub system: System,
     /// The swelling of its last soul (`+0x29B4`).
@@ -15533,7 +15533,7 @@ const SOUL_SECONDS: f32 = 10.0;
 /// shrinking by 2 a second, that rate rising by 0.5 a second to 0; where it arrives or a cell
 /// stops it they stop and fade out in 1.02 s; it ends past 10 s. Without the flag
 /// ([`Self::rising`]) it is a vanishing body's figure.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SoulSparks {
     pub system: System,
     clock: f32,
