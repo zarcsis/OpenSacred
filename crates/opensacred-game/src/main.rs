@@ -159,6 +159,7 @@ mod iso;
 mod item_glows;
 mod item_pictures;
 mod journal;
+mod kerning;
 mod killer_plants;
 mod knock_down;
 mod knockouts;
@@ -701,6 +702,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         item_glows::ItemGlowsPlugin,
         item_pictures::ItemPicturesPlugin,
         journal::JournalPlugin,
+        kerning::KerningPlugin,
         killer_plants::KillerPlantsPlugin,
         knock_down::KnockDownPlugin,
     ))
