@@ -43,6 +43,9 @@ symphonia.workspace = true
 symphonia-adapter-libopus.workspace = true
 toml_edit.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+rfd = { workspace = true, features = ["xdg-portal"] }
+
 [target.'cfg(windows)'.dependencies]
 rfd.workspace = true
 # The user's short date's pattern, which the saves' window writes its dates in (#1990).

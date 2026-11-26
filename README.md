@@ -2,7 +2,7 @@
 
 [![Claude Code usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Fzarcsis%2FOpenSacred%2Fbadges%2Fusage.json)](docs/usage.md)
 
-An open-source engine for **Sacred Gold** (Sacred and its expansion Underworld, the GOG or Steam release 2.28), written in Rust on [Bevy](https://bevyengine.org/). The goal is to play Sacred and Underworld comfortably on modern hardware: Windows 11 x64 at 4K first, later Linux, possibly Android.
+An open-source engine for **Sacred Gold** (Sacred and its expansion Underworld, the GOG or Steam release 2.28), written in Rust on [Bevy](https://bevyengine.org/). Play on Windows 11 x64 or build the native Linux x86-64 version from source.
 
 OpenSacred contains none of the game's files. You need your own copy of Sacred Gold from GOG or Steam:
 
@@ -24,7 +24,7 @@ Multiplayer comes after version 1.0; until then there is no networking. Original
 | M5 UI and effects: the original's main menu and choice of the hero, the difficulty levels, the interface over the world, the inventory, the character's sheet, the trade and the blacksmith, the quest log and the maps, the effects, the weather drawn, the sound by the profiles, the movies, the saves | done |
 | M6 Version 1.0 for Windows 11: the settings' menu, 4K and HiDPI, polish, the Underworld campaign's script forms, the difficulty's chances in the creatures' minds, the campaigns played through | its issues done; version 1.0 waits for the maintainer's play-through |
 | M7 HD assets: upscaling and the HD packs, built by the converter's second stage | research begun; after version 1.0 |
-| M8 Platforms: Linux, possibly Android, the gamepad | after version 1.0 |
+| M8 Platforms: Linux, possibly Android, the gamepad | native Linux source build available; other platform work after version 1.0 |
 | M9 Multiplayer: the campaigns played together over the network | after version 1.0 |
 
 The game has the saves, the trade, the smith and the character's sheet; whether both campaigns play through to their ends is what the maintainer's play-through before version 1.0 checks. What is still missing is in the [issues](https://github.com/zarcsis/OpenSacred/issues), and where the game departs from the original on purpose, in [docs/decisions/](docs/decisions/). The plan and the queue are in [PLAN.md](PLAN.md), §9–§10, and in the [milestones](https://github.com/zarcsis/OpenSacred/milestones).
@@ -37,7 +37,7 @@ Before you play:
 
 - it is a version before 1.0: both campaigns play through to their ends in driven runs, the maintainer's own play-through is still ahead, and you will meet bugs; [report them](CONTRIBUTING.md);
 - it takes Sacred Gold 2.28 in English, GOG's or Steam's: the converter refuses other languages and versions;
-- it runs on Windows 11 x64; Linux and the gamepad come after version 1.0;
+- the release archive runs on Windows 11 x64. On Linux x86-64, build the native game from source as described below;
 - the original's saves are not loaded, and there is no multiplayer before version 1.0;
 - where it departs from the original on purpose is listed in [docs/decisions/](docs/decisions/).
 
@@ -54,6 +54,21 @@ Before you play:
 The full tool list is in [docs/03-toolchain.md](docs/03-toolchain.md).
 
 ## Getting started
+
+### Playing on Linux
+
+Use an X11 or XWayland desktop and a Vulkan driver for your GPU. Building requires a C/C++ toolchain, CMake, pkg-config and the ALSA and libudev development files. Install FFmpeg with the SVT-AV1 and Opus encoders for the conversion. On CachyOS and Arch these build and media dependencies are available as `base-devel cmake pkgconf alsa-lib systemd ffmpeg`.
+
+From the repository root, build both programs into the same directory and start the native game:
+
+```sh
+cargo build --locked --release -p opensacred-convert -p opensacred-game --features opensacred-game/packaged
+./target/release/opensacred-game
+```
+
+At first launch, OpenSacred checks Steam's libraries. For a GOG copy or a moved installation, choose the folder containing `Sacred.exe` in the desktop folder picker. To prepare the assets from a terminal before opening the game, run `./target/release/opensacred-convert install --game-dir "/path/to/Sacred Gold"`. Both paths use the same assets under `$XDG_DATA_HOME/OpenSacred/assets` (default `~/.local/share/OpenSacred/assets`). Allow 11 GiB free there for conversion.
+
+### Development build
 
 ```bash
 git clone https://github.com/zarcsis/OpenSacred.git

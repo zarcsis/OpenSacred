@@ -111,8 +111,7 @@ proptest-derive = "0.9.0"
 # converter's movies are.
 rav1d = { git = "https://github.com/memorysafety/rav1d", rev = "2e7216c20ac2a75de204d6c8d7268b75a45959b4", default-features = false, features = ["bitdepth_8"] }
 rayon = "1.12.0"
-# The packaged game's folder dialog at its first start on Windows (#1498), on the windows-sys
-# and raw-window-handle that the tree holds.
+# The packaged game's first-start folder dialog uses the Windows shell or the Linux desktop portal.
 rfd = { version = "0.18.0", default-features = false }
 ron = "0.12.2"
 # The recording's sound: the taps' ring buffer, real-time safe, Kira's own (#1230).

@@ -115,7 +115,8 @@ pub fn resolve(given: PathBuf) -> (PathBuf, Option<Place>) {
 }
 
 /// Whether two directories are the same, by their names, case aside on Windows (the registry
-/// writes GOG's in lower case) and their separators aside.
+/// writes GOG's in lower case) and their separators aside. Linux Steam also exposes the
+/// same library through symbolic links.
 fn same_dir(a: &Path, b: &Path) -> bool {
     let key = |path: &Path| {
         let text = path.to_string_lossy().replace('\\', "/");
@@ -126,7 +127,14 @@ fn same_dir(a: &Path, b: &Path) -> bool {
             text
         }
     };
-    key(a) == key(b)
+    if key(a) == key(b) {
+        return true;
+    }
+    #[cfg(target_os = "linux")]
+    if let (Ok(a), Ok(b)) = (a.canonicalize(), b.canonicalize()) {
+        return a == b;
+    }
+    false
 }
 
 /// The directories that GOG's installer wrote into the registry, its 32-bit view's first.
@@ -149,7 +157,7 @@ fn gog_dirs() -> Vec<PathBuf> {
 }
 
 /// Steam's own directories: the user's `SteamPath` and the machine's `InstallPath` on Windows,
-/// `~/.local/share/Steam` and `~/.steam/steam` elsewhere.
+/// the user's Steam libraries elsewhere, including Flatpak Steam on Linux.
 #[cfg(windows)]
 fn steam_roots() -> Vec<PathBuf> {
     use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
@@ -171,10 +179,20 @@ fn steam_roots() -> Vec<PathBuf> {
 
 #[cfg(not(windows))]
 fn steam_roots() -> Vec<PathBuf> {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .map(|home| vec![home.join(".local/share/Steam"), home.join(".steam/steam")])
-        .unwrap_or_default()
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return Vec::new();
+    };
+    [
+        ".local/share/Steam",
+        ".steam/steam",
+        #[cfg(target_os = "linux")]
+        ".var/app/com.valvesoftware.Steam/.local/share/Steam",
+        #[cfg(target_os = "linux")]
+        ".var/app/com.valvesoftware.Steam/data/Steam",
+    ]
+    .iter()
+    .map(|path| home.join(path))
+    .collect()
 }
 
 /// A string value of the registry, none where the key or the value is not there or it is blank.
@@ -469,6 +487,19 @@ mod tests {
             ),
             cfg!(windows)
         );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_steam_library_aliases_name_one_installation() {
+        let root = scratch_dir("steam-alias");
+        let library = root.join("library");
+        let alias = root.join("alias");
+        std::fs::create_dir(&library).unwrap();
+        std::os::unix::fs::symlink(&library, &alias).unwrap();
+        assert!(same_dir(&library, &alias));
+        assert!(!same_dir(&library, &root));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// A `--game-dir` named on the command line is taken as it is, there or not.
