@@ -2367,7 +2367,7 @@ const DARK_HELIX_HALF: f32 = 3.0;
 /// `0x794300`, run `0x793E50` and draw `0x793FD0`; docs/re/effects.md, "The Dark Elf's casts"):
 /// 3 s after the art starts, a coil of [`HELIX_TEXTURE`] of radius 20 winds up from his root,
 /// spinning and stretching as it rises, red or yellow, fading in and out over 1.67 s.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DarkHelix {
     clock: f32,
     phase: f32,
@@ -3663,7 +3663,7 @@ pub fn maglite_slices() -> impl Iterator<Item = (f32, f32)> {
 /// half side of 7 shrinking by 4 a second and spinning at 6 radians a second, fading out over
 /// 0.64 s, added by their alpha (the flags `0xD`); and a glow beating once a second at that point
 /// ([`soul_glow`]). Its seconds over, it makes no more and ends with its last dot.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LostSoul {
     pub system: System,
     seconds: f32,
@@ -6295,7 +6295,7 @@ const DARK_WARD_FADE: f32 = 1.0;
 /// turning at 0.5 rad a second and pulsing grey once a second, and sinks back over π s; the
 /// arrowproof's breathes a little wider and narrower. Each arrow or spell it turns aside widens
 /// it by a tenth for a moment. No particle.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DarkWard {
     clock: f32,
     seconds: f32,
@@ -6802,7 +6802,7 @@ const NATURE_HEALING_EMITS: f32 = 3.0;
 /// about the grey 128, living 1.457 s, beating its wings through its 64 frames once and fading
 /// by its life; each with a faint grey glow; its layer keeps the renderer's wind of the minute it
 /// starts in ([`Self::wind`], `0x79C1D0`).
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct NatureHealing {
     pub system: System,
     /// The renderer's wind as it started ([`renderer_wind`]), which its start copies into its
@@ -6874,7 +6874,7 @@ pub const MULTI_SHOT_BONE: &str = "Bip01 L Finger3";
 /// hand's third finger as it looses, beginning one step past the hand and ending on it, each of
 /// the half side `0.2·|i − 25|` (none on the far side), and a star of the second at the hand of
 /// the half side 25; all shrinking to nothing by `1.3 − t`, in [`MULTI_SHOT_GREEN`], added whole.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BowRundumRing {
     /// The hand's point from the root as it looses, in the models' frame (`+0x2534`), and the
     /// clock.
@@ -12008,7 +12008,7 @@ const MINE_BLINK_FROM: f32 = -0.2;
 /// and as it is laid a burst of 20 dark puffs of [`MINE_SMOKE_TEXTURE`] rising ever faster,
 /// growing by 8 a second, living 1.275 s (−200), of the ramp [`DwarfMine::ramp`], laid over by
 /// their alpha, turned, darkened by the night (the flags `0x4C`).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DwarfMine {
     pub system: System,
     /// Its turn about the vertical.
@@ -12099,7 +12099,7 @@ const MINE_SIGN_TOP: f32 = 100.0;
 /// along an arc from his right that is the share of his mines left, as many a second as 200
 /// times that share; of a size of 4 ± 2 growing by 8 a second, living 1.275 s (−200), of the ramp
 /// [`MineSign::ramp`], added by their alpha (the flags `0x8D`). It goes with his last mine.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct MineSign {
     pub system: System,
     due: f32,
@@ -12742,7 +12742,7 @@ impl Rolled {
 /// models' frame from its foot, rising half a unit a point and winding out as it rises, and its
 /// two sways, each a loop of 128 offsets across, the first 64 rolled and the rest mirrored, which
 /// climb it at 30 and 27 entries a second.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Vine {
     stem: Vec<[f32; 3]>,
     sways: [Vec<[f32; 2]>; 2],
@@ -12802,7 +12802,7 @@ impl Vine {
 }
 
 /// How a [`KillerPlant`] grows: it rises, stands for its seconds, sinks, and ends.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 enum Growth {
     Rises,
     Stands,
@@ -12818,7 +12818,7 @@ enum Growth {
 /// alpha in its colour, green a hero's and blue a creature's. Its rise goes from −3 to 0 over a
 /// second, which every dot's half side takes, so that it grows from its foot up; it stands for
 /// its seconds, and sinks as it rose.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct KillerPlant {
     vine: Vine,
     spurs: [usize; 7],
@@ -12952,7 +12952,7 @@ impl KillerPlant {
 /// green a hero's and blue a creature's. Its rise goes from −2 to 0 over 0.667 s, so that it grows
 /// from the ground up; it stands for its hold's seconds, and sinks as it rose. The thorns' plant's
 /// code (848) on another vine.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PlantCage {
     vine: Vine,
     spurs: [usize; 7],
@@ -14843,7 +14843,7 @@ fn rune_rings(rings: &[(f32, f32, u16, f32)], t: f32, size: f32) -> Vec<RuneRing
 /// `0x7B1990`, run `0x7B1480` and draw `0x7B14F0`; #1092): four rings of black runes laid over
 /// the ground about his feet by their alpha, turning against each other, for his effect's
 /// seconds and its sink's second, whole until it ends.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TentacleAura {
     pub runes: Vec<u8>,
     clock: f32,
@@ -14885,7 +14885,7 @@ impl TentacleAura {
 /// of black runes turning against each other, all laid over the scene by their alpha. It stands
 /// whole for its seconds, then sinks for a second, its dots' half sides falling by 3 a second and
 /// its rings shrinking to nothing.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Tentacle {
     pub runes: Vec<u8>,
     vines: Vec<(Vine, [f32; 2])>,
@@ -15677,7 +15677,7 @@ fn argb_rgba(argb: u32) -> [f32; 4] {
 }
 
 /// A spike's stage (`+0x21EC`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 enum SpikeStage {
     Waits,
     Rises,
@@ -15688,7 +15688,7 @@ enum SpikeStage {
 
 /// A spike: its offset from its object's place, its size, its turn about the vertical, its model
 /// of the five, the time it waits and stands, and its growth from 0 to 1.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Spike {
     pub offset: [f32; 3],
     pub size: f32,
@@ -15723,7 +15723,7 @@ impl Spike {
 /// waiting its distance from the wave's
 /// origin over the wave's speed, then rising in half a second, standing, and sinking in half a
 /// second.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Spikes {
     pub spikes: Vec<Spike>,
 }

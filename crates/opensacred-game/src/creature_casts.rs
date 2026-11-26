@@ -141,6 +141,8 @@ pub enum SavedCastObject {
         at: Vec3,
         shows: bool,
         spikes: Option<crate::spikes::Raise>,
+        /// Its spikes' look as it was (#3776).
+        raised: Option<opensacred_rules::particles::Spikes>,
     },
     Summoning {
         summoning: Summoning,
@@ -218,6 +220,7 @@ pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedCastObject> {
                 at: at.translation,
                 shows: shown.is_some_and(|shown| *shown != Visibility::Hidden),
                 spikes: spikes.copied(),
+                raised: spikes.and_then(|spikes| crate::spikes::saved_spikes(world, spikes.ground)),
             }),
     );
     let mut summonings = world.query::<(&Summoning, &Transform)>();
@@ -276,6 +279,7 @@ pub(crate) fn objects_again(world: &mut World, objects: Vec<SavedCastObject>) {
                 at,
                 shows,
                 spikes,
+                raised,
             } => {
                 let mut made = world.spawn((
                     flame,
@@ -289,6 +293,9 @@ pub(crate) fn objects_again(world: &mut World, objects: Vec<SavedCastObject>) {
                 ));
                 if let Some(spikes) = spikes {
                     made.insert(spikes);
+                }
+                if let Some(raised) = raised {
+                    made.insert(crate::fx::Resumes(raised));
                 }
             }
             SavedCastObject::Summoning { summoning, at } => {

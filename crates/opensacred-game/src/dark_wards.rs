@@ -63,14 +63,18 @@ struct Shown {
 
 /// Gives each new ward its model at its bearer's root and its light (`0x7A0790`, `0x7A0D10`); a
 /// bearer's new ward takes the place of the one of its kind it had.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn show(
     mut commands: Commands,
-    wards: Query<(Entity, &Ward), Added<Ward>>,
+    wards: Query<(Entity, &Ward, Option<&crate::fx::Resumes<DarkWard>>), Added<Ward>>,
     shown: Query<(Entity, &Shown)>,
     places: Query<&GlobalTransform>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
 ) {
-    for (entity, ward) in &wards {
+    for (entity, ward, resumed) in &wards {
         let Ok(at) = places.get(ward.bearer) else {
             commands.entity(entity).despawn();
             continue;
@@ -107,17 +111,72 @@ fn show(
                 DespawnOnExit(AppState::InGame),
             ))
             .id();
-        commands.entity(entity).remove::<Ward>().insert((
-            Shown {
-                bearer: ward.bearer,
-                arrows: ward.arrows,
-                look: DarkWard::new(ward.seconds, ward.arrows),
-                model,
-                material: None,
-                playing: false,
+        commands
+            .entity(entity)
+            .remove::<(Ward, crate::fx::Resumes<DarkWard>)>()
+            .insert((
+                Shown {
+                    bearer: ward.bearer,
+                    arrows: ward.arrows,
+                    // A loaded ward goes on as it went (#3776).
+                    look: resumed.map_or_else(
+                        || DarkWard::new(ward.seconds, ward.arrows),
+                        |crate::fx::Resumes(look)| *look,
+                    ),
+                    model,
+                    material: None,
+                    playing: false,
+                },
+                Transform::from_translation(at.translation()),
+                daynight::Light(DARK_WARD_LIGHT),
+            ));
+    }
+}
+
+/// A dark ward as a save keeps it (#3776): its bearer by its name, whether against the arrows,
+/// and its look; a load makes it again on its bearer, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedWard {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    arrows: bool,
+    look: DarkWard,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedWard {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The dark wards in `world` as a save keeps them (#3776).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedWard> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .map(|shown| SavedWard {
+            bearer: shown.bearer,
+            arrows: shown.arrows,
+            look: shown.look,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's dark wards again (#3776); one whose bearer the load finds not is left
+/// out.
+pub(crate) fn again(world: &mut World, wards: Vec<SavedWard>) {
+    for saved in wards {
+        if crate::names::found(Some(saved.bearer)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Ward {
+                bearer: saved.bearer,
+                arrows: saved.arrows,
+                seconds: 0.0,
             },
-            Transform::from_translation(at.translation()),
-            daynight::Light(DARK_WARD_LIGHT),
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
         ));
     }
 }

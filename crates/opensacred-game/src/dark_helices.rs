@@ -40,11 +40,62 @@ struct Helix {
     mesh: Handle<Mesh>,
 }
 
+/// A helix as a save keeps it (#3776): its caster by its name and its look; a load gives it to
+/// its caster, whose art its doing gives back, and it goes on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedHelix {
+    #[serde(with = "crate::names::required")]
+    caster: Entity,
+    look: DarkHelix,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedHelix {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.caster = mapper.get_mapped(self.caster);
+    }
+}
+
+/// The helices in `world` as a save keeps them (#3776).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedHelix> {
+    let mut helices = world.query::<&Helix>();
+    helices
+        .iter(world)
+        .map(|helix| SavedHelix {
+            caster: helix.caster,
+            look: helix.look,
+        })
+        .collect()
+}
+
+/// Gives a loaded save's helices to their casters (#3776).
+pub(crate) fn again(world: &mut World, helices: Vec<SavedHelix>) {
+    for saved in helices {
+        let Some(caster) = crate::names::found(Some(saved.caster)) else {
+            continue;
+        };
+        if let Ok(mut caster) = world.get_entity_mut(caster) {
+            caster.insert(crate::fx::Resumes(saved.look));
+        }
+    }
+}
+
 /// Makes the helix of each testosterone and adrenaline whose clip starts (`0x50A986`, `0x50AA4A`:
 /// the event `0x58` at his root).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn start(
     mut commands: Commands,
-    started: Query<(Entity, &Making, &GlobalTransform), Added<Playing>>,
+    started: Query<
+        (
+            Entity,
+            &Making,
+            &GlobalTransform,
+            Option<&crate::fx::Resumes<DarkHelix>>,
+        ),
+        Added<Playing>,
+    >,
     (data, assets, mut looks, mut dice): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -53,10 +104,22 @@ fn start(
     ),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (caster, making, at) in &started {
-        let roll = f32::from(u16::try_from(dice.0.below(0x8000)).unwrap_or(0)) / 32_767.0;
-        let Some(look) = DarkHelix::new(making.art, roll * std::f32::consts::TAU) else {
-            continue;
+    for (caster, making, at, resumed) in &started {
+        // A loaded helix goes on as it went (#3776).
+        let look = match resumed {
+            Some(crate::fx::Resumes(look)) => {
+                commands
+                    .entity(caster)
+                    .remove::<crate::fx::Resumes<DarkHelix>>();
+                *look
+            }
+            None => {
+                let roll = f32::from(u16::try_from(dice.0.below(0x8000)).unwrap_or(0)) / 32_767.0;
+                let Some(look) = DarkHelix::new(making.art, roll * std::f32::consts::TAU) else {
+                    continue;
+                };
+                look
+            }
         };
         let material = looks
             .0

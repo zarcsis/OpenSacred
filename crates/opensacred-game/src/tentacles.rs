@@ -117,8 +117,15 @@ struct AuraLook {
 fn show(
     mut commands: Commands,
     (tentacles, auras): (
-        Query<(Entity, &Tentacle), Added<Tentacle>>,
-        Query<(Entity, &TentacleAura), Added<TentacleAura>>,
+        Query<
+            (
+                Entity,
+                &Tentacle,
+                Option<&crate::fx::Resumes<particles::Tentacle>>,
+            ),
+            Added<Tentacle>,
+        >,
+        Query<(Entity, &TentacleAura, Option<&crate::fx::Resumes<Aura>>), Added<TentacleAura>>,
     ),
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes, mut dice): (
@@ -127,7 +134,7 @@ fn show(
         ResMut<Dice>,
     ),
 ) {
-    for (entity, tentacle) in &tentacles {
+    for (entity, tentacle, resumed) in &tentacles {
         looks.make(data.as_deref(), &assets, &mut effects);
         let runes = looks.rune_meshes(&mut commands, entity, &mut meshes);
         let dots = meshes.add(empty());
@@ -140,20 +147,46 @@ fn show(
                 ChildOf(entity),
             ));
         }
+        // A loaded look shows on as it showed (#3776).
+        let shown = match resumed {
+            Some(crate::fx::Resumes(shown)) => shown.clone(),
+            None => particles::Tentacle::new(tentacle.stands, &mut dice.0),
+        };
+        commands
+            .entity(entity)
+            .remove::<crate::fx::Resumes<particles::Tentacle>>();
         commands.entity(entity).insert(TentacleLook {
-            tentacle: particles::Tentacle::new(tentacle.stands, &mut dice.0),
+            tentacle: shown,
             dots,
             runes,
         });
     }
-    for (entity, aura) in &auras {
+    for (entity, aura, resumed) in &auras {
         looks.make(data.as_deref(), &assets, &mut effects);
         let runes = looks.rune_meshes(&mut commands, entity, &mut meshes);
-        commands.entity(entity).insert(AuraLook {
-            aura: Aura::new(aura.seconds, &mut dice.0),
-            runes,
-        });
+        let shown = match resumed {
+            Some(crate::fx::Resumes(shown)) => shown.clone(),
+            None => Aura::new(aura.seconds, &mut dice.0),
+        };
+        commands.entity(entity).remove::<crate::fx::Resumes<Aura>>();
+        commands
+            .entity(entity)
+            .insert(AuraLook { aura: shown, runes });
     }
+}
+
+/// The tentacle's look on its aura `object` as a save keeps it with the aura (#3776,
+/// `spells::SpellLook`), if it shows.
+pub(crate) fn saved_tentacle(world: &World, object: Entity) -> Option<particles::Tentacle> {
+    world
+        .get::<TentacleLook>(object)
+        .map(|look| look.tentacle.clone())
+}
+
+/// The tentacles' aura's look on its object `object` as a save keeps it with the object, if it
+/// shows.
+pub(crate) fn saved_aura(world: &World, object: Entity) -> Option<Aura> {
+    world.get::<AuraLook>(object).map(|look| look.aura.clone())
 }
 
 /// Lays the rings `rings` of the object's runes `runes` flat over the ground, each segment into

@@ -91,11 +91,26 @@ struct Shown {
     glow: Option<(Handle<Image>, [f32; 4])>,
 }
 
-/// Gives each new object its spikes (`0x7C04B0`, `0x7C0CC0`).
+/// The spikes raised at `ground` as a save keeps them with their flame (#3776,
+/// `creature_casts::SavedCastObject`), if they show.
+pub(crate) fn saved_spikes(world: &World, ground: Vec3) -> Option<Spikes> {
+    let mut shown = world.try_query::<&Shown>()?;
+    shown
+        .iter(world)
+        .find(|shown| shown.place == ground)
+        .map(|shown| shown.spikes.clone())
+}
+
+/// Gives each new object its spikes (`0x7C04B0`, `0x7C0CC0`); a loaded one's go on as they went
+/// (#3776).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn raise(
     mut commands: Commands,
     (objects, settings): (
-        Query<&Raise, Added<Raise>>,
+        Query<(Entity, &Raise, Option<&crate::fx::Resumes<Spikes>>), Added<Raise>>,
         Option<Res<crate::settings::Settings>>,
     ),
     (data, assets, mut looks, mut dice): (
@@ -107,10 +122,16 @@ fn raise(
 ) {
     // Their shadows at the highest detail alone (`DETAILLEVEL` 2).
     let shadowed = crate::settings::detail(settings.as_deref()) == 2;
-    for raise in &objects {
+    for (object, raise, resumed) in &objects {
         looks.make(data.as_deref(), &assets);
         debug!("spikes: {:?} at {}", raise.kind, raise.ground);
-        let spikes = Spikes::new(raise.kind, models(raise.ground - raise.origin), &mut dice.0);
+        let spikes = match resumed {
+            Some(crate::fx::Resumes(spikes)) => spikes.clone(),
+            None => Spikes::new(raise.kind, models(raise.ground - raise.origin), &mut dice.0),
+        };
+        commands
+            .entity(object)
+            .remove::<crate::fx::Resumes<Spikes>>();
         let models = spikes
             .spikes
             .iter()

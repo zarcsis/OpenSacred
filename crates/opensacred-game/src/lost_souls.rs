@@ -50,6 +50,41 @@ struct Materials(Option<[Option<Handle<Effect>>; 2]>);
 /// The seed of the souls' `rand()` (**estimate**: any).
 const SEED: usize = 0x352;
 
+/// A lost soul's look as a save keeps it with its disk (#3776, `spells::SpellLook`): its seconds,
+/// and its soul, dice, place and the place before, none for one not shown yet.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedLook {
+    seconds: f32,
+    shown: Option<(LostSoul, Rng, Vec3, Option<Vec3>)>,
+}
+
+/// The look of the disk `object` as a save keeps it, if it has one.
+pub(crate) fn saved_look(world: &World, object: Entity) -> Option<SavedLook> {
+    let Look(seconds) = *world.get::<Look>(object)?;
+    let shown = world.try_query::<&Shown>().and_then(|mut shown| {
+        shown
+            .iter(world)
+            .find(|shown| shown.object == Some(object))
+            .map(|shown| {
+                (
+                    shown.soul.clone(),
+                    shown.dice.clone(),
+                    shown.place,
+                    shown.before,
+                )
+            })
+    });
+    Some(SavedLook { seconds, shown })
+}
+
+/// Gives the loaded disk `object` its look as the save kept it.
+pub(crate) fn look_again(object: &mut EntityWorldMut<'_>, saved: SavedLook) {
+    object.insert(Look(saved.seconds));
+    if let Some(shown) = saved.shown {
+        object.insert(crate::fx::Resumes(shown));
+    }
+}
+
 /// Gives each new soul its look (`0x79D310`): an entity of its own and its parts.
 #[expect(
     clippy::type_complexity,
@@ -57,7 +92,16 @@ const SEED: usize = 0x352;
 )]
 fn show(
     mut commands: Commands,
-    souls: Query<(Entity, &Look, &GlobalTransform, Has<Ghostly>), Added<Look>>,
+    souls: Query<
+        (
+            Entity,
+            &Look,
+            &GlobalTransform,
+            Has<Ghostly>,
+            Option<&crate::fx::Resumes<(LostSoul, Rng, Vec3, Option<Vec3>)>>,
+        ),
+        Added<Look>,
+    >,
     (data, assets, mut made, mut materials, mut meshes): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -66,7 +110,7 @@ fn show(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (object, &Look(seconds), place, ghostly) in &souls {
+    for (object, &Look(seconds), place, ghostly, resumed) in &souls {
         let [dots, glow] = made
             .0
             .get_or_insert_with(|| {
@@ -117,16 +161,29 @@ fn show(
             }
         }
         let index = usize::try_from(shown.index_u32()).unwrap_or(0);
+        // A loaded look shows on as it showed (#3776).
+        let (soul, dice, at, before) = match resumed {
+            Some(crate::fx::Resumes(shown)) => shown.clone(),
+            None => (
+                if ghostly {
+                    LostSoul::dryad_ghost()
+                } else {
+                    LostSoul::new(seconds)
+                },
+                crate::seed::dice(SEED ^ index),
+                place.translation(),
+                None,
+            ),
+        };
+        commands
+            .entity(object)
+            .remove::<crate::fx::Resumes<(LostSoul, Rng, Vec3, Option<Vec3>)>>();
         commands.entity(shown).insert(Shown {
             object: Some(object),
-            soul: if ghostly {
-                LostSoul::dryad_ghost()
-            } else {
-                LostSoul::new(seconds)
-            },
-            dice: crate::seed::dice(SEED ^ index),
-            place: place.translation(),
-            before: None,
+            soul,
+            dice,
+            place: at,
+            before,
             parts,
         });
     }
