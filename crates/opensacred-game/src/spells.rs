@@ -62,11 +62,30 @@ pub struct Acts {
 /// A spell's effects waiting for its object's clock, the stone skin's, the quickening's, the
 /// shield wall's or the crusader's strength's: what is left of it in the world's seconds, and
 /// the skin its action 6 asks with them, if any, for its seconds (`skins`).
-#[derive(Component, Debug, Clone)]
-struct Shielding {
+#[derive(Component, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Shielding {
     left: f32,
     effects: Vec<(Effect, f32)>,
+    #[serde(with = "crate::skins::kept")]
     skin: Option<(crate::skins::Overlay, f32)>,
+}
+
+impl bevy::ecs::entity::MapEntities for Shielding {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// A spell's effects waiting for its object's clock, which a save keeps with the skin they ask
+/// (#3767).
+impl crate::doings::Saves for Shielding {
+    type Saved = Shielding;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(self.clone())
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 /// An object that strikes about itself once a [`BEAT`] for its time (`opensacred_rules::spells::
@@ -154,17 +173,97 @@ struct Banishing {
 /// A creature that the Wood Elf's changeling changed into an animal (the effect 20's adder,
 /// `0x5848A8`): hidden, its mind and its place in the way kept for its change back.
 #[derive(Component, Clone, Debug)]
-struct Changed {
+pub(crate) struct Changed {
     mind: Box<ai::Mind>,
     way: InTheWay,
 }
 
+impl Changed {
+    /// Its place in the others' way, kept for its change back: the level it stands on.
+    pub(crate) fn way(&self) -> &InTheWay {
+        &self.way
+    }
+}
+
+/// A creature changed into an animal as a save keeps it (#3767): its mind, kept for its change
+/// back, its references by their names; its place where it stands hidden, which its sector keeps
+/// (`npcs`), and its animal, which the save keeps apart (`npcs::SavedAnimal`).
+#[derive(
+    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, bevy::ecs::entity::MapEntities,
+)]
+pub struct SavedChanged {
+    #[entities]
+    mind: ai::SavedMind,
+}
+
+/// The change of `entity` as a save keeps it, if it is changed.
+pub(crate) fn saved_changed(
+    world: &World,
+    entity: Entity,
+    at: &crate::doings::Moment,
+) -> Option<SavedChanged> {
+    let changed = world.get::<Changed>(entity)?;
+    let mind = <ai::Mind as crate::doings::Saves>::saved(&changed.mind, at)?;
+    Some(SavedChanged { mind })
+}
+
+/// Changes the loaded creature `entity` again as `saved` keeps it (#3767), as [`change`] did:
+/// hidden, its mind and its place in the way kept for its change back, its items gone; its
+/// animal is the save's own, made again under its name (`npcs::animals_again`).
+pub(crate) fn change_again(
+    world: &mut World,
+    entity: Entity,
+    saved: SavedChanged,
+    at: &crate::doings::Moment,
+) {
+    let Some(mind) = <ai::Mind as crate::doings::Saves>::again(saved.mind, at) else {
+        return;
+    };
+    crate::npcs::strip(world, entity);
+    let Ok(mut creature) = world.get_entity_mut(entity) else {
+        return;
+    };
+    let Some(way) = creature.take::<InTheWay>() else {
+        return;
+    };
+    creature.remove::<(ai::Mind, crate::npcs::Walk, crate::npcs::Strikes)>();
+    creature.insert((
+        Visibility::Hidden,
+        Changed {
+            mind: Box::new(mind),
+            way,
+        },
+    ));
+}
+
 /// The animal that a changed creature, `original`, is for its time left (the effect 20 keyed by
 /// 36, `0x795E20`).
-#[derive(Component, Clone, Copy, Debug)]
-struct Changeling {
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Changeling {
+    #[serde(with = "crate::names::required")]
     original: Entity,
     left: f32,
+}
+
+impl bevy::ecs::entity::MapEntities for Changeling {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.original = mapper.get_mapped(self.original);
+    }
+}
+
+/// The animal of a changed creature, which a save keeps with its creature by its name
+/// (#3767): one whose creature the load finds not goes as its time is out, changing nothing
+/// back.
+impl crate::doings::Saves for Changeling {
+    type Saved = Changeling;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 /// The Dark Elf's trap's ball (867, `cParticleSystem_ball`): its caster, its art and level in
@@ -1019,10 +1118,27 @@ struct Flame {
 /// The hero in its water form, which no creature takes for its target (`0x54A6D0`; docs/re/
 /// arts.md, "The Mage's other spells"): the seconds until it starts, 1.6 over the cast's rate
 /// after the act (its system's action 6), and how long it lasts then.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Unseen {
     pub after: f32,
     pub left: f32,
+}
+
+impl bevy::ecs::entity::MapEntities for Unseen {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// The hero's water form, which a save keeps (#3767).
+impl crate::doings::Saves for Unseen {
+    type Saved = Unseen;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 impl Unseen {
@@ -1033,10 +1149,27 @@ impl Unseen {
 }
 
 /// The hero teleporting: where to, and how long until it is put there.
-#[derive(Component, Debug, Clone, Copy)]
-struct Teleporting {
+#[derive(Component, Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Teleporting {
     to: Vec3,
     left: f32,
+}
+
+impl bevy::ecs::entity::MapEntities for Teleporting {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// The hero teleporting, which a save keeps (#3767).
+impl crate::doings::Saves for Teleporting {
+    type Saved = Teleporting;
+
+    fn saved(&self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(*self)
+    }
+
+    fn again(saved: Self, _: &crate::doings::Moment) -> Option<Self> {
+        Some(saved)
+    }
 }
 
 /// The dice of the spells' choices at random.
@@ -4474,5 +4607,87 @@ mod tests {
             assert_eq!(springs(&world, hero), []);
             assert!(world.get::<SpringKept>(hero).is_none());
         }
+    }
+
+    #[test]
+    fn a_changed_creature_saved_is_changed_again_with_its_animal_by_name() {
+        use crate::doings::Doings;
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, mapped};
+        let way = InTheWay {
+            stands: ways::InTheWay {
+                stops: true,
+                hostile: true,
+                creature: true,
+            },
+            level: None,
+        };
+        let goblin = || ai::Mind::new(Vec3::ZERO, 0x1, (true, false), None, [10.0, 20.0], (1, 10));
+        let mut saved = App::new();
+        saved.add_plugins(NamesPlugin);
+        let original = saved
+            .world_mut()
+            .spawn((
+                Named(Id::Placed(12)),
+                Changed {
+                    mind: Box::new(goblin()),
+                    way,
+                },
+                Visibility::Hidden,
+            ))
+            .id();
+        saved.world_mut().spawn((
+            Named(Id::Born(3)),
+            goblin(),
+            Changeling {
+                original,
+                left: 7.5,
+            },
+        ));
+        let mut refs = Refs::default();
+        let doings = crate::doings::gather(saved.world_mut(), &mut refs);
+        assert_eq!(
+            doings.owners().collect::<Vec<_>>(),
+            [Id::Placed(12), Id::Born(3)]
+        );
+        let bytes = postcard::to_stdvec(&(&refs, &doings)).unwrap();
+        let (refs, doings): (Refs, Doings) = postcard::from_bytes(&bytes).unwrap();
+        // The load makes the creature anew by its placement, as it stood, and its animal under
+        // its name, at other slots.
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..6).map(|_| ()));
+        let again = loaded
+            .world_mut()
+            .spawn((Named(Id::Placed(12)), goblin(), way, Visibility::Inherited))
+            .id();
+        let animal = loaded
+            .world_mut()
+            .spawn((Named(Id::Born(3)), goblin()))
+            .id();
+        let doings = mapped(
+            doings,
+            &mut Loading {
+                refs: &refs,
+                names: loaded.world().resource::<Names>(),
+                lost: 0,
+            },
+        );
+        assert_eq!(crate::doings::give(loaded.world_mut(), doings), (2, 0));
+        let world = loaded.world();
+        // Hidden, its mind and its place in the way kept for its change back.
+        assert!(world.get::<ai::Mind>(again).is_none());
+        assert!(world.get::<InTheWay>(again).is_none());
+        assert_eq!(world.get::<Visibility>(again), Some(&Visibility::Hidden));
+        assert_eq!(
+            world.get::<Changed>(again).map(|changed| changed.way),
+            Some(way)
+        );
+        assert_eq!(
+            world.get::<Changeling>(animal),
+            Some(&Changeling {
+                original: again,
+                left: 7.5,
+            })
+        );
     }
 }

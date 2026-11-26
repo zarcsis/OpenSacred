@@ -118,8 +118,9 @@ use crate::{arts, drops, making};
 /// version 59 the sectors' `Enter` creatures as they stood (#3761); the version 60 the bodies
 /// (#3762); the version 61 the hero's orders and the drops' names (#3763); the version 62 the hero's
 /// arts and combo under way (#3764); the version 63 the special arts' states and the blasts
-/// (#3765); the version 64 the creatures' casts and arts (#3766).
-pub const VERSION: u32 = 64;
+/// (#3765); the version 64 the creatures' casts and arts (#3766); the version 65 the spells'
+/// states and the changelings' animals (#3767).
+pub const VERSION: u32 = 65;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -318,6 +319,8 @@ pub struct Live {
     pub things: Things,
     /// The dead creatures' bodies, lying and dying (#3762).
     pub bodies: Vec<crate::npcs::SavedBody>,
+    /// The changelings' animals, which no sector keeps (#3767).
+    pub animals: Vec<crate::npcs::SavedAnimal>,
 }
 
 /// The things in flight as a save keeps them (#3760, the epic #3753): the arrows flying and stuck
@@ -789,11 +792,13 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
     let doings = crate::doings::gather(world, &mut refs);
     let things = things_of(world, &mut refs);
     let bodies = crate::npcs::bodies(world);
+    let animals = crate::npcs::animals(world);
     let live = Live {
         refs,
         doings,
         things,
         bodies,
+        animals,
     };
     // The picture last taken (`save_picture`), as the original's save keeps its last capture.
     let picture = world
@@ -1048,6 +1053,17 @@ fn resume(world: &mut bevy::prelude::World) {
     let settled = world
         .get_resource::<crate::sectors::Streamer>()
         .is_none_or(|streamer| streamer.settled(hero));
+    // The changelings' animals, once the hero's sectors are in, under the names that the doings
+    // wait for (#3767).
+    if settled || frames >= RESUME_WAIT {
+        let animals = world
+            .get_resource_mut::<Resuming>()
+            .map(|mut resuming| std::mem::take(&mut resuming.live.animals))
+            .unwrap_or_default();
+        if !animals.is_empty() {
+            crate::npcs::animals_again(world, animals);
+        }
+    }
     let empty = Names::default();
     let names = world.get_resource::<Names>().unwrap_or(&empty);
     let Some(resuming) = world.get_resource::<Resuming>() else {
@@ -1891,7 +1907,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (64, 0xED78_90B7_F449_7970),
+            (65, 0x0E5F_9733_1B1B_76B7),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );
