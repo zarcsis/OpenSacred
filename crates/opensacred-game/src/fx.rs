@@ -45,6 +45,7 @@ use bevy::image::{ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
 use bevy::pbr::{
     ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
+    MeshPipelineKey,
 };
 use bevy::prelude::*;
 use bevy::render::render_resource::{
@@ -454,14 +455,29 @@ pub(crate) type Effect = ExtendedMaterial<StandardMaterial, Particles>;
 /// glows carry an alpha as their brightness, which that would take twice (#1092); whether its
 /// `depth_bias` is a blended layer's, for its order alone ([`layered`]); whether it is of list
 /// 4 ([`over_all`]); and whether it draws a system's added and laid layers in one mesh
-/// ([`mixed_material`]).
-#[derive(Asset, TypePath, AsBindGroup, Clone, Debug, Default)]
+/// ([`mixed_material`]). Every one holds the veil (`veil::VEIL`), which an effect that the
+/// untinted camera draws reads (`standard.wesl`'s `VEILED`, #3851).
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
 #[bind_group_data(ParticlesKey)]
 pub(crate) struct Particles {
     whole: bool,
     layered: bool,
     over: bool,
     mixed: bool,
+    #[texture(111)]
+    veil: Option<Handle<Image>>,
+}
+
+impl Default for Particles {
+    fn default() -> Self {
+        Self {
+            whole: false,
+            layered: false,
+            over: false,
+            mixed: false,
+            veil: Some(crate::veil::VEIL),
+        }
+    }
 }
 
 /// What the pipeline of an [`Effect`] depends on beyond Bevy's own material.
@@ -497,6 +513,12 @@ impl MaterialExtension for Particles {
     ) -> Result<(), SpecializedMeshPipelineError> {
         if let Some(fragment) = descriptor.fragment.as_mut() {
             fragment.shader_defs.push("PARTICLES".into());
+            // Drawn by the untinted camera, the one with no depth prepass, after the world and
+            // its night: dimmed by the faded sprites before it (`veil`, #3851). The world's
+            // camera draws its effects among the sprites' translucent texels.
+            if !key.mesh_key.contains(MeshPipelineKey::DEPTH_PREPASS) {
+                fragment.shader_defs.push("VEILED".into());
+            }
             if key.bind_group_data.whole {
                 fragment.shader_defs.push("WHOLE".into());
             }

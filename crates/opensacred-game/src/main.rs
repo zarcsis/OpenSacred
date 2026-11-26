@@ -293,6 +293,7 @@ mod under_cursor;
 mod underworld_glyphs;
 mod vamp_casts;
 mod vamp_sights;
+mod veil;
 mod vertices;
 mod voices;
 mod volumes;
@@ -848,6 +849,9 @@ fn run(cli: Cli) -> Result<AppExit> {
         underworld_glyphs::UnderworldGlyphsPlugin,
         vamp_casts::VampCastsPlugin,
         vamp_sights::VampSightsPlugin,
+    ))
+    .add_plugins(veil::VeilPlugin)
+    .add_plugins((
         voices::VoicesPlugin,
         volumes::VolumesPlugin,
         war_cries::WarCriesPlugin,

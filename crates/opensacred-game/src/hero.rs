@@ -1234,7 +1234,7 @@ pub fn run(
         } else {
             if body.pinned.is_none() {
                 if body.level.is_none() && !heights.walkable(cell) && body.landing.is_none() {
-                    body.level = heights.level_of(cell);
+                    body.level = heights.lifted_onto(cell);
                 }
                 body.level = heights.transition(cell, body.level);
             }
