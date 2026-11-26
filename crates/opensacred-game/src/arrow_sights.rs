@@ -60,6 +60,110 @@ struct Ring {
     ring: ClubRing,
     centre: Vec3,
     mesh: Handle<Mesh>,
+    /// Its light's place on the ground at its creature.
+    lamp: Vec3,
+}
+
+/// A club arrow's ring as a save keeps it (#3774): its look, its centre and its light's place; a
+/// load makes it again there, spreading on.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedRing {
+    ring: ClubRing,
+    centre: Vec3,
+    lamp: Vec3,
+}
+
+/// The rings in `world` as a save keeps them (#3774).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedRing> {
+    let mut rings = world.query::<&Ring>();
+    rings
+        .iter(world)
+        .map(|ring| SavedRing {
+            ring: ring.ring,
+            centre: ring.centre,
+            lamp: ring.lamp,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's rings again (#3774).
+pub(crate) fn again(world: &mut World, rings: Vec<SavedRing>) {
+    if rings.is_empty() {
+        return;
+    }
+    if let Err(e) = world.run_system_cached_with(rings_again, rings) {
+        warn!("arrow_sights: the saved rings are not made: {e}");
+    }
+}
+
+/// Makes the saved rings `rings` again ([`again`]).
+fn rings_again(
+    In(rings): In<Vec<SavedRing>>,
+    mut commands: Commands,
+    (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
+    (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
+) {
+    let material = material(&mut looks, data.as_deref(), &assets, &mut effects);
+    for saved in rings {
+        spawn_ring(
+            &mut commands,
+            (material.clone(), meshes.add(empty())),
+            (saved.ring, saved.centre, saved.lamp),
+        );
+    }
+}
+
+/// The rings' material, made as the first ring is; none where its texture is missing.
+fn material(
+    looks: &mut Looks,
+    data: Option<&Data>,
+    assets: &AssetServer,
+    effects: &mut Assets<Effect>,
+) -> Option<Handle<Effect>> {
+    looks
+        .0
+        .get_or_insert_with(|| {
+            let image =
+                data.and_then(|data| particle_texture(&data.0.assets, assets, CLUB_RING_TEXTURE));
+            if image.is_none() {
+                warn!("arrow_sights: no texture {CLUB_RING_TEXTURE}; no ring drawn");
+            }
+            image.map(|image| effects.add(whole_material(image)))
+        })
+        .clone()
+}
+
+/// Makes a ring of `ring` about `centre` of `material` in `mesh`, its light on the ground at
+/// `lamp` (`+0x9C`), unlit and untinted, added whole (`0x763530`).
+fn spawn_ring(
+    commands: &mut Commands,
+    (material, mesh): (Option<Handle<Effect>>, Handle<Mesh>),
+    (ring, centre, lamp): (ClubRing, Vec3, Vec3),
+) {
+    let mut made = commands.spawn((
+        Ring {
+            ring,
+            centre,
+            mesh: mesh.clone(),
+            lamp,
+        },
+        Transform::IDENTITY,
+        Visibility::default(),
+        DespawnOnExit(AppState::InGame),
+    ));
+    made.with_child((
+        crate::daynight::Light(CLUB_RING_LIGHT),
+        Transform::from_translation(lamp),
+    ));
+    if let Some(material) = material {
+        made.with_child((
+            Mesh3d(mesh),
+            MeshMaterial3d(material),
+            Transform::IDENTITY,
+            NoFrustumCulling,
+            RenderLayers::layer(iso::UNTINTED),
+        ));
+    }
 }
 
 /// Makes each arrow's sight at the bone of the creature it struck, else its root.
@@ -95,49 +199,17 @@ fn make(
                 crate::puffs::spawn(&mut commands, spider_smoke(&mut dice.0), point, None);
             }
             Look::Club => {
-                let material = looks
-                    .0
-                    .get_or_insert_with(|| {
-                        let image = data.as_deref().and_then(|data| {
-                            particle_texture(&data.0.assets, &assets, CLUB_RING_TEXTURE)
-                        });
-                        if image.is_none() {
-                            warn!("arrow_sights: no texture {CLUB_RING_TEXTURE}; no ring drawn");
-                        }
-                        image.map(|image| effects.add(whole_material(image)))
-                    })
-                    .clone();
-                let mesh = meshes.add(empty());
-                let mut ring = commands.spawn((
-                    Ring {
-                        ring: ClubRing::default(),
-                        centre: point,
-                        mesh: mesh.clone(),
-                    },
-                    Transform::IDENTITY,
-                    Visibility::default(),
-                    DespawnOnExit(AppState::InGame),
-                ));
+                let material = material(&mut looks, data.as_deref(), &assets, &mut effects);
                 // Its light at the creature, on the ground (`+0x9C`).
-                ring.with_child((
-                    crate::daynight::Light(CLUB_RING_LIGHT),
-                    Transform::from_translation(
-                        places
-                            .get(sight.on)
-                            .map_or(point, GlobalTransform::translation)
-                            .with_y(0.0),
-                    ),
-                ));
-                // Unlit and untinted, added whole (`0x763530`).
-                if let Some(material) = material {
-                    ring.with_child((
-                        Mesh3d(mesh),
-                        MeshMaterial3d(material),
-                        Transform::IDENTITY,
-                        NoFrustumCulling,
-                        RenderLayers::layer(iso::UNTINTED),
-                    ));
-                }
+                let lamp = places
+                    .get(sight.on)
+                    .map_or(point, GlobalTransform::translation)
+                    .with_y(0.0);
+                spawn_ring(
+                    &mut commands,
+                    (material, meshes.add(empty())),
+                    (ClubRing::default(), point, lamp),
+                );
             }
         }
     }

@@ -44,6 +44,51 @@ pub(crate) fn lay(commands: &mut Commands, at: Vec3, along: Vec3) {
     commands.spawn((Unmade { at, along }, DespawnOnExit(AppState::InGame)));
 }
 
+/// A ray's step as a save keeps it (#3774): its point and its look, none for one not made yet,
+/// with the ray's direction then; a load makes it again there, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedRay {
+    at: Vec3,
+    along: Vec3,
+    look: Option<HardRay>,
+}
+
+/// The rays' steps in `world` as a save keeps them (#3774).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedRay> {
+    let mut shown = world.query::<(&Shown, &Transform)>();
+    let mut saved: Vec<SavedRay> = shown
+        .iter(world)
+        .map(|(shown, at)| SavedRay {
+            at: at.translation,
+            along: Vec3::X,
+            look: Some(shown.look.clone()),
+        })
+        .collect();
+    let mut unmade = world.query::<&Unmade>();
+    saved.extend(unmade.iter(world).map(|unmade| SavedRay {
+        at: unmade.at,
+        along: unmade.along,
+        look: None,
+    }));
+    saved
+}
+
+/// Makes a loaded save's rays' steps again (#3774).
+pub(crate) fn again(world: &mut World, rays: Vec<SavedRay>) {
+    for saved in rays {
+        let mut made = world.spawn((
+            Unmade {
+                at: saved.at,
+                along: saved.along,
+            },
+            DespawnOnExit(AppState::InGame),
+        ));
+        if let Some(look) = saved.look {
+            made.insert(crate::fx::Resumes(look));
+        }
+    }
+}
+
 /// The sights' materials, made at the first.
 fn materials(
     looks: &mut Looks,
@@ -74,27 +119,32 @@ fn materials(
 /// materials (`0x7A1320`, `0x7A0DF0` at its first run).
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<HardRay>>)>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
     let (across, depth) = iso::fx_axes();
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let ground =
             Vec2::new(unmade.along.dot(across), unmade.along.dot(depth)).normalize_or_zero();
         let half = [ground.x * HALF_STEP, ground.y * HALF_STEP, 0.0];
-        let look = HardRay::new(half.map(|h| -h), half);
+        // A loaded step goes on as it went (#3774).
+        let look = match resumed {
+            Some(crate::fx::Resumes(look)) => look.clone(),
+            None => HardRay::new(half.map(|h| -h), half),
+        };
         let materials = materials(&mut looks, data.as_deref(), &assets, &mut effects);
         let parts: [Handle<Mesh>; 2] = std::array::from_fn(|_| meshes.add(empty()));
         let mut made = commands.entity(entity);
-        made.remove::<Unmade>().insert((
-            Shown {
-                look,
-                parts: parts.clone(),
-            },
-            Transform::from_translation(unmade.at),
-            Visibility::default(),
-        ));
+        made.remove::<(Unmade, crate::fx::Resumes<HardRay>)>()
+            .insert((
+                Shown {
+                    look,
+                    parts: parts.clone(),
+                },
+                Transform::from_translation(unmade.at),
+                Visibility::default(),
+            ));
         for (mesh, material) in parts.into_iter().zip(materials) {
             if let Some(material) = material {
                 made.with_child((

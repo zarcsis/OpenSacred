@@ -57,6 +57,141 @@ struct Flash {
     left: f32,
     mesh: Handle<Mesh>,
     light: Entity,
+    /// Its texture, of the guns' fires' four.
+    texture: opensacred_rules::particles::statics::Name,
+}
+
+/// A flash as a save keeps it (#3774): its shooter by its name, its gun's scale, the seconds left
+/// and its texture; a load makes it again at its shooter's muzzle, which it keeps to.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedFlash {
+    #[serde(with = "crate::names::required")]
+    shooter: Entity,
+    scale: f32,
+    left: f32,
+    #[serde(with = "opensacred_rules::particles::statics")]
+    texture: opensacred_rules::particles::statics::Name,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedFlash {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.shooter = mapper.get_mapped(self.shooter);
+    }
+}
+
+/// The flashes in `world` as a save keeps them (#3774).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedFlash> {
+    let mut flashes = world.query::<&Flash>();
+    flashes
+        .iter(world)
+        .map(|flash| SavedFlash {
+            shooter: flash.shooter,
+            scale: flash.scale,
+            left: flash.left,
+            texture: flash.texture,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's flashes again (#3774); one whose shooter the load finds not is left
+/// out.
+pub(crate) fn again(world: &mut World, flashes: Vec<SavedFlash>) {
+    let flashes: Vec<SavedFlash> = flashes
+        .into_iter()
+        .filter(|flash| crate::names::found(Some(flash.shooter)).is_some())
+        .collect();
+    if flashes.is_empty() {
+        return;
+    }
+    if let Err(e) = world.run_system_cached_with(flashes_again, flashes) {
+        warn!("gun_fires: the saved flashes are not made: {e}");
+    }
+}
+
+/// Makes the saved flashes `flashes` again ([`again`]); each lays its look at its shooter's
+/// muzzle at its next run.
+fn flashes_again(
+    In(flashes): In<Vec<SavedFlash>>,
+    mut commands: Commands,
+    (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
+    (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
+) {
+    for saved in flashes {
+        let material = material(
+            &mut looks,
+            saved.texture,
+            (data.as_deref(), &assets, &mut effects),
+        );
+        let mesh = meshes.add(empty());
+        spawn_flash(
+            &mut commands,
+            (material, mesh),
+            (Vec3::ZERO, Vec3::ZERO),
+            (saved.shooter, saved.scale, saved.left, saved.texture),
+        );
+    }
+}
+
+/// The flashes' material of `texture`, made as it is first asked; none where it is missing.
+fn material(
+    looks: &mut Looks,
+    texture: &'static str,
+    (data, assets, effects): (Option<&Data>, &AssetServer, &mut Assets<Effect>),
+) -> Option<Handle<Effect>> {
+    looks
+        .0
+        .entry(texture)
+        .or_insert_with(|| {
+            let image = data.and_then(|data| particle_texture(&data.0.assets, assets, texture));
+            if image.is_none() {
+                warn!("gun_fires: no texture {texture}; its flashes are not drawn");
+            }
+            image.map(|image| effects.add(whole_material(image)))
+        })
+        .clone()
+}
+
+/// Makes a flash of `material` in `mesh` at `origin`, its light at `lamp`: its shooter, its gun's
+/// scale, its seconds left and its texture.
+fn spawn_flash(
+    commands: &mut Commands,
+    (material, mesh): (Option<Handle<Effect>>, Handle<Mesh>),
+    (origin, lamp): (Vec3, Vec3),
+    (shooter, scale, left, texture): (Entity, f32, f32, &'static str),
+) {
+    let mut flash = commands.spawn((
+        crate::daynight::Light(GUNFIRE_LIGHT),
+        Transform::from_translation(origin),
+        Visibility::default(),
+        DespawnOnExit(AppState::InGame),
+    ));
+    if let Some(material) = material {
+        flash.with_child((
+            Mesh3d(mesh.clone()),
+            MeshMaterial3d(material),
+            Transform::IDENTITY,
+            NoFrustumCulling,
+            RenderLayers::layer(iso::UNTINTED),
+        ));
+    }
+    let owner = flash.id();
+    let light = commands
+        .spawn(crate::fx_lights::light(
+            WHITE,
+            crate::fx_lights::LOW,
+            lamp,
+            owner,
+            (None, Vec3::ZERO),
+        ))
+        .id();
+    commands.entity(owner).insert(Flash {
+        shooter,
+        scale,
+        left,
+        mesh,
+        light,
+        texture,
+    });
 }
 
 /// The flashes' and the impacts' rolls.
@@ -117,55 +252,21 @@ fn fire(
         let armed = crate::sfx::armed_of(shooter, hero.as_deref(), &heroes, &arms, npcs.as_deref());
         let scale = gunfire_scale(armed.kind);
         let texture = particles::gunfire_texture(&mut rolls.0);
-        let material = looks
-            .0
-            .entry(texture)
-            .or_insert_with(|| {
-                let image = data
-                    .as_ref()
-                    .and_then(|data| particle_texture(&data.0.assets, &assets, texture));
-                if image.is_none() {
-                    warn!("gun_fires: no texture {texture}; its flashes are not drawn");
-                }
-                image.map(|image| effects.add(whole_material(image)))
-            })
-            .clone();
+        let material = material(
+            &mut looks,
+            texture,
+            (data.as_deref(), &assets, &mut effects),
+        );
         let mut mesh = empty();
         let (origin, lamp) = lay((place, axis), scale, orders.at(place), &mut mesh);
         let mesh = meshes.add(mesh);
         debug!("gun_fires: {shooter} fires {texture} at {place} along {axis}");
-        let mut flash = commands.spawn((
-            crate::daynight::Light(GUNFIRE_LIGHT),
-            Transform::from_translation(origin),
-            Visibility::default(),
-            DespawnOnExit(AppState::InGame),
-        ));
-        if let Some(material) = material {
-            flash.with_child((
-                Mesh3d(mesh.clone()),
-                MeshMaterial3d(material),
-                Transform::IDENTITY,
-                NoFrustumCulling,
-                RenderLayers::layer(iso::UNTINTED),
-            ));
-        }
-        let owner = flash.id();
-        let light = commands
-            .spawn(crate::fx_lights::light(
-                WHITE,
-                crate::fx_lights::LOW,
-                lamp,
-                owner,
-                (None, Vec3::ZERO),
-            ))
-            .id();
-        commands.entity(owner).insert(Flash {
-            shooter,
-            scale,
-            left: GUNFIRE_LIFE,
-            mesh,
-            light,
-        });
+        spawn_flash(
+            &mut commands,
+            (material, mesh),
+            (origin, lamp),
+            (shooter, scale, GUNFIRE_LIFE, texture),
+        );
     }
 }
 

@@ -68,10 +68,46 @@ pub(crate) fn land(commands: &mut Commands, at: Vec3) {
     ));
 }
 
+/// An impact as a save keeps it (#3774, the epic #3753): its place and its look, none for one
+/// not made yet; a load makes it again there, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedImpact {
+    at: Vec3,
+    look: Option<GrenadeImpact>,
+}
+
+/// The impacts in `world` as a save keeps them (#3774).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedImpact> {
+    let mut impacts = world.query::<(&Transform, Option<&Impact>, Has<Unmade>)>();
+    impacts
+        .iter(world)
+        .filter(|(_, impact, unmade)| impact.is_some() || *unmade)
+        .map(|(at, impact, _)| SavedImpact {
+            at: at.translation,
+            look: impact.map(|impact| impact.look.clone()),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's impacts again where they were (#3774), with no quake.
+pub(crate) fn again(world: &mut World, impacts: Vec<SavedImpact>) {
+    for saved in impacts {
+        let mut made = world.spawn((
+            Unmade,
+            Transform::from_translation(saved.at),
+            Visibility::default(),
+            DespawnOnExit(AppState::InGame),
+        ));
+        if let Some(look) = saved.look {
+            made.insert(crate::fx::Resumes(look));
+        }
+    }
+}
+
 /// Gives each new impact its look, its meshes and their materials (`0x7B67E0`).
 fn make(
     mut commands: Commands,
-    unmade: Query<Entity, With<Unmade>>,
+    unmade: Query<(Entity, Option<&crate::fx::Resumes<GrenadeImpact>>), With<Unmade>>,
     (data, assets, mut looks, mut dice): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -80,8 +116,12 @@ fn make(
     ),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for entity in &unmade {
-        let look = GrenadeImpact::new(&mut dice.0);
+    for (entity, resumed) in &unmade {
+        // A loaded impact goes on as it went (#3774).
+        let look = match resumed {
+            Some(crate::fx::Resumes(look)) => look.clone(),
+            None => GrenadeImpact::new(&mut dice.0),
+        };
         let mut material = |name: &'static str, over: bool, tinted: bool| {
             looks
                 .0
@@ -123,10 +163,11 @@ fn make(
         ];
         let meshes_of: [Handle<Mesh>; PARTS] = std::array::from_fn(|_| meshes.add(empty()));
         let mut made = commands.entity(entity);
-        made.remove::<Unmade>().insert(Impact {
-            look,
-            meshes: meshes_of.clone(),
-        });
+        made.remove::<(Unmade, crate::fx::Resumes<GrenadeImpact>)>()
+            .insert(Impact {
+                look,
+                meshes: meshes_of.clone(),
+            });
         for (mesh, (material, tinted)) in meshes_of.into_iter().zip(parts) {
             let Some(material) = material else {
                 continue;
@@ -253,5 +294,37 @@ impl Plugin for GrenadeImpactsPlugin {
                     .in_set(Unpaused)
                     .run_if(in_state(AppState::InGame)),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_impact_saved_goes_on_as_it_went() {
+        let mut world = World::new();
+        let look = GrenadeImpact::new(&mut Rng::of(1, 2, 3));
+        let at = Vec3::new(4.0, 0.0, 9.0);
+        world.spawn((
+            Impact {
+                look: look.clone(),
+                meshes: std::array::from_fn(|_| Handle::default()),
+            },
+            Transform::from_translation(at),
+        ));
+        world.spawn((Unmade, Transform::from_translation(Vec3::X)));
+        let kept = saved(&mut world);
+        let bytes = postcard::to_stdvec(&kept).unwrap();
+        let kept: Vec<SavedImpact> = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = World::new();
+        again(&mut loaded, kept);
+        let mut made = loaded.query::<(&Transform, Option<&crate::fx::Resumes<GrenadeImpact>>)>();
+        let mut made: Vec<(Vec3, Option<GrenadeImpact>)> = made
+            .iter(&loaded)
+            .map(|(place, resumed)| (place.translation, resumed.map(|resumed| resumed.0.clone())))
+            .collect();
+        made.sort_by(|a, b| a.0.x.total_cmp(&b.0.x));
+        assert_eq!(made, [(Vec3::X, None), (at, Some(look))]);
     }
 }
