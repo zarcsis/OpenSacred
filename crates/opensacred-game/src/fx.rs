@@ -45,7 +45,6 @@ use bevy::image::{ImageLoaderSettings, ImageSampler, ImageSamplerDescriptor};
 use bevy::mesh::{Indices, MeshVertexBufferLayoutRef, PrimitiveTopology};
 use bevy::pbr::{
     ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
-    MeshPipelineKey,
 };
 use bevy::prelude::*;
 use bevy::render::render_resource::{
@@ -516,7 +515,7 @@ impl MaterialExtension for Particles {
             // Drawn by the untinted camera, the one with no depth prepass, after the world and
             // its night: dimmed by the faded sprites before it (`veil`, #3851). The world's
             // camera draws its effects among the sprites' translucent texels.
-            if !key.mesh_key.contains(MeshPipelineKey::DEPTH_PREPASS) {
+            if crate::veil::veiled(key.mesh_key) {
                 fragment.shader_defs.push("VEILED".into());
             }
             if key.bind_group_data.whole {
