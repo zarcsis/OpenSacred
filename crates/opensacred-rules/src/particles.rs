@@ -6472,7 +6472,7 @@ fn speed_ramp(variant: usize) -> Ramp {
 /// born within 5 of it and drifting up to 5 a second; the twirls (variant 0) of the half side
 /// 40 ± 1 every 0.1 s, the dots (1) of 30 every 0.25 s, both grown from a fifth of it by 0.66 a
 /// second; until its seconds, when it goes at once.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SpeedSight {
     pub system: System,
     variant: usize,
@@ -12270,7 +12270,7 @@ const SKULL_COUNT: usize = 200;
 /// by 15 a second, living 0.85 s (−300), of the ramp [`FlyingSkull::ramp`], added whole (the
 /// flags `0x19`). Its seconds over, or its object ended, it shows no more and makes no more, and
 /// ends with its last glow.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FlyingSkull {
     pub system: System,
     seconds: f32,
@@ -13350,7 +13350,7 @@ pub fn healing_corners(hero: bool) -> [[f32; 4]; 4] {
 /// of a size 20 shrinking by 8 a second and turning by 3, living 2.45 s (the life's rate −104),
 /// drawn turned and added by their alpha in its corners' colours, whatever their life; it ends
 /// with them.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HealingSight {
     pub system: System,
 }
@@ -14387,7 +14387,7 @@ const BURNING_LEAST: f32 = 0.5;
 /// neck, falling (a buoyancy of 30), of the size 4 ± 2 shrinking by 2 a second, turned at random,
 /// flying ± 17 on each axis, living 1.02 s, left in the world; added by their alpha from a pale
 /// blue-white to black; it ends with its last spark.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BurningLight {
     pub system: System,
     clock: f32,
@@ -14488,7 +14488,7 @@ pub struct ConversionGlow {
 /// draw `0x782AD0`; #1092) at a converted creature's head: forty small blue-violet glows on a
 /// ring of 5 about a point 9.6 along the head bone's `x`, three of them doubled by a large grey
 /// one; after its time it swells to eleven times its size and fades over a second.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HolyConversion {
     clock: f32,
     seconds: f32,
@@ -14585,7 +14585,7 @@ pub fn ball_colour(variant: u16) -> Option<[f32; 4]> {
 /// their life falling by 350 a second, added by their alpha in its colour times their life (the
 /// billboards' flags 3). Landed, it makes no more and ends with its last glow, its model drawn
 /// till then.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TrapBall {
     pub system: System,
     pub colour: [f32; 4],
@@ -16779,7 +16779,7 @@ pub enum HomingKind {
 /// growing by 10, of the ramp [`HomingFlames::ramp`], turned at random, added by their alpha,
 /// left in the world behind it as it flies; at its burst all its dead flames at once in a ball,
 /// and none more; past its flight it makes no more and ends with its last.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomingFlames {
     pub system: System,
     kind: HomingKind,
@@ -17158,7 +17158,7 @@ const STAR: [f32; 6] = [
 
 /// How a [`PentagramKiller`] goes on: it draws itself over 2 s, it lies armed, it bursts (the
 /// burst's clock), it fades out unburst, and it ends.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 enum Pentagram {
     Arming,
     Armed,
@@ -17181,7 +17181,7 @@ fn on_circle(angle: f32, radius: f32) -> [f32; 3] {
 /// star; burst, the comets go, the ring and the star thin out over a second and a column of fire
 /// puffs of [`PENTAGRAM_PUFF`] shoots up; expired, the ring and the star fade out over 2 s. Its
 /// sparks lie anew at random each frame.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PentagramKiller {
     pub system: System,
     seconds: f32,
@@ -17347,7 +17347,7 @@ const CONFUSION_TURN: f32 = -0.3;
 /// high and starting again; and a screw-thread ribbon of [`CONFUSION_HELIX`] of 50 segments at
 /// the radius 30, sliding up a screw line from a turn at random and fading in and out over each
 /// 6.67 s; all added. It ends at once with its seconds.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConfusionCircle {
     clock: f32,
     phase: f32,
@@ -17428,7 +17428,7 @@ const POISON_COUNT: usize = 200;
 /// 30 about it, one every 0.04 s at the detail 2, of the size 18 falling by 2 a second, the
 /// buoyancy −100 falling by 5 a second, a frame of its grid of 2 at random, their life falling by
 /// 200 a second, of the ramp [`GroundPoison::ramp`], added. It ends at once with its seconds.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GroundPoison {
     pub system: System,
 }

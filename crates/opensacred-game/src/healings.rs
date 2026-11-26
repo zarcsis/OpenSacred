@@ -25,9 +25,60 @@ struct Unmade {
 /// A sight that shows where it was made: its look, its corners' colours and its mesh.
 #[derive(Component)]
 struct Shown {
+    /// Its creature and whether a hero's, as it was asked.
+    target: Entity,
+    hero: bool,
     look: HealingSight,
     corners: [[f32; 4]; 4],
     mesh: Handle<Mesh>,
+}
+
+/// A healing's sight as a save keeps it (#3779, the epic #3753): its creature by its name,
+/// whether a hero's, and its look; a load makes it again at its creature, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedHealingSight")]
+pub struct SavedLook {
+    #[serde(with = "crate::names::required")]
+    target: Entity,
+    hero: bool,
+    look: HealingSight,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = mapper.get_mapped(self.target);
+    }
+}
+
+/// The healings' sights in `world` as a save keeps them (#3779).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .map(|shown| SavedLook {
+            target: shown.target,
+            hero: shown.hero,
+            look: shown.look.clone(),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's healings' sights again (#3779); one whose creature the load finds not is
+/// left out.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        if crate::names::found(Some(saved.target)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade {
+                target: saved.target,
+                hero: saved.hero,
+            },
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
 }
 
 /// The sparks' material, made as first asked; none where its texture is missing.
@@ -53,7 +104,7 @@ pub(crate) fn heal(commands: &mut Commands, target: Entity, hero: bool) {
 /// `0x773FC0`), its mesh and its material.
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<HealingSight>>)>,
     places: Query<&GlobalTransform>,
     (data, assets, mut looks, mut dice): (
         Option<Res<Data>>,
@@ -63,7 +114,7 @@ fn make(
     ),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let Ok(at) = places.get(unmade.target) else {
             commands.entity(entity).despawn();
             continue;
@@ -82,15 +133,23 @@ fn make(
             .clone();
         let mesh = meshes.add(empty());
         let mut shown = commands.entity(entity);
-        shown.remove::<Unmade>().insert((
-            Shown {
-                look: HealingSight::new(&mut dice.0),
-                corners: healing_corners(unmade.hero),
-                mesh: mesh.clone(),
-            },
-            Transform::from_translation(at.translation()),
-            Visibility::default(),
-        ));
+        shown
+            .remove::<(Unmade, crate::fx::Resumes<HealingSight>)>()
+            .insert((
+                Shown {
+                    target: unmade.target,
+                    hero: unmade.hero,
+                    // A loaded sight goes on as it went (#3779).
+                    look: resumed.map_or_else(
+                        || HealingSight::new(&mut dice.0),
+                        |crate::fx::Resumes(look)| look.clone(),
+                    ),
+                    corners: healing_corners(unmade.hero),
+                    mesh: mesh.clone(),
+                },
+                Transform::from_translation(at.translation()),
+                Visibility::default(),
+            ));
         if let Some(material) = material {
             shown.with_child((
                 Mesh3d(mesh),
