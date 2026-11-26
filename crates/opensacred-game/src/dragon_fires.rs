@@ -63,6 +63,133 @@ struct Unmade {
     variant: u8,
 }
 
+/// A loaded breath's flames' state, which its making takes in place of a new one ([`make`]).
+#[derive(Component)]
+struct Resumed(DragonFire);
+
+/// A dragon's fire as a save keeps it (#3772): a breath with its dragon by its name, or a fire on
+/// the ground with its dragon by its name, its damages and whether it has struck; each with its
+/// state but its flames, which a load starts anew, and its place.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum SavedDragonFire {
+    Breath {
+        #[serde(with = "crate::names::required")]
+        dragon: Entity,
+        fire: DragonFire,
+        at: Vec3,
+    },
+    Ground {
+        fire: GroundFire,
+        #[serde(with = "crate::names::required")]
+        caster: Entity,
+        damages: [f32; 4],
+        struck: bool,
+        at: Vec3,
+    },
+}
+
+impl bevy::ecs::entity::MapEntities for SavedDragonFire {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        match self {
+            Self::Breath { dragon, .. } => *dragon = mapper.get_mapped(*dragon),
+            Self::Ground { caster, .. } => *caster = mapper.get_mapped(*caster),
+        }
+    }
+}
+
+/// The dragons' fires in `world` as a save keeps them (#3772).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedDragonFire> {
+    let mut breaths = world.query::<(&Breath, &Transform)>();
+    let mut fires: Vec<SavedDragonFire> = breaths
+        .iter(world)
+        .map(|(breath, at)| SavedDragonFire::Breath {
+            dragon: breath.dragon,
+            fire: breath.fire.clone(),
+            at: at.translation,
+        })
+        .collect();
+    let mut grounds = world.query::<(&OnTheGround, &Transform)>();
+    fires.extend(
+        grounds
+            .iter(world)
+            .map(|(ground, at)| SavedDragonFire::Ground {
+                fire: ground.fire.clone(),
+                caster: ground.caster,
+                damages: ground.damages,
+                struck: ground.struck,
+                at: at.translation,
+            }),
+    );
+    fires
+}
+
+/// Makes a loaded save's dragons' fires again (#3772), each burning on as it burned, its flames
+/// anew; one whose dragon the load finds not is left out.
+pub(crate) fn again(world: &mut World, fires: Vec<SavedDragonFire>) {
+    let fires: Vec<SavedDragonFire> = fires
+        .into_iter()
+        .filter(|fire| {
+            let (SavedDragonFire::Breath { dragon: by, .. }
+            | SavedDragonFire::Ground { caster: by, .. }) = fire;
+            crate::names::found(Some(*by)).is_some()
+        })
+        .collect();
+    if let Err(e) = world.run_system_cached_with(fires_again, fires) {
+        warn!("dragon fires: the saved fires are not made: {e}");
+    }
+}
+
+/// Makes the saved fires `fires` again ([`again`]).
+fn fires_again(
+    In(fires): In<Vec<SavedDragonFire>>,
+    mut commands: Commands,
+    (data, assets): (Option<Res<Data>>, Res<AssetServer>),
+    (mut made, mut materials, mut meshes): (
+        ResMut<Materials>,
+        ResMut<Assets<crate::fx::Effect>>,
+        ResMut<Assets<Mesh>>,
+    ),
+) {
+    for fire in fires {
+        match fire {
+            SavedDragonFire::Breath { dragon, fire, at } => {
+                commands.spawn((
+                    Unmade {
+                        dragon,
+                        variant: fire.variant,
+                    },
+                    Resumed(fire),
+                    Transform::from_translation(at),
+                    Visibility::default(),
+                    DespawnOnExit(AppState::InGame),
+                ));
+            }
+            SavedDragonFire::Ground {
+                fire,
+                caster,
+                damages,
+                struck,
+                at,
+            } => {
+                let entity = lay(
+                    &mut commands,
+                    (at, fire.variant),
+                    (caster, damages),
+                    (data.as_deref(), &assets),
+                    (&mut made, &mut materials, &mut meshes),
+                );
+                commands
+                    .entity(entity)
+                    .entry::<OnTheGround>()
+                    .and_modify(move |mut ground| {
+                        ground.fire = fire;
+                        ground.struck = struck;
+                    });
+            }
+        }
+    }
+}
+
 /// Starts a breath of the variant `variant` at the head of `dragon`, which stands at `at`, with
 /// its two sounds (`0x4E3DB9`, `0x77AF2D`).
 pub fn breathe(
@@ -167,7 +294,7 @@ fn flames(
 )]
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&Resumed>)>,
     (children, bones, worn): (
         Query<&Children>,
         Query<(&Name, &GlobalTransform)>,
@@ -181,8 +308,8 @@ fn make(
         ResMut<Dice>,
     ),
 ) {
-    for (entity, unmade) in &unmade {
-        commands.entity(entity).remove::<Unmade>();
+    for (entity, unmade, resumed) in &unmade {
+        commands.entity(entity).remove::<(Unmade, Resumed)>();
         let Some(head) =
             crate::making::bone_entity(unmade.dragon, &HEAD, &children, (&bones, &worn))
         else {
@@ -203,8 +330,13 @@ fn make(
             "dragon fires: {} breathes fire of the variant {}",
             unmade.dragon, unmade.variant
         );
+        // A loaded breath burns on as it burned (#3772).
+        let fire = match resumed {
+            Some(Resumed(fire)) => fire.clone(),
+            None => DragonFire::new(unmade.variant, &mut dice.0),
+        };
         commands.entity(entity).insert(Breath {
-            fire: DragonFire::new(unmade.variant, &mut dice.0),
+            fire,
             dragon: unmade.dragon,
             head,
             last: None,
@@ -320,7 +452,7 @@ fn lay(
         &mut Assets<crate::fx::Effect>,
         &mut Assets<Mesh>,
     ),
-) {
+) -> Entity {
     let texture = particles::GROUND_FIRE_TEXTURES
         .get(usize::from(variant))
         .copied()
@@ -343,6 +475,7 @@ fn lay(
         damages,
         struck: false,
     });
+    entity
 }
 
 /// Strikes, at each fire's first frame with targets about it (`0x5AF75D`, `+0x11C`), the hero and
