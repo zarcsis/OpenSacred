@@ -7,7 +7,8 @@
 // them, as the original blends them, a sprite's texels of alpha 64 or less dropped (`ALPHA_TEST`).
 // The sprites standing on an upper storey's floor stay in front of its plane (`fragment_on_floor`).
 // Those of a fading type fade about the points drawn before them, the hero's and the creatures'
-// about it (`faded`). Where the screen
+// about it (`faded`), their texels near the alpha test's cutoff coming in from nothing
+// (`FADE_IN`). Where the screen
 // shrinks the sprites, their pages' levels stand in for the image (`level_of`, #839).
 
 import bevy_pbr::render::mesh_view_bindings::view;
@@ -73,6 +74,11 @@ const OPAQUE: f32 = 254.5 / 255.0;
 /// The original's alpha test, which drops a sprite's texels of alpha 64 or less: `ALPHAREF` 64,
 /// `ALPHAFUNC` `GREATER` (`0x643190`). The miniatures are drawn without it.
 const CUTOFF: f32 = 64.0 / 255.0;
+/// The alpha above [`CUTOFF`] over which a texel that the fade brings near the cutoff comes in
+/// from nothing, where the original's alpha test shows it at once at a quarter, so that the hole
+/// about a point ends softly (docs/decisions/drawing.md, "Trees' fade hole's soft edge"): half the
+/// cutoff, some 30 of the original's pixels at zoom 1 by the fade's slope (`statics::FADE_IN`).
+const FADE_IN: f32 = 32.0 / 255.0;
 /// The least alpha that the second pass blends.
 const CLEAR: f32 = 0.5 / 255.0;
 
@@ -117,16 +123,19 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 
 /// The texel at `at` of the atlas's level `level`, held within the piece's texels there, its
 /// colour weighted by its alpha; none where the alpha test drops it, as the original tests each
-/// texel before it blends.
+/// texel before it blends. A texel that the test keeps comes in from nothing over [`FADE_IN`]
+/// above the cutoff, or over its own alpha's part above it where that is less, so that a texel at
+/// its own alpha, unfaded, keeps it whole.
 fn texel(at: vec2<i32>, source: vec4<i32>, alpha: f32, level: u32) -> vec4<f32> {
     let texel = textureLoad(atlas, clamp(at, source.xy, source.zw), level);
     // The vertices' alpha times the texel's, as the original's texture stage modulates them,
     // before its alpha test.
-    let a = texel.a * alpha;
+    var a = texel.a * alpha;
 @if(ALPHA_TEST) {
     if a <= CUTOFF {
         return vec4(0.0);
     }
+    a *= clamp((a - CUTOFF) / min(FADE_IN, texel.a - CUTOFF), 0.0, 1.0);
 }
     return vec4(texel.rgb * a, a);
 }
@@ -183,14 +192,16 @@ fn sampled(uv: vec2<f32>, source: vec4<i32>, alpha: f32, level: f32) -> vec4<f32
 const FADE_EDGE: f32 = 64.0;
 
 /// The alpha out of 1 of the point at `screen` of a fading sprite whose place lies at `place`
-/// in the order (`order::toward`) (`0x62FF60`): of the last point in the order drawn before the sprite whose radius
-/// holds it across and down, `G·(1 − k) + (255 − G)·t` out of 255, `t` the distance over the
-/// radius held at 1, `k` 0 up to the point's first fading sprite and the deeper fade's after it,
-/// its part fading out over the box's outermost [`FADE_EDGE`] pixels; else 1. Per point here,
-/// where the original gives each corner of its sprites' pieces of 64 pixels this alpha and lets
-/// the rasterizer blend it between them, and `k` at once where the original's rises sprite by
-/// sprite (docs/decisions/drawing.md, "Trees' fade per pixel", "Trees' deeper fade from the
-/// second on"). The same as `statics::TreeFade::about`.
+/// in the order (`order::toward`) (`0x62FF60`): the least of the points drawn before the sprite
+/// whose radius holds it across and down, each `G·(1 − k) + (255 − G)·t` out of 255, `t` the
+/// distance over the radius held at 1, `k` 0 up to the point's first fading sprite and the deeper
+/// fade's after it, its part fading out over the box's outermost [`FADE_EDGE`] pixels; else 1.
+/// Per point here, where the original gives each corner of its sprites' pieces of 64 pixels this
+/// alpha and lets the rasterizer blend it between them; `k` at once where the original's rises
+/// sprite by sprite; and the least where the original takes the last point's in the order, which
+/// cuts the hole about an earlier point off along the later one's box (docs/decisions/drawing.md,
+/// "Trees' fade per pixel", "Trees' deeper fade from the second on", "Trees' fade holes merged").
+/// The same as `statics::TreeFade::about`.
 fn faded(screen: vec2<f32>, place: f32) -> f32 {
     let radius = fade[0].x;
     var alpha = 1.0;
@@ -212,7 +223,7 @@ fn faded(screen: vec2<f32>, place: f32) -> f32 {
         let k = select(0.0, fade[0].w, deeper);
         let t = min(length(offset) / radius, 1.0);
         let edge = clamp((radius - max(abs(offset.x), abs(offset.y))) / FADE_EDGE, 0.0, 1.0);
-        alpha = (fade[0].y * (1.0 - k * edge) + (255.0 - fade[0].y) * t) / 255.0;
+        alpha = min(alpha, (fade[0].y * (1.0 - k * edge) + (255.0 - fade[0].y) * t) / 255.0);
     }
     return alpha;
 }
