@@ -71,6 +71,36 @@ const SEED: usize = 0x76E;
 #[derive(Component)]
 pub struct Resumes<S: Send + Sync + 'static>(pub S);
 
+/// How many steps a load's first frame played runs the fixed systems on by ([`Preroll`]), and
+/// each step's seconds: 6 s.
+const PREROLL_STEPS: usize = 120;
+const PREROLL_STEP: f32 = 0.05;
+
+/// Whether the fixed systems pre-roll, from a load's resume (`saves`) to the end of its first
+/// frame played (#3805; docs/decisions/drawing.md, "The sectors' fixed systems come back burning,
+/// not particle for particle"): the steady systems that the sectors, the scripts and the worn
+/// items make anew as they come in, which a save does not keep, run on by [`Preroll::steps`]
+/// before they are first drawn, so that a fire in view stands burning rather than building up.
+#[derive(Resource, Default)]
+pub struct Preroll(pub bool);
+
+impl Preroll {
+    /// The steps that a frame of `dt` seconds runs a fixed system on by, each with whether it is
+    /// the frame's own: the frame's alone, and as a load's first frame is played the pre-roll's
+    /// before it.
+    pub fn steps(&self, dt: f32) -> impl Iterator<Item = (f32, bool)> {
+        let count = if self.0 { PREROLL_STEPS } else { 0 };
+        std::iter::repeat_n((PREROLL_STEP, false), count).chain(std::iter::once((dt, true)))
+    }
+}
+
+/// Ends a load's pre-roll once its first frame is played.
+fn end_preroll(mut preroll: ResMut<Preroll>) {
+    if preroll.0 {
+        preroll.0 = false;
+    }
+}
+
 /// A fire: its variant's data, its particles and its dice, and its layers' meshes.
 #[derive(Component)]
 pub struct Burning {
@@ -1899,7 +1929,7 @@ struct GeyserLatch(bool);
 /// its layers' quads out facing the camera; a geyser runs its clock first, its burst's sound at
 /// it, one of two at a rate of 0.9 to 1.1 of the sample's.
 fn burn(
-    (time, clock): (Res<Time>, Option<Res<crate::daynight::Clock>>),
+    (time, clock, preroll): (Res<Time>, Option<Res<crate::daynight::Clock>>, Res<Preroll>),
     mut fires: Query<(
         Entity,
         &mut Burning,
@@ -1930,23 +1960,30 @@ fn burn(
             ..
         } = &mut *burning;
         let fire: &Arc<Fire> = fire;
-        let fire: &Fire = match geyser {
-            Some((geyser, own)) => {
-                if let Jet::Bursts { sounds: true } = geyser.update(dt, own, &mut latch.0, dice) {
-                    let pick = usize::try_from(dice.below(2)).unwrap_or(0);
-                    sounds.write(crate::sfx::Play {
-                        sound: crate::sfx::Of::Id(GEYSER_SOUNDS[pick]),
-                        at: Some(entity),
-                        rate: (0.4, crate::sfx::Roll::Share(0.2)),
-                    });
+        // A load's first frame runs it on first (#3805), a geyser's sounds at the frame's own
+        // step alone.
+        for (dt, own_step) in preroll.steps(dt) {
+            let fire: &Fire = match geyser.as_mut() {
+                Some((geyser, own)) => {
+                    if let Jet::Bursts { sounds: true } = geyser.update(dt, own, &mut latch.0, dice)
+                        && own_step
+                    {
+                        let pick = usize::try_from(dice.below(2)).unwrap_or(0);
+                        sounds.write(crate::sfx::Play {
+                            sound: crate::sfx::Of::Id(GEYSER_SOUNDS[pick]),
+                            at: Some(entity),
+                            rate: (0.4, crate::sfx::Roll::Share(0.2)),
+                        });
+                    }
+                    own
                 }
-                own
-            }
-            None => fire,
-        };
-        let blown: Vec<_> = fire.layers.iter().map(|layer| layer.blown(wind)).collect();
-        system.update(dt, &blown);
-        system.emit(&fire.blocks, &fire.layers, fire.count, dice);
+                None => fire,
+            };
+            let blown: Vec<_> = fire.layers.iter().map(|layer| layer.blown(wind)).collect();
+            system.update(dt, &blown);
+            system.emit(&fire.blocks, &fire.layers, fire.count, dice);
+        }
+        let fire: &Fire = geyser.as_ref().map_or(fire.as_ref(), |(_, own)| own);
         for (mut quads, handle) in drawn_quads(fire, system, layers.len())
             .into_iter()
             .zip(layers)
@@ -2098,6 +2135,11 @@ impl Plugin for FxPlugin {
         app.add_plugins(MaterialPlugin::<Effect>::default())
             .init_resource::<Crackles>()
             .init_resource::<GeyserLatch>()
+            .init_resource::<Preroll>()
+            .add_systems(
+                Last,
+                end_preroll.run_if(in_state(crate::pause::Play::Running)),
+            )
             .add_message::<SmallFire>()
             .add_systems(OnEnter(AppState::InGame), begin)
             .add_systems(OnExit(AppState::InGame), end)
@@ -2125,6 +2167,26 @@ impl Plugin for FxPlugin {
 mod tests {
     use super::*;
     use crate::statics::tests::{ORDER, shader_constant};
+
+    #[test]
+    fn a_loads_first_frame_runs_the_fixed_systems_on_for_six_seconds_first() {
+        let own: Vec<(f32, bool)> = Preroll(false).steps(0.02).collect();
+        assert_eq!(own, [(0.02, true)]);
+        let steps: Vec<(f32, bool)> = Preroll(true).steps(0.02).collect();
+        assert_eq!(steps.last(), Some(&(0.02, true)));
+        let before: Vec<f32> = steps[..steps.len() - 1]
+            .iter()
+            .map(|&(dt, own)| {
+                assert!(!own);
+                dt
+            })
+            .collect();
+        assert!((before.iter().sum::<f32>() - 6.0).abs() < 1e-3);
+        let mut world = World::new();
+        world.insert_resource(Preroll(true));
+        bevy::ecs::system::RunSystemOnce::run_system_once(&mut world, end_preroll).unwrap();
+        assert!(!world.resource::<Preroll>().0);
+    }
 
     #[test]
     fn a_fires_flames_and_smoke_go_into_one_mesh_in_their_slots_order() {

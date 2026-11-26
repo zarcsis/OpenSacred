@@ -166,7 +166,11 @@ fn burn(
         Query<(&Name, &GlobalTransform)>,
         crate::making::Worn,
     ),
-    (mut meshes, orders): (ResMut<Assets<Mesh>>, crate::fx::Orders),
+    (mut meshes, orders, preroll): (
+        ResMut<Assets<Mesh>>,
+        crate::fx::Orders,
+        Res<crate::fx::Preroll>,
+    ),
     mut rolls: ResMut<Rolls>,
 ) {
     let dt = time.delta_secs().min(0.1);
@@ -196,14 +200,20 @@ fn burn(
             let here = at - flame.origin;
             let before = flame.before.unwrap_or(here);
             flame.before = Some(here);
-            flame
-                .system
-                .update(dt, (models(before), models(here)), &mut rolls.0);
+            // A load's first frame runs it on first (#3805).
+            for (dt, _) in preroll.steps(dt) {
+                flame
+                    .system
+                    .update(dt, (models(before), models(here)), &mut rolls.0);
+            }
             if let Ok(mut crackle) = crackles.get_mut(flame.crackle) {
                 crackle.translation = at;
             }
         } else {
-            flame.system.update(dt, ([0.0; 3], [0.0; 3]), &mut rolls.0);
+            // A load's first frame runs it on first (#3805).
+            for (dt, _) in preroll.steps(dt) {
+                flame.system.update(dt, ([0.0; 3], [0.0; 3]), &mut rolls.0);
+            }
         }
         if flame.system.done() {
             commands.entity(entity).despawn();

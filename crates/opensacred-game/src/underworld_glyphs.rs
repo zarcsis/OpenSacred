@@ -373,11 +373,12 @@ fn run(
     time: Res<Time>,
     mut shown: Query<(Entity, &mut Shown, &GlobalTransform)>,
     mut models: Query<&mut Transform, With<Of>>,
-    (mut meshes, mut materials, orders, mut dice): (
+    (mut meshes, mut materials, orders, mut dice, preroll): (
         ResMut<Assets<Mesh>>,
         ResMut<Assets<ModelMaterial>>,
         Orders,
         ResMut<Dice>,
+        Res<crate::fx::Preroll>,
     ),
 ) {
     let dt = time.delta_secs().min(0.1);
@@ -412,7 +413,10 @@ fn run(
                 continue;
             }
             Run::Glyph(glyph) => {
-                glyph.update(dt);
+                // A load's first frame runs it on first (#3805).
+                for (dt, _) in preroll.steps(dt) {
+                    glyph.update(dt);
+                }
                 let mut rings = Quads::default();
                 for k in 0..glyph.rings.len() {
                     let band = UwGlyph::band(&glyph.ring(k));
@@ -453,7 +457,10 @@ fn run(
                 (glyph.clock, (glyph.phase, UW_GLYPH_LIFT, UW_GLYPH_SCALE))
             }
             Run::Fire(fire) => {
-                fire.update(dt, &mut dice.0);
+                // A load's first frame runs it on first (#3805).
+                for (dt, _) in preroll.steps(dt) {
+                    fire.update(dt, &mut dice.0);
+                }
                 let ramp = GlyphFire::ramp();
                 let mut glows = Quads::default();
                 for particle in &fire.system.particles {

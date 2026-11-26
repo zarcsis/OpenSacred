@@ -285,7 +285,12 @@ fn run(
     time: Res<Time>,
     mut shown: Query<(Entity, &mut Shown, &mut Transform)>,
     (places, holders): (Query<&GlobalTransform>, Query<&crate::models::OrderedWith>),
-    (mut dice, mut meshes, orders): (ResMut<Dice>, ResMut<Assets<Mesh>>, crate::fx::Orders),
+    (mut dice, mut meshes, orders, preroll): (
+        ResMut<Dice>,
+        ResMut<Assets<Mesh>>,
+        crate::fx::Orders,
+        Res<crate::fx::Preroll>,
+    ),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
@@ -314,7 +319,10 @@ fn run(
         };
         match &mut look.kind {
             Kind::Glow { at: bone, glow } => {
-                glow.update(dt, &mut dice.0);
+                // A load's first frame runs it on first (#3805).
+                for (dt, _) in preroll.steps(dt) {
+                    glow.update(dt, &mut dice.0);
+                }
                 if let Some(point) = at(*bone) {
                     let ramp = WeaponGlow::ramp(glow.style);
                     for spark in &glow.system.particles {
@@ -375,7 +383,10 @@ fn run(
                 }
             }
             Kind::Worms { line, worms } => {
-                worms.update(dt, &mut dice.0);
+                // A load's first frame runs it on first (#3805).
+                for (dt, _) in preroll.steps(dt) {
+                    worms.update(dt, &mut dice.0);
+                }
                 let [r, g, b] = WORMS_COLOUR;
                 for spark in &worms.system.particles {
                     let colour = [r, g, b, spark.life / 255.0];

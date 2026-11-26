@@ -253,13 +253,21 @@ fn run(
     time: Res<Time>,
     mut shown: Query<(&Stone, &mut Shown, &GlobalTransform)>,
     mut models: Query<&mut Transform, Without<Shown>>,
-    (mut meshes, orders, mut dice): (ResMut<Assets<Mesh>>, Orders, ResMut<Dice>),
+    (mut meshes, orders, mut dice, preroll): (
+        ResMut<Assets<Mesh>>,
+        Orders,
+        ResMut<Dice>,
+        Res<crate::fx::Preroll>,
+    ),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
     for (stone, mut shown, place) in &mut shown {
         let shown = &mut *shown;
-        shown.stone.update(dt);
+        // A load's first frame runs it on first (#3805).
+        for (dt, _) in preroll.steps(dt) {
+            shown.stone.update(dt);
+        }
         let origin = place.translation();
         if let Some((root, _)) = &shown.model
             && let Ok(mut transform) = models.get_mut(*root)
