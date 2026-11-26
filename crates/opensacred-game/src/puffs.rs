@@ -94,6 +94,79 @@ struct Puff {
 /// The seed of the streams' `rand()` (**estimate**: any).
 const SEED: usize = 0x329;
 
+/// A burst's particles and its dice of what it streams, which a load gives it ([`make`]).
+pub struct Running {
+    system: System,
+    dice: opensacred_rules::spawning::Rng,
+}
+
+/// A burst as a save keeps it (#3773, the epic #3753), as the original's save keeps a particle
+/// system with every particle (docs/re/saves.md, "What a load gives back of the doings"): its
+/// burst, its place, the creature it follows and the one whose model it is drawn over by their
+/// names, and its particles and its dice, none for one not made yet; a load makes it again
+/// there, its particles living on.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedPuff {
+    burst: Burst,
+    at: Vec3,
+    #[serde(with = "crate::names::optional")]
+    follows: Option<Entity>,
+    #[serde(with = "crate::names::optional")]
+    over: Option<Entity>,
+    running: Option<(System, opensacred_rules::spawning::Rng)>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedPuff {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.follows = self.follows.map(|follows| mapper.get_mapped(follows));
+        self.over = self.over.map(|over| mapper.get_mapped(over));
+    }
+}
+
+/// The bursts in `world` as a save keeps them (#3773).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedPuff> {
+    let mut puffs = world.query::<(&Puff, &Transform)>();
+    let mut saved: Vec<SavedPuff> = puffs
+        .iter(world)
+        .map(|(puff, at)| SavedPuff {
+            burst: puff.burst.clone(),
+            at: at.translation,
+            follows: puff.follows,
+            over: puff.over,
+            running: Some((puff.system.clone(), puff.dice.clone())),
+        })
+        .collect();
+    let mut unmade = world.query::<(&Unmade, &Transform)>();
+    saved.extend(unmade.iter(world).map(|(unmade, at)| SavedPuff {
+        burst: unmade.burst.clone(),
+        at: at.translation,
+        follows: unmade.follows,
+        over: unmade.over,
+        running: None,
+    }));
+    saved
+}
+
+/// Makes a loaded save's bursts again where they were (#3773), their particles living on; one
+/// whose creature the load finds not stands where it was, drawn as any.
+pub(crate) fn again(world: &mut World, puffs: Vec<SavedPuff>) {
+    for saved in puffs {
+        let mut made = world.spawn((
+            Unmade {
+                burst: saved.burst,
+                follows: crate::names::found(saved.follows),
+                over: crate::names::found(saved.over),
+            },
+            Transform::from_translation(saved.at),
+            Visibility::default(),
+            DespawnOnExit(AppState::InGame),
+        ));
+        if let Some((system, dice)) = saved.running {
+            made.insert(crate::fx::Resumes(Running { system, dice }));
+        }
+    }
+}
+
 /// The bursts' materials by their texture and blend, made as they are first asked; none where the
 /// texture is missing.
 #[derive(Resource, Default)]
@@ -103,7 +176,7 @@ struct Materials(HashMap<(&'static str, Blend, bool), Option<Handle<crate::fx::E
 /// the night's pass, as the untinted effects (#1191), unless the light at it tints it.
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<Running>>)>,
     data: Option<Res<Data>>,
     assets: Res<AssetServer>,
     (mut made, mut materials, mut meshes): (
@@ -112,7 +185,7 @@ fn make(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let burst = unmade.burst.clone();
         let material = made
             .0
@@ -148,21 +221,29 @@ fn make(
             .stream
             .map_or(0, |stream| stream.count)
             .max(burst.particles.len());
-        let mut system = System::new(count);
-        system.particles.clone_from(&burst.particles);
         let index = usize::try_from(entity.index_u32()).unwrap_or(0);
+        // A loaded burst's particles live on (#3773).
+        let (system, dice) = match resumed {
+            Some(crate::fx::Resumes(running)) => (running.system.clone(), running.dice.clone()),
+            None => {
+                let mut system = System::new(count);
+                system.particles.clone_from(&burst.particles);
+                (system, crate::seed::dice(SEED ^ index))
+            }
+        };
         let mut puff = commands.entity(entity);
         if burst.light > 0.0 {
             puff.insert(crate::daynight::Light(burst.light));
         }
-        puff.remove::<Unmade>().insert(Puff {
-            burst,
-            system,
-            follows: unmade.follows,
-            over: unmade.over,
-            mesh: mesh.clone(),
-            dice: crate::seed::dice(SEED ^ index),
-        });
+        puff.remove::<(Unmade, crate::fx::Resumes<Running>)>()
+            .insert(Puff {
+                burst,
+                system,
+                follows: unmade.follows,
+                over: unmade.over,
+                mesh: mesh.clone(),
+                dice,
+            });
         if let Some(material) = material {
             puff.with_children(|parts| {
                 parts
@@ -300,5 +381,66 @@ mod tests {
         let at = origin + crate::bolt_looks::world([2.0, -1.0, 3.0]);
         let [x, y, z] = local(at, origin);
         assert!((x - 2.0).abs() < 1e-3 && (y + 1.0).abs() < 1e-3 && (z - 3.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_burst_saved_lives_on_by_the_name_of_what_it_follows() {
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut app = App::new();
+        app.add_plugins(NamesPlugin);
+        let hero = app.world_mut().spawn(Named(Id::Hero)).id();
+        let burst = opensacred_rules::particles::rise_ring();
+        let mut system = System::new(4);
+        system.particles.clone_from(&burst.particles);
+        system.clock = 0.7;
+        let at = Vec3::new(5.0, 0.0, 6.0);
+        app.world_mut().spawn((
+            Puff {
+                burst: burst.clone(),
+                system: system.clone(),
+                follows: Some(hero),
+                over: None,
+                mesh: Handle::default(),
+                dice: crate::seed::dice(SEED),
+            },
+            Transform::from_translation(at),
+        ));
+        let mut refs = Refs::default();
+        let kept = mapped(
+            saved(app.world_mut()),
+            &mut Saving {
+                world: app.world(),
+                refs: &mut refs,
+            },
+        );
+        let bytes = postcard::to_stdvec(&(&refs, &kept)).unwrap();
+        let (refs, kept): (Refs, Vec<SavedPuff>) = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..3).map(|_| ()));
+        let hero = loaded.world_mut().spawn(Named(Id::Hero)).id();
+        let kept = mapped(
+            kept,
+            &mut Loading {
+                refs: &refs,
+                names: loaded.world().resource::<Names>(),
+                lost: 0,
+            },
+        );
+        again(loaded.world_mut(), kept);
+        let world = loaded.world_mut();
+        let made: Vec<_> = world
+            .query::<(&Unmade, &Transform, &crate::fx::Resumes<Running>)>()
+            .iter(world)
+            .map(|(unmade, place, resumed)| {
+                (
+                    unmade.burst.clone(),
+                    unmade.follows,
+                    place.translation,
+                    resumed.0.system.clone(),
+                )
+            })
+            .collect();
+        assert_eq!(made, [(burst, Some(hero), at, system)]);
     }
 }

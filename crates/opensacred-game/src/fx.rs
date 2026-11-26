@@ -66,6 +66,11 @@ use crate::{daynight, iso};
 /// The seed of the particles' `rand()` (**estimate**: any).
 const SEED: usize = 0x76E;
 
+/// A loaded look's state, which its module's making takes in place of a new one (#3773, the
+/// epic #3753): a look made of a kept state, or a passing sight made again by a load.
+#[derive(Component)]
+pub struct Resumes<S: Send + Sync + 'static>(pub S);
+
 /// A fire: its variant's data, its particles and its dice, and its layers' meshes.
 #[derive(Component)]
 pub struct Burning {
