@@ -1352,13 +1352,19 @@ const RESUME_WAIT: u32 = 300;
 
 /// Stands the game's time from a load's first frame in the game until [`resume`], without the
 /// pause's menu (`pause::Still`), so that nothing thinks or moves before what lives is back: the
-/// creatures of the hero's sectors would otherwise act from where the start made them.
+/// creatures of the hero's sectors would otherwise act from where the start made them. The pause
+/// stands the time only from the frame after the next, its state changed at the next frame's
+/// transition after that frame's time is taken, so the world's tick stands here from the first
+/// frame on: a long first frame would otherwise tick, and give the hero a health ring whose look
+/// the load's own ring then replaced (#3833).
 fn hold(
     mut held: ResMut<Held>,
+    mut world: ResMut<crate::frame::WorldTick>,
     play: Option<Res<bevy::prelude::State<crate::pause::Play>>>,
     mut next: ResMut<NextState<crate::pause::Play>>,
     mut still: ResMut<crate::pause::Still>,
 ) {
+    world.stand();
     let running = play.is_some_and(|play| *play.get() == crate::pause::Play::Running);
     if held.0 || !running {
         return;
@@ -1922,11 +1928,14 @@ impl Plugin for SavesPlugin {
             )
             .add_systems(
                 Update,
-                hold.run_if(in_state(AppState::InGame)).run_if(
-                    |restore: Option<Res<Restore>>, resuming: Option<Res<Resuming>>| {
-                        restore.is_some() || resuming.is_some()
-                    },
-                ),
+                hold.after(Step::Tick)
+                    .before(Step::HeroSpawn)
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(
+                        |restore: Option<Res<Restore>>, resuming: Option<Res<Resuming>>| {
+                            restore.is_some() || resuming.is_some()
+                        },
+                    ),
             )
             .add_systems(
                 Update,
