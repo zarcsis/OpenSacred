@@ -100,10 +100,29 @@ struct SignLook {
     mesh: Handle<Mesh>,
 }
 
+/// The mine's look as a save keeps it with the mine `object` (#3776, `spells::SpellLook`), if it
+/// shows.
+pub(crate) fn saved_mine(world: &World, object: Entity) -> Option<DwarfMine> {
+    let mut looks = world.try_query::<&MineLook>()?;
+    looks
+        .iter(world)
+        .find(|look| look.mine == object)
+        .map(|look| look.look.clone())
+}
+
+/// The sign's look as a save keeps it with the sign `object`, if it shows.
+pub(crate) fn saved_sign(world: &World, object: Entity) -> Option<MineSign> {
+    world.get::<SignLook>(object).map(|look| look.look.clone())
+}
+
 /// Gives each mine laid its look at its place: its model, turned and scaled, and its puffs.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn lay(
     mut commands: Commands,
-    mines: Query<(Entity, &Transform), Added<Mine>>,
+    mines: Query<(Entity, &Transform, Option<&crate::fx::Resumes<DwarfMine>>), Added<Mine>>,
     (data, assets, mut looks, mut dice): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -112,9 +131,16 @@ fn lay(
     ),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (mine, place) in &mines {
+    for (mine, place, resumed) in &mines {
         looks.make(data.as_deref(), &assets, &mut effects);
-        let look = DwarfMine::new(&mut dice.0);
+        // A loaded mine's look goes on as it went (#3776).
+        let look = match resumed {
+            Some(crate::fx::Resumes(look)) => look.clone(),
+            None => DwarfMine::new(&mut dice.0),
+        };
+        commands
+            .entity(mine)
+            .remove::<crate::fx::Resumes<DwarfMine>>();
         let at = place.translation;
         let model = looks.model.as_ref().map(|model| {
             let mut made = commands.spawn((
@@ -293,18 +319,19 @@ fn run_mines(
 /// Gives each new sign its look, on the sign itself, which rides with the Dwarf.
 fn sign(
     mut commands: Commands,
-    signs: Query<Entity, Added<Sign>>,
+    signs: Query<(Entity, Option<&crate::fx::Resumes<MineSign>>), Added<Sign>>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for sign in &signs {
+    for (sign, resumed) in &signs {
         looks.make(data.as_deref(), &assets, &mut effects);
         let mesh = meshes.add(empty());
         let mut shown = commands.entity(sign);
-        shown.insert((
+        shown.remove::<crate::fx::Resumes<MineSign>>().insert((
             Visibility::default(),
             SignLook {
-                look: MineSign::new(),
+                // A loaded sign's look goes on as it went (#3776).
+                look: resumed.map_or_else(MineSign::new, |crate::fx::Resumes(look)| look.clone()),
                 mesh: mesh.clone(),
             },
         ));

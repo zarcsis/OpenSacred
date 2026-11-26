@@ -1207,6 +1207,14 @@ pub enum SpellLook {
     MagicLight(crate::magic_lights::SavedLook),
     Choir(crate::choirs::SavedLook),
     Iceberg(crate::icebergs::SavedLook),
+    /// The Wood Elf's, the Dark Elf's and the Vampiress's objects' looks (#3776), and the Dwarf's
+    /// mines' and the Daemon's tentacles'.
+    KillerPlant(opensacred_rules::particles::KillerPlant),
+    Tentacle(opensacred_rules::particles::Tentacle),
+    TentacleAura(opensacred_rules::particles::TentacleAura),
+    Mine(opensacred_rules::particles::DwarfMine),
+    MineSign(opensacred_rules::particles::MineSign),
+    LostSoul(crate::lost_souls::SavedLook),
 }
 
 impl bevy::ecs::entity::MapEntities for SpellLook {
@@ -1217,6 +1225,12 @@ impl bevy::ecs::entity::MapEntities for SpellLook {
             Self::MagicLight(look) => look.map_entities(mapper),
             Self::Choir(look) => look.map_entities(mapper),
             Self::Iceberg(look) => look.map_entities(mapper),
+            Self::KillerPlant(_)
+            | Self::Tentacle(_)
+            | Self::TentacleAura(_)
+            | Self::Mine(_)
+            | Self::MineSign(_)
+            | Self::LostSoul(_) => {}
         }
     }
 }
@@ -1229,6 +1243,12 @@ fn look_of(world: &World, object: Entity) -> Option<SpellLook> {
         .or_else(|| crate::magic_lights::saved_look(world, object).map(SpellLook::MagicLight))
         .or_else(|| crate::choirs::saved_look(world, object).map(SpellLook::Choir))
         .or_else(|| crate::icebergs::saved_look(world, object).map(SpellLook::Iceberg))
+        .or_else(|| crate::killer_plants::saved_look(world, object).map(SpellLook::KillerPlant))
+        .or_else(|| crate::tentacles::saved_tentacle(world, object).map(SpellLook::Tentacle))
+        .or_else(|| crate::tentacles::saved_aura(world, object).map(SpellLook::TentacleAura))
+        .or_else(|| crate::mines::saved_mine(world, object).map(SpellLook::Mine))
+        .or_else(|| crate::mines::saved_sign(world, object).map(SpellLook::MineSign))
+        .or_else(|| crate::lost_souls::saved_look(world, object).map(SpellLook::LostSoul))
 }
 
 /// Gives the loaded object `object` its look as the save kept it.
@@ -1239,6 +1259,20 @@ fn look_again(object: &mut EntityWorldMut<'_>, look: SpellLook) {
         SpellLook::MagicLight(look) => crate::magic_lights::look_again(object, look),
         SpellLook::Choir(look) => crate::choirs::look_again(object, look),
         SpellLook::Iceberg(look) => crate::icebergs::look_again(object, look),
+        SpellLook::KillerPlant(look) => crate::killer_plants::look_again(object, look),
+        SpellLook::LostSoul(look) => crate::lost_souls::look_again(object, look),
+        SpellLook::Tentacle(look) => {
+            object.insert(crate::fx::Resumes(look));
+        }
+        SpellLook::TentacleAura(look) => {
+            object.insert(crate::fx::Resumes(look));
+        }
+        SpellLook::Mine(look) => {
+            object.insert(crate::fx::Resumes(look));
+        }
+        SpellLook::MineSign(look) => {
+            object.insert(crate::fx::Resumes(look));
+        }
     }
 }
 
@@ -1395,6 +1429,7 @@ pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedSpellObject> {
     macro_rules! each {
         ($kind:ident) => {
             let mut found = world.query::<(
+                Entity,
                 &$kind,
                 (
                     Option<&Transform>,
@@ -1402,14 +1437,15 @@ pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedSpellObject> {
                     Option<&crate::hums::Hum>,
                 ),
             )>();
-            objects.extend(
-                found
-                    .iter(world)
-                    .map(|(object, parts)| kept(SpellObject::$kind(object.clone()), parts)),
-            );
+            objects.extend(found.iter(world).map(|(entity, object, parts)| {
+                let mut saved = kept(SpellObject::$kind(object.clone()), parts);
+                saved.look = look_of(world, entity);
+                saved
+            }));
         };
     }
     let mut disks = world.query::<(
+        Entity,
         &Disk,
         Has<HellDisk>,
         (
@@ -1418,14 +1454,16 @@ pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedSpellObject> {
             Option<&crate::hums::Hum>,
         ),
     )>();
-    objects.extend(disks.iter(world).map(|(disk, hell_disk, parts)| {
-        kept(
+    objects.extend(disks.iter(world).map(|(entity, disk, hell_disk, parts)| {
+        let mut saved = kept(
             SpellObject::Disk {
                 disk: disk.clone(),
                 hell_disk,
             },
             parts,
-        )
+        );
+        saved.look = look_of(world, entity);
+        saved
     }));
     let mut fires = world.query::<(
         &DemonFire,

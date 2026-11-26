@@ -56,17 +56,63 @@ pub(crate) fn show(commands: &mut Commands, bearer: Entity) {
     commands.spawn((Unmade(bearer), DespawnOnExit(AppState::InGame)));
 }
 
+/// A nature's healing as a save keeps it (#3776): its bearer by its name and its look; a load
+/// makes it again on its bearer, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedHealing {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    look: NatureHealing,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedHealing {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The nature's healings in `world` as a save keeps them (#3776).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedHealing> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .map(|shown| SavedHealing {
+            bearer: shown.bearer,
+            look: shown.look.clone(),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's nature's healings again (#3776); one whose bearer the load finds not is
+/// left out.
+pub(crate) fn again(world: &mut World, healings: Vec<SavedHealing>) {
+    for saved in healings {
+        if crate::names::found(Some(saved.bearer)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade(saved.bearer),
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// Gives each new sight its meshes and its materials (`0x79BE50`, `0x79C1D0`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn make(
     mut commands: Commands,
     (unmade, clock): (
-        Query<(Entity, &Unmade)>,
+        Query<(Entity, &Unmade, Option<&crate::fx::Resumes<NatureHealing>>)>,
         Option<Res<crate::daynight::Clock>>,
     ),
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, &Unmade(bearer)) in &unmade {
+    for (entity, &Unmade(bearer), resumed) in &unmade {
         let materials = looks
             .0
             .get_or_insert_with(|| {
@@ -91,22 +137,27 @@ fn make(
             .clone();
         let parts: [Handle<Mesh>; 2] = std::array::from_fn(|_| meshes.add(empty()));
         let mut made = commands.entity(entity);
-        made.remove::<Unmade>().insert((
-            Shown {
-                bearer,
-                before: None,
-                order: None,
-                look: NatureHealing {
-                    wind: clock
-                        .as_deref()
-                        .map_or([0.0; 3], crate::daynight::Clock::wind),
-                    ..NatureHealing::default()
+        made.remove::<(Unmade, crate::fx::Resumes<NatureHealing>)>()
+            .insert((
+                Shown {
+                    bearer,
+                    before: None,
+                    order: None,
+                    // A loaded healing goes on as it went (#3776).
+                    look: resumed.map_or_else(
+                        || NatureHealing {
+                            wind: clock
+                                .as_deref()
+                                .map_or([0.0; 3], crate::daynight::Clock::wind),
+                            ..NatureHealing::default()
+                        },
+                        |crate::fx::Resumes(look)| look.clone(),
+                    ),
+                    parts: parts.clone(),
                 },
-                parts: parts.clone(),
-            },
-            Transform::IDENTITY,
-            Visibility::default(),
-        ));
+                Transform::IDENTITY,
+                Visibility::default(),
+            ));
         for (mesh, material) in parts.into_iter().zip(materials) {
             if let Some(material) = material {
                 made.with_child((

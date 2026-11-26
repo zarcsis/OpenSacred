@@ -69,6 +69,86 @@ pub(crate) fn multi_shot(commands: &mut Commands, bearer: Entity, level: u32, se
 #[derive(Component)]
 struct UnmadeRing(Entity);
 
+/// A multiple shot's sight as a save keeps it (#3776, the epic #3753): its bearer by its name
+/// and its look; a load makes it again on its bearer, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedElfSight {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    look: MultiShot,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedElfSight {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// A bow's round strike's ring as a save keeps it (#3776): its bearer by its name and its
+/// look.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedElfRing {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    look: BowRundumRing,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedElfRing {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The elf's sights and rings in `world` as a save keeps them (#3776).
+pub(crate) fn saved(world: &mut World) -> (Vec<SavedElfSight>, Vec<SavedElfRing>) {
+    let mut shown = world.query::<&Shown>();
+    let sights = shown
+        .iter(world)
+        .map(|shown| SavedElfSight {
+            bearer: shown.bearer,
+            look: shown.look.clone(),
+        })
+        .collect();
+    let mut rings = world.query::<&Ring>();
+    let rings = rings
+        .iter(world)
+        .map(|ring| SavedElfRing {
+            bearer: ring.bearer,
+            look: ring.look.clone(),
+        })
+        .collect();
+    (sights, rings)
+}
+
+/// Makes a loaded save's sights and rings again on their bearers (#3776); those of a bearer the
+/// load finds not are left out.
+pub(crate) fn again(world: &mut World, (sights, rings): (Vec<SavedElfSight>, Vec<SavedElfRing>)) {
+    for saved in sights {
+        if crate::names::found(Some(saved.bearer)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade {
+                bearer: saved.bearer,
+                level: 0,
+                seconds: 0.0,
+            },
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+    for saved in rings {
+        if crate::names::found(Some(saved.bearer)).is_none() {
+            continue;
+        }
+        world.spawn((
+            UnmadeRing(saved.bearer),
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// A `Rundum` with a bow's ring that shows: its shooter, its look and the meshes of its glows
 /// and its star.
 #[derive(Component)]
@@ -92,7 +172,11 @@ pub(crate) fn bow_rundum(commands: &mut Commands, bearer: Entity) {
 )]
 fn make_ring(
     mut commands: Commands,
-    unmade: Query<(Entity, &UnmadeRing)>,
+    unmade: Query<(
+        Entity,
+        &UnmadeRing,
+        Option<&crate::fx::Resumes<BowRundumRing>>,
+    )>,
     (places, children, bones, worn): (
         Query<&GlobalTransform>,
         Query<&Children>,
@@ -104,7 +188,7 @@ fn make_ring(
 ) {
     let s = iso::MODEL_SCALE;
     let (across, depth) = iso::fx_axes();
-    for (entity, &UnmadeRing(bearer)) in &unmade {
+    for (entity, &UnmadeRing(bearer), resumed) in &unmade {
         let Ok(root) = places.get(bearer).map(GlobalTransform::translation) else {
             commands.entity(entity).despawn();
             continue;
@@ -116,15 +200,20 @@ fn make_ring(
         let materials = materials(&mut looks, data.as_deref(), &assets, &mut effects);
         let parts: [Handle<Mesh>; 2] = std::array::from_fn(|_| meshes.add(empty()));
         let mut made = commands.entity(entity);
-        made.remove::<UnmadeRing>().insert((
-            Ring {
-                bearer,
-                look: BowRundumRing::new(offset),
-                parts: parts.clone(),
-            },
-            Transform::from_translation(root),
-            Visibility::default(),
-        ));
+        made.remove::<(UnmadeRing, crate::fx::Resumes<BowRundumRing>)>()
+            .insert((
+                Ring {
+                    bearer,
+                    // A loaded ring goes on as it went (#3776).
+                    look: resumed.map_or_else(
+                        || BowRundumRing::new(offset),
+                        |crate::fx::Resumes(look)| look.clone(),
+                    ),
+                    parts: parts.clone(),
+                },
+                Transform::from_translation(root),
+                Visibility::default(),
+            ));
         for (mesh, material) in parts.into_iter().zip(materials) {
             if let Some(material) = material {
                 made.with_child((
@@ -205,7 +294,7 @@ fn materials(
 /// Gives each new sight its look, its meshes and its materials (`0x7950A0`, `0x795880`).
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<MultiShot>>)>,
     places: Query<&GlobalTransform>,
     (data, assets, mut looks, mut dice): (
         Option<Res<Data>>,
@@ -215,7 +304,7 @@ fn make(
     ),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let Ok(at) = places.get(unmade.bearer) else {
             commands.entity(entity).despawn();
             continue;
@@ -223,15 +312,20 @@ fn make(
         let materials = materials(&mut looks, data.as_deref(), &assets, &mut effects);
         let parts: [Handle<Mesh>; 3] = std::array::from_fn(|_| meshes.add(empty()));
         let mut made = commands.entity(entity);
-        made.remove::<Unmade>().insert((
-            Shown {
-                bearer: unmade.bearer,
-                look: MultiShot::new(unmade.level, unmade.seconds, &mut dice.0),
-                parts: parts.clone(),
-            },
-            Transform::from_translation(at.translation()),
-            Visibility::default(),
-        ));
+        made.remove::<(Unmade, crate::fx::Resumes<MultiShot>)>()
+            .insert((
+                Shown {
+                    bearer: unmade.bearer,
+                    // A loaded sight goes on as it went (#3776).
+                    look: resumed.map_or_else(
+                        || MultiShot::new(unmade.level, unmade.seconds, &mut dice.0),
+                        |crate::fx::Resumes(look)| look.clone(),
+                    ),
+                    parts: parts.clone(),
+                },
+                Transform::from_translation(at.translation()),
+                Visibility::default(),
+            ));
         for (mesh, material) in parts.into_iter().zip(materials) {
             if let Some(material) = material {
                 made.with_child((

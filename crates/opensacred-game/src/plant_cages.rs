@@ -44,6 +44,8 @@ struct Unmade {
 #[derive(Component)]
 struct Cage {
     target: Entity,
+    /// Whether a hero's, of which its light's colour is.
+    hero: bool,
     look: PlantCage,
     base: Vec3,
     meshes: [Handle<Mesh>; 2],
@@ -61,6 +63,59 @@ struct Dice(Rng);
 impl Default for Dice {
     fn default() -> Self {
         Self(crate::seed::dice(0x849))
+    }
+}
+
+/// A cage as a save keeps it (#3776): its creature by its name, whether a hero's, its look and
+/// the hold it gives once it has grown; a load makes it again about its creature, growing on as
+/// it grew, with no sound.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedCage {
+    #[serde(with = "crate::names::required")]
+    target: Entity,
+    hero: bool,
+    look: PlantCage,
+    hold: Option<f32>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedCage {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = mapper.get_mapped(self.target);
+    }
+}
+
+/// The cages in `world` as a save keeps them (#3776).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedCage> {
+    let mut cages = world.query::<&Cage>();
+    cages
+        .iter(world)
+        .map(|cage| SavedCage {
+            target: cage.target,
+            hero: cage.hero,
+            look: cage.look.clone(),
+            hold: cage.hold,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's cages again (#3776); those about a creature the load finds not are left
+/// out.
+pub(crate) fn again(world: &mut World, cages: Vec<SavedCage>) {
+    for saved in cages {
+        if crate::names::found(Some(saved.target)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade {
+                target: saved.target,
+                hero: saved.hero,
+                seconds: saved.hold.unwrap_or(0.0),
+                sounded: false,
+                holds: saved.hold.is_some(),
+            },
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
     }
 }
 
@@ -132,7 +187,7 @@ fn cages(
 /// its base and its sound (`0x799720`, `0x79A610`).
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<PlantCage>>)>,
     places: Query<&GlobalTransform>,
     (data, assets, mut looks, mut dice): (
         Option<Res<Data>>,
@@ -143,7 +198,7 @@ fn make(
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
     mut sounds: MessageWriter<crate::sfx::PlayAt>,
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let Ok(at) = places.get(unmade.target) else {
             commands.entity(entity).despawn();
             continue;
@@ -162,7 +217,11 @@ fn make(
                 })
             })
             .clone();
-        let look = PlantCage::new(unmade.seconds, unmade.hero, &mut dice.0);
+        // A loaded cage grows on as it grew (#3776).
+        let look = match resumed {
+            Some(crate::fx::Resumes(look)) => look.clone(),
+            None => PlantCage::new(unmade.seconds, unmade.hero, &mut dice.0),
+        };
         let place = at.translation();
         let base = place + world(look.base);
         if unmade.sounded {
@@ -175,7 +234,7 @@ fn make(
         }
         let parts = [meshes.add(empty()), meshes.add(empty())];
         let mut made = commands.entity(entity);
-        made.remove::<Unmade>()
+        made.remove::<(Unmade, crate::fx::Resumes<PlantCage>)>()
             .insert((Transform::IDENTITY, Visibility::default()));
         for (mesh, material) in parts.iter().zip([dots, glow]) {
             if let Some(material) = material {
@@ -200,6 +259,7 @@ fn make(
         debug!("plant cages: a cage about {} from {base}", unmade.target);
         made.insert(Cage {
             target: unmade.target,
+            hero: unmade.hero,
             look,
             base,
             meshes: parts,
@@ -338,6 +398,7 @@ mod tests {
             let look = PlantCage::new(2.0, true, &mut dice);
             app.world_mut().spawn(Cage {
                 target: goblin,
+                hero: true,
                 look,
                 base: Vec3::ZERO,
                 meshes: [Handle::default(), Handle::default()],
@@ -368,5 +429,60 @@ mod tests {
         assert!(
             effects.is_some_and(|effects| effects.holds_any(&[opensacred_rules::spells::CAGE]))
         );
+    }
+
+    #[test]
+    fn a_cage_saved_grows_on_about_the_creature_of_its_name() {
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut app = App::new();
+        app.add_plugins(NamesPlugin);
+        let goblin = app.world_mut().spawn(Named(Id::Born(4))).id();
+        let look = PlantCage::new(3.0, true, &mut crate::seed::dice(1));
+        app.world_mut().spawn(Cage {
+            target: goblin,
+            hero: true,
+            look: look.clone(),
+            base: Vec3::ZERO,
+            meshes: [Handle::default(), Handle::default()],
+            hold: Some(3.0),
+        });
+        let mut refs = Refs::default();
+        let kept = mapped(
+            saved(app.world_mut()),
+            &mut Saving {
+                world: app.world(),
+                refs: &mut refs,
+            },
+        );
+        let bytes = postcard::to_stdvec(&(&refs, &kept)).unwrap();
+        let (refs, kept): (Refs, Vec<SavedCage>) = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..3).map(|_| ()));
+        let goblin = loaded.world_mut().spawn(Named(Id::Born(4))).id();
+        let kept = mapped(
+            kept,
+            &mut Loading {
+                refs: &refs,
+                names: loaded.world().resource::<Names>(),
+                lost: 0,
+            },
+        );
+        again(loaded.world_mut(), kept);
+        let world = loaded.world_mut();
+        let made: Vec<(Entity, bool, f32, bool, PlantCage)> = world
+            .query::<(&Unmade, &crate::fx::Resumes<PlantCage>)>()
+            .iter(world)
+            .map(|(unmade, resumed)| {
+                (
+                    unmade.target,
+                    unmade.holds,
+                    unmade.seconds,
+                    unmade.sounded,
+                    resumed.0.clone(),
+                )
+            })
+            .collect();
+        assert_eq!(made, [(goblin, true, 3.0, false, look)]);
     }
 }

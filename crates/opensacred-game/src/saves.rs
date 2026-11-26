@@ -124,8 +124,8 @@ use crate::{arts, drops, making};
 /// objects (#3770); the version 69 the elves' and the Vampiress's (#3771); the version 70 the
 /// Dwarf's and the Daemon's, and the breaths (#3772); the version 71 the looks' bursts (#3773);
 /// the version 72 the bolts' and the guns' looks (#3774); the version 73 the Seraphim's and the
-/// Mage's looks (#3775).
-pub const VERSION: u32 = 73;
+/// Mage's looks (#3775); the version 74 the elves' looks (#3776).
+pub const VERSION: u32 = 74;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -365,6 +365,18 @@ pub struct Looks {
     pub gusts: Vec<crate::twisters::SavedGust>,
     pub splinters: Vec<crate::ice_splinters::SavedSplinters>,
     pub floops: Vec<crate::floops::SavedFloops>,
+    /// The Wood Elf's, the Dark Elf's and the Vampiress's looks (#3776): the multiple shots'
+    /// sights and the round strikes' rings, the plant cages, the nature's healings, the dark wards
+    /// and the dark helices; the spells' objects' own looks go with their objects
+    /// (`spells::SpellLook`), and the spikes with their flames (`creature_casts::SavedCastObject`).
+    pub elf_sights: (
+        Vec<crate::elf_sights::SavedElfSight>,
+        Vec<crate::elf_sights::SavedElfRing>,
+    ),
+    pub cages: Vec<crate::plant_cages::SavedCage>,
+    pub healings: Vec<crate::plant_healings::SavedHealing>,
+    pub wards: Vec<crate::dark_wards::SavedWard>,
+    pub helices: Vec<crate::dark_helices::SavedHelix>,
 }
 
 impl MapEntities for Looks {
@@ -376,6 +388,12 @@ impl MapEntities for Looks {
         self.sera_sights.map_entities(mapper);
         self.gusts.map_entities(mapper);
         self.floops.map_entities(mapper);
+        self.elf_sights.0.map_entities(mapper);
+        self.elf_sights.1.map_entities(mapper);
+        self.cages.map_entities(mapper);
+        self.healings.map_entities(mapper);
+        self.wards.map_entities(mapper);
+        self.helices.map_entities(mapper);
     }
 }
 
@@ -932,6 +950,11 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
         gusts: crate::twisters::saved(world),
         splinters: crate::ice_splinters::saved(world).1,
         floops: crate::floops::saved(world),
+        elf_sights: crate::elf_sights::saved(world),
+        cages: crate::plant_cages::saved(world),
+        healings: crate::plant_healings::saved(world),
+        wards: crate::dark_wards::saved(world),
+        helices: crate::dark_helices::saved(world),
     };
     let looks = crate::names::mapped(
         looks,
@@ -1271,6 +1294,11 @@ fn resume(world: &mut bevy::prelude::World) {
     crate::twisters::again(world, looks.gusts);
     crate::ice_splinters::again(world, looks.splinters);
     crate::floops::again(world, looks.floops);
+    crate::elf_sights::again(world, looks.elf_sights);
+    crate::plant_cages::again(world, looks.cages);
+    crate::plant_healings::again(world, looks.healings);
+    crate::dark_wards::again(world, looks.wards);
+    crate::dark_helices::again(world, looks.helices);
     // The hero's hurled weapon out of his hand, flying or lying (#3769).
     if live.hurled {
         world.write_message(crate::arsenal::Throws(true));
@@ -2098,7 +2126,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (73, 0x5C68_1AD2_851B_4116),
+            (74, 0x1DF7_DF79_7522_E5BF),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

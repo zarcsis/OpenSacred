@@ -47,10 +47,26 @@ struct Plant {
     glow: Handle<Mesh>,
 }
 
+/// The plant of the thorn's aura `object` as a save keeps it with its aura (#3776,
+/// `spells::SpellLook`), if it has grown.
+pub(crate) fn saved_look(world: &World, object: Entity) -> Option<KillerPlant> {
+    world.get::<Plant>(object).map(|plant| plant.plant.clone())
+}
+
+/// Gives the loaded thorn's aura `object` its plant as the save kept it, which grows on as it
+/// grew.
+pub(crate) fn look_again(object: &mut EntityWorldMut<'_>, plant: KillerPlant) {
+    object.insert(crate::fx::Resumes(plant));
+}
+
 /// Gives each new thorn its plant (`0x798820`, `0x799640`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn grow(
     mut commands: Commands,
-    thorns: Query<(Entity, &Thorn), Added<Thorn>>,
+    thorns: Query<(Entity, &Thorn, Option<&crate::fx::Resumes<KillerPlant>>), Added<Thorn>>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes, mut dice): (
         ResMut<Assets<Effect>>,
@@ -58,7 +74,7 @@ fn grow(
         ResMut<Dice>,
     ),
 ) {
-    for (entity, thorn) in &thorns {
+    for (entity, thorn, resumed) in &thorns {
         if !looks.made {
             looks.made = true;
             if let Some(data) = data.as_deref() {
@@ -81,8 +97,14 @@ fn grow(
             crate::fx_lights::LOW,
             entity,
         ));
+        // A loaded plant grows on as it grew (#3776).
+        let plant = match resumed {
+            Some(crate::fx::Resumes(plant)) => plant.clone(),
+            None => KillerPlant::new(thorn.stands, thorn.hero, &mut dice.0),
+        };
+        shown.remove::<crate::fx::Resumes<KillerPlant>>();
         shown.insert(Plant {
-            plant: KillerPlant::new(thorn.stands, thorn.hero, &mut dice.0),
+            plant,
             dots: dots.clone(),
             glow: glow.clone(),
         });
