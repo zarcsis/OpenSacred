@@ -11,7 +11,8 @@
 // A particle's colour (`fx::Effect`, `PARTICLES`) is encoded before its alpha premultiplies an
 // added one, and a system's added and laid layers drawn as one mesh are premultiplied each by its
 // own (`MIXED`); one of list 4 (`LIST_4`, `fx::over_all`) takes the samples over which no model's
-// texel lies nearer than its true point. A model drawn apart from the world by a camera of its own, whose frame takes linear
+// texel lies nearer than its true point; one that the untinted camera draws is dimmed by the faded
+// sprites before it (`VEILED`, `veil`, #3851). A model drawn apart from the world by a camera of its own, whose frame takes linear
 // light (`model_effects::ApartMaterial`, `LINEAR`), keeps its colour linear, its effect laid
 // under it in sRGB values all the same; a figure of the choice of the hero is lit by the
 // figures' own two lights in the frame's values (`model_effects::FigureMaterial`,
@@ -34,6 +35,10 @@ import bevy_render::color_operations::{linear_to_srgb, srgb_to_linear};
 import bevy_pbr::render::{mesh_functions, mesh_view_bindings::lights};
 @if(NEAREST && DEPTH_PREPASS)
 import bevy_pbr::render::mesh_view_bindings::depth_prepass_texture;
+@if(VEILED)
+import bevy_pbr::render::mesh_view_bindings::view;
+@if(VEILED)
+import package::veil;
 @if(NEAREST && DEPTH_PREPASS)
 import package::nearest;
 
@@ -96,6 +101,29 @@ const FIGURE_SECOND_COLOUR: vec3<f32> = vec3<f32>(0.65, 0.8, 1.0);
 @group(constants::MATERIAL_BIND_GROUP) @binding(107) var<uniform> effect_offsets: vec4<f32>;
 @if(EFFECT)
 @group(constants::MATERIAL_BIND_GROUP) @binding(108) var<uniform> effect_glows: vec4<f32>;
+
+/// The veil over the effects that the untinted camera draws (`veil::VEIL`, #3851): at each of its
+/// texels, over the world camera's area, the place toward the camera of the nearest faded texel of
+/// a fading sprite there in its red (`veil::toward`) and the product of what such texels let
+/// through in its alpha.
+@if(VEILED)
+@group(constants::MATERIAL_BIND_GROUP) @binding(111) var veil_texture: texture_2d<f32>;
+
+/// How much further back than the veil's nearest faded texel a particle's fragment lies before
+/// that texel dims it, in world units: a particle at the faded texel's own place is not before it.
+const VEIL_SLACK: f32 = 1.0;
+
+/// What the faded sprites before a particle's fragment at `position` let through of it: the
+/// veil's product at its share of the screen where the fragment lies behind the veil's nearest
+/// texel there, else all of it.
+@if(VEILED)
+fn let_through(position: vec4<f32>) -> f32 {
+    let share = (position.xy - view.viewport.xy) / view.viewport.zw;
+    let size = vec2<f32>(textureDimensions(veil_texture));
+    let at = vec2<i32>(clamp(share * size, vec2(0.0), size - 1.0));
+    let texel = textureLoad(veil_texture, at, 0);
+    return select(1.0, texel.a, veil::toward(position.z) < texel.r - VEIL_SLACK);
+}
 
 /// The fragment's colour and, for a model's, the samples it takes.
 struct Output {
@@ -275,6 +303,17 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
     // taking nothing of the frame away, a laid one's covering it by its alpha.
     let alpha = abs(out.color.a);
     out.color = vec4<f32>(out.color.rgb * alpha, select(alpha, 0.0, out.color.a < 0.0));
+}
+@if(VEILED) {
+    // Dimmed by the faded sprites before it, as the original blends each sprite drawn after a
+    // particle over it by its alpha (`veil`, #3851): a premultiplied colour whole, else its alpha.
+    let through = let_through(in.position);
+@if(PREMULTIPLY_ALPHA) {
+    out.color *= through;
+}
+@else {
+    out.color.a *= through;
+}
 }
 }
 @else {

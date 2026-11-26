@@ -8,11 +8,12 @@
 // The sprites standing on an upper storey's floor stay in front of its plane (`fragment_on_floor`).
 // Those of a fading type fade about the points drawn before them, the hero's and the creatures'
 // about it (`faded`), their texels near the alpha test's cutoff coming in from nothing
-// (`FADE_IN`). Where the screen
+// (`FADE_IN`); the texels that the points fade go into the veil over the untinted effects as
+// well (`VEIL`, `fragment_veil`, #3851). Where the screen
 // shrinks the sprites, their pages' levels stand in for the image (`level_of`, #839).
 
 import bevy_pbr::render::mesh_view_bindings::view;
-import package::{order, post::post_process};
+import package::{order, post::post_process, veil};
 
 @group(constants::MATERIAL_BIND_GROUP) @binding(0) var atlas: texture_2d<f32>;
 /// What the texels are multiplied by (`statics::SpriteMaterial::tint`): white, but for the
@@ -245,6 +246,29 @@ fn fragment_on_floor(in: VertexOutput) -> OnFloor {
     let over = all(in.footprint >= vec2(0.0)) && all(in.footprint < vec2(1.0));
     out.depth = select(in.position.z, max(in.position.z, in.floor), over);
     return out;
+}
+
+/// The veil's fragment (`statics::Pass::Veil`, `veil`): of a fading sprite's texel that a point
+/// fades and the second pass draws translucent, its place toward the camera in its colour
+/// (`veil::toward`; over an upper storey's floor the floor's plane's, as `fragment_on_floor`
+/// lays it) and what it lets through, `1 − alpha`, in its alpha; none for any other texel, so that
+/// the sprites' own translucent edges and the opaque texels, which hide what lies behind them
+/// through the depth buffer, leave the veil as it is.
+@fragment
+fn fragment_veil(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Before any branch, as a derivative must be.
+    let level = level_of(in.uv);
+    let fade = select(1.0, faded(in.screen, in.order), in.fades > 0.5);
+    if fade >= 1.0 {
+        discard;
+    }
+    let alpha = sampled(in.uv, vec4<i32>(in.source), fade, level).a * tint.a;
+    if alpha >= OPAQUE || alpha < CLEAR {
+        discard;
+    }
+    let over = all(in.footprint >= vec2(0.0)) && all(in.footprint < vec2(1.0));
+    let near = veil::toward(select(in.position.z, max(in.position.z, in.floor), over));
+    return vec4(near, near, near, 1.0 - alpha);
 }
 
 /// The colour of a sprite's fragment, or none in the pass that leaves it to the other.
