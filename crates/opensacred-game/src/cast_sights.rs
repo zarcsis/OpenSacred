@@ -193,7 +193,11 @@ type Makers<'a> = (
     &'a mut Assets<Mesh>,
 );
 
-/// Makes the sight `look` at `caster`'s `bone`, at its place and the place before.
+/// Makes the sight `look` at `caster`'s `bone`, at its place and the place before, on the layer
+/// that its caster stands on as it is made (its `buildings::Layered`), with which it shows and
+/// hides as the buildings' states show their floors, as the original makes its FX object at the
+/// caster's place, floor byte and all, and chains it there (`0x51E2BE`, `0x5FBA40`;
+/// docs/re/effects.md, "Where in the frame", #3843).
 fn make(
     commands: &mut Commands,
     (caster, place, before): (Option<Entity>, Vec3, Option<Vec3>),
@@ -234,6 +238,10 @@ fn make(
         }
     }
     debug!("cast sights: {caster:?} makes style {style} at {bone:?}");
+    if let Some(caster) = caster {
+        let made = sight.id();
+        crate::buildings::take_layer(&mut sight.commands(), made, vec![caster]);
+    }
     sight.insert(Sight {
         caster,
         bone,

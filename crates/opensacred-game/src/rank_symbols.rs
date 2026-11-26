@@ -80,6 +80,7 @@ fn show(
                 Option<&crate::ai::Mind>,
                 Option<&crate::arrows::Size>,
                 Option<&Symbol>,
+                Option<&InheritedVisibility>,
             ),
             Has<Dies>,
         ),
@@ -93,9 +94,13 @@ fn show(
     let turn = symbol_turn(u64::try_from(time.elapsed().as_millis()).unwrap_or(0));
     let (sin, cos) = turn.sin_cos();
     let (across, down) = iso::fx_axes();
-    for (entity, at, ranked, health, (mind, size, symbol), dying) in &creatures {
-        let shows = kind(ranked.0)
-            .filter(|_| health.current > 0 && !dying && mind.is_some_and(|mind| mind.hostile()));
+    for (entity, at, ranked, health, (mind, size, symbol, visible), dying) in &creatures {
+        // Drawn by the creature's own render (`0x599910`), none under a creature not drawn, as
+        // one on a floor that its building's state hides (#3843).
+        let drawn = visible.is_none_or(|visible| visible.get());
+        let shows = kind(ranked.0).filter(|_| {
+            drawn && health.current > 0 && !dying && mind.is_some_and(|mind| mind.hostile())
+        });
         let Some(kind) = shows else {
             if symbol.is_some() {
                 commands.entity(entity).remove::<Symbol>();
