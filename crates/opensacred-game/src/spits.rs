@@ -75,6 +75,136 @@ struct Flight {
     level: Level,
     model: Option<Entity>,
     mesh: Handle<Mesh>,
+    /// The part whose model it shows (`drops::Tables::look`).
+    part: u32,
+}
+
+/// A spit in flight as a save keeps it (#3769): its flight but its blobs, which a load starts
+/// anew, its spitter by its name, its damages, its level, the part it shows, and its frame's
+/// place; a load makes it again there, flying on.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedSpit {
+    spit: Spit,
+    #[serde(with = "crate::names::required")]
+    spitter: Entity,
+    damages: [f32; 4],
+    level: Level,
+    part: u32,
+    at: Vec3,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedSpit {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.spitter = mapper.get_mapped(self.spitter);
+    }
+}
+
+/// The spits in flight in `world` as a save keeps them (#3769).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedSpit> {
+    let mut flights = world.query::<(&Flight, &Transform)>();
+    flights
+        .iter(world)
+        .map(|(flight, at)| SavedSpit {
+            spit: flight.spit.clone(),
+            spitter: flight.spitter,
+            damages: flight.damages,
+            level: flight.level,
+            part: flight.part,
+            at: at.translation,
+        })
+        .collect()
+}
+
+/// Sends a loaded save's spits on their flights again (#3769), each with its model and its
+/// blobs.
+pub(crate) fn again(world: &mut World, spits: Vec<SavedSpit>) {
+    if let Err(e) = world.run_system_cached_with(spit_again, spits) {
+        warn!("spits: the saved spits are not made: {e}");
+    }
+}
+
+/// Makes the saved spits `spits` again ([`again`]).
+fn spit_again(
+    In(spits): In<Vec<SavedSpit>>,
+    mut commands: Commands,
+    (data, assets, tables): (
+        Option<Res<Data>>,
+        Res<AssetServer>,
+        Option<Res<crate::drops::Tables>>,
+    ),
+    (mut looks, mut materials, mut meshes): (
+        ResMut<Looks>,
+        ResMut<Assets<Effect>>,
+        ResMut<Assets<Mesh>>,
+    ),
+) {
+    looks.make(data.as_deref(), &assets, &mut materials);
+    for saved in spits {
+        let start = saved.at;
+        let model = tables
+            .as_deref()
+            .and_then(|tables| tables.look(saved.part))
+            .map(|(model, texture, _)| {
+                let mut model = commands.spawn((
+                    model_looks::scene(&assets, model),
+                    Transform::from_translation(start).with_scale(Vec3::ZERO),
+                    model_looks::Ordered::default(),
+                    DespawnOnExit(AppState::InGame),
+                ));
+                if let Some(texture) = texture {
+                    model.insert(Retexture::load(&assets, texture));
+                }
+                model.id()
+            });
+        let mesh = meshes.add(empty());
+        let mut flying = commands.spawn((
+            Transform::from_translation(start),
+            Visibility::default(),
+            DespawnOnExit(AppState::InGame),
+        ));
+        if let Some(material) = looks.blobs[usize::from(saved.spit.crab)].clone() {
+            flying.with_child((
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(material),
+                Transform::IDENTITY,
+                NoFrustumCulling,
+            ));
+        }
+        flying.insert(Flight {
+            spit: saved.spit,
+            spitter: saved.spitter,
+            damages: saved.damages,
+            level: saved.level,
+            model,
+            mesh,
+            part: saved.part,
+        });
+    }
+}
+
+impl Looks {
+    /// Makes the blobs' materials at the first spit, once the game's data is there.
+    fn make(&mut self, data: Option<&Data>, assets: &AssetServer, materials: &mut Assets<Effect>) {
+        if self.made {
+            return;
+        }
+        let Some(data) = data else {
+            return;
+        };
+        self.made = true;
+        self.blobs = SPIT_TEXTURES.map(|name| {
+            let image = particle_texture(&data.0.assets, assets, name);
+            if image.is_none() {
+                warn!("spits: no texture {name}; its blobs are not drawn");
+            }
+            image.map(|image| {
+                materials.add(crate::fx::among_objects(particle_material(
+                    image,
+                    AlphaMode::Blend,
+                )))
+            })
+        });
+    }
 }
 
 /// A unit roll, `rand() / 32767`.
@@ -142,23 +272,7 @@ fn spit(
             info!("spits: {spitter} drops its cages on {target}");
             hold(&mut commands, target);
         }
-        if !looks.made {
-            looks.made = true;
-            if let Some(data) = data.as_deref() {
-                looks.blobs = SPIT_TEXTURES.map(|name| {
-                    let image = particle_texture(&data.0.assets, &assets, name);
-                    if image.is_none() {
-                        warn!("spits: no texture {name}; its blobs are not drawn");
-                    }
-                    image.map(|image| {
-                        materials.add(crate::fx::among_objects(particle_material(
-                            image,
-                            AlphaMode::Blend,
-                        )))
-                    })
-                });
-            }
-        }
+        looks.make(data.as_deref(), &assets, &mut materials);
         // Its part, rolled as it is made (`0x77B040`), then its reach (`0x4E5B3B`).
         let part = spit_part(dice);
         let reach = spit_reach(unit(dice));
@@ -210,6 +324,7 @@ fn spit(
             level: way.level,
             model,
             mesh,
+            part,
         });
         let flying = flying.id();
         info!("spits: {spitter} spits {part} toward {end} with {damages:?}");
@@ -322,6 +437,7 @@ fn fly(
             level,
             model,
             mesh,
+            ..
         } = &mut *flight;
         let lands = spit.update(dt, &mut dice.0);
         let head = origin + world(spit.place());

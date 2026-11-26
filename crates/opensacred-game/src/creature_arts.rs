@@ -598,15 +598,18 @@ impl Volley {
 /// the time flown, the level it flies on, its thrower and the one it strikes, the art's level and
 /// factor, its damages' terms (the dagger's values, its thrower's attributes and type, and the
 /// factor) and its size.
-#[derive(Component)]
-struct Thrown {
+#[derive(Component, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "ThrownDagger")]
+pub struct Thrown {
     from: Vec2,
     to: Vec2,
     height: f32,
     time: f32,
     flown: f32,
     level: crate::terrain::Level,
+    #[serde(with = "crate::names::required")]
     thrower: Entity,
+    #[serde(with = "crate::names::required")]
     target: Entity,
     art: (u32, f32),
     values: Option<fight::ItemValues>,
@@ -614,6 +617,60 @@ struct Thrown {
     thrower_type: u32,
     times: f64,
     size: f32,
+    /// Its model and its texture, relative to the asset directory.
+    look: Option<(String, Option<String>)>,
+}
+
+impl bevy::ecs::entity::MapEntities for Thrown {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.thrower = mapper.get_mapped(self.thrower);
+        self.target = mapper.get_mapped(self.target);
+    }
+}
+
+/// A thrown dagger as a save keeps it (#3769): its flight, its thrower and its target by their
+/// names, and where it is; a load makes it again there in its look, flying on.
+#[derive(
+    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, bevy::ecs::entity::MapEntities,
+)]
+pub struct SavedDagger {
+    #[entities]
+    thrown: Thrown,
+    at: Vec3,
+}
+
+/// The daggers in flight in `world` as a save keeps them (#3769).
+pub(crate) fn saved_daggers(world: &mut World) -> Vec<SavedDagger> {
+    let mut thrown = world.query::<(&Thrown, &Transform)>();
+    thrown
+        .iter(world)
+        .map(|(thrown, at)| SavedDagger {
+            thrown: thrown.clone(),
+            at: at.translation,
+        })
+        .collect()
+}
+
+/// Sends a loaded save's daggers on their flights again (#3769).
+pub(crate) fn daggers_again(world: &mut World, daggers: Vec<SavedDagger>) {
+    let assets = world.resource::<AssetServer>().clone();
+    for saved in daggers {
+        let look = saved.thrown.look.clone();
+        let mut flight = world.spawn((
+            Transform::from_translation(saved.at).with_scale(Vec3::splat(crate::iso::MODEL_SCALE)),
+            saved.thrown,
+            DespawnOnExit(crate::game::AppState::InGame),
+        ));
+        if let Some((model, texture)) = look {
+            flight.insert((
+                crate::models::scene(&assets, &model),
+                crate::models::Ordered::default(),
+            ));
+            if let Some(texture) = texture {
+                flight.insert(npcs::Retexture::load(&assets, &texture));
+            }
+        }
+    }
 }
 
 /// The dice of the thrown daggers' damages.
@@ -696,6 +753,7 @@ fn volleys(
         // Its own damages and its slots', weighed by its skills and its strength (`0x56ACD0`, as
         // the hero's).
         let times = rules.glance_factor(&arms.skills(mind.level), combat.attributes[0]);
+        let look = model.clone().map(|model| (model, texture.clone()));
         let mut flight = commands.spawn((
             Transform::from_translation(here).with_scale(Vec3::splat(crate::iso::MODEL_SCALE)),
             Thrown {
@@ -713,6 +771,7 @@ fn volleys(
                 thrower_type: mind.creature,
                 times,
                 size,
+                look,
             },
             DespawnOnExit(crate::game::AppState::InGame),
         ));
@@ -930,6 +989,7 @@ mod tests {
             thrower_type: 0,
             times: 1.0,
             size: 50.0,
+            look: None,
         }
     }
 

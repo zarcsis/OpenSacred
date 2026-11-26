@@ -9781,8 +9781,10 @@ const SPIT_COUNT: usize = 500;
 /// colour of its own ([`Spit::colour`]) fading by its life, laid over by their alpha; the crab
 /// queen's of red blobs. It strikes in flight the creatures it comes within its size and theirs of
 /// ([`Spit::strikes`]) and flies on; landed, it lays a mark and ends with its trail.
-#[derive(Clone, Debug, PartialEq)]
+/// A save keeps it but its blobs, which a load starts anew.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Spit {
+    #[serde(skip)]
     pub system: System,
     /// Whether it is the crab queen's (the caster's type 348).
     pub crab: bool,
@@ -15555,7 +15557,7 @@ pub fn spikes_at(detail: u8) -> usize {
 
 /// Whose spikes: Anducar's demon's rings (1163, `FX_ANDUCAR_DEMON`, of the spell 69) or the demon
 /// prince's fan (1166, `FX_DAEMONENFUERST`, of the spell 71).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SpikesKind {
     Demon,
     Prince,
@@ -16677,7 +16679,7 @@ const HOMING_FIRE_COUNT: usize = 300;
 /// The two homing fires, of one code (`0x7A6AD0`, `0x7BF720`): the big demons' (910,
 /// `FX_DAEMONFIRE`, of the spell 50) and Anducar's guards' (1164, `FX_ANDUCAR_GARDE`, of the
 /// spell 70).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum HomingKind {
     Demon,
     Guard,

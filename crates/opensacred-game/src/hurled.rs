@@ -59,18 +59,74 @@ impl crate::doings::Saves for Hurls {
 /// A weapon in flight: its arc's ends on the ground, its height, its time and the time flown, the
 /// level it flies on, its thrower, the art's level and factor, the seconds the art's clip played
 /// on after the throw, and its size.
-#[derive(Component)]
-struct Flying {
+#[derive(Component, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "HurledFlying")]
+pub struct Flying {
     from: Vec2,
     to: Vec2,
     height: f32,
     time: f32,
     flown: f32,
     level: Level,
+    #[serde(with = "crate::names::required")]
     thrower: Entity,
     art: (u32, f32),
     clip_left: f32,
     size: f32,
+}
+
+impl bevy::ecs::entity::MapEntities for Flying {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.thrower = mapper.get_mapped(self.thrower);
+    }
+}
+
+/// A hurled weapon in flight as a save keeps it (#3769): its flight, its thrower by his name, and
+/// where it is; a load makes it again there of the item the hero hurls, flying on.
+#[derive(
+    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, bevy::ecs::entity::MapEntities,
+)]
+pub struct SavedHurled {
+    #[entities]
+    flying: Flying,
+    at: Vec3,
+}
+
+/// The hurled weapons in flight in `world` as a save keeps them (#3769).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedHurled> {
+    let mut flying = world.query::<(&Flying, &Transform)>();
+    flying
+        .iter(world)
+        .map(|(flying, at)| SavedHurled {
+            flying: flying.clone(),
+            at: at.translation,
+        })
+        .collect()
+}
+
+/// Sends a loaded save's hurled weapons on their flights again (#3769), in the look of the item
+/// the hero hurls.
+pub(crate) fn again(world: &mut World, hurled: Vec<SavedHurled>) {
+    let Some(look) = world
+        .get_resource::<Arsenal>()
+        .and_then(Arsenal::hurled)
+        .map(|hurled| hurled.held.clone())
+    else {
+        return;
+    };
+    let assets = world.resource::<AssetServer>().clone();
+    for saved in hurled {
+        let mut entity = world.spawn((
+            Transform::from_translation(saved.at).with_scale(Vec3::splat(iso::MODEL_SCALE)),
+            models::scene(&assets, &look.model),
+            models::Ordered::default(),
+            saved.flying,
+            DespawnOnExit(AppState::InGame),
+        ));
+        if let Some(texture) = &look.texture {
+            entity.insert(Retexture::load(&assets, texture));
+        }
+    }
 }
 
 /// Whether the hurled weapon's thrower is still in the art's action at its hit, by which the hit

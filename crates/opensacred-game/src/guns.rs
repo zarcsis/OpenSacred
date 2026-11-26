@@ -22,13 +22,34 @@ const IMPACT_SOUND: u32 = 2115;
 
 /// A shell on its way: its thrower, its point, the level it falls on, its damages and how long
 /// until it strikes.
-#[derive(Component)]
+#[derive(Component, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Shell {
+    #[serde(with = "crate::names::required")]
     by: Entity,
     at: Vec2,
     level: Level,
     damages: [f32; 4],
     left: f32,
+}
+
+impl bevy::ecs::entity::MapEntities for Shell {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.by = mapper.get_mapped(self.by);
+    }
+}
+
+/// The shells on their way in `world` as a save keeps them (#3769), their throwers by their
+/// names.
+pub(crate) fn saved(world: &mut World) -> Vec<Shell> {
+    let mut shells = world.query::<&Shell>();
+    shells.iter(world).cloned().collect()
+}
+
+/// Sends a loaded save's shells on their way again (#3769), each striking as its time comes.
+pub(crate) fn again(world: &mut World, shells: Vec<Shell>) {
+    for shell in shells {
+        world.spawn((shell, DespawnOnExit(AppState::InGame)));
+    }
 }
 
 impl Shell {

@@ -110,9 +110,11 @@ const EYES_HIGH: f32 = 165.0;
 /// [`casts::HOMING_TURN`] radians a second, for [`casts::HOMING_FLIGHT`] seconds; at its first
 /// contact with the hero, on its level and within its size and the hero's, it bursts and strikes
 /// it once with its damages.
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HomingFire {
+    #[serde(with = "crate::names::required")]
     caster: Entity,
+    #[serde(with = "crate::names::required")]
     target: Entity,
     charge: f32,
     left: f32,
@@ -120,6 +122,194 @@ pub struct HomingFire {
     size: f32,
     damages: [f32; 4],
     level: Level,
+}
+
+/// A creature's cast's object as a save keeps it (#3769), as the original's save keeps its FX
+/// object: its state, its references by their names, its place, and what its look is made of
+/// (a homing fire's kind, a flame's spikes and whether it shows yet, a ball's variant); a load
+/// makes it again there, its look anew, and leaves out one whose caster it finds not. A
+/// summoning's sign and the terror sprinters' aura's look are left to their looks.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum SavedCastObject {
+    HomingFire {
+        fire: HomingFire,
+        at: Vec3,
+        kind: Option<opensacred_rules::particles::HomingKind>,
+    },
+    Flame {
+        flame: Flame,
+        at: Vec3,
+        shows: bool,
+        spikes: Option<crate::spikes::Raise>,
+    },
+    Summoning {
+        summoning: Summoning,
+        at: Vec3,
+    },
+    SprintersAura {
+        aura: SprintersAura,
+        at: Vec3,
+    },
+    Ball {
+        ball: Ball,
+        at: Vec3,
+        thrown: Option<u16>,
+    },
+}
+
+impl bevy::ecs::entity::MapEntities for SavedCastObject {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        match self {
+            Self::HomingFire { fire, .. } => {
+                fire.caster = mapper.get_mapped(fire.caster);
+                fire.target = mapper.get_mapped(fire.target);
+            }
+            Self::Flame { flame, .. } => flame.caster = mapper.get_mapped(flame.caster),
+            Self::Summoning { summoning, .. } => {
+                summoning.caster = mapper.get_mapped(summoning.caster);
+            }
+            Self::SprintersAura { aura, .. } => aura.mage = mapper.get_mapped(aura.mage),
+            Self::Ball { ball, .. } => ball.caster = mapper.get_mapped(ball.caster),
+        }
+    }
+}
+
+impl SavedCastObject {
+    /// Its caster, whom the load must find.
+    fn caster(&self) -> Entity {
+        match self {
+            Self::HomingFire { fire, .. } => fire.caster,
+            Self::Flame { flame, .. } => flame.caster,
+            Self::Summoning { summoning, .. } => summoning.caster,
+            Self::SprintersAura { aura, .. } => aura.mage,
+            Self::Ball { ball, .. } => ball.caster,
+        }
+    }
+}
+
+/// The creatures' casts' objects in `world` as a save keeps them (#3769).
+pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedCastObject> {
+    let mut objects = Vec::new();
+    let mut fires = world.query::<(
+        &HomingFire,
+        &Transform,
+        Option<&crate::homing_fires::Flames>,
+    )>();
+    objects.extend(
+        fires
+            .iter(world)
+            .map(|(fire, at, flames)| SavedCastObject::HomingFire {
+                fire: fire.clone(),
+                at: at.translation,
+                kind: flames.map(|flames| flames.0),
+            }),
+    );
+    let mut flames = world.query::<(
+        &Flame,
+        &Transform,
+        Option<&Visibility>,
+        Option<&crate::spikes::Raise>,
+    )>();
+    objects.extend(
+        flames
+            .iter(world)
+            .map(|(flame, at, shown, spikes)| SavedCastObject::Flame {
+                flame: flame.clone(),
+                at: at.translation,
+                shows: shown.is_some_and(|shown| *shown != Visibility::Hidden),
+                spikes: spikes.copied(),
+            }),
+    );
+    let mut summonings = world.query::<(&Summoning, &Transform)>();
+    objects.extend(
+        summonings
+            .iter(world)
+            .map(|(summoning, at)| SavedCastObject::Summoning {
+                summoning: *summoning,
+                at: at.translation,
+            }),
+    );
+    let mut auras = world.query::<(&SprintersAura, &Transform)>();
+    objects.extend(
+        auras
+            .iter(world)
+            .map(|(aura, at)| SavedCastObject::SprintersAura {
+                aura: aura.clone(),
+                at: at.translation,
+            }),
+    );
+    let mut balls = world.query::<(&Ball, &Transform, Option<&crate::trap_balls::Thrown>)>();
+    objects.extend(
+        balls
+            .iter(world)
+            .map(|(ball, at, thrown)| SavedCastObject::Ball {
+                ball: ball.clone(),
+                at: at.translation,
+                thrown: thrown.map(|thrown| thrown.0),
+            }),
+    );
+    objects
+}
+
+/// Makes a loaded save's casts' objects again where they were (#3769), each going on as it
+/// went, its look anew.
+pub(crate) fn objects_again(world: &mut World, objects: Vec<SavedCastObject>) {
+    for object in objects {
+        if crate::names::found(Some(object.caster())).is_none() {
+            continue;
+        }
+        let gone = DespawnOnExit(AppState::InGame);
+        match object {
+            SavedCastObject::HomingFire { fire, at, kind } => {
+                let mut made = world.spawn((
+                    fire,
+                    Transform::from_translation(at),
+                    Visibility::Inherited,
+                    gone,
+                ));
+                if let Some(kind) = kind {
+                    made.insert(crate::homing_fires::Flames(kind));
+                }
+            }
+            SavedCastObject::Flame {
+                flame,
+                at,
+                shows,
+                spikes,
+            } => {
+                let mut made = world.spawn((
+                    flame,
+                    Transform::from_translation(at),
+                    if shows {
+                        Visibility::Inherited
+                    } else {
+                        Visibility::Hidden
+                    },
+                    gone,
+                ));
+                if let Some(spikes) = spikes {
+                    made.insert(spikes);
+                }
+            }
+            SavedCastObject::Summoning { summoning, at } => {
+                world.spawn((summoning, Transform::from_translation(at), gone));
+            }
+            SavedCastObject::SprintersAura { aura, at } => {
+                world.spawn((aura, Transform::from_translation(at), gone));
+            }
+            SavedCastObject::Ball { ball, at, thrown } => {
+                let mut made = world.spawn((
+                    ball,
+                    Transform::from_translation(at),
+                    Visibility::Inherited,
+                    gone,
+                ));
+                if let Some(thrown) = thrown {
+                    made.insert(crate::trap_balls::Thrown(thrown));
+                }
+            }
+        }
+    }
 }
 
 /// A creature's cast in course, until its clip ends: its spell and its variant, its target and
@@ -1190,8 +1380,10 @@ fn raise(world: &mut World, caster: Entity, kind: u32, here: Vec3) {
 /// summoned a 567 of level 30 and the side 14, hostile, not hired; the level the caster's is a
 /// **hypothesis** of that one case); or the goblin mages' ball's ring's (`0x5A7531`), whose
 /// creature its caster hires ([`Hired`]).
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "CreatureSummoning")]
 pub struct Summoning {
+    #[serde(with = "crate::names::required")]
     caster: Entity,
     creature: u32,
     level: u32,
@@ -1372,8 +1564,10 @@ fn make_summoned(world: &mut World, summoning: Summoning, at: Vec3) {
 /// prince's fan (`FX_DAEMONENFUERST`, 1166, of 71): it waits for its wave, then for its life
 /// strikes once a second the hero within its size and the hero's, on its level, the rings' only
 /// where the hero walks or fights (`0x5B1947`, `0x5B1AF0`).
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "CreatureFlame")]
 pub struct Flame {
+    #[serde(with = "crate::names::required")]
     caster: Entity,
     wait: f32,
     left: f32,
@@ -1465,8 +1659,9 @@ fn burn(
 /// mage for its life, and once a second gives each terror sprinter within its reach that holds
 /// no effect keyed by 72 the aura's copy: the record's effects and the physical damage's effect,
 /// keyed by 72, for the record's value 0 in seconds (`0x5B1C20`).
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SprintersAura {
+    #[serde(with = "crate::names::required")]
     mage: Entity,
     left: f32,
     cooldown: f32,
@@ -1554,8 +1749,10 @@ const BALL_SOUND: u32 = 2057;
 /// `0x5AED3E`), and heals each creature there not hostile to its caster by the spell 7 at a
 /// quarter of its caster's level (784, `0x5A7336`); landing on no creature, it traces its ring
 /// there and summons its caster's creature (`0x5A7531`, `goblin_impacts`).
-#[derive(Component, Debug)]
+#[derive(Component, Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "CreatureBall")]
 pub struct Ball {
+    #[serde(with = "crate::names::required")]
     caster: Entity,
     from: Vec3,
     to: Vec3,
@@ -2113,5 +2310,90 @@ mod tests {
         ));
         app.update();
         assert_eq!(app.world().resource::<Struck>().0, vec![hero, follower]);
+    }
+
+    #[test]
+    fn a_casts_object_saved_goes_on_by_its_casters_name_in_its_look() {
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut saved = App::new();
+        saved.add_plugins(NamesPlugin);
+        let guard = saved.world_mut().spawn(Named(Id::Placed(3))).id();
+        let hero = saved.world_mut().spawn(Named(Id::Hero)).id();
+        let gone = saved.world_mut().spawn_empty().id();
+        let fire = HomingFire {
+            caster: guard,
+            target: hero,
+            charge: 0.2,
+            left: 3.0,
+            direction: Vec2::X,
+            size: 30.0,
+            damages: [1.0, 2.0, 0.0, 0.0],
+            level: None,
+        };
+        let at = Vec3::new(1.0, 2.0, 3.0);
+        saved.world_mut().spawn((
+            fire.clone(),
+            Transform::from_translation(at),
+            crate::homing_fires::Flames(opensacred_rules::particles::HomingKind::Guard),
+        ));
+        // One of a caster that no save names, which the load leaves out.
+        saved.world_mut().spawn((
+            Flame {
+                caster: gone,
+                wait: 0.5,
+                left: 2.0,
+                cooldown: 0.0,
+                damages: [0.0; 4],
+                level: None,
+                size: 40.0,
+                moving_only: false,
+            },
+            Transform::default(),
+            Visibility::Hidden,
+        ));
+        let mut refs = Refs::default();
+        let objects = saved_objects(saved.world_mut());
+        let objects = mapped(
+            objects,
+            &mut Saving {
+                world: saved.world(),
+                refs: &mut refs,
+            },
+        );
+        let bytes = postcard::to_stdvec(&(&refs, &objects)).unwrap();
+        let (refs, objects): (Refs, Vec<SavedCastObject>) = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..5).map(|_| ()));
+        let guard = loaded.world_mut().spawn(Named(Id::Placed(3))).id();
+        let hero = loaded.world_mut().spawn(Named(Id::Hero)).id();
+        let objects = mapped(
+            objects,
+            &mut Loading {
+                refs: &refs,
+                names: loaded.world().resource::<Names>(),
+                lost: 0,
+            },
+        );
+        objects_again(loaded.world_mut(), objects);
+        let world = loaded.world_mut();
+        let mut fires = world.query::<(&HomingFire, &Transform, &crate::homing_fires::Flames)>();
+        let made: Vec<_> = fires
+            .iter(world)
+            .map(|(fire, place, flames)| (fire.clone(), place.translation, flames.0))
+            .collect();
+        assert_eq!(
+            made,
+            [(
+                HomingFire {
+                    caster: guard,
+                    target: hero,
+                    ..fire
+                },
+                at,
+                opensacred_rules::particles::HomingKind::Guard
+            )]
+        );
+        assert_eq!(world.query::<&Flame>().iter(world).count(), 0);
     }
 }
