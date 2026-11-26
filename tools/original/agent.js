@@ -1644,10 +1644,12 @@ const COMMANDS = {
     }
     if (make) {
       // The right button's order as the engine's mouse handler makes it (0x6172C0, docs/re/arts.md, "The right
-      // button"): the event 0x105 to the hero, its target's id at +0x10 and place at +0x18, +0x1C, 100 at +0x28, the
-      // art's kind at +0x2C (0 a spell, 1 a weapon art), the art of the hero's form at +0x30 and the floor at +0x34;
-      // the sector's word +0x14 left 0, so that the sender hands it on as it is. Its target is any creature, a
-      // corpse among them, which the cursor's pick passes over for the hostile living ones and the items (#3492).
+      // button"): the event 0x105 to the hero, its target's id at +0x10 and place at +0x18, +0x1C, its floor at
+      // +0x24, which 0x617030 writes for the engine's own and the hero's handler copies into the order's +0x114, the
+      // launch test's floor of a point (#3863), 100 at +0x28, the art's kind at +0x2C (0 a spell, 1 a weapon art), the
+      // art of the hero's form at +0x30 and the floor at +0x34 too; the sector's word +0x14 left 0, so that the sender
+      // hands it on as it is. Its target is any creature, a corpse among them, which the cursor's pick passes over for
+      // the hostile living ones and the items (#3492).
       const goal = objectById(target);
       if (goal === null || !isCreature(goal)) {
         throw new Error(`no creature ${target}`);
@@ -1658,6 +1660,8 @@ const COMMANDS = {
       event.add(0x10).writeU32(target);
       event.add(0x18).writeS32(goal.add(CREATURE.x).readS32());
       event.add(0x1c).writeS32(goal.add(CREATURE.y).readS32());
+      event.add(0x20).writeU32(0);
+      event.add(0x24).writeU32(goal.add(CREATURE.floor).readU8());
       event.add(0x28).writeU32(100);
       event.add(0x2c).writeU32(make < 1000 ? 0 : 1);
       event.add(0x30).writeU32(formArt(object, make, 0));
