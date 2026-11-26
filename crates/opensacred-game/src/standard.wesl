@@ -11,8 +11,8 @@
 // A particle's colour (`fx::Effect`, `PARTICLES`) is encoded before its alpha premultiplies an
 // added one, and a system's added and laid layers drawn as one mesh are premultiplied each by its
 // own (`MIXED`); one of list 4 (`LIST_4`, `fx::over_all`) takes the samples over which no model's
-// texel lies nearer than its true point; one that the untinted camera draws is dimmed by the faded
-// sprites before it (`VEILED`, `veil`, #3851). A model drawn apart from the world by a camera of its own, whose frame takes linear
+// texel lies nearer than its true point. A blended particle or model's pass that the untinted
+// camera draws is dimmed by the faded sprites before it (`VEILED`, `veil`, #3851, #3856). A model drawn apart from the world by a camera of its own, whose frame takes linear
 // light (`model_effects::ApartMaterial`, `LINEAR`), keeps its colour linear, its effect laid
 // under it in sRGB values all the same; a figure of the choice of the hero is lit by the
 // figures' own two lights in the frame's values (`model_effects::FigureMaterial`,
@@ -304,17 +304,6 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
     let alpha = abs(out.color.a);
     out.color = vec4<f32>(out.color.rgb * alpha, select(alpha, 0.0, out.color.a < 0.0));
 }
-@if(VEILED) {
-    // Dimmed by the faded sprites before it, as the original blends each sprite drawn after a
-    // particle over it by its alpha (`veil`, #3851): a premultiplied colour whole, else its alpha.
-    let through = let_through(in.position);
-@if(PREMULTIPLY_ALPHA) {
-    out.color *= through;
-}
-@else {
-    out.color.a *= through;
-}
-}
 }
 @else {
 @if(LINEAR) {
@@ -343,6 +332,18 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Output {
 @else {
     out.color = vec4(mix(under, out.color.rgb, over), 1.0);
 }
+}
+}
+// Drawn over the night, blended, a particle or a model's pass is dimmed by the faded sprites before
+// it, as the original blends each sprite drawn after it over it by its alpha (`veil`, #3851,
+// #3856): a premultiplied colour whole, else its alpha.
+@if(VEILED) {
+    let through = let_through(in.position);
+@if(PREMULTIPLY_ALPHA) {
+    out.color *= through;
+}
+@else {
+    out.color.a *= through;
 }
 }
 // A lit model took the world's colour at its place in its light (`daynight`, #3693): the night's

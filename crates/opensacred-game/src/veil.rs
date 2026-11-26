@@ -9,14 +9,16 @@
 //! it the fading sprites' texels that a point fades and the second pass draws translucent
 //! (`statics::Pass::Veil`, `sprites.wesl`'s `fragment_veil`) into [`VEIL`]: at each texel the
 //! nearest such texel's place toward the camera (`veil.wesl`) and the product of what each lets
-//! through, `1 − alpha`. The effects of [`fx::Effect`](crate::fx::Effect) drawn by the untinted
-//! camera take that product of their colour where they lie behind that place (`standard.wesl`'s
-//! `VEILED`).
+//! through, `1 − alpha`. What the untinted camera draws blended, the particles of
+//! [`fx::Effect`](crate::fx::Effect) and the models' passes of
+//! [`ModelMaterial`](crate::models::ModelMaterial) (#3856), takes that product of its colour where
+//! it lies behind that place (`standard.wesl`'s `VEILED`, [`veiled`]).
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;
 use bevy::camera::{CameraUpdateSystems, ClearColorConfig, RenderTarget, ScalingMode};
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
+use bevy::pbr::MeshPipelineKey;
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat, TextureUsages};
 
@@ -44,6 +46,22 @@ const _: () = assert!(NOTHING < -iso::DISTANCE);
 /// The half floats of a texel of the veil that no faded sprite covers: [`NOTHING`] in each of its
 /// colours and all let through in its alpha (`0x3C00`, 1).
 const CLEAR_TEXEL: [u16; 4] = [0xF800, 0xF800, 0xF800, 0x3C00];
+
+/// Whether a material's pipeline of `key` reads the veil (`standard.wesl`'s `VEILED`): the
+/// untinted camera's, the one with no depth prepass, and blended, as only a blended texel lets a
+/// faded sprite before it through; an opaque one is drawn whole. The cameras of pictures of their
+/// own (`iso::Apart`) have none either: the veil is clear outside the game, where alone they draw
+/// such materials (the figures of the choice of the hero).
+pub fn veiled(key: MeshPipelineKey) -> bool {
+    let blend = key.intersection(MeshPipelineKey::BLEND_RESERVED_BITS);
+    !key.contains(MeshPipelineKey::DEPTH_PREPASS)
+        && [
+            MeshPipelineKey::BLEND_PREMULTIPLIED_ALPHA,
+            MeshPipelineKey::BLEND_MULTIPLY,
+            MeshPipelineKey::BLEND_ALPHA,
+        ]
+        .contains(&blend)
+}
 
 /// The camera of the veil: a child of the world's, drawing the layer [`VEIL_LAYER`] into [`VEIL`]
 /// before it, over the world camera's area of the world.
@@ -163,6 +181,22 @@ impl Plugin for VeilPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_untinted_cameras_blended_materials_alone_read_the_veil() {
+        let blended = [
+            MeshPipelineKey::BLEND_PREMULTIPLIED_ALPHA,
+            MeshPipelineKey::BLEND_MULTIPLY,
+            MeshPipelineKey::BLEND_ALPHA,
+        ];
+        for blend in blended {
+            assert!(veiled(blend));
+            // The world's camera, with its depth prepass, draws them among the sprites.
+            assert!(!veiled(blend | MeshPipelineKey::DEPTH_PREPASS));
+        }
+        assert!(!veiled(MeshPipelineKey::BLEND_OPAQUE));
+        assert!(!veiled(MeshPipelineKey::BLEND_ALPHA_TO_COVERAGE));
+    }
 
     #[test]
     fn the_veils_clear_texel_holds_nothing_and_lets_all_through() {
