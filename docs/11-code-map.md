@@ -271,6 +271,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/item_glows.rs`: The items' own glows
 - `crates/opensacred-game/src/item_pictures.rs`: The items' pictures drawn only when they change
 - `crates/opensacred-game/src/journal.rs`: The log, readable in the game and after it
+- `crates/opensacred-game/src/kerning.rs`: The game's texts set without their fonts' pair kerning
 - `crates/opensacred-game/src/killer_plants.rs`: The look of the thorns' plants
 - `crates/opensacred-game/src/knock_down.rs`: A player's hero knocked down by a heavy blow
 - `crates/opensacred-game/src/knockouts.rs`: The butterflies over a head

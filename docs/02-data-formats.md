@@ -1281,6 +1281,7 @@ Since #827 the index names no file: it lists the ids of the samples and each mus
 
 - Fonts: `font/ANTQS__.TTF` ("AntiquaSSK", 63 KB) and `font/CAROLING.TTF` ("Carolingia", 39 KB); the original rasterizes them via GDI into 256² pages.
   The game sets the same TTFs through Bevy's text (parley).
+  AntiquaSSK holds a legacy `kern` table of 819 pairs and no GPOS (#3837), which the original never applies: it asks GDI for the pairs and drops them, and steps each glyph by its advance in whole pixels less one before another glyph (**confirmed** by code and seen, docs/re/interface.md, "The fonts' pen and the kerning (`cFontTTF2`)").
 - UI bitmaps: 1024×1024 `UI_*.TGA` in format 6 (A8R8G8B8, §3.1), the cursor `MOUSE_MAIN.TGA`; the `cUI_*` widget layout is defined in code, there are no layout files.
   The interface follows the original's places and images (`tables/ui_images.ron`, [docs/re/interface.md](re/interface.md)).
 - Loading screens: `pak/loading0/1.bmp`, `loadgame.bmp`, `savegame.bmp`, `LoadingUW00/01.bmp`: BMP 1024×768, 24-bit, uncompressed, rows from the bottom; three files carry 2 bytes after the pixels.
