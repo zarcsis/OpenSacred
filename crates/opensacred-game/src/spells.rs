@@ -171,7 +171,7 @@ enum Flight {
 
 /// A zone of the banishing circle (the kind 2, `0xAD2530`): its centre and cell, its level, and
 /// its time left.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Banishing {
     centre: Vec3,
     cell: (i32, i32),
@@ -278,8 +278,10 @@ impl crate::doings::Saves for Changeling {
 /// The Dark Elf's trap's ball (867, `cParticleSystem_ball`): its caster, its art and level in
 /// play, its damages' multipliers and its strikes' factor (`fight::Rules::trap_factor`), where it
 /// flies from and to, its level, the part of its course flown, and whether its throw has sounded.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "TrapBall")]
 struct Ball {
+    #[serde(with = "crate::names::required")]
     caster: Entity,
     art: u16,
     spell_level: u32,
@@ -295,8 +297,9 @@ struct Ball {
 /// The pentagram 782 of the trap 1050 (`0x772C40`): its caster, its damages and its strike's
 /// factor, its level, the time until it is armed and its life, and the level at or below which it
 /// slays outright.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Pentagram {
+    #[serde(with = "crate::names::required")]
     caster: Entity,
     damages: [f32; 4],
     factor: f32,
@@ -308,7 +311,7 @@ struct Pentagram {
 
 /// The confusion 871 of the trap 1051 (`0x778F40`): the trap's level in play, its caster's level,
 /// its level, its life and its cooldown.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Confusion {
     spell_level: u32,
     caster_level: u32,
@@ -319,7 +322,7 @@ struct Confusion {
 
 /// The fog's zone of the trap 1053 (the kind 4, `0xAD2530`): its cell, its level, the trap's
 /// level in play and its time left.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Fog {
     cell: (i32, i32),
     level: Level,
@@ -1197,19 +1200,27 @@ pub struct SavedSpellObject {
 /// The spells' objects that a save keeps ([`SavedSpellObject`]).
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 enum SpellObject {
-    /// An aura, its classes by its key where its area gives them, with its trap's factor and its
-    /// gust's disarming.
+    /// An aura, its classes by its key where its area gives them, with its trap's factor, its
+    /// gust's disarming and its thorn.
     Aura {
         aura: Aura,
         area: bool,
         trap_factor: Option<f32>,
         disarms: Option<u32>,
+        thorn: Option<Thorn>,
     },
     Disk(Disk),
     Frosting(Frosting),
     Meteor(Meteor),
     Chain(Chain),
     Flame(Flame),
+    /// The banishing circle's zone, the Dark Elf's trap's ball in flight and the traps that it
+    /// lays: the pentagram, the confusion and the fog (#3771).
+    Banishing(Banishing),
+    Ball(Ball),
+    Pentagram(Pentagram),
+    Confusion(Confusion),
+    Fog(Fog),
 }
 
 impl bevy::ecs::entity::MapEntities for SavedSpellObject {
@@ -1233,6 +1244,9 @@ impl bevy::ecs::entity::MapEntities for SavedSpellObject {
                 chain.first.iter_mut().for_each(&mut map);
             }
             SpellObject::Flame(flame) => map(&mut flame.caster),
+            SpellObject::Ball(ball) => map(&mut ball.caster),
+            SpellObject::Pentagram(pentagram) => map(&mut pentagram.caster),
+            SpellObject::Banishing(_) | SpellObject::Confusion(_) | SpellObject::Fog(_) => {}
         }
     }
 }
@@ -1247,6 +1261,9 @@ impl SpellObject {
             Self::Meteor(meteor) => Some(meteor.caster),
             Self::Chain(chain) => Some(chain.caster),
             Self::Flame(flame) => Some(flame.caster),
+            Self::Ball(ball) => Some(ball.caster),
+            Self::Pentagram(pentagram) => Some(pentagram.caster),
+            Self::Banishing(_) | Self::Confusion(_) | Self::Fog(_) => None,
         }
     }
 }
@@ -1273,25 +1290,29 @@ pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedSpellObject> {
     let mut objects = Vec::new();
     let mut auras = world.query::<(
         &Aura,
-        Option<&TrapFactor>,
-        Option<&Disarms>,
+        (Option<&TrapFactor>, Option<&Disarms>, Option<&Thorn>),
         (
             Option<&Transform>,
             Option<&Visibility>,
             Option<&crate::hums::Hum>,
         ),
     )>();
-    objects.extend(auras.iter(world).map(|(aura, factor, disarms, parts)| {
-        kept(
-            SpellObject::Aura {
-                aura: aura.clone(),
-                area: !aura.classes.is_empty(),
-                trap_factor: factor.map(|factor| factor.0),
-                disarms: disarms.map(|disarms| disarms.0),
-            },
-            parts,
-        )
-    }));
+    objects.extend(
+        auras
+            .iter(world)
+            .map(|(aura, (factor, disarms, thorn), parts)| {
+                kept(
+                    SpellObject::Aura {
+                        aura: aura.clone(),
+                        area: !aura.classes.is_empty(),
+                        trap_factor: factor.map(|factor| factor.0),
+                        disarms: disarms.map(|disarms| disarms.0),
+                        thorn: thorn.copied(),
+                    },
+                    parts,
+                )
+            }),
+    );
     macro_rules! each {
         ($kind:ident) => {
             let mut found = world.query::<(
@@ -1314,6 +1335,11 @@ pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedSpellObject> {
     each!(Meteor);
     each!(Chain);
     each!(Flame);
+    each!(Banishing);
+    each!(Ball);
+    each!(Pentagram);
+    each!(Confusion);
+    each!(Fog);
     objects
 }
 
@@ -1347,6 +1373,7 @@ pub(crate) fn objects_again(world: &mut World, objects: Vec<SavedSpellObject>) {
                 area,
                 trap_factor,
                 disarms,
+                thorn,
             } => {
                 if area {
                     aura.classes = spells::area(aura.key).map_or(&[], |area| area.classes);
@@ -1357,6 +1384,9 @@ pub(crate) fn objects_again(world: &mut World, objects: Vec<SavedSpellObject>) {
                 }
                 if let Some(level) = disarms {
                     made.insert(Disarms(level));
+                }
+                if let Some(thorn) = thorn {
+                    made.insert(thorn);
                 }
             }
             SpellObject::Disk(disk) => {
@@ -1373,6 +1403,21 @@ pub(crate) fn objects_again(world: &mut World, objects: Vec<SavedSpellObject>) {
             }
             SpellObject::Flame(flame) => {
                 made.insert(flame);
+            }
+            SpellObject::Banishing(zone) => {
+                made.insert(zone);
+            }
+            SpellObject::Ball(ball) => {
+                made.insert(ball);
+            }
+            SpellObject::Pentagram(pentagram) => {
+                made.insert(pentagram);
+            }
+            SpellObject::Confusion(confusion) => {
+                made.insert(confusion);
+            }
+            SpellObject::Fog(fog) => {
+                made.insert(fog);
             }
         }
     }
@@ -1532,7 +1577,7 @@ pub(crate) const THORNS_SCATTER: (f32, u32) = (-75.0, 2 * spells::THORNS_SCATTER
 
 /// A thorn of the thorns' spell (848, `0x799640`): how long it stands after its rise, and whether
 /// a hero's, green, or a creature's, blue; its plant grows from it (`killer_plants`).
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Thorn {
     pub(crate) stands: f32,
     pub(crate) hero: bool,
@@ -5057,5 +5102,104 @@ mod tests {
             }]
         );
         assert_eq!(world.query::<&Meteor>().iter(world).count(), 0);
+    }
+
+    #[test]
+    fn a_traps_ball_and_a_thorns_aura_saved_go_on_by_their_casters_name() {
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut saved = App::new();
+        saved.add_plugins(NamesPlugin);
+        let elf = saved.world_mut().spawn(Named(Id::Hero)).id();
+        let ball = Ball {
+            caster: elf,
+            art: 1050,
+            spell_level: 4,
+            multipliers: [1.0; 4],
+            factor: 1.2,
+            from: Vec3::ZERO,
+            to: Vec3::X * 300.0,
+            level: None,
+            s: 0.4,
+            shown: true,
+        };
+        saved.world_mut().spawn((
+            ball.clone(),
+            Transform::from_xyz(120.0, 40.0, 0.0),
+            Visibility::Inherited,
+        ));
+        let thorn = Thorn {
+            stands: 2.5,
+            hero: true,
+        };
+        saved.world_mut().spawn((
+            Aura {
+                caster: elf,
+                follows: None,
+                reach: spells::THORNS_REACH,
+                classes: &[],
+                damages: Some([1.0; 4]),
+                gives: Vec::new(),
+                key: spells::THORNS,
+                level: None,
+                left: 3.0,
+                cooldown: 0.0,
+                strikes: Strikes::About,
+            },
+            thorn,
+            Transform::default(),
+            Visibility::Inherited,
+        ));
+        saved.world_mut().spawn(Fog {
+            cell: (10, 12),
+            level: None,
+            spell_level: 2,
+            left: 5.0,
+        });
+        let mut refs = Refs::default();
+        let objects = mapped(
+            saved_objects(saved.world_mut()),
+            &mut Saving {
+                world: saved.world(),
+                refs: &mut refs,
+            },
+        );
+        let bytes = postcard::to_stdvec(&(&refs, &objects)).unwrap();
+        let (refs, objects): (Refs, Vec<SavedSpellObject>) = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..3).map(|_| ()));
+        let elf = loaded.world_mut().spawn(Named(Id::Hero)).id();
+        let objects = mapped(
+            objects,
+            &mut Loading {
+                refs: &refs,
+                names: loaded.world().resource::<Names>(),
+                lost: 0,
+            },
+        );
+        objects_again(loaded.world_mut(), objects);
+        let world = loaded.world_mut();
+        let balls: Vec<(Ball, Vec3)> = world
+            .query::<(&Ball, &Transform)>()
+            .iter(world)
+            .map(|(ball, at)| (ball.clone(), at.translation))
+            .collect();
+        assert_eq!(
+            balls,
+            [(
+                Ball {
+                    caster: elf,
+                    ..ball
+                },
+                Vec3::new(120.0, 40.0, 0.0)
+            )]
+        );
+        let thorns: Vec<(Thorn, Entity)> = world
+            .query::<(&Thorn, &Aura)>()
+            .iter(world)
+            .map(|(thorn, aura)| (*thorn, aura.caster))
+            .collect();
+        assert_eq!(thorns, [(thorn, elf)]);
+        assert_eq!(world.query::<&Fog>().iter(world).count(), 1);
     }
 }
