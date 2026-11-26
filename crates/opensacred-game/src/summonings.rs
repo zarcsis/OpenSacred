@@ -30,6 +30,58 @@ struct Shown {
     mesh: Handle<Mesh>,
 }
 
+/// A summoning's look as a save keeps it (#3812, the epic #3753): its object by its name, its
+/// state and its dice; a load gives it to its object made again, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedDemonSummon")]
+pub struct SavedLook {
+    #[serde(with = "crate::names::required")]
+    object: Entity,
+    shown: (DemonSummon, Rng),
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.object = mapper.get_mapped(self.object);
+    }
+}
+
+/// The summonings' looks in `world` as a save keeps them (#3812).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut shown = world.query::<(Entity, &Shown)>();
+    shown
+        .iter(world)
+        .map(|(object, shown)| SavedLook {
+            object,
+            shown: (shown.summon.clone(), shown.dice.clone()),
+        })
+        .collect()
+}
+
+/// Gives a loaded save's summonings' looks to their objects made again (#3812): one that shows
+/// already takes its state, another takes it as it shows; one whose object the load finds not is
+/// left out.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        let Some(mut object) = crate::names::found(Some(saved.object))
+            .and_then(|object| world.get_entity_mut(object).ok())
+        else {
+            continue;
+        };
+        match object.get_mut::<Shown>() {
+            Some(mut shown) => {
+                let (summon, dice) = saved.shown;
+                shown.ramp = summon.ramp();
+                shown.summon = summon;
+                shown.dice = dice;
+            }
+            None => {
+                object.insert(crate::fx::Resumes(saved.shown));
+            }
+        }
+    }
+}
+
 /// The summonings' material, made as the first shows; none where the texture is missing.
 #[derive(Resource, Default)]
 struct Material(Option<Option<Handle<Effect>>>);
@@ -44,7 +96,14 @@ const SEED: usize = 0x396;
 )]
 fn show(
     mut commands: Commands,
-    summons: Query<(Entity, &Summon), Added<Summon>>,
+    summons: Query<
+        (
+            Entity,
+            &Summon,
+            Option<&crate::fx::Resumes<(DemonSummon, Rng)>>,
+        ),
+        Added<Summon>,
+    >,
     mut sounds: MessageWriter<crate::sfx::Play>,
     (data, assets, mut made, mut materials, mut meshes): (
         Option<Res<Data>>,
@@ -54,7 +113,7 @@ fn show(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (entity, &Summon(variant)) in &summons {
+    for (entity, &Summon(variant), resumed) in &summons {
         let material = made
             .0
             .get_or_insert_with(|| {
@@ -78,16 +137,24 @@ fn show(
                 ChildOf(entity),
             ));
         }
-        let index = usize::try_from(entity.index_u32()).unwrap_or(0);
-        let mut dice = crate::seed::dice(SEED ^ index);
-        let summon = DemonSummon::new(variant);
-        let growl = particles::SUMMON_GROWLS[usize::from(dice.below(2) == 1)];
-        sounds.write(crate::sfx::Play {
-            sound: crate::sfx::Of::Id(growl),
-            at: Some(entity),
-            rate: (0.5, crate::sfx::Roll::None),
-        });
+        // A loaded summoning goes on as it went, its growl not made again (#3812): no load
+        // sends an FX object's start.
+        let (summon, dice) = match resumed {
+            Some(crate::fx::Resumes(kept)) => kept.clone(),
+            None => {
+                let index = usize::try_from(entity.index_u32()).unwrap_or(0);
+                let mut dice = crate::seed::dice(SEED ^ index);
+                let growl = particles::SUMMON_GROWLS[usize::from(dice.below(2) == 1)];
+                sounds.write(crate::sfx::Play {
+                    sound: crate::sfx::Of::Id(growl),
+                    at: Some(entity),
+                    rate: (0.5, crate::sfx::Roll::None),
+                });
+                (DemonSummon::new(variant), dice)
+            }
+        };
         let mut made = commands.entity(entity);
+        made.remove::<crate::fx::Resumes<(DemonSummon, Rng)>>();
         if summon.light() > 0.0 {
             made.insert(daynight::Light(summon.light()));
         }

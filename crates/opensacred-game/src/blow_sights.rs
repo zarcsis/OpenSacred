@@ -129,58 +129,187 @@ fn make(
         };
         let neck =
             crate::making::bone(blow.target, &NECK, &children, (&bones, &worn)).unwrap_or(root);
-        let (droplets, streaks) = looks
-            .0
-            .get_or_insert_with(|| {
-                let image = data
-                    .as_deref()
-                    .and_then(|data| particle_texture(&data.0.assets, &assets, BLEED_TEXTURE));
-                if image.is_none() {
-                    warn!("blow sights: no texture {BLEED_TEXTURE}; the bleeds are not drawn");
-                }
-                (
-                    image.map(|image| effects.add(particle_material(image, AlphaMode::Blend))),
-                    effects.add(plain_blend_material()),
-                )
-            })
-            .clone();
-        let material = if parade { Some(streaks) } else { droplets };
-        let Some(material) = material else {
-            continue;
-        };
-        let mesh = meshes.add(empty());
-        let mut sight = commands.spawn((
-            Transform::from_translation(neck),
-            Visibility::default(),
-            DespawnOnExit(AppState::InGame),
-        ));
-        sight.with_child((
-            Mesh3d(mesh.clone()),
-            MeshMaterial3d(material),
-            Transform::IDENTITY,
-            NoFrustumCulling,
-            RenderLayers::layer(iso::UNTINTED),
-        ));
+        let (droplets, streaks) = materials(&mut looks, data.as_deref(), &assets, &mut effects);
         if parade {
-            sight.insert(Parrying {
-                target: blow.target,
-                look: Parade::new(&mut dice.0),
-                mesh,
-            });
+            spawn_sight(
+                &mut commands,
+                (Some(streaks), &mut meshes, neck),
+                Kept::Parade {
+                    target: blow.target,
+                    at: neck,
+                    look: Parade::new(&mut dice.0),
+                },
+            );
         } else {
             let (colour, gib_set) = minds
                 .get(blow.target)
                 .ok()
                 .and_then(|mind| bloods.as_ref()?.0.get(&mind.creature).copied())
                 .unwrap_or_else(|| (blood_colour(2, 0), 0));
+            spawn_sight(
+                &mut commands,
+                (droplets, &mut meshes, neck),
+                Kept::Bleed {
+                    target: blow.target,
+                    at: neck,
+                    look: Bleed::new(&mut dice.0),
+                    colour,
+                    gib_set,
+                },
+            );
+        }
+    }
+}
+
+/// The bleeds' and the parades' materials, made as first asked.
+fn materials(
+    looks: &mut Looks,
+    data: Option<&Data>,
+    assets: &AssetServer,
+    effects: &mut Assets<Effect>,
+) -> (Option<Handle<Effect>>, Handle<Effect>) {
+    looks
+        .0
+        .get_or_insert_with(|| {
+            let image =
+                data.and_then(|data| particle_texture(&data.0.assets, assets, BLEED_TEXTURE));
+            if image.is_none() {
+                warn!("blow sights: no texture {BLEED_TEXTURE}; the bleeds are not drawn");
+            }
+            (
+                image.map(|image| effects.add(particle_material(image, AlphaMode::Blend))),
+                effects.add(plain_blend_material()),
+            )
+        })
+        .clone()
+}
+
+/// Makes the sight `kept` at its creature's neck, `at`, in `material`; none without it.
+fn spawn_sight(
+    commands: &mut Commands,
+    (material, meshes, at): (Option<Handle<Effect>>, &mut Assets<Mesh>, Vec3),
+    kept: Kept,
+) {
+    let Some(material) = material else {
+        return;
+    };
+    let mesh = meshes.add(empty());
+    let mut sight = commands.spawn((
+        Transform::from_translation(at),
+        Visibility::default(),
+        DespawnOnExit(AppState::InGame),
+    ));
+    sight.with_child((
+        Mesh3d(mesh.clone()),
+        MeshMaterial3d(material),
+        Transform::IDENTITY,
+        NoFrustumCulling,
+        RenderLayers::layer(iso::UNTINTED),
+    ));
+    match kept {
+        Kept::Parade { target, look, .. } => {
+            sight.insert(Parrying { target, look, mesh });
+        }
+        Kept::Bleed {
+            target,
+            look,
+            colour,
+            gib_set,
+            ..
+        } => {
             sight.insert(Bleeding {
-                target: blow.target,
-                look: Bleed::new(&mut dice.0),
+                target,
+                look,
                 colour,
                 gib_set,
                 mesh,
             });
         }
+    }
+}
+
+/// A blow's sight as a save keeps it (#3812, the epic #3753): its creature by its name, where it
+/// shows, its look, and a bleed's blood and gib set; a load makes it again there, going on as it
+/// went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedBlowSight")]
+pub enum Kept {
+    Bleed {
+        #[serde(with = "crate::names::required")]
+        target: Entity,
+        at: Vec3,
+        look: Bleed,
+        colour: [f32; 3],
+        gib_set: u8,
+    },
+    Parade {
+        #[serde(with = "crate::names::required")]
+        target: Entity,
+        at: Vec3,
+        look: Parade,
+    },
+}
+
+impl bevy::ecs::entity::MapEntities for Kept {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        match self {
+            Self::Bleed { target, .. } | Self::Parade { target, .. } => {
+                *target = mapper.get_mapped(*target);
+            }
+        }
+    }
+}
+
+/// The blows' sights in `world` as a save keeps them (#3812).
+pub(crate) fn saved(world: &mut World) -> Vec<Kept> {
+    let mut bleeds = world.query::<(&Bleeding, &Transform)>();
+    let mut saved: Vec<Kept> = bleeds
+        .iter(world)
+        .map(|(bleed, at)| Kept::Bleed {
+            target: bleed.target,
+            at: at.translation,
+            look: bleed.look.clone(),
+            colour: bleed.colour,
+            gib_set: bleed.gib_set,
+        })
+        .collect();
+    let mut parades = world.query::<(&Parrying, &Transform)>();
+    saved.extend(parades.iter(world).map(|(parade, at)| Kept::Parade {
+        target: parade.target,
+        at: at.translation,
+        look: parade.look.clone(),
+    }));
+    saved
+}
+
+/// Makes a loaded save's blows' sights again (#3812); one whose creature the load finds not is
+/// left out.
+pub(crate) fn again(world: &mut World, sights: Vec<Kept>) {
+    if sights.is_empty() {
+        return;
+    }
+    if let Err(e) = world.run_system_cached_with(sights_again, sights) {
+        warn!("blow sights: the saved sights are not made: {e}");
+    }
+}
+
+/// Makes the saved sights `sights` again ([`again`]).
+fn sights_again(
+    In(sights): In<Vec<Kept>>,
+    mut commands: Commands,
+    (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
+    (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
+) {
+    let (droplets, streaks) = materials(&mut looks, data.as_deref(), &assets, &mut effects);
+    for kept in sights {
+        let (target, at, material) = match &kept {
+            Kept::Bleed { target, at, .. } => (*target, *at, droplets.clone()),
+            Kept::Parade { target, at, .. } => (*target, *at, Some(streaks.clone())),
+        };
+        if crate::names::found(Some(target)).is_none() {
+            continue;
+        }
+        spawn_sight(&mut commands, (material, &mut meshes, at), kept);
     }
 }
 

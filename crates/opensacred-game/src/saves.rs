@@ -128,8 +128,9 @@ use crate::{arts, drops, making};
 /// the Daemon's and the Gladiator's looks (#3777); the version 76 the fight's and the bodies'
 /// looks (#3778); the version 77 the bearers' looks and the casts' glows (#3779); the version
 /// 78 the shields', the casts' sights and the scripts' objects' looks (#3814); the version 79
-/// the Vampiress's and the souls' looks, the souls and the soulcatchers (#3809).
-pub const VERSION: u32 = 79;
+/// the Vampiress's and the souls' looks, the souls and the soulcatchers (#3809); the version 80
+/// the marks', the blood's and the strikes' looks (#3812).
+pub const VERSION: u32 = 80;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -436,6 +437,18 @@ pub struct Looks {
     pub vamp_casts: crate::vamp_casts::SavedSights,
     pub soul_sparks: Vec<crate::soul_sparks::SavedLook>,
     pub soulcatchers: Vec<crate::soulcatchers::SavedCatcher>,
+    /// The marks', the blood's and the strikes' looks (#3812): the marks, the blood fountains,
+    /// the body parts, the blows' sights, the summonings' sights, the big demon's summonings,
+    /// the lightnings, the poison rings and the hit sparks' lights.
+    pub marks: Vec<crate::marks::SavedMark>,
+    pub fountains: Vec<crate::blood_fountains::SavedFountain>,
+    pub body_parts: Vec<crate::body_parts::SavedPart>,
+    pub blows: Vec<crate::blow_sights::Kept>,
+    pub summon_looks: Vec<crate::summon_looks::SavedLook>,
+    pub summonings: Vec<crate::summonings::SavedLook>,
+    pub lightnings: Vec<crate::lightning_strikes::SavedStrike>,
+    pub poison_rings: Vec<crate::poison_rings::SavedRing>,
+    pub spark_lamps: Vec<crate::hit_sparks::SavedLamp>,
 }
 
 impl MapEntities for Looks {
@@ -478,6 +491,10 @@ impl MapEntities for Looks {
         self.bite_sights.map_entities(mapper);
         self.vamp_casts.map_entities(mapper);
         self.soulcatchers.map_entities(mapper);
+        self.fountains.map_entities(mapper);
+        self.blows.map_entities(mapper);
+        self.summonings.map_entities(mapper);
+        self.lightnings.map_entities(mapper);
     }
 }
 
@@ -1086,6 +1103,15 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
         vamp_casts: crate::vamp_casts::saved(world),
         soul_sparks: crate::soul_sparks::saved(world),
         soulcatchers: crate::soulcatchers::saved(world),
+        marks: crate::marks::saved(world),
+        fountains: crate::blood_fountains::saved(world),
+        body_parts: crate::body_parts::saved(world),
+        blows: crate::blow_sights::saved(world),
+        summon_looks: crate::summon_looks::saved(world),
+        summonings: crate::summonings::saved(world),
+        lightnings: crate::lightning_strikes::saved(world),
+        poison_rings: crate::poison_rings::saved(world),
+        spark_lamps: crate::hit_sparks::saved(world),
     };
     let looks = crate::names::mapped(
         looks,
@@ -1469,6 +1495,15 @@ fn resume(world: &mut bevy::prelude::World) {
     crate::vamp_casts::again(world, looks.vamp_casts);
     crate::soul_sparks::again(world, looks.soul_sparks);
     crate::soulcatchers::again(world, looks.soulcatchers);
+    crate::marks::again(world, looks.marks);
+    crate::blood_fountains::again(world, looks.fountains);
+    crate::body_parts::again(world, looks.body_parts);
+    crate::blow_sights::again(world, looks.blows);
+    crate::summon_looks::again(world, looks.summon_looks);
+    crate::summonings::again(world, looks.summonings);
+    crate::lightning_strikes::again(world, looks.lightnings);
+    crate::poison_rings::again(world, looks.poison_rings);
+    crate::hit_sparks::again(world, looks.spark_lamps);
     // The hero's hurled weapon out of his hand, flying or lying (#3769).
     if live.hurled {
         world.write_message(crate::arsenal::Throws(true));
@@ -2296,7 +2331,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (79, 0x282A_3BDD_2EAC_4DA1),
+            (80, 0xCF70_39E2_D33E_6676),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

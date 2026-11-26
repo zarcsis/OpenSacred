@@ -73,9 +73,91 @@ struct Material(Option<Option<Handle<crate::fx::Effect>>>);
 #[derive(Component)]
 struct Fountain {
     fountain: BloodFountain,
+    /// Its creature and the name of the bone it keeps to, by which a load finds it again.
+    creature: Entity,
+    bone_name: &'static str,
     bone: Entity,
     last: Option<[f32; 3]>,
     mesh: Handle<Mesh>,
+}
+
+/// A fountain as a save keeps it (#3812, the epic #3753): its creature by its name, its bone's
+/// name, where its creature fell, its drops and its bone's place a frame ago; a load makes it
+/// again at its creature's bone, else its root, spurting on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedFountain {
+    #[serde(with = "crate::names::required")]
+    creature: Entity,
+    #[serde(with = "opensacred_rules::particles::statics")]
+    bone: opensacred_rules::particles::statics::Name,
+    at: Vec3,
+    fountain: BloodFountain,
+    last: Option<[f32; 3]>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedFountain {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.creature = mapper.get_mapped(self.creature);
+    }
+}
+
+/// The fountains in `world` as a save keeps them (#3812).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedFountain> {
+    let mut fountains = world.query::<(&Fountain, &Transform)>();
+    fountains
+        .iter(world)
+        .map(|(fountain, at)| SavedFountain {
+            creature: fountain.creature,
+            bone: fountain.bone_name,
+            at: at.translation,
+            fountain: fountain.fountain.clone(),
+            last: fountain.last,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's fountains again (#3812); one whose creature the load finds not is left
+/// out.
+pub(crate) fn again(world: &mut World, fountains: Vec<SavedFountain>) {
+    if fountains.is_empty() {
+        return;
+    }
+    if let Err(e) = world.run_system_cached_with(fountains_again, fountains) {
+        warn!("blood fountains: the saved fountains are not made: {e}");
+    }
+}
+
+/// Makes the saved fountains `fountains` again ([`again`]).
+fn fountains_again(
+    In(fountains): In<Vec<SavedFountain>>,
+    mut commands: Commands,
+    (children, bones, worn): (
+        Query<&Children>,
+        Query<(&Name, &GlobalTransform)>,
+        crate::making::Worn,
+    ),
+    mut meshes: ResMut<Assets<Mesh>>,
+) {
+    for saved in fountains {
+        let Some(creature) = crate::names::found(Some(saved.creature)) else {
+            continue;
+        };
+        let bone = crate::making::bone_entity(creature, &[saved.bone], &children, (&bones, &worn))
+            .unwrap_or(creature);
+        commands.spawn((
+            Fountain {
+                fountain: saved.fountain,
+                creature,
+                bone_name: saved.bone,
+                bone,
+                last: saved.last,
+                mesh: meshes.add(empty()),
+            },
+            Transform::from_translation(saved.at),
+            Visibility::default(),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
 }
 
 /// Reads the gib sets off the assets' tables at the start; without them every creature bleeds
@@ -184,6 +266,8 @@ fn spurt(
         commands.spawn((
             Fountain {
                 fountain: BloodFountain::new(set),
+                creature: entity,
+                bone_name: name,
                 bone,
                 last: None,
                 mesh: meshes.add(empty()),
@@ -265,6 +349,8 @@ fn spurt_hits(
             commands.spawn((
                 Fountain {
                     fountain: BloodFountain::new(set),
+                    creature,
+                    bone_name: names[0],
                     bone,
                     last: None,
                     mesh: meshes.add(empty()),

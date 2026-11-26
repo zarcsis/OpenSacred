@@ -173,6 +173,38 @@ fn burst(
     }
 }
 
+/// A sparks' light as a save keeps it (#3812, the epic #3753): its place and its seconds left; a
+/// load lights it again there.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedLamp {
+    at: Vec3,
+    left: f32,
+}
+
+/// The sparks' lights in `world` as a save keeps them (#3812).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLamp> {
+    let mut lamps = world.query::<(&Lamp, &Transform)>();
+    lamps
+        .iter(world)
+        .map(|(lamp, at)| SavedLamp {
+            at: at.translation,
+            left: lamp.0,
+        })
+        .collect()
+}
+
+/// Lights a loaded save's sparks' lights again (#3812).
+pub(crate) fn again(world: &mut World, lamps: Vec<SavedLamp>) {
+    for saved in lamps {
+        world.spawn((
+            Lamp(saved.left),
+            crate::daynight::Light(SPARKS_LIGHT),
+            Transform::from_translation(saved.at),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// Puts out each sparks' light as its sparks die.
 fn put_out(mut commands: Commands, time: Res<Time>, mut lamps: Query<(Entity, &mut Lamp)>) {
     for (entity, mut lamp) in &mut lamps {

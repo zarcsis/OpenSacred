@@ -47,7 +47,8 @@ enum Kind {
 }
 
 /// What shows: a mark and its half side, a puddle, or a blow's splashes.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "MarkLook")]
 enum Look {
     Mark(Mark, f32),
     Puddle(Puddle),
@@ -84,11 +85,57 @@ impl Look {
 /// A mark that shows: its look, its turn and its mesh.
 #[derive(Component)]
 struct Shown {
+    /// Its texture.
+    texture: &'static str,
     look: Look,
     turn: f32,
     mesh: Handle<Mesh>,
     /// The level it lies on: the ground in list 0, a building's floor in list 3's order.
     on: Level,
+}
+
+/// A mark as a save keeps it (#3812, the epic #3753): its texture, its level, its place, its look
+/// and its turn; a load lays it again there, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedMark {
+    #[serde(with = "opensacred_rules::particles::statics")]
+    texture: opensacred_rules::particles::statics::Name,
+    on: Level,
+    at: Vec3,
+    look: Look,
+    turn: f32,
+}
+
+/// The marks in `world` as a save keeps them (#3812).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedMark> {
+    let mut marks = world.query::<(&Shown, &Transform)>();
+    marks
+        .iter(world)
+        .map(|(mark, at)| SavedMark {
+            texture: mark.texture,
+            on: mark.on,
+            at: at.translation,
+            look: mark.look.clone(),
+            turn: mark.turn,
+        })
+        .collect()
+}
+
+/// Lays a loaded save's marks again (#3812).
+pub(crate) fn again(world: &mut World, marks: Vec<SavedMark>) {
+    for saved in marks {
+        world.spawn((
+            Unmade {
+                texture: saved.texture,
+                // Any kind: the kept look holds its own.
+                kind: Kind::Puddle,
+                on: saved.on,
+            },
+            Transform::from_translation(saved.at),
+            crate::fx::Resumes((saved.look, saved.turn)),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
 }
 
 /// The marks' materials by their textures and whether they lie in list 0's layer, laid over by
@@ -153,9 +200,13 @@ pub(crate) fn splashes(commands: &mut Commands, (place, on): (Vec3, Level), colo
 /// Gives each new mark its look, its turn at random (`rand()/32767 · 2π`), its mesh and its
 /// material (`0x76DD40`), in list 0's layer on the ground; a puddle and a blow's splashes no turn
 /// (`0x76E150`, `0x7A5C30`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<(Look, f32)>>)>,
     (data, assets, mut looks, mut dice): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -164,7 +215,7 @@ fn make(
     ),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let listed = unmade.on.is_none();
         let material = looks
             .0
@@ -189,28 +240,34 @@ fn make(
                 })
             })
             .clone();
-        let (look, turn) = match unmade.kind {
-            Kind::Mark { hold, half } => {
+        // A loaded mark goes on as it went (#3812).
+        let (look, turn) = match (resumed, unmade.kind) {
+            (Some(crate::fx::Resumes(kept)), _) => kept.clone(),
+            (None, Kind::Mark { hold, half }) => {
                 let roll = f32::from(u16::try_from(dice.0.below(32_768)).unwrap_or(0)) / 32_767.0;
                 (
                     Look::Mark(Mark::new(hold), half),
                     roll * std::f32::consts::TAU,
                 )
             }
-            Kind::Puddle => (Look::Puddle(Puddle::default()), 0.0),
-            Kind::Splashes(colour) => (Look::Splashes(Box::new(Splashes::new(colour))), 0.0),
+            (None, Kind::Puddle) => (Look::Puddle(Puddle::default()), 0.0),
+            (None, Kind::Splashes(colour)) => {
+                (Look::Splashes(Box::new(Splashes::new(colour))), 0.0)
+            }
         };
         let mesh = meshes.add(empty());
         let mut made = commands.entity(entity);
-        made.remove::<Unmade>().insert((
-            Shown {
-                look,
-                turn,
-                mesh: mesh.clone(),
-                on: unmade.on,
-            },
-            Visibility::default(),
-        ));
+        made.remove::<(Unmade, crate::fx::Resumes<(Look, f32)>)>()
+            .insert((
+                Shown {
+                    texture: unmade.texture,
+                    look,
+                    turn,
+                    mesh: mesh.clone(),
+                    on: unmade.on,
+                },
+                Visibility::default(),
+            ));
         if let Some(material) = material {
             made.with_child((
                 Mesh3d(mesh),
@@ -332,5 +389,47 @@ impl Plugin for MarksPlugin {
                     .in_set(Unpaused)
                     .run_if(in_state(AppState::InGame)),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_mark_saved_is_laid_again_where_it_lay_going_on_as_it_went() {
+        let mut world = World::new();
+        let mut puddle = Puddle::default();
+        puddle.update(2.5);
+        world.spawn((
+            Shown {
+                texture: SPLASH_TEXTURE,
+                look: Look::Puddle(puddle),
+                turn: 1.25,
+                mesh: Handle::default(),
+                on: None,
+            },
+            Transform::from_xyz(4.0, 1.0, 9.0),
+        ));
+        let kept = saved(&mut world);
+        let bytes = postcard::to_stdvec(&kept).unwrap();
+        let kept: Vec<SavedMark> = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = World::new();
+        again(&mut loaded, kept);
+        let made: Vec<(&str, Vec3, (Look, f32))> = loaded
+            .query::<(&Unmade, &Transform, &crate::fx::Resumes<(Look, f32)>)>()
+            .iter(&loaded)
+            .map(|(unmade, at, crate::fx::Resumes(kept))| {
+                (unmade.texture, at.translation, kept.clone())
+            })
+            .collect();
+        assert_eq!(
+            made,
+            [(
+                SPLASH_TEXTURE,
+                Vec3::new(4.0, 1.0, 9.0),
+                (Look::Puddle(puddle), 1.25)
+            )]
+        );
     }
 }
