@@ -422,6 +422,8 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/underworld_glyphs.rs`: The Underworld's glyphs
 - `crates/opensacred-game/src/vamp_casts.rs`: The Vampiress's casts' sights
 - `crates/opensacred-game/src/vamp_sights.rs`: The Vampiress's domination's ring and her raising's pentagram
+- `crates/opensacred-game/src/veil.rs`: The veil over the effects that the night leaves untinted
+- `crates/opensacred-game/src/veil.wesl`: The veil's measure of depth
 - `crates/opensacred-game/src/vertices.rs`: A model's vertices as last posed
 - `crates/opensacred-game/src/voices.rs`: The creatures' and the heroes' voices in the fight
 - `crates/opensacred-game/src/volumes.rs`: The sound's three volumes and its switch

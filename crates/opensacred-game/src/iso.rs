@@ -168,7 +168,8 @@ pub const UNTINTED: usize = 8;
 /// target share, so that a fire keeps its colours by night and the fireflies add theirs to the
 /// darkened frame, as the original draws its effects without the tint; it has the world camera's
 /// projection, whose zoom `daynight` keeps it, and the interface, drawn by the last camera, lies
-/// over both.
+/// over both. Its effects are dimmed by the faded sprites before them, which the veil's camera
+/// draws before the world (`veil`, #3851).
 #[derive(Component, Clone, Copy, Default)]
 pub struct Untinted;
 

@@ -38,6 +38,7 @@ use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result};
 use bevy::asset::{RenderAssetUsages, embedded_asset};
+use bevy::camera::visibility::RenderLayers;
 use bevy::math::DVec3;
 use bevy::mesh::{
     Indices, MeshVertexAttribute, MeshVertexBufferLayoutRef, PrimitiveTopology, VertexFormat,
@@ -49,8 +50,9 @@ use bevy::prelude::{
     Visibility,
 };
 use bevy::render::render_resource::{
-    AsBindGroup, CompareFunction, Extent3d, RenderPipelineDescriptor, SpecializedMeshPipelineError,
-    TextureDimension, TextureFormat,
+    AsBindGroup, BlendComponent, BlendFactor, BlendOperation, BlendState, CompareFunction,
+    Extent3d, RenderPipelineDescriptor, SpecializedMeshPipelineError, TextureDimension,
+    TextureFormat,
 };
 use bevy::render::storage::ShaderBuffer;
 use bevy::shader::ShaderRef;
@@ -184,12 +186,17 @@ pub enum Pass {
     /// The others, blended by their alpha over what lies behind them, in their layer of the
     /// blended things.
     Fringe(Layer),
+    /// Those of the fading sprites that a point fades and [`Pass::Fringe`] draws, into the veil
+    /// over the untinted effects (`veil`, #3851): the nearest one's place toward the camera at
+    /// each texel, the greatest, and the product of what each lets through.
+    Veil,
 }
 
 /// What the pipeline of a [`SpriteMaterial`] depends on.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SpriteKey {
     fringe: bool,
+    veil: bool,
     alpha_test: bool,
     on_floor: bool,
     shadow: bool,
@@ -198,7 +205,8 @@ pub struct SpriteKey {
 impl From<&SpriteMaterial> for SpriteKey {
     fn from(material: &SpriteMaterial) -> Self {
         Self {
-            fringe: material.pass != Pass::Body,
+            fringe: matches!(material.pass, Pass::Fringe(_)),
+            veil: material.pass == Pass::Veil,
             alpha_test: material.alpha_test,
             on_floor: material.on_floor,
             shadow: material.shadow,
@@ -218,13 +226,13 @@ impl Material for SpriteMaterial {
     fn alpha_mode(&self) -> AlphaMode {
         match self.pass {
             Pass::Body => AlphaMode::Opaque,
-            Pass::Fringe(_) => AlphaMode::Blend,
+            Pass::Fringe(_) | Pass::Veil => AlphaMode::Blend,
         }
     }
 
     fn depth_bias(&self) -> f32 {
         match self.pass {
-            Pass::Body => 0.0,
+            Pass::Body | Pass::Veil => 0.0,
             Pass::Fringe(layer) => layer.bias(),
         }
     }
@@ -256,6 +264,7 @@ impl Material for SpriteMaterial {
         descriptor.primitive.cull_mode = None;
         let SpriteKey {
             fringe,
+            veil,
             alpha_test,
             on_floor,
             shadow,
@@ -272,12 +281,35 @@ impl Material for SpriteMaterial {
                 fragment.shader_defs.push("FRINGE".into());
             }
             // Writing the depth turns the early depth test off: only for the sprites that need it.
-            let entry = if on_floor {
+            let entry = if veil {
+                "fragment_veil"
+            } else if on_floor {
                 "fragment_on_floor"
             } else {
                 "fragment"
             };
             fragment.entry_point = Some(entry.into());
+            // The veil keeps the greatest place toward the camera, the nearest texel's, and the
+            // product of what each lets through.
+            if veil && let Some(Some(target)) = fragment.targets.first_mut() {
+                target.blend = Some(BlendState {
+                    color: BlendComponent {
+                        src_factor: BlendFactor::One,
+                        dst_factor: BlendFactor::One,
+                        operation: BlendOperation::Max,
+                    },
+                    alpha: BlendComponent {
+                        src_factor: BlendFactor::Zero,
+                        dst_factor: BlendFactor::SrcAlpha,
+                        operation: BlendOperation::Add,
+                    },
+                });
+            }
+        }
+        if veil && let Some(depth) = descriptor.depth_stencil.as_mut() {
+            // Every faded texel, whatever lies before it: the blends do not depend on the order.
+            depth.depth_compare = Some(CompareFunction::Always);
+            depth.depth_write_enabled = Some(false);
         }
         if fringe {
             // Only nearer than the depth there: the sprite's own opaque texels, which the first
@@ -1586,6 +1618,16 @@ impl Fade {
         data
     }
 
+    /// Whether some sprite fades about a point: a point with a first fading sprite after it
+    /// ([`first_fading`]), which the veil needs (`veil`).
+    pub fn fades(&self) -> bool {
+        self.last
+            .iter()
+            .skip(1)
+            .step_by(3)
+            .any(|point| point[2] > 0.5)
+    }
+
     /// Keeps `points` and `size` in the buffer, where they changed.
     pub fn keep(
         &mut self,
@@ -1683,20 +1725,34 @@ pub fn spawn(
         let fading = Fading::of(std::mem::take(&mut batch.fading));
         // The sprites are tested against the original's reference, the miniatures are not
         // (docs/re/drawing.md, "Blending"); a shadow's texels are all translucent.
-        let passes: Vec<Handle<SpriteMaterial>> = match batch.texture {
+        // The fading batch's texels that the points fade also go into the veil (`veil`, #3851).
+        let fades = fading.is_some();
+        let (passes, veil): (Vec<Handle<SpriteMaterial>>, _) = match batch.texture {
             BatchTexture::Shadows => match shadows {
-                Some(shadows) if batch.layer == Layer::StaticShadows => vec![shadows.list1.clone()],
-                Some(shadows) if batch.on_floor => vec![shadows.on_floors.clone()],
-                Some(shadows) => vec![shadows.with_sprites.clone()],
+                Some(shadows) if batch.layer == Layer::StaticShadows => {
+                    (vec![shadows.list1.clone()], None)
+                }
+                Some(shadows) if batch.on_floor => (vec![shadows.on_floors.clone()], None),
+                Some(shadows) => (vec![shadows.with_sprites.clone()], None),
                 None => continue,
             },
             BatchTexture::Atlas(path) => {
-                let atlas = assets.load(path);
-                sprite_passes(materials, atlas, fade, batch.layer, false, batch.on_floor)
+                let atlas: Handle<Image> = assets.load(path);
+                let veil =
+                    fades.then(|| veil_pass(materials, atlas.clone(), fade, false, batch.on_floor));
+                (
+                    sprite_passes(materials, atlas, fade, batch.layer, false, batch.on_floor),
+                    veil,
+                )
             }
             BatchTexture::Page(page) => {
                 let page = pages[page].clone();
-                sprite_passes(materials, page, fade, batch.layer, true, batch.on_floor)
+                let veil =
+                    fades.then(|| veil_pass(materials, page.clone(), fade, true, batch.on_floor));
+                (
+                    sprite_passes(materials, page, fade, batch.layer, true, batch.on_floor),
+                    veil,
+                )
             }
         };
         let mesh = meshes.add(
@@ -1714,8 +1770,14 @@ pub fn spawn(
             .with_inserted_attribute(ATTRIBUTE_FOOTPRINT, batch.footprints)
             .with_inserted_indices(Indices::U32(batch.indices)),
         );
-        for (pass, material) in passes.into_iter().enumerate() {
+        let veil =
+            veil.map(|material| (material, Some(RenderLayers::layer(crate::veil::VEIL_LAYER))));
+        let passes = passes.into_iter().map(|material| (material, None));
+        for (pass, (material, layers)) in passes.chain(veil).enumerate() {
             let mut entity = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material)));
+            if let Some(layers) = layers {
+                entity.insert(layers);
+            }
             // The body's pass keeps the batch's fading sprites, once.
             if pass == 0
                 && let Some(fading) = fading.clone()
@@ -1735,6 +1797,26 @@ pub fn spawn(
         }
     }
     entities
+}
+
+/// The material of a fading batch's texels that the points fade, over `atlas`, into the veil
+/// (`veil`, [`Pass::Veil`]).
+fn veil_pass(
+    materials: &mut Assets<SpriteMaterial>,
+    atlas: Handle<Image>,
+    fade: &Fade,
+    alpha_test: bool,
+    on_floor: bool,
+) -> Handle<SpriteMaterial> {
+    materials.add(SpriteMaterial {
+        atlas,
+        tint: Vec4::ONE,
+        fade: fade.buffer.clone(),
+        pass: Pass::Veil,
+        alpha_test,
+        on_floor,
+        shadow: false,
+    })
 }
 
 /// The materials of a batch's two passes over `atlas`, the second in `layer`.
@@ -2743,6 +2825,20 @@ pub(crate) mod tests {
         );
         let many = vec![(Vec2::ZERO, place, None); FADE_POINTS + 5];
         assert_eq!(Fade::data(size, &many).len(), 1 + 3 * FADE_POINTS);
+        // A sprite fades, for the veil, where some point has a first fading sprite.
+        let fade = |points: &[(Vec2, Vec4, Option<[f32; 4]>)]| Fade {
+            buffer: Handle::default(),
+            last: Fade::data(size, points),
+        };
+        assert!(!fade(&[]).fades());
+        assert!(!fade(&many).fades());
+        assert!(
+            fade(&[
+                (Vec2::ZERO, place, None),
+                (Vec2::ONE, place, Some([0.0; 4]))
+            ])
+            .fades()
+        );
     }
 
     #[test]
