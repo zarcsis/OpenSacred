@@ -189,12 +189,58 @@ const RUNS_ABOUT: u32 = 400;
 
 /// A summoning (the object 777, `FX_BIGSUMMON`, `cParticleSystem_bigsummon`): its master, the
 /// creature it makes and its level, and the time until it makes it.
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "FollowersSummoning")]
 pub struct Summoning {
+    #[serde(with = "crate::names::required")]
     master: Entity,
     creature: u32,
     level: u32,
     left: f32,
+}
+
+impl bevy::ecs::entity::MapEntities for Summoning {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.master = mapper.get_mapped(self.master);
+    }
+}
+
+/// A summoning as a save keeps it (#3769): its master by its name, its creature, its level and
+/// its time left, and its place; a load makes it again there, its look left to its looks.
+#[derive(
+    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, bevy::ecs::entity::MapEntities,
+)]
+pub struct SavedSummoning {
+    #[entities]
+    summoning: Summoning,
+    at: Vec3,
+}
+
+/// The summonings in `world` as a save keeps them (#3769).
+pub(crate) fn saved_summonings(world: &mut World) -> Vec<SavedSummoning> {
+    let mut summonings = world.query::<(&Summoning, &Transform)>();
+    summonings
+        .iter(world)
+        .map(|(summoning, at)| SavedSummoning {
+            summoning: *summoning,
+            at: at.translation,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's summonings again (#3769); one whose master the load finds not is left
+/// out.
+pub(crate) fn summonings_again(world: &mut World, summonings: Vec<SavedSummoning>) {
+    for saved in summonings {
+        if crate::names::found(Some(saved.summoning.master)).is_none() {
+            continue;
+        }
+        world.spawn((
+            saved.summoning,
+            Transform::from_translation(saved.at),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
 }
 
 /// How long a summoning takes to make its creature: its phase, at 2 a second, passing 3.0

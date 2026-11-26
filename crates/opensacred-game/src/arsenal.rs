@@ -98,6 +98,16 @@ impl Arsenal {
         self.hurled.as_ref().filter(|_| !self.thrown)
     }
 
+    /// The item that the hero hurls, in his hand or not, and its model in flight.
+    pub fn hurled(&self) -> Option<&Hurled> {
+        self.hurled.as_ref()
+    }
+
+    /// Whether the item that the hero hurls is out of his hand, flying or lying (#3769).
+    pub fn thrown(&self) -> bool {
+        self.thrown
+    }
+
     /// The item that the hero hurls, as it lies once it falls.
     pub fn hurled_item(&self) -> Option<&Dropped> {
         self.hurled.as_ref().map(|hurled| &hurled.item)

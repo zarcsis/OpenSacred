@@ -120,8 +120,8 @@ use crate::{arts, drops, making};
 /// arts and combo under way (#3764); the version 63 the special arts' states and the blasts
 /// (#3765); the version 64 the creatures' casts and arts (#3766); the version 65 the spells'
 /// states and the changelings' animals (#3767); the version 66 the special creatures' states
-/// (#3768).
-pub const VERSION: u32 = 66;
+/// (#3768); the version 67 the things thrown and shot (#3769).
+pub const VERSION: u32 = 67;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -324,6 +324,8 @@ pub struct Live {
     pub animals: Vec<crate::npcs::SavedAnimal>,
     /// The scripts' special objects (#3768).
     pub specials: Specials,
+    /// Whether the weapon that the hero hurls is out of his hand, flying or lying (#3769).
+    pub hurled: bool,
 }
 
 /// The scripts' special objects as a save keeps them (#3768, the epic #3753): Shaddar's slaves
@@ -351,6 +353,16 @@ pub struct Things {
     pub bolts: Vec<crate::bolts::SavedBolt>,
     /// The blasts spreading (#3765).
     pub blasts: Vec<crate::blast::SavedBlasting>,
+    /// The things thrown and shot (#3769): the mortar's shells, the hero's hurled weapon, the
+    /// spits, the creatures' daggers, the creatures' casts' objects, the summonings and the
+    /// skulls.
+    pub shells: Vec<crate::guns::Shell>,
+    pub hurled: Vec<crate::hurled::SavedHurled>,
+    pub spits: Vec<crate::spits::SavedSpit>,
+    pub daggers: Vec<crate::creature_arts::SavedDagger>,
+    pub casts: Vec<crate::creature_casts::SavedCastObject>,
+    pub summonings: Vec<crate::followers::SavedSummoning>,
+    pub skulls: Vec<crate::spells::SavedSkull>,
 }
 
 impl MapEntities for Things {
@@ -359,6 +371,13 @@ impl MapEntities for Things {
         self.stuck.map_entities(mapper);
         self.bolts.map_entities(mapper);
         self.blasts.map_entities(mapper);
+        self.shells.map_entities(mapper);
+        self.hurled.map_entities(mapper);
+        self.spits.map_entities(mapper);
+        self.daggers.map_entities(mapper);
+        self.casts.map_entities(mapper);
+        self.summonings.map_entities(mapper);
+        self.skulls.map_entities(mapper);
     }
 }
 
@@ -373,6 +392,13 @@ fn things_of(world: &mut bevy::prelude::World, refs: &mut Refs) -> Things {
             stuck,
             bolts,
             blasts,
+            shells: crate::guns::saved(world),
+            hurled: crate::hurled::saved(world),
+            spits: crate::spits::saved(world),
+            daggers: crate::creature_arts::saved_daggers(world),
+            casts: crate::creature_casts::saved_objects(world),
+            summonings: crate::followers::saved_summonings(world),
+            skulls: crate::spells::saved_skulls(world),
         },
         &mut Saving { world, refs },
     )
@@ -824,6 +850,9 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
             refs: &mut refs,
         },
     );
+    let hurled = world
+        .get_resource::<crate::arsenal::Arsenal>()
+        .is_some_and(crate::arsenal::Arsenal::thrown);
     let live = Live {
         refs,
         doings,
@@ -831,6 +860,7 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
         bodies,
         animals,
         specials,
+        hurled,
     };
     // The picture last taken (`save_picture`), as the original's save keeps its last capture.
     let picture = world
@@ -1124,6 +1154,17 @@ fn resume(world: &mut bevy::prelude::World) {
     crate::arrows::again(world, (things.arrows, things.stuck));
     crate::bolts::again(world, things.bolts);
     crate::blast::again(world, things.blasts);
+    crate::guns::again(world, things.shells);
+    crate::hurled::again(world, things.hurled);
+    crate::spits::again(world, things.spits);
+    crate::creature_arts::daggers_again(world, things.daggers);
+    crate::creature_casts::objects_again(world, things.casts);
+    crate::followers::summonings_again(world, things.summonings);
+    crate::spells::skulls_again(world, things.skulls);
+    // The hero's hurled weapon out of his hand, flying or lying (#3769).
+    if live.hurled {
+        world.write_message(crate::arsenal::Throws(true));
+    }
     // The scripts' special objects, once the creatures they hunt are back (#3768).
     let (specials, lost_specials) = loaded(world, &live.refs, live.specials);
     let lost = lost + lost_specials;
@@ -1947,7 +1988,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (66, 0xE8DF_EB4E_A360_70A7),
+            (67, 0x44DA_9A1E_3DD1_F7DD),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

@@ -848,15 +848,65 @@ fn fogs(
 
 /// The death's kiss's skull 905 (`FX_FLYINGSKULL`, `0x7A6370`): its caster, the creature it homes
 /// on, its direction, its curse's value and its bleeding's, its time left, and its level.
-#[derive(Component, Debug, Clone)]
+#[derive(Component, Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Skull {
+    #[serde(with = "crate::names::required")]
     caster: Entity,
+    #[serde(with = "crate::names::optional")]
     target: Option<Entity>,
     direction: Vec3,
     curse: f32,
     bleeds: f32,
     left: f32,
     level: Level,
+}
+
+impl bevy::ecs::entity::MapEntities for Skull {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.caster = mapper.get_mapped(self.caster);
+        self.target = self.target.map(|target| mapper.get_mapped(target));
+    }
+}
+
+/// A skull in flight as a save keeps it (#3769): its flight, its caster and its target by their
+/// names, and where it is; a load sends it on again there, its look and its loop anew.
+#[derive(
+    Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, bevy::ecs::entity::MapEntities,
+)]
+pub struct SavedSkull {
+    #[entities]
+    skull: Skull,
+    at: Vec3,
+}
+
+/// The skulls in flight in `world` as a save keeps them (#3769).
+pub(crate) fn saved_skulls(world: &mut World) -> Vec<SavedSkull> {
+    let mut skulls = world.query::<(&Skull, &Transform)>();
+    skulls
+        .iter(world)
+        .map(|(skull, at)| SavedSkull {
+            skull: skull.clone(),
+            at: at.translation,
+        })
+        .collect()
+}
+
+/// Sends a loaded save's skulls on again (#3769); one whose target the load finds not seeks
+/// another.
+pub(crate) fn skulls_again(world: &mut World, skulls: Vec<SavedSkull>) {
+    for saved in skulls {
+        let skull = Skull {
+            target: crate::names::found(saved.skull.target),
+            ..saved.skull
+        };
+        world.spawn((
+            skull,
+            Transform::from_translation(saved.at),
+            Visibility::Inherited,
+            crate::hums::Hum(SOULS_LOOP),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
 }
 
 impl Skull {

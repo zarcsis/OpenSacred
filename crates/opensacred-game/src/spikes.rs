@@ -24,7 +24,7 @@ use crate::spawning::Rng;
 
 /// An object of the rings or the fan, which takes its look ([`raise`]): whose, its place on the
 /// ground, the wave's origin and its glow's colour.
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct Raise {
     pub(crate) kind: SpikesKind,
     pub(crate) ground: Vec3,
