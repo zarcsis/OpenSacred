@@ -434,6 +434,26 @@ The lines step by the font 3's line of 25 since #3422 (`place_names::LINE`), its
 Not followed: `CHAT_DELAY` of the settings, 8 s always (docs/decisions/interface.md, "Info lines held for 8 seconds").
 The lines are not hidden under the saves' and the options' windows, whose backgrounds of the whole screen cover them (`saves_window`, `options`), nor under the window `+0xD0`, which is not read.
 
+## The fonts' pen and the kerning (`cFontTTF2`)
+
+Read 2026-11-26 for #3837 (**confirmed** by code, and **seen** where marked).
+
+- The fonts: the font 0 is a bitmap font, `FONT_SYSTEM.TGA` (`cFsFont`, `0x648CD0`); the fonts 1 to 7 of the table (`0xA1CDB4`, entries of `0x44` bytes: the face's name, the size, the flags `AA` and `FF`) are made by `0x8152D0` as `cFontTTF2`s (`0x64D9B0`) where its argument is set, else as `cFontTTF`s (`0x64B120`, not read).
+  The running original makes `cFontTTF2`s, its log naming them as it does: AntiquaSSK 13, Carolingia 12, AntiquaSSK 16, Carolingia 20, 16 and 18, and AntiquaSSK 8, each `AA1 FF1` (**seen**).
+- As a `cFontTTF2` is made (`0x64DCB0`), it asks GDI for the face's kerning pairs (`GetKerningPairsW`, through the thunk `0x8310CE` of the Unicode layer, first their count, then the pairs into a new buffer at `+0x200F4`), sorts the vector from `+0x200F8` to `+0x200FC` (entries of 8 bytes: the two characters as one word, the second in its high half, and the amount), and frees the buffer (`0x64E1A9`).
+  Nothing copies the pairs into the vector: the constructor leaves it empty (`0x64DA49`), and no other code writes it (a scan of `Sacred.exe` for the fields' displacements finds the constructor, the destructor and its unwinds, the sort and the three readers below).
+- The pen (`0x64E9C0`, at `0x650860`–`0x650945`), the measure of a text (`cFontTTF2_textWidth`, `0x650F70`) and the measure of a word for the lines' breaks (`0x651300`) look each pair of characters up in that vector, and take −1 where it holds none.
+  So a glyph that another glyph follows (no space, line break or end after it) steps its advance, its text extent in whole pixels (the glyph cells, docs/re/maps.md, "The places, the people, the portals, the frontier and the pacified areas (#1567)"), less one pixel, and one before a space, a break or the end its advance alone; a space steps the space's width (`+0x200CA`).
+  Under the languages 7 and 8 (`0x17E7D4C`; **hypothesis**: the Asian ones) the step is the advance alone.
+- So the original applies none of the face's kerning pairs: its letters stand a pixel closer than their advances, whatever the pair.
+- **Seen** 2026-11-26 under the driver of #448, probes at the pen's lookup (`0x6508A6`, `0x6508EC`), the Seraphim's quest 154 set up and its log's lines written (`setupquest154`, `trigger154`, `talkedbride154`, `schmied154`):
+  - on the quest book's second page of the quest, 5,000 lookups over three fonts in a second each found the vector empty (its begin and end 0) and took −1, among them the pairs of the line of `R01NQ04_LOG_QOFFEN1` whose word has an apostrophe after an h, the h and the apostrophe (`0x270068`) and the apostrophe and the s (`0x730027`);
+  - that word shows each glyph apart, the apostrophe after the h and the s after it, none over another;
+  - the dialogues' window (`UI_WND_TOOLTIP`, the window of the statue of 50,39 that the scripts' `F_Stein_0010` opens by a `Popup`) draws through the same pen, its 779 lookups in a second −1 too; the items' and the bar's tooltips are that window, of the fonts 1, 3 or 7 ("The tooltip (`cUI_Tooltip`)" above).
+
+`opensacred-game` lays its texts out with Bevy's text (parley, which shapes by harfrust), whose `kern` feature takes a face's legacy `kern` table by default; until #3837 its letters stood by their advances and AntiquaSSK's 819 pairs, so that an h before an apostrophe drew the next letter over the h.
+Since #3837 every `TextFont` takes the feature off as it is inserted (`kerning`), and its letters stand by their own advances, as the original's; not yet a pixel closer, as the original's pen steps them (#3840).
+
 ## In `opensacred-game`
 
 `bar` lays the bar and the hero's entry of the column out from the interface's images' table (`tables/ui_images.ron`, #1160) at the places above, in the interface's units of the 768-pixel-high screen (`hud`, `UiScale`), the bar centred along the bottom of a wider window and the column at its right edge (#1087):
