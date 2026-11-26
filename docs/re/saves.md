@@ -110,6 +110,7 @@ The action reads the clip in play anew at each tick (docs/re/fight.md, "The arch
 An arrow (`cArrow3D`, its save `0x5BDAF0`) keeps its base object, its flags `+0x1E4`, its direction `+0x1E8`, its point `+0x1F4`, seven more of its fields from `+0x200` to `+0x24C` (`+0x200`, `+0x204`, `+0x208`, `+0x20C`, 32 bytes from `+0x214`, `+0x234`, `+0x24C`) and a stamp of the game's clock `+0x23C`, which the load sets to the load's clock (`0xCD7A60`).
 An FX object (`cObjectFX`, `0x5B6A50`) keeps its fields from `+0x44`: its kind, flags, caster, target, followed object and bone, the index of its particle system `+0x6E`, its direction `+0x78`, its turn, its offset, its timers `+0xA8` to `+0xB4`, its points, its array `+0xE4`, its cooldown `+0x11C` and its children's list `+0xD0`, and its stamp `+0xA4`, set to the load's clock too; its particle system comes back in the same slot by the particles' part (`0x96`; docs/re/effects.md, "The bolts").
 So a bolt or an arrow flies on from where it was, its first step after the load of no more than a frame's time.
+The arrows were **seen** to fly on; the effect objects of a fight were not ("The effects of a fight", #3824).
 **Seen**: a quick save 29 ms after the hero's arrow left her bow (the probe of `0x5BD41B`), aimed at the ground by a Ctrl click; at F8 no arrow was made anew (no reach of `0x5BD41B`) and 0.57 s after the load's end an arrow of the hero's struck the creature beside her, the save's arrow come back.
 
 **The combo's step.**
@@ -144,6 +145,22 @@ Neither a save nor a load holds the render's frame time back: the first frame af
 **A passing sight.**
 A level-up's sparks are a system 856 of the variant 2 with its FX object (docs/re/effects.md, "In `opensacred-game`"): the particles' part keeps it with every particle, and the load makes it again in its slot, so the sparks come back where they were and live out their life.
 **Seen**: a level-up and an F9 at once, the sparks gone 4 s later; at F8 the load logged the system (`cParticleSystemManager::load() psRef[21] psType[856] anz[500]`) and the frame after the load's end showed the gold sparks over the hero.
+
+**The effects of a fight.**
+**Seen** 2026-11-26 for #3780, three times: a Seraphim under the god mode at the cell 3100,2448 among the fill's archers (types 307, 279 and 260 of the level 25), three orc shamans 67 and a lich 34 made by the driver, saved through the menu and loaded.
+The save wrote the arrows (the object manager's family 27) and the effect objects (its family 12), by its own log, and the load named some of these again (types 856 and 772).
+At the load's end every creature stood at its cell with its health, its AI's and its action's states and its target, and the seven arrows in flight stood in their cells with their ids.
+None of the effect objects about the hero stood: the lich's ground poison 792 and its ball 867, a burning bone 788, the glows 796 and 808, the hits' sparks 772 and 773 and a poison's sight 856 were gone, so that the poison's flare and the ball left the screen, while the meteors' craters 823 and the blood's puddles 903 stood.
+In the next 2 s the fight went on with no order, its new casts and hits making new effects.
+Why the effects that the load reads do not stand, against the level-up's sparks above, which came back, is open (#3824).
+
+**Four scenes.**
+**Seen** 2026-11-26 for #3780, each saved and loaded, with frames at the load's end, 0.5 s after it and 2 s after it.
+In a town (the sector 53,40 by day), everyone stood at their cells in their states and the walkers walked on; at night a girl of the type 704 came back carrying her torch with no flame for 0.5 s at least.
+In a follower's fight (a type 322 hired by the driver, three goblin warriors 76 of the level 8), all stood in their states and the follower's strike under way landed at once.
+On a horse, a save through the menu held a standing rider, the menu stopping the horse, and its load gave her back seated on it; a quick save during the ride gave the horse back moving, and the ride went on to its target.
+In a place loaded for the first time, the first frame after the load drew no model, the hero's and the horse's among them, and 0.5 s later all stood (**hypothesis**: the models are made over the first frames).
+The game in the same scenes (#3780): the creatures stood in their doings and went on, the follower fought on, the rider rode on, and the effects of the fight stood and went on (`saves::Looks`), where the original's were gone.
 
 **The hero's walk and the menu.**
 **Seen**: a walk under way stood through the menu over a game opened by Escape and went on to its target once Escape closed it, the time standing meanwhile; the driver's save through the menu and the saves' window during a walk left the hero standing short of the target, as "Seen" above found, so the stop comes of the saves' window's clicks, not of the menu (**hypothesis**: a click of the window reaching the world, its event 4 of the point 0, docs/re/ai.md, "Dormant and awake").
@@ -263,27 +280,21 @@ Since #3812 the looks keep the marks and the puddles on the ground, the blood fo
 Since #3805 the steady systems that the sectors, the scripts and the worn items make anew as they come in run on for 6 s at a load's first frame played before they are drawn (`fx::Preroll`), so that a fire in view comes back burning rather than building up (docs/decisions/drawing.md, "The sectors' fixed systems come back burning, not particle for particle").
 Since #3820 a save keeps the doings of the creatures in the sectors that a load brings in about the hero and of its followers, so that the load gives them back as soon as those sectors are in (docs/decisions/ai.md, "Doings kept within the sectors a load brings in").
 Since #3822 a load gives the knockouts' stars, the dwarves' guns' sights and the teleports' sights their places and their visibility as their making does, a teleport's sight its light too; the saves' version 81.
+Since #3780 a creature's health ring keeps its timer with its doing, and the command `unsaved` names no component that neither a save keeps nor a load makes again in a town, a fight and a follower's fight; the saves' version 82.
 
 ## What the original keeps that the game does not
 
-Compared 2026-11-25 for #3739 with `opensacred-game`'s save of the version 46 (`saves`: its `Header`, `Hero`, `Scripts` and `World`), by the game's code; each item tells where the original keeps it, how sure that is, and what the game does; those that the game has kept since (#3740 to #3744) are among what both keep, below.
+Compared 2026-11-25 for #3739 with `opensacred-game`'s save of the version 46 (`saves`: its `Header`, `Hero`, `Scripts` and `World`), by the game's code; each item tells where the original keeps it, how sure that is, and what the game does; those that the game has kept since (#3740 to #3744, and the doings and the effects of #3753) are among what both keep, below.
 
-- **The hero's other orders and actions.**
-  The original: its AI's state and order (`+0xFC` to `+0x14F`), an attack on a creature, a walk to an item to take, to a creature to speak to or to a horse to mount, a cast or a weapon art ordered, and the action under way, a strike, a shot or a cast, each with its target's id, and a combo's step (`+0x2B3`, `+0x2B4`, in the 253 bytes from `+0x1F0`) (**confirmed** by code; **seen** for a strike, which lands once after the load, "What a load gives back of the doings").
-  The game: not kept but for the steps of its scripts' queue (#2890), its shots' chain (#3568) and its knock-downs' marks (#3673); the hero stands, and the player orders it again.
-- **The creatures' doings.**
-  The original: every creature's record keeps its AI's state and order, its action, its way, its targets and its gait, so that a pursuit, a flight, a cast, a walk or a townsperson's errand goes on after the load (**confirmed** by code; not seen but for the hero).
-  The game: a kept creature comes back where it stood with its health and its heading (`npcs::Kept`), a follower beside the hero, each standing and deciding anew; the steps of its scripts' queue are kept (#2890).
 - **The clips' phase.**
   The original: each model's clip's start, speed and loops (`0x44FC50`), which the load sets on no control before it plays the slot in play anew from its start, `GameSpeed` times the slot's own factor faster than it played, a corpse's dying clip among them (**confirmed** by code and **seen**, "What a load gives back of the doings").
-  The game: every clip begins anew as its creature comes back.
-- **The effects in flight.**
-  The original: every living particle system with its own record (the part `0x96`, `0x7CC3B0`), and the FX objects, the bolts among them, with the other objects (`0x8E`, `0x602300`; docs/re/effects.md, "In `opensacred-game`"), so that a fireball in flight, a meteor falling or a cast's glow goes on, its stamp of the game's clock set to the load's (**confirmed** by code; **seen** for an arrow in flight and a level-up's sparks, "What a load gives back of the doings").
-  The game: the scripts' traps, their fields of pills, their fences of lightning and their gold arrows alone (#3450, #3456); the spells', the arts' and the bolts' effects in flight and the passing sights are left out.
+  The game: every clip begins anew as its creature comes back, a strike's clip with its doing's counters kept (#3759), and a body lies in its last pose (docs/decisions/fight.md, "Bodies lie at a load as they lay").
 - **The models' tints.**
   The original: the renderer's 32 slots of vertex colours and their mask (`0x94`; **confirmed** by code, **hypothesis** that they are the tints of the creatures' effects).
   The game: none of the renderer's slots; a model's looks come of its effects and forms, which a save keeps (`effects::Effects`).
 
 Kept by both, each by its own means: the quest book and the inventory shown (`0x9C`; `saves::Windows`, #3741), the ride (the two creatures' records, their link and the engine's controlled object; `saves::World`'s `horse` and `ridden`, #3743), the hero's walk under way (its action with its target's point and floor in `0x8E`; `saves::Hero`'s `walk`, #3742, its way found anew, docs/decisions/movement.md, "Way found anew at a load"), the camera's zoom (`0x82`; `saves::Hero`'s `zoom`, #3740), the hero's and the creatures' facing (the direction `+0x70` of each creature's record in `0x8E`; `saves::Hero`'s `heading` and `npcs::Kept`'s, #3744), the right button's art (the engine's `+0x58`, `+0x5A`; `making::Selected`), the item on the cursor (`0x98`; #2822), the areas pacified and the regions run (`0x99`; `quests::Scripts`), the statistics, the wins, the class's runes given and the quest bits (`0x9B`; `saves::Hero`'s `tally`, `kills`, `history`, `wins`, `runes_given`, and the scripts' variable `HeroQBit`), the sides' relation that the horse theft changes (`0x9A`; the effect 19 on the hero, which the save keeps, `stables`), the explored land (`0x81`; `saves::World`'s `land`), the calendar, the weather, the scripts and the world's creatures and items.
+Kept by both since #3753, each by its own means: the hero's orders and actions under way (#3763, #3764), the creatures' doings, their minds, ways, strikes, casts, arts, spells and followers (`doings::Doing`, #3756 to #3768), and the things thrown and shot (`saves::Things`, #3769).
+Kept by the game alone: the effects in flight, the spells' and the arts' objects and the passing sights with every particle (`saves::Things`, `saves::Looks`, #3770 to #3779, #3809, #3812, #3814), which the original's save writes and its load was seen to drop ("The effects of a fight", #3824); the sectors' fixed systems come back burning instead (#3805; docs/decisions/drawing.md, "The sectors' fixed systems come back burning, not particle for particle").
 Not kept by the original and so by neither: the view's offset, which its load sets to (0, 0) ("What a load puts back"), the regions' kills, and the engine's flags word, which its load leaves as it runs.
 The survival counter is kept by both: the original's statistics' `+0x570C` counts the time that the hero stands in its fight stance since its last death, and its save's header keeps its whole seconds (docs/re/questbook.md, "The statistics' book", read and **seen** 2026-11-25 for #3749); since #3785 the game's `drops::Survival` counts the same, a save keeping it as `saves::Hero`'s `survival` (docs/decisions/fight.md, "Survival counter by the world's time").
