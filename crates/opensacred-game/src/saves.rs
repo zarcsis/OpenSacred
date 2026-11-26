@@ -122,8 +122,8 @@ use crate::{arts, drops, making};
 /// states and the changelings' animals (#3767); the version 66 the special creatures' states
 /// (#3768); the version 67 the things thrown and shot (#3769); the version 68 the spells'
 /// objects (#3770); the version 69 the elves' and the Vampiress's (#3771); the version 70 the
-/// Dwarf's and the Daemon's, and the breaths (#3772).
-pub const VERSION: u32 = 70;
+/// Dwarf's and the Daemon's, and the breaths (#3772); the version 71 the looks' bursts (#3773).
+pub const VERSION: u32 = 71;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -328,6 +328,22 @@ pub struct Live {
     pub specials: Specials,
     /// Whether the weapon that the hero hurls is out of his hand, flying or lying (#3769).
     pub hurled: bool,
+    /// The looks (#3773).
+    pub looks: Looks,
+}
+
+/// The looks as a save keeps them (#3773, the epic #3753): the bursts, of which the hits'
+/// sparks, the changelings' sparks, the poison rings', the lightnings' and the scripts' smokes and
+/// the level-ups' sparks are made (`puffs`).
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+pub struct Looks {
+    pub puffs: Vec<crate::puffs::SavedPuff>,
+}
+
+impl MapEntities for Looks {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.puffs.map_entities(mapper);
+    }
 }
 
 /// The scripts' special objects as a save keeps them (#3768, the epic #3753): Shaddar's slaves
@@ -866,6 +882,16 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
     let hurled = world
         .get_resource::<crate::arsenal::Arsenal>()
         .is_some_and(crate::arsenal::Arsenal::thrown);
+    let looks = Looks {
+        puffs: crate::puffs::saved(world),
+    };
+    let looks = crate::names::mapped(
+        looks,
+        &mut Saving {
+            world,
+            refs: &mut refs,
+        },
+    );
     let live = Live {
         refs,
         doings,
@@ -874,6 +900,7 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
         animals,
         specials,
         hurled,
+        looks,
     };
     // The picture last taken (`save_picture`), as the original's save keeps its last capture.
     let picture = world
@@ -1177,6 +1204,10 @@ fn resume(world: &mut bevy::prelude::World) {
     crate::spells::objects_again(world, things.spells);
     crate::breath::again(world, things.breaths);
     crate::dragon_fires::again(world, things.dragon_fires);
+    // The looks, last, once what they are drawn at is back (#3773).
+    let (looks, lost_looks) = loaded(world, &live.refs, live.looks);
+    let lost = lost + lost_looks;
+    crate::puffs::again(world, looks.puffs);
     // The hero's hurled weapon out of his hand, flying or lying (#3769).
     if live.hurled {
         world.write_message(crate::arsenal::Throws(true));
@@ -2004,7 +2035,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (70, 0xF7F5_D502_B81C_4721),
+            (71, 0x1D4C_0AE6_3E6D_4C9C),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

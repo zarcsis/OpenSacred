@@ -75,7 +75,7 @@ pub fn interval_factor(detail: u8) -> f32 {
 /// A particle (`0x7640C0`, `0x764760`): its place, velocity, buoyancy (each second its upward
 /// velocity falls by it, so a negative one rises), size (the half side of its quad), life (255 at
 /// its birth, dying at 0), angle and its speed, and its layer.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Particle {
     pub place: [f32; 3],
     pub velocity: [f32; 3],
@@ -102,7 +102,7 @@ impl Particle {
 /// An emitter layer's rates a second (32 bytes): of the buoyancy, the life (−200 lives 1.275 s),
 /// the size and the angle; the wind its buoyancy carries it by; and its pull toward the system's
 /// place (`+0x1C`), by which its particles' velocity turns toward it each second.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Layer {
     pub buoyancy: f32,
     pub life: f32,
@@ -139,6 +139,21 @@ pub struct Spread<T> {
     pub spread: T,
 }
 
+/// A spread as a save keeps it: its value and its spread, a pair of no name, so that the spreads
+/// of a number and of a point keep apart in the saves' layout.
+impl<T: serde::Serialize> serde::Serialize for Spread<T> {
+    fn serialize<S: serde::Serializer>(&self, to: S) -> Result<S::Ok, S::Error> {
+        (&self.value, &self.spread).serialize(to)
+    }
+}
+
+impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for Spread<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(from: D) -> Result<Self, D::Error> {
+        let (value, spread) = <(T, T)>::deserialize(from)?;
+        Ok(Self { value, spread })
+    }
+}
+
 const fn spread<T>(value: T, spread: T) -> Spread<T> {
     Spread { value, spread }
 }
@@ -146,7 +161,7 @@ const fn spread<T>(value: T, spread: T) -> Spread<T> {
 /// An emission block (100 bytes a layer): a particle's buoyancy, size, angle, its speed, its
 /// velocity and its offset from the system's place, each with its spread, and the interval
 /// between two particles in seconds.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Block {
     pub buoyancy: Spread<f32>,
     pub size: Spread<f32>,
@@ -170,6 +185,24 @@ pub const FRAME_OF_LAYER: u8 = 0xFF;
 /// 0 to 1, the entry 255 the colour at its birth and the entry 0 at its death.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ramp(pub [[f32; 4]; 256]);
+
+/// A ramp as a save keeps it: its entries in order, a shorter list read back padded with none.
+impl serde::Serialize for Ramp {
+    fn serialize<S: serde::Serializer>(&self, to: S) -> Result<S::Ok, S::Error> {
+        self.0.as_slice().serialize(to)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Ramp {
+    fn deserialize<D: serde::Deserializer<'de>>(from: D) -> Result<Self, D::Error> {
+        let kept = Vec::<[f32; 4]>::deserialize(from)?;
+        let mut entries = [[0.0; 4]; 256];
+        for (entry, kept) in entries.iter_mut().zip(kept) {
+            *entry = kept;
+        }
+        Ok(Self(entries))
+    }
+}
 
 impl Ramp {
     /// The ramp from `start` through `keys`, from the entry 255 down, each key's count of entries
@@ -241,7 +274,7 @@ pub fn rolled_colour(colour: [f32; 3], spread: [f32; 3], dice: &mut impl Dice) -
 
 /// A system's particles, its clock, when it last emitted, and the detail's factor of its
 /// intervals ([`interval_factor`]).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct System {
     pub particles: Vec<Particle>,
     pub clock: f32,
@@ -542,7 +575,7 @@ fn pick(blocks: &[Block], dice: &mut impl Dice) -> usize {
 /// How a layer of particles is drawn (docs/re/effects.md, "The billboards"): added to the frame
 /// by its alpha (`SRCALPHA`, `ONE`), added whole (`ONE`, `ONE`), or laid over it by its alpha
 /// (`SRCALPHA`, `INVSRCALPHA`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Blend {
     Add,
     Whole,
@@ -1183,9 +1216,10 @@ pub fn fire_variant(kind: u32) -> Option<u8> {
 /// A system that makes its particles once, as it starts, and lives while they do: the classes
 /// whose update only ages them (as `cParticleSystem_puzzleSolved_v`'s, `0x76CF20`): its texture,
 /// its grid, how it is drawn, its one layer's rates, its ramp, and its particles.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Burst {
-    pub texture: &'static str,
+    #[serde(with = "statics")]
+    pub texture: statics::Name,
     pub grid: u8,
     pub blend: Blend,
     pub layer: Layer,
@@ -1203,11 +1237,49 @@ pub struct Burst {
 
 /// A burst's emission from its start (`0x764760` of an interval above 0): its block, for how long
 /// it emits, and how many of its particles may live at once.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Stream {
     pub block: Block,
     pub until: f32,
     pub count: usize,
+}
+
+/// The `&'static` names of the particle systems' classes as a save keeps them (`#[serde(with)]`,
+/// #3773): a name written as its text and read back as the one `&'static` copy of that text,
+/// made once for each text that a load meets.
+pub mod statics {
+    use std::collections::HashSet;
+    use std::sync::{LazyLock, Mutex, PoisonError};
+
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    /// A `&'static` name, which serde reads through [`deserialize`] rather than borrowing it of
+    /// the save's bytes.
+    pub type Name = &'static str;
+
+    /// The names read back so far.
+    static NAMES: LazyLock<Mutex<HashSet<&'static str>>> =
+        LazyLock::new(|| Mutex::new(HashSet::new()));
+
+    /// The one `&'static` copy of `name`.
+    pub fn intern(name: &str) -> &'static str {
+        let mut names = NAMES.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(&kept) = names.get(name) {
+            return kept;
+        }
+        let kept: &'static str = Box::leak(name.to_owned().into_boxed_str());
+        names.insert(kept);
+        kept
+    }
+
+    pub fn serialize<S: Serializer>(name: &&'static str, to: S) -> Result<S::Ok, S::Error> {
+        name.serialize(to)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(from: D) -> Result<&'static str, D::Error> {
+        let name = String::deserialize(from)?;
+        Ok(intern(&name))
+    }
 }
 
 /// The colour of a creature's burst by its gib set (`0x427160`, `items.pak +0x6F`): 0 red, 1
@@ -23610,5 +23682,86 @@ mod tests {
             [2, 1, 0].map(|detail| emitted(interval_factor(detail))),
             [8, 5, 3]
         );
+    }
+
+    #[test]
+    fn a_burst_kept_reads_back_whole() {
+        let burst = Burst {
+            texture: "PARTICLE_GLOW01",
+            grid: 2,
+            blend: Blend::Over,
+            layer: Layer {
+                life: -150.0,
+                ..Layer::default()
+            },
+            ramp: Ramp::new([1.0, 0.5, 0.25, 1.0], &[([0.0, 0.0, 0.0, 0.0], 200)]),
+            particles: vec![Particle {
+                place: [1.0, 2.0, 3.0],
+                velocity: [0.5; 3],
+                buoyancy: 0.1,
+                size: 4.0,
+                life: 120.0,
+                angle: 0.3,
+                spin: 0.2,
+                layer: 0,
+                frame: 1,
+                colour: [0.9, 0.8, 0.7],
+            }],
+            ground: Some(5.0),
+            light: 100.0,
+            tinted: true,
+            stream: Some(Stream {
+                block: Block {
+                    size: Spread {
+                        value: 3.0,
+                        spread: 1.0,
+                    },
+                    velocity: Spread {
+                        value: [1.0, 2.0, 3.0],
+                        spread: [0.5; 3],
+                    },
+                    interval: 0.01,
+                    ..Block::default()
+                },
+                until: 0.5,
+                count: 40,
+            }),
+        };
+        let bytes = postcard::to_stdvec(&burst).unwrap();
+        let back: Burst = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(back, burst);
+        // Its texture's name is one copy, the same at each load.
+        let again: Burst = postcard::from_bytes(&bytes).unwrap();
+        assert!(std::ptr::eq(back.texture, again.texture));
+        assert!(std::ptr::eq(
+            statics::intern("PARTICLE_GLOW01"),
+            back.texture
+        ));
+        // A ramp kept short reads back padded with none.
+        let short = postcard::to_stdvec(&vec![[1.0_f32; 4]; 3]).unwrap();
+        let ramp: Ramp = postcard::from_bytes(&short).unwrap();
+        assert_eq!(&ramp.0[..3], &[[1.0; 4]; 3]);
+        assert_eq!(ramp.0[3], [0.0; 4]);
+    }
+
+    #[test]
+    fn a_system_kept_reads_back_with_its_clocks() {
+        let mut system = System::at_factor(4, 1.5);
+        system.clock = 2.5;
+        system.particles.push(Particle {
+            place: [0.0; 3],
+            velocity: [0.0; 3],
+            buoyancy: 0.0,
+            size: 1.0,
+            life: 50.0,
+            angle: 0.0,
+            spin: 0.0,
+            layer: 0,
+            frame: 0,
+            colour: [1.0; 3],
+        });
+        let bytes = postcard::to_stdvec(&system).unwrap();
+        let back: System = postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(back, system);
     }
 }
