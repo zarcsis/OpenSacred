@@ -978,6 +978,8 @@ pub(crate) struct InOrder {
     /// Whether its system is drawn as its bearer's model's texels, each vertex at its own depth
     /// from the root ([`Orders::over`], [`Self::drawn`]), rather than no nearer than its place.
     drawn: bool,
+    /// The bearer's model's root, from which [`Self::drawn`] takes a vertex's own depth.
+    root: Vec3,
 }
 
 /// An upper storey's floor under a system, as `models.wesl`'s `on_floor` lays a model standing
@@ -1218,13 +1220,15 @@ impl InOrder {
         )
     }
 
-    /// `vertex`, from a mesh's origin `origin` at the root of the model of the order
-    /// ([`Orders::over`]), laid along the line of sight where a texel of that model at its place
-    /// lies ([`Quads::as_drawn`]): at the order's depth plus its own depth from the root,
-    /// squeezed as `models.wesl` squeezes a model's, on a floor no further back than the floor's
-    /// plane brought forward by its own depth squeezed as there.
+    /// `vertex`, from a mesh's origin `origin`, laid along the line of sight where a texel of the
+    /// model of the order ([`Orders::over`]) at its place lies ([`Quads::as_drawn`]): at the
+    /// order's depth plus its own depth from the model's root, squeezed as `models.wesl` squeezes
+    /// a model's, on a floor no further back than the floor's plane brought forward by its own
+    /// depth squeezed as there. The own depth is taken from the root whatever the mesh's origin,
+    /// the root or the world's start (#3842): from the world's start it was the vertex's whole
+    /// depth in the world, which brought the quads some thousands of units nearer.
     pub(crate) fn drawn(&self, vertex: Vec3, origin: Vec3) -> Vec3 {
-        let own = vertex.dot(-iso::forward());
+        let own = (origin + vertex - self.root).dot(-iso::forward());
         let placed = self.placed(vertex, origin) + SQUEEZE * own;
         let shift = self
             .on_floor(vertex, origin)
@@ -1269,6 +1273,7 @@ impl InOrder {
                 + SQUEEZE * (own - behind),
             floor: None,
             drawn: false,
+            root,
         }
     }
 }
@@ -2593,6 +2598,12 @@ mod tests {
         ] {
             let spark = root + order.drawn(point, root);
             let was = root + point;
+            // The same from a mesh whose vertices lie in the world, its origin the world's start.
+            assert!(
+                (order.drawn(was, Vec3::ZERO) - spark).length() < 1e-2,
+                "{spark} {}",
+                order.drawn(was, Vec3::ZERO)
+            );
             // Where it shows on screen, it shows still.
             assert!(
                 (spark - was).dot(iso::right()).abs() < 1e-3,
