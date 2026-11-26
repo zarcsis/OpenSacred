@@ -12,7 +12,8 @@
 //!
 //! The rays are camera-facing streaks of `PARTICLE_LINE01` standing on their feet, in their
 //! ramp's colour by its alpha, added, untinted by the night; each slave lights the models about
-//! it (`fx_lights`). A slave goes with its sector and is never made again. The marked hero wears
+//! it (`fx_lights`). A slave goes with its sector and is made again only by a load, of the save
+//! that kept it where it flew ([`SavedSlave`], #3768). The marked hero wears
 //! `FX_SACREDLOGO` over its head, an upright square added whole that turns about the upright by
 //! the real clock, drawn after its model and depth tested against it (`fx::Orders::over`).
 //!
@@ -45,6 +46,74 @@ struct Flying {
     slave: shaddar::Slave,
     target: Option<Entity>,
     mesh: Handle<Mesh>,
+}
+
+/// A slave as a save keeps it (#3768, the epic #3753), as the original's save keeps its FX
+/// object (docs/re/saves.md, "What a load gives back of the doings"): its placement's name, where
+/// it flies, its rules but its rays, which a load starts anew, and the creature it hunts by its
+/// name; none for one not flying yet, which flies anew.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedSlave {
+    index: u32,
+    at: Vec3,
+    slave: Option<shaddar::Slave>,
+    #[serde(with = "crate::names::optional")]
+    target: Option<Entity>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedSlave {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = self.target.map(|target| mapper.get_mapped(target));
+    }
+}
+
+/// A loaded slave's rules and prey, which its first flight takes in place of new ones
+/// ([`make`]).
+#[derive(Component)]
+struct Resumed(shaddar::Slave, Option<Entity>);
+
+/// The slaves in `world` as a save keeps them (#3768).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedSlave> {
+    let mut slaves =
+        world.query_filtered::<(&crate::names::Named, &Transform, Option<&Flying>), With<Slave>>();
+    slaves
+        .iter(world)
+        .filter_map(|(named, at, flying)| {
+            let crate::names::Id::Placed(index) = named.0 else {
+                return None;
+            };
+            Some(SavedSlave {
+                index,
+                at: at.translation,
+                slave: flying.map(|flying| flying.slave.clone()),
+                target: flying.and_then(|flying| flying.target),
+            })
+        })
+        .collect()
+}
+
+/// Makes a loaded save's slaves again where they flew, each of its placement, flying on as it
+/// flew, its rays anew (#3768); a prey that the load finds not is sought anew.
+pub(crate) fn again(world: &mut World, slaves: Vec<SavedSlave>) {
+    for saved in slaves {
+        let entity =
+            match world.run_system_cached_with(crate::npcs::place_again, (saved.index, saved.at)) {
+                Ok(Ok(entity)) => entity,
+                Ok(Err(e)) => {
+                    warn!("shaddar slaves: a saved slave is not made: {e}");
+                    continue;
+                }
+                Err(e) => {
+                    warn!("shaddar slaves: a saved slave is not made: {e}");
+                    continue;
+                }
+            };
+        if let Some(slave) = saved.slave {
+            world
+                .entity_mut(entity)
+                .insert(Resumed(slave, crate::names::found(saved.target)));
+        }
+    }
 }
 
 /// The rays' and the mark's materials, made as the first slave flies; none where a texture is
@@ -126,7 +195,7 @@ fn nearest(living: &[Living], here: Vec3) -> Option<Entity> {
 )]
 fn make(
     mut commands: Commands,
-    slaves: Query<Entity, (With<Slave>, Without<Flying>)>,
+    slaves: Query<(Entity, Option<&Resumed>), (With<Slave>, Without<Flying>)>,
     (data, server, mut looks, mut materials, mut meshes): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -136,10 +205,16 @@ fn make(
     ),
     mut dice: ResMut<Dice>,
 ) {
-    for entity in &slaves {
+    for (entity, resumed) in &slaves {
         looks.make(data.as_deref(), &server, &mut materials);
         let mesh = meshes.add(empty());
+        // A loaded slave flies on as it flew (#3768).
+        let (slave, target) = match resumed {
+            Some(Resumed(slave, target)) => (slave.clone(), *target),
+            None => (shaddar::Slave::new(&mut dice.0), None),
+        };
         let mut made = commands.entity(entity);
+        made.remove::<Resumed>();
         if let Some(material) = looks.rays.clone() {
             made.with_child((
                 Mesh3d(mesh.clone()),
@@ -150,8 +225,8 @@ fn make(
             ));
         }
         made.insert(Flying {
-            slave: shaddar::Slave::new(&mut dice.0),
-            target: None,
+            slave,
+            target,
             mesh,
         });
         commands.spawn(crate::fx_lights::child(
@@ -567,5 +642,63 @@ mod tests {
         assert!((across(bottom_left, bottom_right) - 30.0 * s).abs() < 1e-3);
         let [left, right, ..] = emblem(head, std::f32::consts::FRAC_PI_2);
         assert!(across(left, right).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_slave_saved_hunts_the_creature_of_its_targets_name() {
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs};
+        let mut saved = App::new();
+        saved.add_plugins(NamesPlugin);
+        let hero = saved.world_mut().spawn(Named(Id::Hero)).id();
+        let mut slave = shaddar::Slave::new(&mut Rng::of(1, 2, 5));
+        slave.red = true;
+        slave.hunting = true;
+        let at = Vec3::new(10.0, 40.0, 20.0);
+        saved.world_mut().spawn((
+            Slave,
+            Named(Id::Placed(41)),
+            Transform::from_translation(at),
+            Flying {
+                slave: slave.clone(),
+                target: Some(hero),
+                mesh: Handle::default(),
+            },
+        ));
+        // One made this frame, not flying yet.
+        saved
+            .world_mut()
+            .spawn((Slave, Named(Id::Placed(42)), Transform::default()));
+        let mut refs = Refs::default();
+        let mut slaves = saved_slaves(saved.world_mut(), &mut refs);
+        slaves.sort_by_key(|slave| slave.index);
+        let bytes = postcard::to_stdvec(&(&refs, &slaves)).unwrap();
+        let (refs, slaves): (Refs, Vec<SavedSlave>) = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..4).map(|_| ()));
+        let again = loaded.world_mut().spawn(Named(Id::Hero)).id();
+        let slaves = crate::names::mapped(
+            slaves,
+            &mut Loading {
+                refs: &refs,
+                names: loaded.world().resource::<Names>(),
+                lost: 0,
+            },
+        );
+        assert_eq!(slaves.len(), 2);
+        assert_eq!((slaves[0].index, slaves[0].at), (41, at));
+        assert_eq!(slaves[0].target, Some(again));
+        let kept = slaves[0].slave.as_ref().unwrap();
+        assert!(kept.red && kept.hunting);
+        assert_eq!((kept.heading, kept.turn), (slave.heading, slave.turn));
+        // Its rays start anew.
+        assert!(kept.system.particles.is_empty());
+        assert_eq!(slaves[1].slave, None);
+    }
+
+    /// The slaves of `world`, their references kept by their names in `refs`.
+    fn saved_slaves(world: &mut World, refs: &mut crate::names::Refs) -> Vec<SavedSlave> {
+        let slaves = saved(world);
+        crate::names::mapped(slaves, &mut crate::names::Saving { world, refs })
     }
 }

@@ -1298,7 +1298,8 @@ pub struct Npcs {
     taken: HashSet<usize>,
     /// The placements of the objects that a play's `DelNPC` removed by their names, which their
     /// sectors do not place again (#2758); a save's records remove them again as it loads. Shaddar's
-    /// slaves too, once placed: they end with their sector, never made again (#2919).
+    /// slaves too, once placed: they end with their sector, made again only by a load of a save
+    /// that kept them (#2919, #3768).
     removed: HashSet<usize>,
     /// The level that each placement's item lying was made at the first time it was placed,
     /// which its sector's later comings make it at again (`CreateObj`'s, #1125).
@@ -6269,9 +6270,9 @@ fn place_index(
             (&npcs.fight, &npcs.items),
         ),
     };
-    // A slave of Shaddar's lives while its sector is in the world, never made again
-    // (docs/re/effects.md, "Shaddar's slaves"), and the big demon's illusion so, which ends of
-    // itself (#3059).
+    // A slave of Shaddar's lives while its sector is in the world, made again only by a load of
+    // a save that kept it (docs/re/effects.md, "Shaddar's slaves"; [`place_again`], #3768), and
+    // the big demon's illusion so, which ends of itself (#3059).
     if placement.scripted.is_some_and(|(kind, _)| {
         kind == opensacred_rules::shaddar::SLAVE
             || kind == opensacred_rules::particles::BIG_DEMON_ILLUSION
@@ -8055,6 +8056,48 @@ fn respawn_following(
     if let Some(serial) = roams {
         creature.insert(Named(Id::Born(serial)));
     }
+    Ok(entity)
+}
+
+/// Places the object of the placement `index` again at `at` (#3768): a loaded save's object
+/// that its sector places no more, a slave of Shaddar's or the big demon's illusion, under its
+/// name and its script's, with its sector.
+pub fn place_again(
+    In((index, at)): In<(u32, Vec3)>,
+    mut commands: Commands,
+    (npcs, heights, states, assets): (
+        Res<Npcs>,
+        Res<Heights>,
+        Res<buildings::Buildings>,
+        Res<AssetServer>,
+    ),
+    mut streamer: ResMut<Streamer>,
+) -> Result<Entity, String> {
+    let placement = usize::try_from(index)
+        .ok()
+        .and_then(|index| npcs.placements.get(index))
+        .ok_or_else(|| format!("no placement {index}"))?;
+    let entity = spawn(
+        &mut commands,
+        placement,
+        &heights,
+        &states,
+        &assets,
+        (0, &npcs.fight, &npcs.items),
+    );
+    let mut made = commands.entity(entity);
+    made.insert(Named(Id::Placed(index)));
+    made.entry::<Transform>()
+        .and_modify(move |mut transform| transform.translation = at);
+    if let Some(name) = &placement.name {
+        made.insert(ObjectName(name.clone()));
+    }
+    let side = u32::try_from(SIDE).unwrap_or(64);
+    streamer.adopt(
+        &mut commands,
+        (placement.cell.0 / side, placement.cell.1 / side),
+        entity,
+    );
     Ok(entity)
 }
 
