@@ -8242,7 +8242,7 @@ fn spawn(
     // within the walls (#1735).
     let massed = match (i32::try_from(x), i32::try_from(y), floor) {
         (Ok(cx), Ok(cy), None) if !placement.object && !heights.walkable((cx, cy)) => {
-            heights.level_of((cx, cy))
+            heights.lifted_onto((cx, cy))
         }
         _ => None,
     };
@@ -9376,7 +9376,7 @@ pub fn walk(
         let mut here = transform.translation;
         let cell = paths::cell_of(here.x, here.z);
         if walk.level.is_none() && !heights.walkable(cell) {
-            walk.level = heights.level_of(cell);
+            walk.level = heights.lifted_onto(cell);
         }
         walk.level = heights.transition(cell, walk.level);
         // Up or down a stair it stepped onto from off the stairs (`0x5FCCB0`).
