@@ -1145,6 +1145,7 @@ pub fn run(
     mut players: Query<(&mut AnimationPlayer, &mut AnimationTransitions)>,
     speed: Res<GameSpeed>,
     tramplers: Query<(), With<crate::trample::Trampling>>,
+    (mut commands, doors): (Commands, Res<crate::doors::ClosedDoors>),
 ) {
     for (
         me,
@@ -1272,10 +1273,13 @@ pub fn run(
             }
             let level = body.level;
             if let Some(target) = body.target {
-                // A cell it may step into: walkable, or one the Daemon wades over in his form, no
-                // object and no hostile creature in it.
+                // A cell it may step into: walkable, or one the Daemon wades over in his form, or
+                // on foot a closed door's that it opens as it comes (`doors::ClosedDoors`, #3832),
+                // no object and no hostile creature in it.
                 let open = |cell, at| {
-                    (heights.walkable_on(cell, at) || (wades && heights.wadable_on(cell, at)))
+                    (heights.walkable_on(cell, at)
+                        || (wades && heights.wadable_on(cell, at))
+                        || (!riding && doors.at(cell, at).is_some()))
                         && !(riding && heights.barred_to_riders(cell, at))
                 };
                 let free =
@@ -1454,7 +1458,18 @@ pub fn run(
                         paths::cell_of(here.x, here.z),
                         paths::cell_of(position.x, position.z),
                     );
-                    if into != from && !walkable(into) && walkable(from) {
+                    let door = (into != from)
+                        .then(|| doors.at(into, body.level))
+                        .flatten()
+                        .filter(|_| !riding);
+                    if let Some(door) = door {
+                        // A closed door on its way: it stands this frame and opens it as a hero,
+                        // and goes on once its cells are free (#3832).
+                        commands
+                            .entity(door)
+                            .insert(crate::npcs::Swing::by_hero(true));
+                        moving = body.moving;
+                    } else if into != from && !walkable(into) && walkable(from) {
                         if searched {
                             body.arrives();
                         } else {
