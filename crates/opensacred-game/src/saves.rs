@@ -122,8 +122,9 @@ use crate::{arts, drops, making};
 /// states and the changelings' animals (#3767); the version 66 the special creatures' states
 /// (#3768); the version 67 the things thrown and shot (#3769); the version 68 the spells'
 /// objects (#3770); the version 69 the elves' and the Vampiress's (#3771); the version 70 the
-/// Dwarf's and the Daemon's, and the breaths (#3772); the version 71 the looks' bursts (#3773).
-pub const VERSION: u32 = 71;
+/// Dwarf's and the Daemon's, and the breaths (#3772); the version 71 the looks' bursts (#3773);
+/// the version 72 the bolts' and the guns' looks (#3774).
+pub const VERSION: u32 = 72;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -338,11 +339,28 @@ pub struct Live {
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct Looks {
     pub puffs: Vec<crate::puffs::SavedPuff>,
+    /// The bolts' and the guns' looks (#3774): the grenades' impacts, the hard rays' steps, the
+    /// chain bolts and their impacts, and the trails that outlive their bolts (a flying bolt's
+    /// goes with it, `bolts::SavedBolt`).
+    pub impacts: Vec<crate::grenade_impacts::SavedImpact>,
+    pub rays: Vec<crate::hard_rays::SavedRay>,
+    pub chain_bolts: (
+        Vec<crate::chain_bolts::SavedChainBolt>,
+        Vec<crate::chain_bolts::SavedChainImpact>,
+    ),
+    pub trails: Vec<crate::bolt_trails::SavedTrail>,
+    /// The guns' flashes, the beams' segments, the club arrows' rings and the arts' streaks.
+    pub flashes: Vec<crate::gun_fires::SavedFlash>,
+    pub beams: Vec<crate::beams::SavedSegment>,
+    pub rings: Vec<crate::arrow_sights::SavedRing>,
+    pub streaks: Vec<crate::weapon_streaks::SavedStreaks>,
 }
 
 impl MapEntities for Looks {
     fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
         self.puffs.map_entities(mapper);
+        self.flashes.map_entities(mapper);
+        self.streaks.map_entities(mapper);
     }
 }
 
@@ -884,6 +902,14 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
         .is_some_and(crate::arsenal::Arsenal::thrown);
     let looks = Looks {
         puffs: crate::puffs::saved(world),
+        impacts: crate::grenade_impacts::saved(world),
+        rays: crate::hard_rays::saved(world),
+        chain_bolts: crate::chain_bolts::saved(world),
+        trails: crate::bolt_trails::saved(world).1,
+        flashes: crate::gun_fires::saved(world),
+        beams: crate::beams::saved(world),
+        rings: crate::arrow_sights::saved(world),
+        streaks: crate::weapon_streaks::saved(world),
     };
     let looks = crate::names::mapped(
         looks,
@@ -1208,6 +1234,14 @@ fn resume(world: &mut bevy::prelude::World) {
     let (looks, lost_looks) = loaded(world, &live.refs, live.looks);
     let lost = lost + lost_looks;
     crate::puffs::again(world, looks.puffs);
+    crate::grenade_impacts::again(world, looks.impacts);
+    crate::hard_rays::again(world, looks.rays);
+    crate::chain_bolts::again(world, looks.chain_bolts);
+    crate::bolt_trails::again(world, looks.trails);
+    crate::gun_fires::again(world, looks.flashes);
+    crate::beams::again(world, looks.beams);
+    crate::arrow_sights::again(world, looks.rings);
+    crate::weapon_streaks::again(world, looks.streaks);
     // The hero's hurled weapon out of his hand, flying or lying (#3769).
     if live.hurled {
         world.write_message(crate::arsenal::Throws(true));
@@ -2035,7 +2069,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (71, 0x1D4C_0AE6_3E6D_4C9C),
+            (72, 0x4D28_B08C_0C3A_2286),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

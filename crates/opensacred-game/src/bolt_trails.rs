@@ -51,16 +51,75 @@ struct Shown {
     mesh: Handle<Mesh>,
 }
 
+/// A trail as a save keeps it (#3774): its particles, its place and the place before, and
+/// whether its bolt still flies; a load gives a flying bolt's trail to its bolt made again
+/// (`bolts::SavedBolt`), and makes one that outlives its bolt again on its own.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedTrail {
+    trail: BoltTrail,
+    place: Vec3,
+    before: Option<Vec3>,
+    flies: bool,
+}
+
+/// The trails in `world` as a save keeps them (#3774): of each flying bolt by its entity, and
+/// those that outlive their bolts.
+pub(crate) fn saved(world: &mut World) -> (Vec<(Entity, SavedTrail)>, Vec<SavedTrail>) {
+    let mut shown = world.query::<&Shown>();
+    let mut flying = Vec::new();
+    let mut alone = Vec::new();
+    for shown in shown.iter(world) {
+        let kept = SavedTrail {
+            trail: shown.trail.clone(),
+            place: shown.place,
+            before: shown.before,
+            flies: shown.bolt.is_some(),
+        };
+        match shown.bolt {
+            Some(bolt) => flying.push((bolt, kept)),
+            None => alone.push(kept),
+        }
+    }
+    (flying, alone)
+}
+
+/// Makes a loaded save's trails that outlive their bolts again (#3774), each on its own.
+pub(crate) fn again(world: &mut World, trails: Vec<SavedTrail>) {
+    for saved in trails {
+        world.spawn((
+            Trail(saved.trail.kind),
+            Transform::from_translation(saved.place),
+            crate::fx::Resumes(saved),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// Gives each new trail its look (`0x789E10`, `0x78A170`; `0x7AA980`, `0x7AAC20`): the
 /// whirlwind's dust takes the colour of the ground where it leaves (`0x52507C`, `0x41BA00`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn show(
     mut commands: Commands,
-    trails: Query<(Entity, &Trail, &Transform), Added<Trail>>,
+    trails: Query<
+        (
+            Entity,
+            &Trail,
+            &Transform,
+            Option<&crate::fx::Resumes<SavedTrail>>,
+        ),
+        Added<Trail>,
+    >,
     heights: Res<Heights>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, trail, place) in &trails {
+    for (entity, trail, place, resumed) in &trails {
+        // A loaded trail goes on as it went, one that outlived its bolt on its own (#3774).
+        let resumed = resumed.map(|crate::fx::Resumes(saved)| saved);
+        let alone = resumed.is_some_and(|saved| !saved.flies);
         let (made, texture, alpha_mode) = match trail.0 {
             TrailKind::Windstrike => (
                 &mut looks.dust,
@@ -116,7 +175,7 @@ fn show(
             };
         }
         // The fire bolt's Direct3D light, at its place while it flies (`0x7AA980`, `0x7AAB90`).
-        if matches!(trail.0, TrailKind::Shaddar) {
+        if matches!(trail.0, TrailKind::Shaddar) && !alone {
             let owner = shown.id();
             shown.commands().spawn(crate::fx_lights::light(
                 crate::fx_lights::FIRE,
@@ -128,12 +187,22 @@ fn show(
         }
         let [r, g, b, _] = colour;
         shown.insert(Shown {
-            bolt: Some(entity),
-            trail: BoltTrail::new(trail.0).with_ground([r, g, b]),
-            place: at,
-            before: None,
+            bolt: (!alone).then_some(entity),
+            trail: resumed.map_or_else(
+                || BoltTrail::new(trail.0).with_ground([r, g, b]),
+                |saved| saved.trail.clone(),
+            ),
+            place: resumed.map_or(at, |saved| saved.place),
+            before: resumed.and_then(|saved| saved.before),
             mesh,
         });
+        if alone {
+            commands.entity(entity).despawn();
+        } else {
+            commands
+                .entity(entity)
+                .remove::<crate::fx::Resumes<SavedTrail>>();
+        }
     }
 }
 

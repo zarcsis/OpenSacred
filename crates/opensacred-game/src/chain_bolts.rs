@@ -73,6 +73,9 @@ pub(crate) fn bolt(commands: &mut Commands, (from, to): (Vec3, Vec3), kept: Opti
 struct Bolt {
     bolt: ChainBolt,
     from: Vec3,
+    /// Where it goes, and the segments it keeps, as it was asked ([`Unmade`]).
+    to: Vec3,
+    kept: Option<usize>,
     frame: [Vec3; 3],
     lamps: Vec<Entity>,
     parts: [Handle<Mesh>; 2],
@@ -91,6 +94,198 @@ struct Impact {
 /// where a texture is missing.
 #[derive(Resource, Default)]
 struct Materials(Option<[Option<Handle<Effect>>; 3]>);
+
+/// A chain bolt as a save keeps it (#3774): where it leaves and goes and the segments it keeps,
+/// and its segments and fade, none for one not made yet; a load makes it again, going on as it
+/// went, and its impact apart ([`SavedChainImpact`]).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedChainBolt {
+    from: Vec3,
+    to: Vec3,
+    kept: Option<usize>,
+    bolt: Option<ChainBolt>,
+}
+
+/// A chain bolt's impact as a save keeps it (#3774): its place and its sparks and fade.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedChainImpact {
+    at: Vec3,
+    impact: ChainImpact,
+}
+
+/// The chain bolts and their impacts in `world` as a save keeps them (#3774).
+pub(crate) fn saved(world: &mut World) -> (Vec<SavedChainBolt>, Vec<SavedChainImpact>) {
+    let mut bolts = world.query::<&Bolt>();
+    let mut saved: Vec<SavedChainBolt> = bolts
+        .iter(world)
+        .map(|bolt| SavedChainBolt {
+            from: bolt.from,
+            to: bolt.to,
+            kept: bolt.kept,
+            bolt: Some(bolt.bolt.clone()),
+        })
+        .collect();
+    let mut unmade = world.query::<&Unmade>();
+    saved.extend(unmade.iter(world).map(|unmade| SavedChainBolt {
+        from: unmade.from,
+        to: unmade.to,
+        kept: unmade.kept,
+        bolt: None,
+    }));
+    let mut impacts = world.query::<(&Impact, &Transform)>();
+    let impacts = impacts
+        .iter(world)
+        .map(|(impact, at)| SavedChainImpact {
+            at: at.translation,
+            impact: impact.impact.clone(),
+        })
+        .collect();
+    (saved, impacts)
+}
+
+/// Makes a loaded save's chain bolts and their impacts again (#3774), each going on as it went.
+pub(crate) fn again(
+    world: &mut World,
+    (bolts, impacts): (Vec<SavedChainBolt>, Vec<SavedChainImpact>),
+) {
+    for saved in bolts {
+        let made = saved.bolt.map(|bolt| {
+            let kept = bolt.segments.len();
+            (bolt, kept)
+        });
+        let mut unmade = world.spawn((
+            Unmade {
+                from: saved.from,
+                to: saved.to,
+                kept: made.as_ref().map_or(saved.kept, |&(_, kept)| Some(kept)),
+            },
+            DespawnOnExit(AppState::InGame),
+        ));
+        if let Some((bolt, _)) = made {
+            unmade.insert(crate::fx::Resumes(Resumed {
+                bolt,
+                kept: saved.kept,
+            }));
+        }
+    }
+    if impacts.is_empty() {
+        return;
+    }
+    if let Err(e) = world.run_system_cached_with(impacts_again, impacts) {
+        warn!("chain bolts: the saved impacts are not made: {e}");
+    }
+}
+
+/// A loaded bolt's segments and fade, and the segments it kept as it was asked, which its making
+/// takes in place of new ones ([`make`]).
+struct Resumed {
+    bolt: ChainBolt,
+    kept: Option<usize>,
+}
+
+/// Makes the saved impacts `impacts` again ([`again`]).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
+fn impacts_again(
+    In(impacts): In<Vec<SavedChainImpact>>,
+    mut commands: Commands,
+    (data, assets, mut made, mut materials, mut meshes): (
+        Option<Res<Data>>,
+        Res<AssetServer>,
+        ResMut<Materials>,
+        ResMut<Assets<Effect>>,
+        ResMut<Assets<Mesh>>,
+    ),
+) {
+    let Some(data) = data.as_deref() else {
+        return;
+    };
+    let [_, glow, sparks] = looks(&mut made, data, &assets, &mut materials);
+    for saved in impacts {
+        impact(
+            &mut commands,
+            &mut meshes,
+            (sparks.clone(), glow.clone()),
+            (saved.at, saved.impact),
+        );
+    }
+}
+
+/// The materials, made as the first bolt shows.
+fn looks(
+    made: &mut Materials,
+    data: &Data,
+    assets: &AssetServer,
+    materials: &mut Assets<Effect>,
+) -> [Option<Handle<Effect>>; 3] {
+    made.0
+        .get_or_insert_with(|| {
+            let shared = &data.0;
+            let mut load = |image: Option<Handle<Image>>, name: &str| {
+                if image.is_none() {
+                    warn!("chain bolts: no texture {name}; its part is not drawn");
+                }
+                image.map(|image| materials.add(whole_material(image)))
+            };
+            [
+                load(
+                    repeated_texture(&shared.assets, assets, particles::CHAIN_TEXTURE),
+                    particles::CHAIN_TEXTURE,
+                ),
+                load(
+                    particle_texture(&shared.assets, assets, particles::CHAIN_GLOW_TEXTURE),
+                    particles::CHAIN_GLOW_TEXTURE,
+                ),
+                load(
+                    particle_texture(&shared.assets, assets, particles::IMPACT_TEXTURE),
+                    particles::IMPACT_TEXTURE,
+                ),
+            ]
+        })
+        .clone()
+}
+
+/// Makes an impact at `at` of its sparks and fade `impact`: its lamp, its parts and its
+/// Direct3D light (`0x77E1C0`, `0x77E3A0`).
+fn impact(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    (sparks, glow): (Option<Handle<Effect>>, Option<Handle<Effect>>),
+    (at, impact): (Vec3, ChainImpact),
+) {
+    let lamp = commands
+        .spawn((
+            Transform::from_translation(at.with_y(0.0)),
+            daynight::Light(particles::IMPACT_LIGHT),
+            DespawnOnExit(AppState::InGame),
+        ))
+        .id();
+    let struck = commands
+        .spawn((
+            Transform::from_translation(at),
+            Visibility::default(),
+            DespawnOnExit(AppState::InGame),
+        ))
+        .id();
+    let parts = [meshes.add(empty()), meshes.add(empty())];
+    for (mesh, material) in parts.iter().zip([sparks, glow]) {
+        if let Some(material) = material {
+            part(commands, struck, mesh, material);
+        }
+    }
+    commands.spawn(crate::fx_lights::child(
+        crate::fx_lights::ICE_BLUE,
+        crate::fx_lights::HIGH,
+        struck,
+    ));
+    commands.entity(struck).insert(Impact {
+        impact,
+        lamp,
+        parts,
+    });
+}
 
 /// The seed of the bolts' `rand()` (**estimate**: any).
 const SEED: usize = 0x31F;
@@ -116,7 +311,7 @@ fn part(commands: &mut Commands, parent: Entity, mesh: &Handle<Mesh>, material: 
 )]
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<Resumed>>)>,
     (data, assets, mut made, mut materials, mut meshes): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -125,39 +320,14 @@ fn make(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         commands.entity(entity).despawn();
         // A bolt whose hand's own cell fails lays no segment, nor its glow and its light.
         let (Some(data), false) = (data.as_deref(), unmade.kept == Some(0)) else {
             continue;
         };
         let (from, to) = (unmade.from, unmade.to);
-        let [segments, glow, sparks] = made
-            .0
-            .get_or_insert_with(|| {
-                let shared = &data.0;
-                let mut load = |image: Option<Handle<Image>>, name: &str| {
-                    if image.is_none() {
-                        warn!("chain bolts: no texture {name}; its part is not drawn");
-                    }
-                    image.map(|image| materials.add(whole_material(image)))
-                };
-                [
-                    load(
-                        repeated_texture(&shared.assets, &assets, particles::CHAIN_TEXTURE),
-                        particles::CHAIN_TEXTURE,
-                    ),
-                    load(
-                        particle_texture(&shared.assets, &assets, particles::CHAIN_GLOW_TEXTURE),
-                        particles::CHAIN_GLOW_TEXTURE,
-                    ),
-                    load(
-                        particle_texture(&shared.assets, &assets, particles::IMPACT_TEXTURE),
-                        particles::IMPACT_TEXTURE,
-                    ),
-                ]
-            })
-            .clone();
+        let [segments, glow, sparks] = looks(&mut made, data, &assets, &mut materials);
         let s = iso::MODEL_SCALE;
         let along = (to - from).normalize_or(Vec3::X);
         // The template's `x` turned onto the bolt (`0x642690`), the models' `y` and `z` the
@@ -165,10 +335,17 @@ fn make(
         let turn = Quat::from_rotation_arc(Vec3::X, along);
         let index = usize::try_from(entity.index_u32()).unwrap_or(0);
         let mut dice = crate::seed::dice(SEED ^ index);
-        let mut chain = ChainBolt::new((to - from).length() / s, &mut dice);
-        if let Some(kept) = unmade.kept {
-            chain.segments.truncate(kept);
-        }
+        // A loaded bolt goes on as it went, its impact made apart (#3774).
+        let (chain, kept) = match resumed {
+            Some(crate::fx::Resumes(resumed)) => (resumed.bolt.clone(), resumed.kept),
+            None => {
+                let mut chain = ChainBolt::new((to - from).length() / s, &mut dice);
+                if let Some(kept) = unmade.kept {
+                    chain.segments.truncate(kept);
+                }
+                (chain, unmade.kept)
+            }
+        };
         let lamps = chain
             .segments
             .iter()
@@ -208,6 +385,8 @@ fn make(
         commands.entity(shown).insert(Bolt {
             bolt: chain,
             from,
+            to,
+            kept,
             frame: [along, turn * Vec3::Z, turn * Vec3::Y],
             lamps,
             parts,
@@ -215,37 +394,12 @@ fn make(
         if unmade.kept.is_some() {
             continue;
         }
-        let lamp = commands
-            .spawn((
-                Transform::from_translation(to.with_y(0.0)),
-                daynight::Light(particles::IMPACT_LIGHT),
-                DespawnOnExit(AppState::InGame),
-            ))
-            .id();
-        let struck = commands
-            .spawn((
-                Transform::from_translation(to),
-                Visibility::default(),
-                DespawnOnExit(AppState::InGame),
-            ))
-            .id();
-        let parts = [meshes.add(empty()), meshes.add(empty())];
-        for (mesh, material) in parts.iter().zip([sparks, glow]) {
-            if let Some(material) = material {
-                part(&mut commands, struck, mesh, material);
-            }
-        }
-        // The impact's Direct3D light (`0x77E1C0`, `0x77E3A0`).
-        commands.spawn(crate::fx_lights::child(
-            crate::fx_lights::ICE_BLUE,
-            crate::fx_lights::HIGH,
-            struck,
-        ));
-        commands.entity(struck).insert(Impact {
-            impact: ChainImpact::new(&mut dice),
-            lamp,
-            parts,
-        });
+        impact(
+            &mut commands,
+            &mut meshes,
+            (sparks, glow),
+            (to, ChainImpact::new(&mut dice)),
+        );
     }
 }
 

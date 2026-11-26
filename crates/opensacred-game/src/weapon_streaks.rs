@@ -28,7 +28,7 @@ use crate::npcs::{Npcs, Piece, Wielded};
 
 /// How long an art's streak lasts: its clip's seconds at its speed, the hero's; or while its
 /// creature makes the art (`creature_arts::Makes`), whose clip plays as long.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum Lasts {
     Seconds(f32),
     WhileMaking,
@@ -82,6 +82,74 @@ struct Streak {
     bones: Option<[Entity; 2]>,
     lasts: Lasts,
     mesh: Handle<Mesh>,
+    /// The art, the executor's type and whether a player's, as its streaks were laid.
+    art: u16,
+    executor: u32,
+    player: bool,
+}
+
+/// An art's streaks as a save keeps them (#3774): their bearer by its name, the art, its
+/// executor's type, whether a player's, how they last, and each weapon's look in the order of
+/// its hands; a load lays them again on the bearer's weapons, each going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedStreaks {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    art: u16,
+    executor: u32,
+    player: bool,
+    lasts: Lasts,
+    looks: Vec<WeaponStreak>,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedStreaks {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The arts' streaks in `world` as a save keeps them (#3774), each art's of a bearer together.
+pub(crate) fn saved(world: &mut World) -> Vec<SavedStreaks> {
+    let mut streaks = world.query::<&Streak>();
+    let mut saved: Vec<SavedStreaks> = Vec::new();
+    for streak in streaks.iter(world) {
+        match saved
+            .iter_mut()
+            .find(|kept| kept.bearer == streak.bearer && kept.art == streak.art)
+        {
+            Some(kept) => kept.looks.push(streak.look.clone()),
+            None => saved.push(SavedStreaks {
+                bearer: streak.bearer,
+                art: streak.art,
+                executor: streak.executor,
+                player: streak.player,
+                lasts: streak.lasts,
+                looks: vec![streak.look.clone()],
+            }),
+        }
+    }
+    saved
+}
+
+/// Lays a loaded save's arts' streaks again (#3774); those of a bearer the load finds not are
+/// left out.
+pub(crate) fn again(world: &mut World, streaks: Vec<SavedStreaks>) {
+    for saved in streaks {
+        if crate::names::found(Some(saved.bearer)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unlaid {
+                bearer: saved.bearer,
+                art: saved.art,
+                executor: saved.executor,
+                player: saved.player,
+                lasts: saved.lasts,
+            },
+            crate::fx::Resumes(saved.looks),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
 }
 
 /// Gives each art's streaks a look for each weapon in the hands it streaks: the right hand's
@@ -93,7 +161,11 @@ struct Streak {
 )]
 fn make(
     mut commands: Commands,
-    unlaid: Query<(Entity, &Unlaid)>,
+    unlaid: Query<(
+        Entity,
+        &Unlaid,
+        Option<&crate::fx::Resumes<Vec<WeaponStreak>>>,
+    )>,
     weapons: Query<(Entity, &crate::models::OrderedWith, &Wielded, &Piece)>,
     (places, holding): (Query<&GlobalTransform>, Query<&crate::fight::Holding>),
     (npcs, data, assets, mut looks): (
@@ -104,7 +176,7 @@ fn make(
     ),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unlaid) in &unlaid {
+    for (entity, unlaid, resumed) in &unlaid {
         commands.entity(entity).despawn();
         let (Ok(at), Some(hands), Some(npcs)) = (
             places.get(unlaid.bearer),
@@ -153,8 +225,12 @@ fn make(
             Lasts::Seconds(seconds) => seconds,
             Lasts::WhileMaking => f32::INFINITY,
         };
-        for (weapon, slot) in held {
+        for (k, (weapon, slot)) in held.into_iter().enumerate() {
             let mesh = meshes.add(empty());
+            // A loaded streak goes on as it went (#3774).
+            let look = resumed
+                .and_then(|crate::fx::Resumes(looks)| looks.get(k).cloned())
+                .unwrap_or_else(|| WeaponStreak::new(seconds, colour));
             commands.spawn((
                 Transform::from_translation(at.translation()),
                 Visibility::default(),
@@ -162,10 +238,13 @@ fn make(
                 Streak {
                     bearer: unlaid.bearer,
                     weapon,
-                    look: WeaponStreak::new(seconds, colour),
+                    look,
                     bones: None,
                     lasts: unlaid.lasts,
                     mesh: mesh.clone(),
+                    art: unlaid.art,
+                    executor: unlaid.executor,
+                    player: unlaid.player,
                 },
                 children![(
                     Mesh3d(mesh),
@@ -260,5 +339,63 @@ impl Plugin for WeaponStreaksPlugin {
                 .in_set(Unpaused)
                 .run_if(in_state(AppState::InGame)),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_arts_streaks_saved_go_on_by_their_bearers_name() {
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut app = App::new();
+        app.add_plugins(NamesPlugin);
+        let bearer = app.world_mut().spawn(Named(Id::Hero)).id();
+        let streak = |colour| Streak {
+            bearer,
+            weapon: Entity::PLACEHOLDER,
+            look: WeaponStreak::new(1.5, colour),
+            bones: None,
+            lasts: Lasts::Seconds(1.5),
+            mesh: Handle::default(),
+            art: 1013,
+            executor: 7,
+            player: true,
+        };
+        app.world_mut().spawn(streak([1.0, 0.0, 0.0]));
+        app.world_mut().spawn(streak([0.0, 1.0, 0.0]));
+        let mut refs = Refs::default();
+        let kept = mapped(
+            saved(app.world_mut()),
+            &mut Saving {
+                world: app.world(),
+                refs: &mut refs,
+            },
+        );
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].looks.len(), 2);
+        let bytes = postcard::to_stdvec(&(&refs, &kept)).unwrap();
+        let (refs, kept): (Refs, Vec<SavedStreaks>) = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..2).map(|_| ()));
+        let bearer = loaded.world_mut().spawn(Named(Id::Hero)).id();
+        let kept = mapped(
+            kept,
+            &mut Loading {
+                refs: &refs,
+                names: loaded.world().resource::<Names>(),
+                lost: 0,
+            },
+        );
+        again(loaded.world_mut(), kept);
+        let world = loaded.world_mut();
+        let laid: Vec<(Entity, u16, usize)> = world
+            .query::<(&Unlaid, &crate::fx::Resumes<Vec<WeaponStreak>>)>()
+            .iter(world)
+            .map(|(unlaid, looks)| (unlaid.bearer, unlaid.art, looks.0.len()))
+            .collect();
+        assert_eq!(laid, [(bearer, 1013, 2)]);
     }
 }

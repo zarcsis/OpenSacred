@@ -308,7 +308,7 @@ struct Flying {
 /// its load sets its stamp of the game's clock to its own, docs/re/saves.md, "What a load gives
 /// back of the doings"): its course, its shooter by its name, where it is, and how it has flown;
 /// its look, its trail and its loop come of its course again, made anew.
-#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SavedBolt {
     course: Course,
     #[serde(with = "crate::names::required")]
@@ -324,6 +324,8 @@ pub struct SavedBolt {
     level_at: Option<f32>,
     bubble: Option<Bubble>,
     at: Vec3,
+    /// Its trail's look as it was (#3774).
+    trail: Option<crate::bolt_trails::SavedTrail>,
 }
 
 impl bevy::ecs::entity::MapEntities for SavedBolt {
@@ -336,10 +338,17 @@ impl bevy::ecs::entity::MapEntities for SavedBolt {
 pub fn saved(world: &mut World) -> Vec<SavedBolt> {
     let mut heroes = world.query_filtered::<Entity, With<Body>>();
     let hero = heroes.iter(world).next();
-    let mut flying = world.query::<(&Flying, &Transform, Option<&Bubble>)>();
+    let (trails, _) = crate::bolt_trails::saved(world);
+    let trail_of = |entity: Entity| {
+        trails
+            .iter()
+            .find(|(bolt, _)| *bolt == entity)
+            .map(|(_, trail)| trail.clone())
+    };
+    let mut flying = world.query::<(Entity, &Flying, &Transform, Option<&Bubble>)>();
     flying
         .iter(world)
-        .map(|(bolt, at, bubble)| SavedBolt {
+        .map(|(entity, bolt, at, bubble)| SavedBolt {
             course: bolt.course,
             shooter: bolt.shooter,
             hero: Some(bolt.shooter) == hero,
@@ -353,6 +362,7 @@ pub fn saved(world: &mut World) -> Vec<SavedBolt> {
             level_at: bolt.level_at,
             bubble: bubble.copied(),
             at: at.translation,
+            trail: trail_of(entity),
         })
         .collect()
 }
@@ -387,6 +397,10 @@ pub fn again(world: &mut World, bolts: Vec<SavedBolt>) {
         ));
         if let Some(bubble) = saved.bubble {
             bolt.insert(bubble);
+        }
+        // Its trail as it was, which its look takes (#3774).
+        if let Some(trail) = saved.trail {
+            bolt.insert(crate::fx::Resumes(trail));
         }
         dress(&mut bolt, saved.course, saved.direction, saved.hero);
     }

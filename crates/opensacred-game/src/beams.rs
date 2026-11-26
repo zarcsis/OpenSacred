@@ -150,6 +150,108 @@ struct Segment {
     second: Option<Handle<Mesh>>,
 }
 
+/// A beam's segment as a save keeps it (#3774): its look, its length and axes in the models'
+/// frame, and its start; a load makes it again there, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedSegment {
+    look: LaserSegment,
+    length: f32,
+    axes: [[f32; 3]; 3],
+    at: Vec3,
+}
+
+/// The beams' segments in `world` as a save keeps them (#3774).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedSegment> {
+    let mut segments = world.query::<(&Segment, &Transform)>();
+    segments
+        .iter(world)
+        .map(|(segment, at)| SavedSegment {
+            look: segment.look.clone(),
+            length: segment.length,
+            axes: segment.axes,
+            at: at.translation,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's beams' segments again (#3774), with no sound.
+pub(crate) fn again(world: &mut World, segments: Vec<SavedSegment>) {
+    if segments.is_empty() {
+        return;
+    }
+    if let Err(e) = world.run_system_cached_with(segments_again, segments) {
+        warn!("beams: the saved segments are not made: {e}");
+    }
+}
+
+/// Makes the saved segments `segments` again ([`again`]).
+fn segments_again(
+    In(segments): In<Vec<SavedSegment>>,
+    mut commands: Commands,
+    (data, assets): (Option<Res<Data>>, Res<AssetServer>),
+    (mut made, mut effects, mut meshes): (
+        ResMut<Materials>,
+        ResMut<Assets<Effect>>,
+        ResMut<Assets<Mesh>>,
+    ),
+) {
+    for saved in segments {
+        let variant = saved.look.variant();
+        let flows = LaserSegment::flows(variant);
+        let mut material_of =
+            |texture| made.of(texture, flows, (data.as_deref(), &assets, &mut effects));
+        let material = material_of(LaserSegment::texture(variant));
+        let second = LaserSegment::second_texture(variant).map(&mut material_of);
+        spawn_segment(
+            &mut commands,
+            &mut meshes,
+            (material, second),
+            (saved.look, saved.length, saved.axes, saved.at),
+        );
+    }
+}
+
+/// Makes a segment of `look`, of its length and axes, at `start`: its light on the ground at the
+/// height 0 under its start, whatever its height (`0x5AA26E`), going with it, and its meshes of
+/// `material` and its second set's.
+fn spawn_segment(
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    (material, second): (Option<Handle<Effect>>, Option<Option<Handle<Effect>>>),
+    (look, length, axes, start): (LaserSegment, f32, [[f32; 3]; 3], Vec3),
+) {
+    let mesh = meshes.add(empty());
+    let second_mesh = second.as_ref().map(|_| meshes.add(empty()));
+    let mut segment = commands.spawn((
+        Segment {
+            look,
+            length,
+            axes,
+            mesh: mesh.clone(),
+            second: second_mesh.clone(),
+        },
+        Transform::from_translation(start),
+        Visibility::default(),
+        DespawnOnExit(AppState::InGame),
+    ));
+    segment.with_child((
+        Transform::from_xyz(0.0, -start.y, 0.0),
+        crate::daynight::Light(LASER_LIGHT),
+    ));
+    let sets = [(material, Some(mesh)), (second.flatten(), second_mesh)];
+    for (material, mesh) in sets {
+        if let (Some(material), Some(mesh)) = (material, mesh) {
+            segment.with_child((
+                Mesh3d(mesh),
+                MeshMaterial3d(material),
+                Transform::IDENTITY,
+                NoFrustumCulling,
+                RenderLayers::layer(iso::UNTINTED),
+            ));
+        }
+    }
+}
+
 impl Materials {
     /// The material of `texture`, made as it is first asked, repeated along its `u` where it
     /// flows; none where the texture is missing.
@@ -263,41 +365,12 @@ fn place(
                 break;
             }
             let start = from + step * f32::from(k);
-            let mesh = meshes.add(empty());
-            let second_mesh = second.as_ref().map(|_| meshes.add(empty()));
-            let mut segment = commands.spawn((
-                Segment {
-                    look: LaserSegment::new(variant, (k, n)),
-                    length,
-                    axes,
-                    mesh: mesh.clone(),
-                    second: second_mesh.clone(),
-                },
-                Transform::from_translation(start),
-                Visibility::default(),
-                DespawnOnExit(AppState::InGame),
-            ));
-            // Its light on the ground at the height 0 under its start, whatever its height
-            // (`0x5AA26E`), going with it.
-            segment.with_child((
-                Transform::from_xyz(0.0, -start.y, 0.0),
-                crate::daynight::Light(LASER_LIGHT),
-            ));
-            let sets = [
-                (material.clone(), Some(mesh)),
-                (second.clone().flatten(), second_mesh),
-            ];
-            for (material, mesh) in sets {
-                if let (Some(material), Some(mesh)) = (material, mesh) {
-                    segment.with_child((
-                        Mesh3d(mesh),
-                        MeshMaterial3d(material),
-                        Transform::IDENTITY,
-                        NoFrustumCulling,
-                        RenderLayers::layer(iso::UNTINTED),
-                    ));
-                }
-            }
+            spawn_segment(
+                &mut commands,
+                &mut meshes,
+                (material.clone(), second.clone()),
+                (LaserSegment::new(variant, (k, n)), length, axes, start),
+            );
             if let Some(sound) = LaserSegment::sound(variant) {
                 sounds.write(crate::sfx::PlayAt {
                     sound: crate::sfx::Of::Id(sound),

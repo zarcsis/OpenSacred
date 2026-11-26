@@ -3425,7 +3425,7 @@ const LIGHTNING_SPARKS: usize = 150;
 /// `0x77DB20`) along the line from its start to its end, each 30 long but the last, which the
 /// executor (`0x526CAA`) lays one after the other, at most 19; and their fade, whole for 0.4 s,
 /// then falling by 20 a second, so that the bolt shows for 0.45 s.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ChainBolt {
     pub segments: Vec<ChainSegment>,
     pub fade: f32,
@@ -3435,7 +3435,7 @@ pub struct ChainBolt {
 /// A segment of a chain lightning's bolt: its index along the bolt, its length, and its ends'
 /// offsets across it (`+0x4C`, `+0x50` and `+0x58`, `+0x5C` of its event), along its frame's `y`
 /// and `z`, its `x` along the bolt.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ChainSegment {
     pub index: u16,
     pub length: f32,
@@ -3549,7 +3549,7 @@ impl ChainBolt {
 /// at up to 150 along each axis and drawn back toward its place by 150 a second, falling by
 /// 50 ± 40 a second, living 0.64 s, from (127, 127, 255) to black, added whole; and a glow of the
 /// half side 30 at its place, in the grey of its fade, which falls as the bolt's.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ChainImpact {
     pub sparks: System,
     pub fade: f32,
@@ -6959,7 +6959,7 @@ const HARD_RAY_FADE: f32 = 3.0;
 /// the one before, the first straight up, flying off at 0.7 times that offset a second, of the
 /// size 3 growing by 0.5 a second, aging from 255 by −180 a second, in the ramp's
 /// `(⌊k/8⌋, ⌊k/4⌋, ⌊k/8⌋)` of the life `k`, added whole; it ends with its last mote.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct HardRay {
     from: [f32; 3],
     to: [f32; 3],
@@ -7522,7 +7522,7 @@ pub const CLUB_RING_LIGHT: f32 = 200.0;
 /// docs/re/effects.md, "The Wood Elf's arrows' sights", #3129): a flat green ring at the
 /// creature's neck whose growth `s` rises by 2 a second, between the radii `20·s` and
 /// `20·s + 13`, fading to black as it grows and gone past 1, half a second.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ClubRing {
     /// Its growth (`+0x2534`).
     pub growth: f32,
@@ -12429,7 +12429,7 @@ pub type LaserQuad = ([[f32; 3]; 4], [[f32; 2]; 4]);
 /// the zhadum's (5) 70 wide, straight, in two sets of quads, `LASERBEAMPART3` and
 /// `LASERBEAMPART4`, flowing from its start to its end at 0.44 and 0.78 of the texture a second,
 /// white.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LaserSegment {
     variant: u8,
     k: u16,
@@ -12439,6 +12439,11 @@ pub struct LaserSegment {
 }
 
 impl LaserSegment {
+    /// Its variant, of which its look's textures and flow are (#3774).
+    pub fn variant(&self) -> u8 {
+        self.variant
+    }
+
     /// The `k`-th segment of `n` of the variant `variant` as it starts (`0x7A50B0`).
     pub fn new(variant: u8, (k, n): (u16, u16)) -> Self {
         Self {
@@ -13836,7 +13841,7 @@ pub struct StreakQuad {
 /// points of that frame, which stay where they are born, each of the life 255 falling by 1,000 a
 /// second; it ends with its last pair. Its ribbon is a quad between each pair and the one born
 /// before it, each corner in its colour at the alpha of its own particle's life.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct WeaponStreak {
     /// Its pairs, the newest first: their points 0 and 1 and their life.
     pairs: std::collections::VecDeque<([[f32; 3]; 2], f32)>,
@@ -14150,7 +14155,7 @@ const GRENADE_TONGUES: usize = 75;
 
 /// A tongue of the impact's fire: its four corners in its frame, the near pair on the ground and
 /// the far pair up, and their points of the 2 × 2 grid.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GrenadeTongue {
     pub corners: [[f32; 3]; 4],
     pub uvs: [[f32; 2]; 4],
@@ -14162,7 +14167,7 @@ pub struct GrenadeTongue {
 /// up and falling, bouncing on the ground; and a crater under them that lies 10 s and fades over
 /// 4 s. Its fields: the flash's half side `A` and alpha `B`, the cloud's `C` and `D`, the tongues'
 /// scale `E` and alpha `F`, the crater's alpha `G`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct GrenadeImpact {
     pub system: System,
     pub tongues: Vec<GrenadeTongue>,
@@ -14964,7 +14969,7 @@ const SHADDAR_COUNT: usize = 200;
 
 /// Which of the two bolts' trails: the Mage's whirlwind's dust (831, `FX_WINDSTRIKE`, of the spell
 /// 29) or the fire bolt's green smoke (922, `FX_SHADDAR_MAGIC`, of the creatures' spell 52).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum TrailKind {
     Windstrike,
     Shaddar,
@@ -14981,7 +14986,7 @@ pub enum TrailKind {
 /// 0.05 s, of the size 12 ± 6 growing by 13 a second, flying off at up to 18 along each axis and
 /// turning, living 0.57 s, of the ramp [`BoltTrail::ramp`] added by their alpha, a cloud of green
 /// smoke about it that fades where it stops.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BoltTrail {
     pub system: System,
     pub kind: TrailKind,
@@ -23763,5 +23768,11 @@ mod tests {
         let bytes = postcard::to_stdvec(&system).unwrap();
         let back: System = postcard::from_bytes(&bytes).unwrap();
         assert_eq!(back, system);
+    }
+
+    #[test]
+    fn a_laser_segment_tells_its_variant() {
+        assert_eq!(LaserSegment::new(5, (2, 7)).variant(), 5);
+        assert_eq!(LaserSegment::new(1, (0, 1)).variant(), 1);
     }
 }
