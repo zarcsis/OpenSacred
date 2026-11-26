@@ -99,6 +99,55 @@ struct Shown {
     mesh: Handle<Mesh>,
 }
 
+/// A knockout's stars as a save keeps them (#3778, the epic #3753): their bearer by its name,
+/// their colour and their system.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedKnockout")]
+pub struct SavedLook {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    colour: [f32; 4],
+    system: Knockout,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The looks in `world` as a save keeps them (#3778).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .map(|shown| SavedLook {
+            bearer: shown.bearer,
+            colour: shown.colour,
+            system: shown.system,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's looks again (#3778), each going on as it went; one of a creature the
+/// load finds not is left out.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        if crate::names::found(Some(saved.bearer)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade {
+                bearer: saved.bearer,
+                seconds: 0.0,
+                colour: saved.colour,
+            },
+            crate::fx::Resumes(saved.system),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// The butterflies' material, made as the first fly; none where the texture is missing.
 #[derive(Resource, Default)]
 struct Material(Option<Option<Handle<EffectMaterial>>>);
@@ -162,11 +211,11 @@ fn knock_out(
 /// Gives each new system its mesh and its material.
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<Knockout>>)>,
     (data, assets, mut made): (Option<Res<Data>>, Res<AssetServer>, ResMut<Material>),
     (mut materials, mut meshes): (ResMut<Assets<EffectMaterial>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let material = made
             .0
             .get_or_insert_with(|| {
@@ -186,12 +235,16 @@ fn make(
             .clone();
         let mesh = meshes.add(empty());
         let mut made = commands.entity(entity);
-        made.remove::<Unmade>().insert(Shown {
-            bearer: unmade.bearer,
-            system: Knockout::new(unmade.seconds),
-            colour: unmade.colour,
-            mesh: mesh.clone(),
-        });
+        made.remove::<(Unmade, crate::fx::Resumes<Knockout>)>()
+            .insert(Shown {
+                bearer: unmade.bearer,
+                system: resumed.map_or_else(
+                    || Knockout::new(unmade.seconds),
+                    |crate::fx::Resumes(system)| *system,
+                ),
+                colour: unmade.colour,
+                mesh: mesh.clone(),
+            });
         if let Some(material) = material {
             made.with_child((
                 Mesh3d(mesh),

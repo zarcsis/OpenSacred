@@ -28,6 +28,50 @@ struct Stone {
     left: f32,
 }
 
+/// A stone's look as a save keeps it (#3778): its creature by its name and its seconds left.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedStone")]
+pub struct SavedLook {
+    #[serde(with = "crate::names::required")]
+    target: Entity,
+    left: f32,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.target = mapper.get_mapped(self.target);
+    }
+}
+
+/// The looks in `world` as a save keeps them (#3778).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut stones = world.query::<&Stone>();
+    stones
+        .iter(world)
+        .map(|stone| SavedLook {
+            target: stone.target,
+            left: stone.left,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's looks again (#3778), each going on as it went; one of a creature the
+/// load finds not is left out.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        if crate::names::found(Some(saved.target)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade {
+                target: saved.target,
+                seconds: saved.left,
+            },
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// The stone's model and its texture, once looked for.
 #[derive(Resource, Default)]
 struct Looks(Option<(Option<String>, Option<String>)>);
@@ -149,5 +193,52 @@ impl Plugin for StonesPlugin {
                     .in_set(Unpaused)
                     .run_if(in_state(AppState::InGame)),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stone_saved_holds_on_the_creature_of_its_name_for_its_time_left() {
+        use crate::names::{Id, Loading, Named, Names, NamesPlugin, Refs, Saving, mapped};
+        let mut app = App::new();
+        app.add_plugins(NamesPlugin);
+        let goblin = app.world_mut().spawn(Named(Id::Born(3))).id();
+        app.world_mut().spawn(Stone {
+            target: goblin,
+            left: 1.75,
+        });
+        let mut refs = Refs::default();
+        let kept = mapped(
+            saved(app.world_mut()),
+            &mut Saving {
+                world: app.world(),
+                refs: &mut refs,
+            },
+        );
+        let bytes = postcard::to_stdvec(&(&refs, &kept)).unwrap();
+        let (refs, kept): (Refs, Vec<SavedLook>) = postcard::from_bytes(&bytes).unwrap();
+        let mut loaded = App::new();
+        loaded.add_plugins(NamesPlugin);
+        loaded.world_mut().spawn_batch((0..2).map(|_| ()));
+        let goblin = loaded.world_mut().spawn(Named(Id::Born(3))).id();
+        let kept = mapped(
+            kept,
+            &mut Loading {
+                refs: &refs,
+                names: loaded.world().resource::<Names>(),
+                lost: 0,
+            },
+        );
+        again(loaded.world_mut(), kept);
+        let world = loaded.world_mut();
+        let made: Vec<(Entity, f32)> = world
+            .query::<&Unmade>()
+            .iter(world)
+            .map(|unmade| (unmade.target, unmade.seconds))
+            .collect();
+        assert_eq!(made, [(goblin, 1.75)]);
     }
 }

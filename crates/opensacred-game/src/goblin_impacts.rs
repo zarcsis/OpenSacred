@@ -40,8 +40,50 @@ pub fn spawn(commands: &mut Commands, place: Vec3, landing: GoblinLanding) {
 /// An impact that lasts: its look and the meshes of its particles and of its glow.
 #[derive(Component)]
 struct Impact {
+    /// Its ball's landing, of which its look is.
+    landing: GoblinLanding,
     look: GoblinImpact,
     meshes: [Handle<Mesh>; 2],
+}
+
+/// A goblin's ball's impact as a save keeps it (#3778): its place, its landing and its look.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedGoblinImpact")]
+pub struct SavedLook {
+    at: Vec3,
+    landing: GoblinLanding,
+    look: GoblinImpact,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, _: &mut E) {}
+}
+
+/// The looks in `world` as a save keeps them (#3778).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut impacts = world.query::<(&Impact, &Transform)>();
+    impacts
+        .iter(world)
+        .map(|(impact, at)| SavedLook {
+            at: at.translation,
+            landing: impact.landing,
+            look: impact.look.clone(),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's looks again (#3778), each going on as it went; one of a creature the
+/// load finds not is left out.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        world.spawn((
+            Unmade(saved.landing),
+            Transform::from_translation(saved.at),
+            Visibility::default(),
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
 }
 
 /// The impacts' materials, made as first asked: the cracks laid over by their alpha, the glow
@@ -63,11 +105,11 @@ impl Default for Dice {
 /// the night's pass.
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<GoblinImpact>>)>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, &Unmade(landing)) in &unmade {
+    for (entity, &Unmade(landing), resumed) in &unmade {
         let materials = looks
             .0
             .get_or_insert_with(|| {
@@ -99,10 +141,16 @@ fn make(
         };
         let parts = [meshes.add(empty()), meshes.add(empty())];
         let mut impact = commands.entity(entity);
-        impact.remove::<Unmade>().insert(Impact {
-            look: GoblinImpact::new(landing),
-            meshes: parts.clone(),
-        });
+        impact
+            .remove::<(Unmade, crate::fx::Resumes<GoblinImpact>)>()
+            .insert(Impact {
+                landing,
+                look: resumed.map_or_else(
+                    || GoblinImpact::new(landing),
+                    |crate::fx::Resumes(look)| look.clone(),
+                ),
+                meshes: parts.clone(),
+            });
         for (mesh, material) in parts.into_iter().zip([particles, glow]) {
             if let Some(material) = material {
                 impact.with_child((

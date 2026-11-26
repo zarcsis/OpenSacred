@@ -125,8 +125,9 @@ use crate::{arts, drops, making};
 /// Dwarf's and the Daemon's, and the breaths (#3772); the version 71 the looks' bursts (#3773);
 /// the version 72 the bolts' and the guns' looks (#3774); the version 73 the Seraphim's and the
 /// Mage's looks (#3775); the version 74 the elves' looks (#3776); the version 75 the Dwarf's,
-/// the Daemon's and the Gladiator's looks (#3777).
-pub const VERSION: u32 = 75;
+/// the Daemon's and the Gladiator's looks (#3777); the version 76 the fight's and the bodies'
+/// looks (#3778).
+pub const VERSION: u32 = 76;
 /// The saves' directory beside the settings' file, and their extension.
 const DIRECTORY: &str = "saves";
 const EXTENSION: &str = "sav";
@@ -393,6 +394,18 @@ pub struct Looks {
     pub forms: Vec<crate::demon_forms::SavedForm>,
     pub glad_sight: Option<opensacred_rules::particles::GladSight>,
     pub cries: Vec<crate::war_cries::SavedCry>,
+    /// The fight's and the bodies' looks (#3778): the knockouts, the doom signs, the teleports,
+    /// the stones, the reanimations, the burning bones, the goblins' impacts, the banishing's runes
+    /// and the battle fogs.
+    pub knockouts: Vec<crate::knockouts::SavedLook>,
+    pub doom_signs: Vec<crate::doom_signs::SavedLook>,
+    pub teleports: Vec<crate::teleports::SavedLook>,
+    pub stones: Vec<crate::stones::SavedLook>,
+    pub reanimations: Vec<crate::reanimations::SavedLook>,
+    pub burning_bones: Vec<crate::burning_bones::SavedLook>,
+    pub goblin_impacts: Vec<crate::goblin_impacts::SavedLook>,
+    pub runes: Vec<crate::banishing_runes::SavedLook>,
+    pub battle_fogs: Vec<crate::battle_fogs::SavedLook>,
 }
 
 impl MapEntities for Looks {
@@ -419,6 +432,10 @@ impl MapEntities for Looks {
         self.forces.map_entities(mapper);
         self.forms.map_entities(mapper);
         self.cries.map_entities(mapper);
+        self.knockouts.map_entities(mapper);
+        self.teleports.map_entities(mapper);
+        self.stones.map_entities(mapper);
+        self.burning_bones.map_entities(mapper);
     }
 }
 
@@ -991,6 +1008,15 @@ pub(crate) fn save_in(world: &mut bevy::prelude::World, stem: &str, name: &str) 
         forms: crate::demon_forms::saved(world),
         glad_sight: crate::glad_sights::saved(world),
         cries: crate::war_cries::saved(world),
+        knockouts: crate::knockouts::saved(world),
+        doom_signs: crate::doom_signs::saved(world),
+        teleports: crate::teleports::saved(world),
+        stones: crate::stones::saved(world),
+        reanimations: crate::reanimations::saved(world),
+        burning_bones: crate::burning_bones::saved(world),
+        goblin_impacts: crate::goblin_impacts::saved(world),
+        runes: crate::banishing_runes::saved(world),
+        battle_fogs: crate::battle_fogs::saved(world),
     };
     let looks = crate::names::mapped(
         looks,
@@ -1346,6 +1372,15 @@ fn resume(world: &mut bevy::prelude::World) {
     crate::demon_forms::again(world, looks.forms);
     crate::glad_sights::again(world, looks.glad_sight);
     crate::war_cries::again(world, looks.cries);
+    crate::knockouts::again(world, looks.knockouts);
+    crate::doom_signs::again(world, looks.doom_signs);
+    crate::teleports::again(world, looks.teleports);
+    crate::stones::again(world, looks.stones);
+    crate::reanimations::again(world, looks.reanimations);
+    crate::burning_bones::again(world, looks.burning_bones);
+    crate::goblin_impacts::again(world, looks.goblin_impacts);
+    crate::banishing_runes::again(world, looks.runes);
+    crate::battle_fogs::again(world, looks.battle_fogs);
     // The hero's hurled weapon out of his hand, flying or lying (#3769).
     if live.hurled {
         world.write_message(crate::arsenal::Throws(true));
@@ -2173,7 +2208,7 @@ pub(crate) mod tests {
     fn the_saves_layout_is_its_versions() {
         assert_eq!(
             (VERSION, layout_digest()),
-            (75, 0x879D_07D8_DE54_B04F),
+            (76, 0xCA78_9929_F323_D442),
             "a saved structure's layout changed: raise VERSION and record the new digest beside \
              it (only the digest where nothing but a name or the tracer changed)"
         );

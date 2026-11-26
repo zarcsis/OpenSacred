@@ -30,11 +30,52 @@ struct Unmade {
 /// glow, its second, its bar and rays, and its sparks.
 #[derive(Component)]
 struct Shown {
+    /// Its index among the circle's eight and its place, as it was asked.
+    index: usize,
+    at: Vec3,
     rune: Rune,
     dice: Rng,
     clock: f32,
     lamp: Entity,
     parts: [Handle<Mesh>; 5],
+}
+
+/// A banishing's rune as a save keeps it (#3778): its index, its place, and its look, dice and
+/// clock; a load makes it again there, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedRune")]
+pub struct SavedLook {
+    index: usize,
+    at: Vec3,
+    shown: (Rune, Rng, f32),
+}
+
+/// The runes in `world` as a save keeps them (#3778).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .map(|shown| SavedLook {
+            index: shown.index,
+            at: shown.at,
+            shown: (shown.rune.clone(), shown.dice.clone(), shown.clock),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's runes again (#3778).
+pub(crate) fn again(world: &mut World, runes: Vec<SavedLook>) {
+    for saved in runes {
+        world.spawn((
+            Unmade {
+                at: saved.at,
+                index: saved.index,
+                seconds: 0.0,
+            },
+            crate::fx::Resumes(saved.shown),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
 }
 
 /// The runes' materials by their index (the rune laid over, its two glows added whole), and the
@@ -106,7 +147,11 @@ fn texture(data: &Data, assets: &AssetServer, name: &str, repeat: bool) -> Optio
 )]
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(
+        Entity,
+        &Unmade,
+        Option<&crate::fx::Resumes<(Rune, Rng, f32)>>,
+    )>,
     (data, assets, mut made, mut materials, mut meshes): (
         Option<Res<Data>>,
         Res<AssetServer>,
@@ -115,7 +160,7 @@ fn make(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         commands.entity(entity).despawn();
         let Some(data) = data.as_deref() else {
             continue;
@@ -186,10 +231,21 @@ fn make(
             }
         }
         let index = usize::try_from(shown.index_u32()).unwrap_or(0);
+        // A loaded rune goes on as it went (#3778).
+        let (rune, dice, clock) = match resumed {
+            Some(crate::fx::Resumes(shown)) => shown.clone(),
+            None => (
+                Rune::new(unmade.seconds),
+                crate::seed::dice(SEED ^ index),
+                0.0,
+            ),
+        };
         commands.entity(shown).insert(Shown {
-            rune: Rune::new(unmade.seconds),
-            dice: crate::seed::dice(SEED ^ index),
-            clock: 0.0,
+            index: unmade.index,
+            at: unmade.at,
+            rune,
+            dice,
+            clock,
             lamp,
             parts,
         });
