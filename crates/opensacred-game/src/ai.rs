@@ -773,7 +773,7 @@ fn door_in_way(
 /// doors", #431), from its trigger's cell `spot` and its leaf's direction: the cells beside it
 /// walkable on its building's floor and on the ground; a door on a floor above the first has that
 /// floor on both sides.
-fn door_points(
+pub(crate) fn door_points(
     door: &Door,
     spot: Option<(i32, i32, i32)>,
     heights: &Heights,
@@ -799,7 +799,7 @@ fn door_points(
 /// its own side of a door with the same on both (`points`, #431); where the door has none, the
 /// cell beside the door's that may be walked on at the creature's level, the nearest to it, or
 /// the door itself where there is none.
-fn door_point(
+pub(crate) fn door_point(
     points: Option<DoorPoints>,
     door: Vec3,
     here: Vec3,
