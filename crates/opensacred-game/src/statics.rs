@@ -1415,22 +1415,47 @@ impl TreeFade {
 
     /// The alpha out of 1 that a sprite drawn at the place `order` takes at `at` from `points`,
     /// each a point, its place and the place of its first fading sprite, in their order of
-    /// drawing: that of the last point drawn before the sprite whose radius holds `at` across and
-    /// down, of `k` [`FADE_DEEPER`] past its first sprite, else 1 (`0x62FF60`). As `sprites.wesl`
-    /// has it, for the tests.
+    /// drawing: the least of the points drawn before the sprite whose radius holds `at` across
+    /// and down, each of `k` [`FADE_DEEPER`] past its first sprite, else 1 (`0x62FF60`, which
+    /// takes the last point's; docs/decisions/drawing.md, "Trees' fade holes merged"). As
+    /// `sprites.wesl` has it, for the tests.
     #[cfg(test)]
     fn about(&self, points: &[(Vec2, f64, Option<f64>)], order: f64, at: Vec2) -> f32 {
-        let mut alpha = 1.0;
+        let mut alpha: f32 = 1.0;
         for &(point, place, first) in points {
             let offset = at - point;
             if order > place && offset.x.abs() < self.radius && offset.y.abs() < self.radius {
                 let deeper = first.is_some_and(|first| order > first);
-                alpha = self.at(offset, if deeper { FADE_DEEPER } else { 0.0 });
+                alpha = alpha.min(self.at(offset, if deeper { FADE_DEEPER } else { 0.0 }));
             }
         }
         alpha
     }
+
+    /// The alpha out of 1 that a sprite's texel of alpha `texel` shows faded to `faded`: none
+    /// where the alpha test drops it, at [`CUTOFF`] or less, else coming in from nothing over
+    /// [`FADE_IN`] above the cutoff, or over the texel's own part above it where that is less
+    /// (docs/decisions/drawing.md, "Trees' fade hole's soft edge"). As `sprites.wesl`'s `texel`
+    /// has it, for the tests.
+    #[cfg(test)]
+    fn shown(texel: f32, faded: f32) -> f32 {
+        let alpha = texel * faded;
+        if alpha <= CUTOFF {
+            return 0.0;
+        }
+        alpha * ((alpha - CUTOFF) / FADE_IN.min(texel - CUTOFF)).clamp(0.0, 1.0)
+    }
 }
+
+/// The original's alpha test of the sprites, which drops their texels of alpha 64 or less:
+/// `sprites.wesl`'s, for the tests.
+#[cfg(test)]
+const CUTOFF: f32 = 64.0 / 255.0;
+
+/// The alpha above [`CUTOFF`] over which a faded texel comes in from nothing: `sprites.wesl`'s,
+/// for the tests.
+#[cfg(test)]
+const FADE_IN: f32 = 32.0 / 255.0;
 
 /// The `k` of a point once a fading sprite has faded about it, the cap of its rise (the float
 /// at `0x890820`): the sprites drawn after its first fade to a fifth of `TransValu` at the point
@@ -2632,7 +2657,42 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_sprite_fades_about_the_last_point_drawn_before_it() {
+    fn a_faded_texel_comes_in_from_nothing_past_the_cutoff() {
+        let size = TreeFade {
+            radius: 190.0,
+            alpha: 50.0,
+        };
+        // An opaque texel about a point: dropped within the hole, as the original's test drops
+        // it, then rising from nothing where the original's steps to a quarter at once.
+        let opaque = |x: f32, k: f32| TreeFade::shown(1.0, size.at(Vec2::new(x, 0.0), k));
+        assert_eq!(opaque(12.9, 0.0), 0.0);
+        assert_eq!(opaque(50.0, FADE_DEEPER), 0.0);
+        assert!(opaque(13.5, 0.0) * 255.0 < 2.0);
+        assert!(opaque(50.5, FADE_DEEPER) * 255.0 < 2.0);
+        // Whole again past the band's 30 pixels: the fade's own alpha.
+        let faded = size.at(Vec2::new(85.0, 0.0), FADE_DEEPER);
+        assert!(faded > CUTOFF + FADE_IN);
+        assert_eq!(TreeFade::shown(1.0, faded), faded);
+        // Each of the atlases' alphas that the test keeps shows whole where nothing fades it,
+        // and nothing at the alpha at which the test drops it.
+        for level in 4..=15u8 {
+            let texel = f32::from(level * 17) / 255.0;
+            assert_eq!(TreeFade::shown(texel, 1.0), texel);
+            assert!(TreeFade::shown(texel, CUTOFF / texel) < 1e-5);
+        }
+        assert_eq!(TreeFade::shown(51.0 / 255.0, 1.0), 0.0);
+        assert_eq!(
+            CUTOFF,
+            shader_constant(include_str!("sprites.wesl"), "CUTOFF")
+        );
+        assert_eq!(
+            FADE_IN,
+            shader_constant(include_str!("sprites.wesl"), "FADE_IN")
+        );
+    }
+
+    #[test]
+    fn a_sprite_fades_to_the_least_of_the_points_drawn_before_it() {
         let size = TreeFade {
             radius: 190.0,
             alpha: 50.0,
@@ -2643,11 +2703,17 @@ pub(crate) mod tests {
         // Drawn before both points, it stays whole; after the first, it fades about it alone.
         assert_eq!(alpha(0.5, Vec2::ZERO), 255.0);
         assert_eq!(alpha(1.5, Vec2::ZERO), 50.0);
-        // After both, the later point's alpha holds within its radius, even where the first's is
-        // lower; beyond it, the first's.
-        assert_eq!(alpha(2.5, Vec2::ZERO), 158.0);
+        assert_eq!(alpha(1.5, Vec2::new(100.0, 0.0)), 158.0);
+        // After both, each point's hole whole within the other's box: the least of the two.
+        assert_eq!(alpha(2.5, Vec2::ZERO), 50.0);
+        assert_eq!(alpha(2.5, Vec2::new(100.0, 0.0)), 50.0);
         assert_eq!(alpha(2.5, Vec2::new(150.0, 0.0)), 104.0);
         assert_eq!(alpha(2.5, Vec2::new(-120.0, 0.0)), 179.0);
+        // No step at the later point's box's edge, 90 pixels left of the first, where the
+        // original's last point's alpha would step from the first's 147 to its own 255.
+        let across = |x: f32| size.about(&[a, b], 2.5, Vec2::new(x, 0.0)) * 255.0;
+        assert!((across(-89.9) - across(-90.1)).abs() < 0.5);
+        assert!((across(-90.0) - 147.1).abs() < 0.1);
         // Past the point's first fading sprite, at 1.2, deeper: that sprite and those before it
         // to 50 at the point, those after it to 10.
         let first = (Vec2::ZERO, 1.0, Some(1.2));
