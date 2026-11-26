@@ -53,6 +53,56 @@ struct Strike {
     struck: Option<Entity>,
 }
 
+/// A lightning's kept state: its clock, its bolts and its dice.
+type StrikeState = (f32, [LightningBolt; particles::LIGHTNING_BOLTS], Rng);
+
+/// A lightning as a save keeps it (#3812, the epic #3753): the struck creature by its name, its
+/// place, whether a hero's, and its state; a load makes it again at its creature's neck, else
+/// its place, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedStrike {
+    #[serde(with = "crate::names::optional")]
+    struck: Option<Entity>,
+    at: Vec3,
+    hero: bool,
+    kept: StrikeState,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedStrike {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.struck = self.struck.map(|struck| mapper.get_mapped(struck));
+    }
+}
+
+/// The lightnings in `world` as a save keeps them (#3812).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedStrike> {
+    let mut strikes = world.query::<(&Strike, &Transform)>();
+    strikes
+        .iter(world)
+        .map(|(strike, at)| SavedStrike {
+            struck: strike.struck,
+            at: at.translation,
+            hero: strike.kind == 0,
+            kept: (strike.clock, strike.bolts, strike.dice.clone()),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's lightnings again (#3812).
+pub(crate) fn again(world: &mut World, strikes: Vec<SavedStrike>) {
+    for saved in strikes {
+        world.spawn((
+            Unmade {
+                target: crate::names::found(saved.struck),
+                at: saved.at,
+                hero: saved.hero,
+            },
+            crate::fx::Resumes(saved.kept),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// How far under the system's first point its glow lies, in the models' units (`0x77D000`).
 const GLOW_UNDER: f32 = 2.0;
 
@@ -92,7 +142,7 @@ pub(crate) fn strike(commands: &mut Commands, target: Entity, at: Vec3, hero: bo
 )]
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<StrikeState>>)>,
     mut rolls: ResMut<Rolls>,
     (children, bones, worn): (
         Query<&Children>,
@@ -107,7 +157,7 @@ fn make(
         ResMut<Assets<Mesh>>,
     ),
 ) {
-    for (entity, &Unmade { target, at, hero }) in &unmade {
+    for (entity, &Unmade { target, at, hero }, resumed) in &unmade {
         // The struck creature's neck, else its root, which the system follows.
         let follows = target.map(|target| {
             crate::making::bone_entity(target, &[crate::arrows::NECK], &children, (&bones, &worn))
@@ -140,12 +190,16 @@ fn make(
             })
             .clone();
         let kind = usize::from(!hero);
-        crate::puffs::spawn(
-            &mut commands,
-            lightning_sparks(particles::LIGHTNING_COLOURS[kind], &mut rolls.0),
-            at,
-            follows,
-        );
+        // A loaded lightning goes on as it went, its sparks kept with the bursts (#3812).
+        let kept = resumed.map(|crate::fx::Resumes(kept)| kept.clone());
+        if kept.is_none() {
+            crate::puffs::spawn(
+                &mut commands,
+                lightning_sparks(particles::LIGHTNING_COLOURS[kind], &mut rolls.0),
+                at,
+                follows,
+            );
+        }
         let lamp = commands
             .spawn((
                 Transform::from_translation(at.with_y(0.0)),
@@ -180,12 +234,19 @@ fn make(
                 ));
             }
         }
-        let index = usize::try_from(strike.index_u32()).unwrap_or(0);
+        let (clock, bolts, dice) = kept.unwrap_or_else(|| {
+            let index = usize::try_from(strike.index_u32()).unwrap_or(0);
+            (
+                0.0,
+                LightningBolt::three(&mut rolls.0),
+                crate::seed::dice(0x31E ^ index),
+            )
+        });
         commands.entity(strike).insert(Strike {
-            clock: 0.0,
-            bolts: LightningBolt::three(&mut rolls.0),
+            clock,
+            bolts,
             kind,
-            dice: crate::seed::dice(0x31E ^ index),
+            dice,
             lamp,
             parts,
             follows,

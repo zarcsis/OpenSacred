@@ -39,7 +39,50 @@ struct Unmade {
 #[derive(Component)]
 struct Shown {
     look: BigSummon,
+    /// Whether its runes are the Vampiress's, as its caster was.
+    vampiress: bool,
     meshes: [Handle<Mesh>; 5],
+}
+
+/// A summoning's sight as a save keeps it (#3812, the epic #3753): its place, its look, which
+/// holds its caster's colour, and whether its runes are the Vampiress's; a load makes it again
+/// there, going on as it went.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedSummonLook")]
+pub struct SavedLook {
+    at: Vec3,
+    look: BigSummon,
+    vampiress: bool,
+}
+
+/// The summonings' sights in `world` as a save keeps them (#3812).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut shown = world.query::<(&Shown, &Transform)>();
+    shown
+        .iter(world)
+        .map(|(shown, at)| SavedLook {
+            at: at.translation,
+            look: shown.look.clone(),
+            vampiress: shown.vampiress,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's summonings' sights again (#3812).
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        world.spawn((
+            // No caster: the kept look holds its colour and its runes.
+            Unmade {
+                caster: Entity::PLACEHOLDER,
+            },
+            crate::daynight::Light(0.0),
+            Transform::from_translation(saved.at),
+            Visibility::default(),
+            crate::fx::Resumes((saved.look, saved.vampiress)),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
 }
 
 /// The sights' materials, made as first asked by their texture and whether laid over: none
@@ -79,7 +122,11 @@ pub(crate) fn spawn(commands: &mut Commands, at: Vec3, caster: Entity) {
 )]
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(
+        Entity,
+        &Unmade,
+        Option<&crate::fx::Resumes<(BigSummon, bool)>>,
+    )>,
     (hero, heroes, minds): (
         Option<Res<crate::hero::Hero>>,
         Query<(), With<crate::hero::Body>>,
@@ -93,14 +140,21 @@ fn make(
     ),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let by_hero = heroes.contains(unmade.caster);
         let caster = if by_hero {
             hero.as_deref().map_or(0, |hero| hero.creature)
         } else {
             minds.get(unmade.caster).map_or(0, |mind| mind.creature)
         };
-        let vampiress = matches!(caster, 6 | 7);
+        // A loaded sight goes on as it went, in its runes (#3812).
+        let (look, vampiress) = match resumed {
+            Some(crate::fx::Resumes(kept)) => kept.clone(),
+            None => (
+                BigSummon::new(summon_colour(caster), by_hero, &mut dice.0),
+                matches!(caster, 6 | 7),
+            ),
+        };
         let mut material = |name: &'static str, over: bool| {
             looks
                 .0
@@ -136,10 +190,13 @@ fn make(
             .clone();
         let meshes_of: [Handle<Mesh>; 5] = std::array::from_fn(|_| meshes.add(empty()));
         let mut shown = commands.entity(entity);
-        shown.remove::<Unmade>().insert(Shown {
-            look: BigSummon::new(summon_colour(caster), by_hero, &mut dice.0),
-            meshes: meshes_of.clone(),
-        });
+        shown
+            .remove::<(Unmade, crate::fx::Resumes<(BigSummon, bool)>)>()
+            .insert(Shown {
+                look,
+                vampiress,
+                meshes: meshes_of.clone(),
+            });
         for (index, (mesh, material)) in meshes_of.into_iter().zip(parts).enumerate() {
             let material = if matches!(index, 2 | 3) {
                 Some(plain_blend.clone())

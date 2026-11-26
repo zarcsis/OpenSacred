@@ -44,7 +44,8 @@ pub struct Made {
 }
 
 /// A ring's kind: the ring of poison 1008, or the blast 1168 of its reach a second.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "PoisonRingKind")]
 pub enum Kind {
     Poison,
     Blast(f32),
@@ -78,24 +79,12 @@ fn make(
     ),
 ) {
     for &Made { at, kind } in made.read() {
-        let parts_materials = made_materials
-            .0
-            .get_or_insert_with(|| {
-                [
-                    particles::POISON_RING_TEXTURE,
-                    particles::POISON_TWIRL_TEXTURE,
-                ]
-                .map(|texture| {
-                    let image = data
-                        .as_ref()
-                        .and_then(|data| particle_texture(&data.0.assets, &assets, texture));
-                    if image.is_none() {
-                        warn!("poison rings: no texture {texture}; its part is not drawn");
-                    }
-                    image.map(|image| materials.add(whole_material(image)))
-                })
-            })
-            .clone();
+        let parts_materials = ring_materials(
+            &mut made_materials,
+            data.as_deref(),
+            &assets,
+            &mut materials,
+        );
         let sparks = match kind {
             Kind::Poison => particles::ring_sparks(&mut rolls.0),
             Kind::Blast(_) => particles::blast_sparks(&mut rolls.0),
@@ -108,41 +97,137 @@ fn make(
                 ));
             }
         });
-        let lamp = commands
-            .spawn((
-                Transform::from_translation(at.with_y(0.0)),
-                daynight::Light(particles::POISON_RING_LIGHT),
-                DespawnOnExit(AppState::InGame),
-            ))
-            .id();
-        let parts = [meshes.add(empty()), meshes.add(empty())];
-        let ring = commands
-            .spawn((
+        spawn_ring(
+            &mut commands,
+            (parts_materials, &mut meshes),
+            (kind, 0.0, at),
+        );
+    }
+}
+
+/// The ring's and the twirls' materials, made as the first ring is.
+fn ring_materials(
+    made: &mut Materials,
+    data: Option<&Data>,
+    assets: &AssetServer,
+    materials: &mut Assets<Effect>,
+) -> [Option<Handle<Effect>>; 2] {
+    made.0
+        .get_or_insert_with(|| {
+            [
+                particles::POISON_RING_TEXTURE,
+                particles::POISON_TWIRL_TEXTURE,
+            ]
+            .map(|texture| {
+                let image = data.and_then(|data| particle_texture(&data.0.assets, assets, texture));
+                if image.is_none() {
+                    warn!("poison rings: no texture {texture}; its part is not drawn");
+                }
+                image.map(|image| materials.add(whole_material(image)))
+            })
+        })
+        .clone()
+}
+
+/// Makes a ring of `kind` at `at` on the ground, `clock` seconds on: its lamp and its parts.
+fn spawn_ring(
+    commands: &mut Commands,
+    (parts_materials, meshes): ([Option<Handle<Effect>>; 2], &mut Assets<Mesh>),
+    (kind, clock, at): (Kind, f32, Vec3),
+) {
+    let lamp = commands
+        .spawn((
+            Transform::from_translation(at.with_y(0.0)),
+            daynight::Light(particles::POISON_RING_LIGHT),
+            DespawnOnExit(AppState::InGame),
+        ))
+        .id();
+    let parts = [meshes.add(empty()), meshes.add(empty())];
+    let ring = commands
+        .spawn((
+            Transform::IDENTITY,
+            Visibility::default(),
+            DespawnOnExit(AppState::InGame),
+        ))
+        .id();
+    for (mesh, material) in parts.iter().zip(parts_materials) {
+        if let Some(material) = material {
+            commands.spawn((
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(material),
                 Transform::IDENTITY,
-                Visibility::default(),
-                DespawnOnExit(AppState::InGame),
-            ))
-            .id();
-        for (mesh, material) in parts.iter().zip(parts_materials) {
-            if let Some(material) = material {
-                commands.spawn((
-                    Mesh3d(mesh.clone()),
-                    MeshMaterial3d(material),
-                    Transform::IDENTITY,
-                    NoFrustumCulling,
-                    RenderLayers::layer(iso::UNTINTED),
-                    ChildOf(ring),
-                ));
-            }
+                NoFrustumCulling,
+                RenderLayers::layer(iso::UNTINTED),
+                ChildOf(ring),
+            ));
         }
-        commands.entity(ring).insert(Ring {
-            kind,
-            clock: 0.0,
-            place: at,
-            lamp,
-            parts,
-        });
-        debug!("poison rings: {ring} at {:.0},{:.0}", at.x, at.z);
+    }
+    commands.entity(ring).insert(Ring {
+        kind,
+        clock,
+        place: at,
+        lamp,
+        parts,
+    });
+    debug!("poison rings: {ring} at {:.0},{:.0}", at.x, at.z);
+}
+
+/// A ring as a save keeps it (#3812, the epic #3753): its kind, its clock and its place; a load
+/// makes it again there, its sparks kept with the bursts.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedPoisonRing")]
+pub struct SavedRing {
+    kind: Kind,
+    clock: f32,
+    place: Vec3,
+}
+
+/// The rings in `world` as a save keeps them (#3812).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedRing> {
+    let mut rings = world.query::<&Ring>();
+    rings
+        .iter(world)
+        .map(|ring| SavedRing {
+            kind: ring.kind,
+            clock: ring.clock,
+            place: ring.place,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's rings again (#3812).
+pub(crate) fn again(world: &mut World, rings: Vec<SavedRing>) {
+    if rings.is_empty() {
+        return;
+    }
+    if let Err(e) = world.run_system_cached_with(rings_again, rings) {
+        warn!("poison rings: the saved rings are not made: {e}");
+    }
+}
+
+/// Makes the saved rings `rings` again ([`again`]).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
+fn rings_again(
+    In(rings): In<Vec<SavedRing>>,
+    mut commands: Commands,
+    (data, assets, mut made, mut materials, mut meshes): (
+        Option<Res<Data>>,
+        Res<AssetServer>,
+        ResMut<Materials>,
+        ResMut<Assets<Effect>>,
+        ResMut<Assets<Mesh>>,
+    ),
+) {
+    let parts_materials = ring_materials(&mut made, data.as_deref(), &assets, &mut materials);
+    for saved in rings {
+        spawn_ring(
+            &mut commands,
+            (parts_materials.clone(), &mut meshes),
+            (saved.kind, saved.clock, saved.place),
+        );
     }
 }
 

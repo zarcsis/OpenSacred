@@ -1339,7 +1339,7 @@ pub fn burst_cloud(colour: u32) -> Burst {
 /// world's ground at `speed·s` world units a second, `s = (T − t)/T` falling from 1 to 0 over its
 /// time `T`, at `s·H·|cos ωt|` over the ground, `H` its height and `ω` its rate; each `cos ωt`
 /// crossing 0 a bounce; past `T` it lies.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Hop {
     direction: [f32; 2],
     lasts: f32,
@@ -1414,7 +1414,7 @@ impl Hop {
 /// ([`Hop`], the speed 300), it turns about two axes at 2 to 4 radians a second each while it
 /// flies, trailing [`PARTICLE_CLOUD`] puffs in its burst's colour; it lies 30 to 60 s from its
 /// start, then goes.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BodyPart {
     pub hop: Hop,
     turns: [f32; 2],
@@ -3344,7 +3344,7 @@ pub const LIGHTNING_STRIP: f32 = 0.125;
 
 /// A bolt of the lightning: its slant in −1 to 1 (`+0x20BC`), which shifts each segment up from
 /// the last by 40 times it along x, and the texture's `u` by it.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LightningBolt {
     pub slant: f32,
 }
@@ -3916,7 +3916,7 @@ impl BubblePrison {
 /// about a circle of the radius 285 (the variant 0) or to and fro along a side of the pentagram
 /// in it (1 to 5), and leaves glows of `PARTICLE_GLOW03` where it passes for 8 s, added whole,
 /// so that a burning pentagram in a circle is drawn on the ground. The circle's light is 600.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DemonSummon {
     pub system: System,
     pub variant: u8,
@@ -6542,7 +6542,7 @@ const MARK_FADE: f32 = 0.25;
 /// the ground, unturned, laid over by its alpha in the light's colour, of a half side of
 /// `32·√g`; `g` grows from 0.05 by 0.3 a second up to 1 (over 3.17 s), and it holds until 20 s
 /// from its start, then its alpha falls from 1 by 1 a second. No particle.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Puddle {
     clock: f32,
     growth: f32,
@@ -6744,7 +6744,7 @@ fn frame_index(frame: f32) -> u16 {
 /// its draw `0x76DB40` and `0x763CB0`; #1092): a square of a texture flat on the ground at a turn
 /// at random, laid over by its alpha in the light's colour, under what stands on the ground,
 /// holding for its seconds and then fading over 4 s. No particle.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Mark {
     clock: f32,
     hold: f32,
@@ -8288,7 +8288,7 @@ const BLEED_COUNT: usize = 50;
 /// docs/re/effects.md, "The bleed and the parade"): from about the struck creature's neck, its
 /// fifty droplets of its blood spray out sideways in one direction at 50 to 80 a second, falling,
 /// tumbling, swelling from 8 to about 14 and fading in 0.43 s, riding with the creature.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Bleed {
     pub system: System,
     burst: Option<Block>,
@@ -8375,7 +8375,7 @@ pub fn splash_offset(dice: &mut impl Dice) -> [f32; 2] {
 /// its place along the ground's two axes, of a half side of 3 ± 2, turned at random, of one of
 /// the texture's four frames at random, still; each lies 12.75 s (−20), in the blood's colour,
 /// whole for its first 220 parts of 256 and fading over the last 36.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Splashes {
     pub system: System,
     pub ramp: Ramp,
@@ -8450,7 +8450,7 @@ const PARADE_POINTS: [f32; 5] = [20.0, 15.0, 10.0, 5.0, 0.0];
 /// `0x76C630`; docs/re/effects.md, "The bleed and the parade"): ten thin golden streaks, bright at
 /// their heads, burst from about the struck creature's neck, slowing, gone in a quarter of a
 /// second. Each streak's five points, from its head, in the system's frame.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Parade {
     pub streaks: Vec<[[f32; 3]; 5]>,
     velocities: Vec<[f32; 3]>,
@@ -9313,7 +9313,7 @@ pub fn blood_sound(dice: &mut impl Dice) -> u32 {
 /// holds at 1 for 5 s, then falls by 0.5 a second, and the fountain ends as it reaches 0. Its
 /// drops stay in the world, laid over the frame by their alpha, turned, of their ramp's colour and
 /// tinted by the light at them (the flags `0x4C`).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BloodFountain {
     pub system: System,
     pub strength: f32,
@@ -13141,7 +13141,7 @@ pub fn summon_colour(caster: u32) -> [f32; 3] {
 }
 
 /// A particle of the summoning, orbiting its middle: its azimuth and elevation and their rates.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct Orbit {
     azimuth: f32,
     elevation: f32,
@@ -13165,7 +13165,7 @@ pub struct SummonRune {
 /// middle, out to `80·(1 − cos φ)` and back as its phase φ runs at 2 a second, glows at its
 /// middle, white bolts from it as the creature comes, and for a hero's summoning the runes on the
 /// ground, turning either way and fading in and out; it ends as its phase passes 2π (3.14 s).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct BigSummon {
     pub clock: f32,
     phase: f32,

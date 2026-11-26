@@ -53,17 +53,151 @@ struct Looks {
     trail: Option<Handle<Effect>>,
 }
 
+impl Looks {
+    /// Finds the trails' material at the first burst.
+    fn make(&mut self, data: Option<&Data>, assets: &AssetServer, materials: &mut Assets<Effect>) {
+        if self.made {
+            return;
+        }
+        self.made = true;
+        let image = data.and_then(|data| particle_texture(&data.0.assets, assets, PARTICLE_CLOUD));
+        if image.is_none() {
+            warn!("body parts: no texture {PARTICLE_CLOUD}; their trails are not drawn");
+        }
+        self.trail = image.map(|image| {
+            materials.add(crate::fx::among_objects(particle_material(
+                image,
+                AlphaMode::Blend,
+            )))
+        });
+    }
+}
+
 /// A part on its way or lying: its system, its gib set, its trail's colour, its level, its place
 /// in the world, its model and its trail's mesh.
 #[derive(Component)]
 struct Part {
     part: BodyPart,
+    /// Its item's type, whose model it shows.
+    item: u32,
     set: u8,
     colour: [f32; 3],
     level: Level,
     place: Vec3,
     model: Option<Entity>,
     mesh: Handle<Mesh>,
+}
+
+/// Makes the part `part`: its item's model at its place, and its trail in `trail`, its model and
+/// its mesh made here.
+fn spawn_part(
+    commands: &mut Commands,
+    (assets, tables): (&AssetServer, Option<&crate::drops::Tables>),
+    (trail, meshes): (Option<Handle<Effect>>, &mut Assets<Mesh>),
+    mut part: Part,
+) {
+    part.model = tables
+        .and_then(|tables| tables.look(part.item))
+        .map(|(model, texture, _)| {
+            let mut model = commands.spawn((
+                model_looks::scene(assets, model),
+                Transform::from_translation(part.place).with_scale(Vec3::ZERO),
+                model_looks::Ordered::default(),
+                DespawnOnExit(AppState::InGame),
+            ));
+            if let Some(texture) = texture {
+                model.insert(Retexture::load(assets, texture));
+            }
+            model.id()
+        });
+    part.mesh = meshes.add(empty());
+    let mut made = commands.spawn((
+        Transform::IDENTITY,
+        Visibility::default(),
+        DespawnOnExit(AppState::InGame),
+    ));
+    if let Some(material) = trail {
+        made.with_child((
+            Mesh3d(part.mesh.clone()),
+            MeshMaterial3d(material),
+            Transform::IDENTITY,
+            NoFrustumCulling,
+        ));
+    }
+    made.insert(part);
+}
+
+/// A part as a save keeps it (#3812, the epic #3753): its system, its item's type, its gib set,
+/// its trail's colour, its level and its place; a load makes it again there, hopping on.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SavedPart {
+    part: BodyPart,
+    item: u32,
+    set: u8,
+    colour: [f32; 3],
+    level: Level,
+    place: Vec3,
+}
+
+/// The parts in `world` as a save keeps them (#3812).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedPart> {
+    let mut parts = world.query::<&Part>();
+    parts
+        .iter(world)
+        .map(|part| SavedPart {
+            part: part.part.clone(),
+            item: part.item,
+            set: part.set,
+            colour: part.colour,
+            level: part.level,
+            place: part.place,
+        })
+        .collect()
+}
+
+/// Makes a loaded save's parts again (#3812).
+pub(crate) fn again(world: &mut World, parts: Vec<SavedPart>) {
+    if parts.is_empty() {
+        return;
+    }
+    if let Err(e) = world.run_system_cached_with(parts_again, parts) {
+        warn!("body parts: the saved parts are not made: {e}");
+    }
+}
+
+/// Makes the saved parts `parts` again ([`again`]).
+fn parts_again(
+    In(parts): In<Vec<SavedPart>>,
+    mut commands: Commands,
+    (data, assets, tables): (
+        Option<Res<Data>>,
+        Res<AssetServer>,
+        Option<Res<crate::drops::Tables>>,
+    ),
+    (mut looks, mut materials, mut meshes): (
+        ResMut<Looks>,
+        ResMut<Assets<Effect>>,
+        ResMut<Assets<Mesh>>,
+    ),
+) {
+    looks.make(data.as_deref(), &assets, &mut materials);
+    for saved in parts {
+        spawn_part(
+            &mut commands,
+            (&assets, tables.as_deref()),
+            (looks.trail.clone(), &mut meshes),
+            Part {
+                part: saved.part,
+                item: saved.item,
+                set: saved.set,
+                colour: saved.colour,
+                level: saved.level,
+                place: saved.place,
+                model: None,
+                mesh: Handle::default(),
+            },
+        );
+    }
 }
 
 /// The parts of a burst of `parts` (`0x4E8DA0`): above 1 the parts 0 to 4, then above 0 six of
@@ -115,21 +249,7 @@ fn throw(
         parts,
     } in bursts.read()
     {
-        if !looks.made {
-            looks.made = true;
-            let image = data
-                .as_deref()
-                .and_then(|data| particle_texture(&data.0.assets, &assets, PARTICLE_CLOUD));
-            if image.is_none() {
-                warn!("body parts: no texture {PARTICLE_CLOUD}; their trails are not drawn");
-            }
-            looks.trail = image.map(|image| {
-                materials.add(crate::fx::among_objects(particle_material(
-                    image,
-                    AlphaMode::Blend,
-                )))
-            });
-        }
+        looks.make(data.as_deref(), &assets, &mut materials);
         let dice = &mut dice.0;
         let ground = heights.standing(at.x, at.z, level).unwrap_or(at.y);
         let place = at.with_y(ground);
@@ -139,43 +259,21 @@ fn throw(
             let Some(item) = part_type(set, kind, dice) else {
                 continue;
             };
-            let model = tables.as_deref().and_then(|tables| tables.look(item)).map(
-                |(model, texture, _)| {
-                    let mut model = commands.spawn((
-                        model_looks::scene(&assets, model),
-                        Transform::from_translation(place).with_scale(Vec3::ZERO),
-                        model_looks::Ordered::default(),
-                        DespawnOnExit(AppState::InGame),
-                    ));
-                    if let Some(texture) = texture {
-                        model.insert(Retexture::load(&assets, texture));
-                    }
-                    model.id()
+            spawn_part(
+                &mut commands,
+                (&assets, tables.as_deref()),
+                (looks.trail.clone(), &mut meshes),
+                Part {
+                    part: BodyPart::new(0.0, dice),
+                    item,
+                    set,
+                    colour: [r, g, b],
+                    level,
+                    place,
+                    model: None,
+                    mesh: Handle::default(),
                 },
             );
-            let mesh = meshes.add(empty());
-            let mut part = commands.spawn((
-                Transform::IDENTITY,
-                Visibility::default(),
-                DespawnOnExit(AppState::InGame),
-            ));
-            if let Some(material) = looks.trail.clone() {
-                part.with_child((
-                    Mesh3d(mesh.clone()),
-                    MeshMaterial3d(material),
-                    Transform::IDENTITY,
-                    NoFrustumCulling,
-                ));
-            }
-            part.insert(Part {
-                part: BodyPart::new(0.0, dice),
-                set,
-                colour: [r, g, b],
-                level,
-                place,
-                model,
-                mesh,
-            });
             thrown.push(item);
         }
         debug!("body parts: a burst of the set {set} at {place} throws {thrown:?}");
@@ -207,6 +305,7 @@ fn fly(
     for (entity, mut part) in &mut parts {
         let Part {
             part,
+            item: _,
             set,
             colour,
             level,
