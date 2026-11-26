@@ -92,11 +92,12 @@ struct Look {
     frame: Handle<Mesh>,
 }
 
-/// Despawns the look of a ring that its creature loses, or loses with it: one despawned while
-/// its ring shows, as an undead that falls and rises again is made anew (`undead::remake`,
-/// #2540), leaves no ring on the ground.
-fn gone(removed: On<Remove<Ring>>, rings: Query<&Ring>, mut commands: Commands) {
-    if let Some(look) = rings.get(removed.entity).ok().and_then(|ring| ring.look) {
+/// Despawns the look of a ring that its creature loses, loses with it, or has replaced: one
+/// despawned while its ring shows, as an undead that falls and rises again is made anew
+/// (`undead::remake`, #2540), and one whose ring a load puts back over the ring it had got in the
+/// meantime (`doings`, #3833), leave no ring on the ground.
+fn gone(replaced: On<Discard<Ring>>, rings: Query<&Ring>, mut commands: Commands) {
+    if let Some(look) = rings.get(replaced.entity).ok().and_then(|ring| ring.look) {
         commands.entity(look).try_despawn();
     }
 }
@@ -486,5 +487,31 @@ mod tests {
         assert!(app.world().get_entity(look).is_err());
         assert!(app.world().get_entity(standing).is_ok());
         assert!(app.world().get_entity(other).is_ok());
+    }
+
+    #[test]
+    fn a_ring_put_over_one_that_shows_takes_the_old_look_away() {
+        let mut app = App::new();
+        app.add_observer(gone);
+        let look = app.world_mut().spawn_empty().id();
+        let hero = app
+            .world_mut()
+            .spawn(Ring {
+                timer: 7.0,
+                look: Some(look),
+            })
+            .id();
+        // A ring's timer set again keeps its look.
+        app.world_mut().get_mut::<Ring>(hero).unwrap().timer = 3.0;
+        app.update();
+        assert!(app.world().get_entity(look).is_ok());
+        // A load's ring put over it, its look to be made again, takes the old one away.
+        app.world_mut().entity_mut(hero).insert(Ring {
+            timer: 5.0,
+            look: None,
+        });
+        app.update();
+        assert!(app.world().get_entity(look).is_err());
+        assert!(app.world().get::<Ring>(hero).is_some());
     }
 }

@@ -186,6 +186,12 @@ impl WorldTick {
         self.gathered += seconds;
         self.seconds = (self.gathered > TICK).then(|| std::mem::take(&mut self.gathered));
     }
+
+    /// Stands the world in this frame: no tick, and the time gathered toward the next dropped.
+    pub fn stand(&mut self) {
+        self.gathered = 0.0;
+        self.seconds = None;
+    }
 }
 
 /// Gathers the frame's time of the game, which stands while it is paused.
@@ -259,6 +265,19 @@ mod tests {
         // A frame of more than a tenth ticks at once, with what was gathered before it.
         world.gather(0.25);
         assert!(world.seconds.is_some_and(|seconds| seconds >= 0.25));
+        // Stood, it ticks not in that frame, and gathers anew from nothing after it.
+        world.gather(0.09);
+        world.gather(0.25);
+        world.stand();
+        assert_eq!(world.seconds, None);
+        world.gather(0.09);
+        assert_eq!(world.seconds, None);
+        world.gather(0.02);
+        assert!(
+            world
+                .seconds
+                .is_some_and(|seconds| (seconds - 0.11).abs() < 1e-6)
+        );
     }
 
     #[test]
