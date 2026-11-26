@@ -54,14 +54,95 @@ struct Shown {
     mesh: Handle<Mesh>,
 }
 
+/// A look carried alone by a load, its fire gone, which [`show`] makes and then lets go
+/// (#3779).
+#[derive(Component)]
+struct Alone;
+
+/// A homing fire's look as a save keeps it (#3779, the epic #3753): its state, its place and the place
+/// before. A load gives a flying fire's to its fire made again (`creature_casts::SavedCastObject`), and makes one
+/// that outlives its fire again on its own.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedHomingFlames")]
+pub struct SavedLook {
+    flames: HomingFlames,
+    place: Vec3,
+    before: Option<Vec3>,
+}
+
+impl SavedLook {
+    /// The look `shown` as a save keeps it.
+    fn of(shown: &Shown) -> Self {
+        Self {
+            flames: shown.flames.clone(),
+            place: shown.place,
+            before: shown.before,
+        }
+    }
+}
+
+/// The look of the fire `fire` as a save keeps it with its fire, if it shows (#3779).
+pub(crate) fn saved_look(world: &World, fire: Entity) -> Option<SavedLook> {
+    let mut shown = world.try_query::<&Shown>()?;
+    shown
+        .iter(world)
+        .find(|shown| shown.fire == Some(fire))
+        .map(SavedLook::of)
+}
+
+/// The looks in `world` that outlive their fires, as a save keeps them (#3779).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .filter(|shown| shown.fire.is_none())
+        .map(SavedLook::of)
+        .collect()
+}
+
+/// Makes a loaded save's looks that outlived their fires again, each on its own (#3779).
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        world.spawn((
+            Alone,
+            Transform::from_translation(saved.place),
+            crate::fx::Resumes(saved),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// Gives each new fire its look (`0x7A6A40`, `0x7BF690`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn show(
     mut commands: Commands,
-    fires: Query<(Entity, &Flames, &Transform), Added<Flames>>,
+    fires: Query<
+        (
+            Entity,
+            Option<&Flames>,
+            &Transform,
+            Option<&crate::fx::Resumes<SavedLook>>,
+            Has<Alone>,
+        ),
+        Or<(Added<Flames>, Added<Alone>)>,
+    >,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, flames, place) in &fires {
+    for (entity, flames, place, resumed, alone) in &fires {
+        // A loaded fire's look goes on as it went, one whose fire had ended on its own (#3779).
+        let kept = match (resumed, flames) {
+            (Some(crate::fx::Resumes(saved)), _) => saved.clone(),
+            (None, Some(flames)) => SavedLook {
+                flames: HomingFlames::new(flames.0),
+                place: place.translation,
+                before: None,
+            },
+            (None, None) => continue,
+        };
         let material = looks
             .0
             .get_or_insert_with(|| {
@@ -93,12 +174,19 @@ fn show(
             ));
         }
         shown.insert(Shown {
-            fire: Some(entity),
-            flames: HomingFlames::new(flames.0),
-            place: place.translation,
-            before: None,
+            fire: (!alone).then_some(entity),
+            flames: kept.flames,
+            place: kept.place,
+            before: kept.before,
             mesh,
         });
+        if alone {
+            commands.entity(entity).despawn();
+        } else if resumed.is_some() {
+            commands
+                .entity(entity)
+                .remove::<crate::fx::Resumes<SavedLook>>();
+        }
     }
 }
 

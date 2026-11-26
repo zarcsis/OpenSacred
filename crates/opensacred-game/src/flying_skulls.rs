@@ -47,14 +47,96 @@ struct Shown {
     mesh: Handle<Mesh>,
 }
 
+/// A look carried alone by a load, its skull gone, which [`show`] makes and then lets go
+/// (#3779).
+#[derive(Component)]
+struct Alone;
+
+/// A flying skull's look as a save keeps it (#3779, the epic #3753): its state, its place and the place
+/// before. A load gives a flying skull's to its skull made again (`spells::SavedSkull`), and makes one
+/// that outlives its skull again on its own.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedFlyingSkull")]
+pub struct SavedLook {
+    look: FlyingSkull,
+    place: Vec3,
+    before: Option<Vec3>,
+}
+
+impl SavedLook {
+    /// The look `shown` as a save keeps it.
+    fn of(shown: &Shown) -> Self {
+        Self {
+            look: shown.look.clone(),
+            place: shown.place,
+            before: shown.before,
+        }
+    }
+}
+
+/// The look of the skull `skull` as a save keeps it with its skull, if it shows (#3779).
+pub(crate) fn saved_look(world: &World, skull: Entity) -> Option<SavedLook> {
+    let mut shown = world.try_query::<&Shown>()?;
+    shown
+        .iter(world)
+        .find(|shown| shown.skull == Some(skull))
+        .map(SavedLook::of)
+}
+
+/// The looks in `world` that outlive their skulls, as a save keeps them (#3779).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .filter(|shown| shown.skull.is_none())
+        .map(SavedLook::of)
+        .collect()
+}
+
+/// Makes a loaded save's looks that outlived their skulls again, each on its own (#3779).
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        world.spawn((
+            Alone,
+            Transform::from_translation(saved.place),
+            crate::fx::Resumes(saved),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// Gives each new skull its look: its model and its trail (`0x7A6370`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn show(
     mut commands: Commands,
-    skulls: Query<(Entity, &Skull, &Transform), Added<Skull>>,
+    skulls: Query<
+        (
+            Entity,
+            Option<&Skull>,
+            &Transform,
+            Option<&crate::fx::Resumes<SavedLook>>,
+            Has<Alone>,
+        ),
+        Or<(Added<Skull>, Added<Alone>)>,
+    >,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, skull, place) in &skulls {
+    for (entity, skull, place, resumed, alone) in &skulls {
+        // A loaded skull's look goes on as it went, one whose skull had gone on its own, its
+        // model gone with it (#3779).
+        let kept = match (resumed, skull) {
+            (Some(crate::fx::Resumes(saved)), _) => saved.clone(),
+            (None, Some(skull)) => SavedLook {
+                look: FlyingSkull::new(skull.seconds()),
+                place: place.translation,
+                before: None,
+            },
+            (None, None) => continue,
+        };
         if !looks.made {
             looks.made = true;
             if let Some(data) = data.as_deref() {
@@ -78,11 +160,11 @@ fn show(
                 looks.trail = image.map(|image| effects.add(whole_material(image)));
             }
         }
-        let model = looks.model.as_ref().map(|model| {
+        let model = looks.model.as_ref().filter(|_| !alone).map(|model| {
             commands
                 .spawn((
                     model_looks::scene(&assets, model),
-                    Transform::from_translation(place.translation)
+                    Transform::from_translation(kept.place)
                         .with_scale(Vec3::splat(particles::SKULL_SCALE * iso::MODEL_SCALE)),
                     model_looks::Ordered::default(),
                     DespawnOnExit(AppState::InGame),
@@ -101,9 +183,9 @@ fn show(
         shown.commands().spawn(crate::fx_lights::light(
             crate::fx_lights::SKULL,
             crate::fx_lights::LOW,
-            place.translation,
+            kept.place,
             owner,
-            (Some(entity), Vec3::ZERO),
+            ((!alone).then_some(entity), Vec3::ZERO),
         ));
         if let Some(material) = looks.trail.clone() {
             shown.with_child((
@@ -115,13 +197,20 @@ fn show(
             ));
         }
         shown.insert(Shown {
-            skull: Some(entity),
-            look: FlyingSkull::new(skull.seconds()),
+            skull: (!alone).then_some(entity),
+            look: kept.look,
             model,
-            place: place.translation,
-            before: None,
+            place: kept.place,
+            before: kept.before,
             mesh,
         });
+        if alone {
+            commands.entity(entity).despawn();
+        } else if resumed.is_some() {
+            commands
+                .entity(entity)
+                .remove::<crate::fx::Resumes<SavedLook>>();
+        }
     }
 }
 

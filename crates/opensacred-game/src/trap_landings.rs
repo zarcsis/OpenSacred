@@ -24,7 +24,8 @@ const GROUND_LIFT: f32 = 0.5;
 
 /// What a trap's ball made where it landed, which takes its look: the pentagram of its seconds,
 /// the confusion or the ground's poison, whether a hero threw it (`spells`).
-#[derive(Component, Debug, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "TrapLanding")]
 pub(crate) enum Landing {
     Pentagram(f32),
     Confusion,
@@ -90,6 +91,8 @@ impl Looks {
 }
 
 /// A look's systems.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "TrapLandingSystem")]
 enum System {
     Pentagram(PentagramKiller),
     Confusion(ConfusionCircle),
@@ -107,10 +110,89 @@ struct Shown {
     meshes: [Handle<Mesh>; 3],
 }
 
+/// A look carried alone by a load, its pentagram gone, which [`show`] makes and then lets go
+/// (#3779).
+#[derive(Component)]
+struct Alone;
+
+/// A landing's look as a save keeps it (#3779, the epic #3753): what landed, its system and its
+/// place. A load gives a landing's to its object made again (`spells::SpellLook`), and makes a
+/// pentagram's that outlives its object again on its own.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedTrapLanding")]
+pub struct SavedLook {
+    landing: Landing,
+    system: System,
+    at: Vec3,
+}
+
+/// The look of the landing `object` as a save keeps it with its object, if it shows (#3779).
+pub(crate) fn saved_look(world: &World, object: Entity) -> Option<SavedLook> {
+    let landing = *world.get::<Landing>(object)?;
+    let mut shown = world.try_query::<(&Shown, &Transform)>()?;
+    shown
+        .iter(world)
+        .find(|(shown, _)| shown.landing == Some(object))
+        .map(|(shown, at)| SavedLook {
+            landing,
+            system: shown.system.clone(),
+            at: at.translation,
+        })
+}
+
+/// Gives the loaded object `object` its landing's look as the save kept it (#3779).
+pub(crate) fn look_again(object: &mut EntityWorldMut<'_>, saved: SavedLook) {
+    object.insert((saved.landing, crate::fx::Resumes(saved)));
+}
+
+/// The pentagrams' looks in `world` that outlive their objects, as a save keeps them (#3779).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut shown = world.query::<(&Shown, &Transform)>();
+    shown
+        .iter(world)
+        .filter_map(|(shown, at)| {
+            let System::Pentagram(pentagram) = &shown.system else {
+                return None;
+            };
+            shown.landing.is_none().then(|| SavedLook {
+                landing: Landing::Pentagram(0.0),
+                system: System::Pentagram(pentagram.clone()),
+                at: at.translation,
+            })
+        })
+        .collect()
+}
+
+/// Makes a loaded save's pentagrams' looks that outlived their objects again, each on its own
+/// (#3779).
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        world.spawn((
+            Alone,
+            Transform::from_translation(saved.at),
+            crate::fx::Resumes(saved),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// Gives each new landing its look (`0x7727E0`, `0x778E80`, `0x778760`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn show(
     mut commands: Commands,
-    landings: Query<(Entity, &Landing, &Transform), Added<Landing>>,
+    landings: Query<
+        (
+            Entity,
+            Option<&Landing>,
+            &Transform,
+            Option<&crate::fx::Resumes<SavedLook>>,
+            Has<Alone>,
+        ),
+        Or<(Added<Landing>, Added<Alone>)>,
+    >,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes, mut dice): (
         ResMut<Assets<Effect>>,
@@ -118,27 +200,27 @@ fn show(
         ResMut<Dice>,
     ),
 ) {
-    for (entity, landing, place) in &landings {
+    for (entity, landing, place, resumed, alone) in &landings {
+        // A loaded landing's look goes on as it went, a pentagram's that outlived its object on
+        // its own (#3779).
+        let resumed = resumed.map(|crate::fx::Resumes(saved)| saved);
+        let Some(landing) = resumed.map(|saved| saved.landing).or(landing.copied()) else {
+            continue;
+        };
         looks.make(data.as_deref(), &assets, &mut effects);
-        let (system, materials, stain) = match *landing {
-            Landing::Pentagram(seconds) => (
-                System::Pentagram(PentagramKiller::new(seconds)),
-                looks.pentagram.clone(),
-                None,
-            ),
-            Landing::Confusion => (
-                System::Confusion(ConfusionCircle::new(&mut dice.0)),
-                looks.confusion.clone(),
-                None,
-            ),
+        let (materials, stain) = match landing {
+            Landing::Pentagram(_) => (looks.pentagram.clone(), None),
+            Landing::Confusion => (looks.confusion.clone(), None),
             Landing::Poison { by_hero } => {
                 let [circle, stain, smoke] = looks.poison.clone();
-                (
-                    System::Poison(GroundPoison::new(), by_hero),
-                    [circle.filter(|_| by_hero), stain, smoke],
-                    Some(1),
-                )
+                ([circle.filter(|_| by_hero), stain, smoke], Some(1))
             }
+        };
+        let system = match (resumed, landing) {
+            (Some(saved), _) => saved.system.clone(),
+            (None, Landing::Pentagram(seconds)) => System::Pentagram(PentagramKiller::new(seconds)),
+            (None, Landing::Confusion) => System::Confusion(ConfusionCircle::new(&mut dice.0)),
+            (None, Landing::Poison { by_hero }) => System::Poison(GroundPoison::new(), by_hero),
         };
         let parts: [Handle<Mesh>; 3] = std::array::from_fn(|_| meshes.add(empty()));
         let mut shown = commands.spawn((
@@ -147,7 +229,7 @@ fn show(
             DespawnOnExit(AppState::InGame),
         ));
         // The ground poison's Direct3D light at its place (`0x778760`, `0x778980`).
-        if matches!(*landing, Landing::Poison { .. }) {
+        if matches!(landing, Landing::Poison { .. }) {
             let owner = shown.id();
             shown.commands().spawn(crate::fx_lights::child(
                 crate::fx_lights::POISON,
@@ -173,10 +255,17 @@ fn show(
             }
         }
         shown.insert(Shown {
-            landing: Some(entity),
+            landing: (!alone).then_some(entity),
             system,
             meshes: parts,
         });
+        if alone {
+            commands.entity(entity).despawn();
+        } else if resumed.is_some() {
+            commands
+                .entity(entity)
+                .remove::<crate::fx::Resumes<SavedLook>>();
+        }
     }
 }
 
@@ -334,5 +423,62 @@ impl Plugin for TrapLandingsPlugin {
                     .in_set(Unpaused)
                     .run_if(in_state(AppState::InGame)),
             );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_landing_keeps_its_look_with_its_object_and_a_pentagram_alone_on_its_own() {
+        let mut world = World::new();
+        let object = world.spawn(Landing::Pentagram(2.0)).id();
+        let meshes = || std::array::from_fn(|_| Handle::default());
+        let mut fading = PentagramKiller::new(2.0);
+        fading.update(0.5, true, &mut crate::seed::dice(1));
+        world.spawn((
+            Shown {
+                landing: Some(object),
+                system: System::Pentagram(PentagramKiller::new(2.0)),
+                meshes: meshes(),
+            },
+            Transform::from_xyz(1.0, 0.0, 2.0),
+        ));
+        world.spawn((
+            Shown {
+                landing: None,
+                system: System::Pentagram(fading.clone()),
+                meshes: meshes(),
+            },
+            Transform::from_xyz(3.0, 0.0, 4.0),
+        ));
+        let with_object = saved_look(&world, object).unwrap();
+        assert_eq!(
+            with_object,
+            SavedLook {
+                landing: Landing::Pentagram(2.0),
+                system: System::Pentagram(PentagramKiller::new(2.0)),
+                at: Vec3::new(1.0, 0.0, 2.0),
+            }
+        );
+        let alone = saved(&mut world);
+        let bytes = postcard::to_stdvec(&(&with_object, &alone)).unwrap();
+        let (with_object, alone): (SavedLook, Vec<SavedLook>) =
+            postcard::from_bytes(&bytes).unwrap();
+        assert_eq!(alone.len(), 1);
+        assert_eq!(alone[0].system, System::Pentagram(fading));
+        let mut loaded = World::new();
+        again(&mut loaded, alone);
+        let made: Vec<Vec3> = loaded
+            .query_filtered::<&Transform, (With<Alone>, With<crate::fx::Resumes<SavedLook>>)>()
+            .iter(&loaded)
+            .map(|at| at.translation)
+            .collect();
+        assert_eq!(made, [Vec3::new(3.0, 0.0, 4.0)]);
+        let mut object = loaded.spawn_empty();
+        look_again(&mut object, with_object);
+        assert_eq!(object.get::<Landing>(), Some(&Landing::Pentagram(2.0)));
+        assert!(object.contains::<crate::fx::Resumes<SavedLook>>());
     }
 }

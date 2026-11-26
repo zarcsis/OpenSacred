@@ -51,10 +51,81 @@ struct Shown {
     mesh: Handle<Mesh>,
 }
 
+/// A look carried alone by a load, its ball gone, which [`show`] makes and then lets go
+/// (#3779).
+#[derive(Component)]
+struct Alone;
+
+/// A thrown ball's look as a save keeps it (#3779, the epic #3753): its state, its place and the place
+/// before. A load gives a flying ball's to its ball made again (`spells::SpellLook`, `creature_casts::SavedCastObject`), and makes one
+/// that outlives its ball again on its own.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedTrapBall")]
+pub struct SavedLook {
+    look: TrapBall,
+    place: Vec3,
+    before: Option<Vec3>,
+}
+
+impl SavedLook {
+    /// The look `shown` as a save keeps it.
+    fn of(shown: &Shown) -> Self {
+        Self {
+            look: shown.look.clone(),
+            place: shown.place,
+            before: shown.before,
+        }
+    }
+}
+
+/// The look of the ball `ball` as a save keeps it with its ball, if it shows (#3779).
+pub(crate) fn saved_look(world: &World, ball: Entity) -> Option<SavedLook> {
+    let mut shown = world.try_query::<&Shown>()?;
+    shown
+        .iter(world)
+        .find(|shown| shown.ball == Some(ball))
+        .map(SavedLook::of)
+}
+
+/// The looks in `world` that outlive their balls, as a save keeps them (#3779).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .filter(|shown| shown.ball.is_none())
+        .map(SavedLook::of)
+        .collect()
+}
+
+/// Makes a loaded save's looks that outlived their balls again, each on its own (#3779).
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        world.spawn((
+            Alone,
+            Transform::from_translation(saved.place),
+            crate::fx::Resumes(saved),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
+}
+
 /// Gives each new ball its look (`0x79E630`, `0x79EA50`): its model and its glows.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn show(
     mut commands: Commands,
-    balls: Query<(Entity, &Thrown, &Transform), Added<Thrown>>,
+    balls: Query<
+        (
+            Entity,
+            Option<&Thrown>,
+            &Transform,
+            Option<&crate::fx::Resumes<SavedLook>>,
+            Has<Alone>,
+        ),
+        Or<(Added<Thrown>, Added<Alone>)>,
+    >,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes, mut dice): (
         ResMut<Assets<Effect>>,
@@ -62,9 +133,21 @@ fn show(
         ResMut<Dice>,
     ),
 ) {
-    for (entity, thrown, place) in &balls {
-        let Some(colour) = particles::ball_colour(thrown.0) else {
-            continue;
+    for (entity, thrown, place, resumed, alone) in &balls {
+        // A loaded ball's look goes on as it went, one whose ball had landed on its own (#3779).
+        let kept = match resumed {
+            Some(crate::fx::Resumes(saved)) => saved.clone(),
+            None => {
+                let Some(colour) = thrown.and_then(|thrown| particles::ball_colour(thrown.0))
+                else {
+                    continue;
+                };
+                SavedLook {
+                    look: TrapBall::new(colour, &mut dice.0),
+                    place: place.translation,
+                    before: None,
+                }
+            }
         };
         if !looks.made {
             looks.made = true;
@@ -93,7 +176,7 @@ fn show(
             commands
                 .spawn((
                     model_looks::scene(&assets, model),
-                    Transform::from_translation(place.translation)
+                    Transform::from_translation(kept.place)
                         .with_scale(Vec3::splat(iso::MODEL_SCALE)),
                     model_looks::Ordered::default(),
                     DespawnOnExit(AppState::InGame),
@@ -116,13 +199,20 @@ fn show(
             ));
         }
         shown.insert(Shown {
-            ball: Some(entity),
-            look: TrapBall::new(colour, &mut dice.0),
+            ball: (!alone).then_some(entity),
+            look: kept.look,
             model,
-            place: place.translation,
-            before: None,
+            place: kept.place,
+            before: kept.before,
             mesh,
         });
+        if alone {
+            commands.entity(entity).despawn();
+        } else if resumed.is_some() {
+            commands
+                .entity(entity)
+                .remove::<crate::fx::Resumes<SavedLook>>();
+        }
     }
 }
 

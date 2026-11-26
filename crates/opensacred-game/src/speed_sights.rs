@@ -30,8 +30,58 @@ struct Unmade {
 #[derive(Component)]
 struct Shown {
     bearer: Entity,
+    /// Its variant, as it was asked.
+    variant: usize,
     look: SpeedSight,
     mesh: Handle<Mesh>,
+}
+
+/// A speed's sight as a save keeps it (#3779): its bearer by its name, its variant and its look.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedSpeedSight")]
+pub struct SavedLook {
+    #[serde(with = "crate::names::required")]
+    bearer: Entity,
+    variant: usize,
+    look: SpeedSight,
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        self.bearer = mapper.get_mapped(self.bearer);
+    }
+}
+
+/// The speeds' sights in `world` as a save keeps them (#3779).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut shown = world.query::<&Shown>();
+    shown
+        .iter(world)
+        .map(|shown| SavedLook {
+            bearer: shown.bearer,
+            variant: shown.variant,
+            look: shown.look.clone(),
+        })
+        .collect()
+}
+
+/// Makes a loaded save's speeds' sights again (#3779); one whose bearer the load finds not is
+/// left out.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        if crate::names::found(Some(saved.bearer)).is_none() {
+            continue;
+        }
+        world.spawn((
+            Unmade {
+                variant: saved.variant,
+                bearer: saved.bearer,
+                seconds: 0.0,
+            },
+            crate::fx::Resumes(saved.look),
+            DespawnOnExit(AppState::InGame),
+        ));
+    }
 }
 
 /// The two systems' materials, added whole, by their variant; none where a texture is missing.
@@ -66,12 +116,12 @@ pub(crate) fn show(commands: &mut Commands, bearer: Entity, seconds: f32) {
 /// its loop (`0x79A750`, `0x79AB70`).
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(Entity, &Unmade, Option<&crate::fx::Resumes<SpeedSight>>)>,
     places: Query<&GlobalTransform>,
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, resumed) in &unmade {
         let Ok(at) = places.get(unmade.bearer) else {
             commands.entity(entity).despawn();
             continue;
@@ -98,16 +148,22 @@ fn make(
             entity,
         ));
         let mut made = commands.entity(entity);
-        made.remove::<Unmade>().insert((
-            Shown {
-                bearer: unmade.bearer,
-                look: SpeedSight::new(unmade.variant, unmade.seconds),
-                mesh: mesh.clone(),
-            },
-            Transform::from_translation(at.translation()),
-            Visibility::default(),
-            crate::hums::Hum(LOOP),
-        ));
+        made.remove::<(Unmade, crate::fx::Resumes<SpeedSight>)>()
+            .insert((
+                Shown {
+                    bearer: unmade.bearer,
+                    variant: unmade.variant,
+                    // A loaded sight goes on as it went (#3779).
+                    look: resumed.map_or_else(
+                        || SpeedSight::new(unmade.variant, unmade.seconds),
+                        |crate::fx::Resumes(look)| look.clone(),
+                    ),
+                    mesh: mesh.clone(),
+                },
+                Transform::from_translation(at.translation()),
+                Visibility::default(),
+                crate::hums::Hum(LOOP),
+            ));
         if let Some(material) = materials.get(unmade.variant).cloned().flatten() {
             made.with_child((
                 Mesh3d(mesh),

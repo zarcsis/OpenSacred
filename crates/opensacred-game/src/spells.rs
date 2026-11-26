@@ -889,16 +889,19 @@ pub struct SavedSkull {
     #[entities]
     skull: Skull,
     at: Vec3,
+    /// Its look as it was (#3779).
+    look: Option<crate::flying_skulls::SavedLook>,
 }
 
 /// The skulls in flight in `world` as a save keeps them (#3769).
 pub(crate) fn saved_skulls(world: &mut World) -> Vec<SavedSkull> {
-    let mut skulls = world.query::<(&Skull, &Transform)>();
+    let mut skulls = world.query::<(Entity, &Skull, &Transform)>();
     skulls
         .iter(world)
-        .map(|(skull, at)| SavedSkull {
+        .map(|(entity, skull, at)| SavedSkull {
             skull: skull.clone(),
             at: at.translation,
+            look: crate::flying_skulls::saved_look(world, entity),
         })
         .collect()
 }
@@ -911,13 +914,16 @@ pub(crate) fn skulls_again(world: &mut World, skulls: Vec<SavedSkull>) {
             target: crate::names::found(saved.skull.target),
             ..saved.skull
         };
-        world.spawn((
+        let mut made = world.spawn((
             skull,
             Transform::from_translation(saved.at),
             Visibility::Inherited,
             crate::hums::Hum(SOULS_LOOP),
             DespawnOnExit(AppState::InGame),
         ));
+        if let Some(look) = saved.look {
+            made.insert(crate::fx::Resumes(look));
+        }
     }
 }
 
@@ -1221,6 +1227,9 @@ pub enum SpellLook {
     HellScream(crate::hell_screams::SavedLook),
     Purgatory(crate::purgatories::SavedLook),
     FireSkin(crate::fire_skins::SavedLook),
+    /// The Dark Elf's traps' balls' and landings' looks (#3779).
+    TrapBall(crate::trap_balls::SavedLook),
+    Landing(crate::trap_landings::SavedLook),
 }
 
 impl bevy::ecs::entity::MapEntities for SpellLook {
@@ -1240,7 +1249,9 @@ impl bevy::ecs::entity::MapEntities for SpellLook {
             | Self::DemonFire(_)
             | Self::HellDisk(..)
             | Self::HellScream(_)
-            | Self::Purgatory(_) => {}
+            | Self::Purgatory(_)
+            | Self::TrapBall(_)
+            | Self::Landing(_) => {}
             Self::FireSkin(look) => look.map_entities(mapper),
         }
     }
@@ -1268,6 +1279,8 @@ fn look_of(world: &World, object: Entity) -> Option<SpellLook> {
         .or_else(|| crate::hell_screams::saved_look(world, object).map(SpellLook::HellScream))
         .or_else(|| crate::purgatories::saved_look(world, object).map(SpellLook::Purgatory))
         .or_else(|| crate::fire_skins::saved_look(world, object).map(SpellLook::FireSkin))
+        .or_else(|| crate::trap_balls::saved_look(world, object).map(SpellLook::TrapBall))
+        .or_else(|| crate::trap_landings::saved_look(world, object).map(SpellLook::Landing))
 }
 
 /// Gives the loaded object `object` its look as the save kept it.
@@ -1301,6 +1314,10 @@ fn look_again(object: &mut EntityWorldMut<'_>, look: SpellLook) {
         SpellLook::HellScream(look) => crate::hell_screams::look_again(object, look),
         SpellLook::Purgatory(look) => crate::purgatories::look_again(object, look),
         SpellLook::FireSkin(look) => crate::fire_skins::look_again(object, look),
+        SpellLook::TrapBall(look) => {
+            object.insert(crate::fx::Resumes(look));
+        }
+        SpellLook::Landing(look) => crate::trap_landings::look_again(object, look),
     }
 }
 
@@ -1601,7 +1618,8 @@ pub(crate) fn objects_again(world: &mut World, objects: Vec<SavedSpellObject>) {
                 made.insert(zone);
             }
             SpellObject::Ball(ball) => {
-                made.insert(ball);
+                // Its look's variant, as it was thrown (`throw_trap`).
+                made.insert((crate::trap_balls::Thrown(ball.art), ball));
             }
             SpellObject::Pentagram(pentagram) => {
                 made.insert(pentagram);

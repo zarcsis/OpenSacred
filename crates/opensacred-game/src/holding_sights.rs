@@ -50,6 +50,86 @@ struct Halo {
     mesh: Handle<Mesh>,
 }
 
+/// A holding's sight as a save keeps it (#3779): a burning light or a holy conversion, its
+/// creature by its name and its look; a load makes it again at its creature.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename = "SavedHoldingSight")]
+pub enum SavedLook {
+    Burning {
+        #[serde(with = "crate::names::required")]
+        target: Entity,
+        look: BurningLight,
+    },
+    Conversion {
+        #[serde(with = "crate::names::required")]
+        target: Entity,
+        look: HolyConversion,
+    },
+}
+
+impl bevy::ecs::entity::MapEntities for SavedLook {
+    fn map_entities<E: bevy::ecs::entity::EntityMapper>(&mut self, mapper: &mut E) {
+        match self {
+            Self::Burning { target, .. } | Self::Conversion { target, .. } => {
+                *target = mapper.get_mapped(*target);
+            }
+        }
+    }
+}
+
+/// The holdings' sights in `world` as a save keeps them (#3779).
+pub(crate) fn saved(world: &mut World) -> Vec<SavedLook> {
+    let mut burning = world.query::<&Burning>();
+    let mut saved: Vec<SavedLook> = burning
+        .iter(world)
+        .map(|burning| SavedLook::Burning {
+            target: burning.target,
+            look: burning.look.clone(),
+        })
+        .collect();
+    let mut halos = world.query::<&Halo>();
+    saved.extend(halos.iter(world).map(|halo| SavedLook::Conversion {
+        target: halo.target,
+        look: halo.look.clone(),
+    }));
+    saved
+}
+
+/// Makes a loaded save's holdings' sights again (#3779); one whose creature the load finds not
+/// is left out.
+pub(crate) fn again(world: &mut World, looks: Vec<SavedLook>) {
+    for saved in looks {
+        match saved {
+            SavedLook::Burning { target, look } => {
+                if crate::names::found(Some(target)).is_none() {
+                    continue;
+                }
+                world.spawn((
+                    Unmade::Burning {
+                        target,
+                        seconds: 0.0,
+                    },
+                    crate::fx::Resumes(look),
+                    DespawnOnExit(AppState::InGame),
+                ));
+            }
+            SavedLook::Conversion { target, look } => {
+                if crate::names::found(Some(target)).is_none() {
+                    continue;
+                }
+                world.spawn((
+                    Unmade::Conversion {
+                        target,
+                        seconds: 0.0,
+                    },
+                    crate::fx::Resumes(look),
+                    DespawnOnExit(AppState::InGame),
+                ));
+            }
+        }
+    }
+}
+
 /// The sights' materials, made as first asked: the sparks added by their alpha, the halo's glows
 /// added whole; none where a texture is missing.
 #[derive(Resource, Default)]
@@ -100,14 +180,23 @@ fn knocked(
 
 /// Gives each new sight its look at its creature, its mesh and its material (`0x77FA60`,
 /// `0x782EF0`).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system takes its resources and queries as arguments"
+)]
 fn make(
     mut commands: Commands,
-    unmade: Query<(Entity, &Unmade)>,
+    unmade: Query<(
+        Entity,
+        &Unmade,
+        Option<&crate::fx::Resumes<BurningLight>>,
+        Option<&crate::fx::Resumes<HolyConversion>>,
+    )>,
     (places, sizes): (Query<&GlobalTransform>, Query<&crate::arrows::Size>),
     (data, assets, mut looks): (Option<Res<Data>>, Res<AssetServer>, ResMut<Looks>),
     (mut effects, mut meshes): (ResMut<Assets<Effect>>, ResMut<Assets<Mesh>>),
 ) {
-    for (entity, unmade) in &unmade {
+    for (entity, unmade, burning, conversion) in &unmade {
         let target = match *unmade {
             Unmade::Burning { target, .. } | Unmade::Conversion { target, .. } => target,
         };
@@ -141,7 +230,12 @@ fn make(
             .clone();
         let mesh = meshes.add(empty());
         let mut made = commands.entity(entity);
-        made.remove::<Unmade>().insert((
+        made.remove::<(
+            Unmade,
+            crate::fx::Resumes<BurningLight>,
+            crate::fx::Resumes<HolyConversion>,
+        )>()
+        .insert((
             Transform::from_translation(at.translation()),
             Visibility::default(),
         ));
@@ -150,7 +244,11 @@ fn make(
                 let size = sizes.get(target).map_or(0.0, |size| size.0);
                 made.insert(Burning {
                     target,
-                    look: BurningLight::new(seconds, size),
+                    // A loaded sight goes on as it went (#3779).
+                    look: burning.map_or_else(
+                        || BurningLight::new(seconds, size),
+                        |crate::fx::Resumes(look)| look.clone(),
+                    ),
                     mesh: mesh.clone(),
                 });
                 sparks
@@ -158,7 +256,10 @@ fn make(
             Unmade::Conversion { target, seconds } => {
                 made.insert(Halo {
                     target,
-                    look: HolyConversion::new(seconds),
+                    look: conversion.map_or_else(
+                        || HolyConversion::new(seconds),
+                        |crate::fx::Resumes(look)| look.clone(),
+                    ),
                     mesh: mesh.clone(),
                 });
                 glows

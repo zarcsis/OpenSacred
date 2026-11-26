@@ -135,6 +135,8 @@ pub enum SavedCastObject {
         fire: HomingFire,
         at: Vec3,
         kind: Option<opensacred_rules::particles::HomingKind>,
+        /// Its flames as they were (#3779).
+        look: Option<crate::homing_fires::SavedLook>,
     },
     Flame {
         flame: Flame,
@@ -156,6 +158,8 @@ pub enum SavedCastObject {
         ball: Ball,
         at: Vec3,
         thrown: Option<u16>,
+        /// Its look as it was (#3779).
+        look: Option<crate::trap_balls::SavedLook>,
     },
 }
 
@@ -193,19 +197,19 @@ impl SavedCastObject {
 pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedCastObject> {
     let mut objects = Vec::new();
     let mut fires = world.query::<(
+        Entity,
         &HomingFire,
         &Transform,
         Option<&crate::homing_fires::Flames>,
     )>();
-    objects.extend(
-        fires
-            .iter(world)
-            .map(|(fire, at, flames)| SavedCastObject::HomingFire {
-                fire: fire.clone(),
-                at: at.translation,
-                kind: flames.map(|flames| flames.0),
-            }),
-    );
+    objects.extend(fires.iter(world).map(|(entity, fire, at, flames)| {
+        SavedCastObject::HomingFire {
+            fire: fire.clone(),
+            at: at.translation,
+            kind: flames.map(|flames| flames.0),
+            look: crate::homing_fires::saved_look(world, entity),
+        }
+    }));
     let mut flames = world.query::<(
         &Flame,
         &Transform,
@@ -241,14 +245,20 @@ pub(crate) fn saved_objects(world: &mut World) -> Vec<SavedCastObject> {
                 at: at.translation,
             }),
     );
-    let mut balls = world.query::<(&Ball, &Transform, Option<&crate::trap_balls::Thrown>)>();
+    let mut balls = world.query::<(
+        Entity,
+        &Ball,
+        &Transform,
+        Option<&crate::trap_balls::Thrown>,
+    )>();
     objects.extend(
         balls
             .iter(world)
-            .map(|(ball, at, thrown)| SavedCastObject::Ball {
+            .map(|(entity, ball, at, thrown)| SavedCastObject::Ball {
                 ball: ball.clone(),
                 at: at.translation,
                 thrown: thrown.map(|thrown| thrown.0),
+                look: crate::trap_balls::saved_look(world, entity),
             }),
     );
     objects
@@ -263,7 +273,12 @@ pub(crate) fn objects_again(world: &mut World, objects: Vec<SavedCastObject>) {
         }
         let gone = DespawnOnExit(AppState::InGame);
         match object {
-            SavedCastObject::HomingFire { fire, at, kind } => {
+            SavedCastObject::HomingFire {
+                fire,
+                at,
+                kind,
+                look,
+            } => {
                 let mut made = world.spawn((
                     fire,
                     Transform::from_translation(at),
@@ -272,6 +287,9 @@ pub(crate) fn objects_again(world: &mut World, objects: Vec<SavedCastObject>) {
                 ));
                 if let Some(kind) = kind {
                     made.insert(crate::homing_fires::Flames(kind));
+                }
+                if let Some(look) = look {
+                    made.insert(crate::fx::Resumes(look));
                 }
             }
             SavedCastObject::Flame {
@@ -304,7 +322,12 @@ pub(crate) fn objects_again(world: &mut World, objects: Vec<SavedCastObject>) {
             SavedCastObject::SprintersAura { aura, at } => {
                 world.spawn((aura, Transform::from_translation(at), gone));
             }
-            SavedCastObject::Ball { ball, at, thrown } => {
+            SavedCastObject::Ball {
+                ball,
+                at,
+                thrown,
+                look,
+            } => {
                 let mut made = world.spawn((
                     ball,
                     Transform::from_translation(at),
@@ -313,6 +336,9 @@ pub(crate) fn objects_again(world: &mut World, objects: Vec<SavedCastObject>) {
                 ));
                 if let Some(thrown) = thrown {
                     made.insert(crate::trap_balls::Thrown(thrown));
+                }
+                if let Some(look) = look {
+                    made.insert(crate::fx::Resumes(look));
                 }
             }
         }
