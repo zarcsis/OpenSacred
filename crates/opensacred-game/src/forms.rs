@@ -54,6 +54,18 @@ pub struct Clips {
     pub defend: Option<String>,
     /// The hit clip, the slot 175, where the model has it (`hit_clips`, #3637).
     pub hit: Option<String>,
+    /// The Daemon's clips in the form of 1094, where the model has them (#3887).
+    pub soaring: Option<Soaring>,
+}
+
+/// The Daemon's clips while an effect 50 lies in his list and he does not ride
+/// (`opensacred_rules::arts::formed_slots`, `0x5467A0` at `0x5469F2`): standing and in his stance,
+/// moving at either gait, and striking, with the fractions at which the strike hits.
+#[derive(Clone, Debug)]
+pub struct Soaring {
+    pub stand: String,
+    pub moving: String,
+    pub strike: (String, [f32; 2]),
 }
 
 /// A form of the hero: its type, its model and clips, its record's values for its fight, its

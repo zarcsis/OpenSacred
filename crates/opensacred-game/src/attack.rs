@@ -798,8 +798,17 @@ fn engage(
             debug!("attack: the hero shoots its {bolt:?} bolts by their own clip");
         }
         let count = u32::try_from(clips.attacks.len()).unwrap_or(0);
+        // In the Daemon's form of 1094 every strike and shot is his form's 147 (`0x5467A0` at
+        // `0x546A69`, #3887).
+        let formed = clips
+            .soaring
+            .as_ref()
+            .filter(|_| hero::soaring(effects))
+            .map(|form| &form.strike);
         let strike = if riding {
             clips.riding_attack.as_ref()
+        } else if formed.is_some() {
+            formed
         } else {
             usize::try_from(dice.0.below(count))
                 .ok()

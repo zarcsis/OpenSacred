@@ -146,6 +146,8 @@ pub struct Hero {
     /// Its hit clip, the slot 175, laid over the clip in play as a blow strikes it
     /// (`forms::Clips::hit`, `hit_clips`, #3637).
     pub hit: Option<String>,
+    /// The Daemon's clips in the form of 1094 (`forms::Clips::soaring`, #3887).
+    pub soaring: Option<crate::forms::Soaring>,
     pub position: Vec3,
     /// The floor it starts on at [`Self::position`], where the start script's `StartPosition`
     /// names one (45, `0x491B30`: the Vampiress's 2, #1017), and on which it rises before the
@@ -202,6 +204,7 @@ impl Hero {
             knocked: None,
             defend: None,
             hit: None,
+            soaring: None,
             position,
             floor: None,
             target: None,
@@ -238,6 +241,7 @@ impl Hero {
         self.knocked.clone_from(&form.clips.knocked);
         self.defend.clone_from(&form.clips.defend);
         self.hit.clone_from(&form.clips.hit);
+        self.soaring.clone_from(&form.clips.soaring);
         self.gltf = Some(assets.load(self.model.clone()));
         self.bare = !form.armed;
         self.equipment = self.equip(assets);
@@ -510,6 +514,8 @@ pub struct Clips {
     pub defend: Option<(AnimationNodeIndex, Handle<AnimationClip>)>,
     /// The hit clip's node and clip, laid over the clip in play (`hit_clips`, #3637).
     pub hit: Option<(AnimationNodeIndex, Handle<AnimationClip>)>,
+    /// The Daemon's clips in the form of 1094, where the model has them (#3887).
+    pub soaring: Option<Soaring>,
     /// The entity of the model's animation player.
     pub player: Option<Entity>,
 }
@@ -528,10 +534,23 @@ impl Clips {
     }
 
     /// The clip of the hero moving at a gait, or standing: in its stance while `fight`, where
-    /// its model has one, else idle; riding, its ride whatever its horse does (`0x5467A0`).
-    fn node(&self, moving: Option<Gait>, fight: bool, riding: bool) -> AnimationNodeIndex {
+    /// its model has one, else idle; riding, its ride whatever its horse does; `soaring`, in the
+    /// Daemon's form of 1094, his form's clips, the same in a fight or not (`0x5467A0`, #3887).
+    fn node(
+        &self,
+        moving: Option<Gait>,
+        fight: bool,
+        (riding, soaring): (bool, bool),
+    ) -> AnimationNodeIndex {
         if riding && let Some((node, _)) = &self.riding[1] {
             return *node;
+        }
+        if let Some(form) = self.soaring.as_ref().filter(|_| soaring) {
+            return if moving.is_some() {
+                form.moving.0
+            } else {
+                form.stand
+            };
         }
         match (moving, self.stance) {
             (Some(gait), _) => self.of(gait).1,
@@ -539,6 +558,29 @@ impl Clips {
             (None, _) => self.idle,
         }
     }
+
+    /// The hero's running clip, its form's moving clip while `soaring`, which the Daemon's
+    /// charge 1091 plays (`0x5467A0(2)` at `0x51B68A`, #3887).
+    pub fn running(&self, soaring: bool) -> (AnimationNodeIndex, Handle<AnimationClip>) {
+        match self.soaring.as_ref().filter(|_| soaring) {
+            Some(form) => (form.moving.0, form.moving.1.clone()),
+            None => (self.moving[1].1, self.moving[1].0.clone()),
+        }
+    }
+}
+
+/// The Daemon's clips' nodes in the form of 1094 (`forms::Soaring`, #3887): standing, moving with
+/// its clip, and his strike.
+pub struct Soaring {
+    stand: AnimationNodeIndex,
+    moving: (AnimationNodeIndex, Handle<AnimationClip>),
+    pub strike: Strike,
+}
+
+/// Whether the hero plays the Daemon's form's clips: an effect 50 lies in its list, whatever its
+/// key and its seconds (`0x5469F2`).
+pub fn soaring(effects: Option<&crate::effects::Effects>) -> bool {
+    effects.is_some_and(|effects| effects.holds(opensacred_rules::arts::FORMED))
 }
 
 pub fn load(mut hero: ResMut<Hero>, assets: Res<AssetServer>) {
@@ -665,6 +707,19 @@ pub fn spawn(
         let hit = hero.hit.clone().and_then(|name| clip(&name));
         let hit_at = clips.len();
         clips.extend(hit.iter().cloned());
+        // The Daemon's form's clips, after it (#3887).
+        let soaring = hero.soaring.clone().and_then(|form| {
+            Some((
+                clip(&form.stand)?,
+                clip(&form.moving)?,
+                clip(&form.strike.0)?,
+                form.strike.1,
+            ))
+        });
+        let soaring_at = clips.len();
+        if let Some((stand, moving, strike, _)) = &soaring {
+            clips.extend([stand.clone(), moving.clone(), strike.clone()]);
+        }
         let (graph, nodes) = AnimationGraph::from_clips(clips);
         let riding = riding.map(|clip| {
             let clip = clip?;
@@ -677,6 +732,13 @@ pub fn spawn(
         let knocked = knocked.and_then(|clip| Some((*nodes.get(knocked_at)?, clip)));
         let defend = defend.and_then(|clip| Some((*nodes.get(defend_at)?, clip)));
         let hit = hit.and_then(|clip| Some((*nodes.get(hit_at)?, clip)));
+        let soaring = soaring.and_then(|(_, moving, strike, fractions)| {
+            Some(Soaring {
+                stand: *nodes.get(soaring_at)?,
+                moving: (*nodes.get(soaring_at + 1)?, moving),
+                strike: (*nodes.get(soaring_at + 2)?, strike, fractions),
+            })
+        });
         let mut bolt_nodes = nodes[first_bolt..].iter();
         let bolts = bolts.map(|bolt| {
             let (clip, fractions) = bolt?;
@@ -724,6 +786,7 @@ pub fn spawn(
             knocked,
             defend,
             hit,
+            soaring,
             player: None,
         });
     }
@@ -1509,7 +1572,7 @@ pub fn run(
         let ranged = holding.is_some_and(|holding| holding.0.ranged);
         let fight =
             nearest.found && nearest.distance < opensacred_rules::fight::in_fight_within(ranged);
-        let node = clips.node(moving, fight, riding);
+        let node = clips.node(moving, fight, (riding, soaring(effects)));
         let Some((mut player, mut transitions)) =
             clips.player.and_then(|e| players.get_mut(e).ok())
         else {
@@ -1922,6 +1985,7 @@ mod tests {
                 knocked: None,
                 defend: None,
                 hit: None,
+                soaring: None,
                 player: None,
             });
         }
@@ -1984,13 +2048,70 @@ mod tests {
             knocked: None,
             defend: None,
             hit: None,
+            soaring: None,
             player: None,
         };
         let with = clips(Some(node(4)));
-        assert_eq!(with.node(None, true, false), node(4));
-        assert_eq!(with.node(None, false, false), node(1));
+        assert_eq!(with.node(None, true, (false, false)), node(4));
+        assert_eq!(with.node(None, false, (false, false)), node(1));
         // Moving, its gait's clip; a model without a stance, its idle.
-        assert_eq!(with.node(Some(Gait::Run), true, false), node(3));
-        assert_eq!(clips(None).node(None, true, false), node(1));
+        assert_eq!(with.node(Some(Gait::Run), true, (false, false)), node(3));
+        assert_eq!(clips(None).node(None, true, (false, false)), node(1));
+        // Soaring without the form's clips, its own.
+        assert_eq!(with.node(None, true, (false, true)), node(4));
+    }
+
+    #[test]
+    fn the_daemon_soars_in_his_forms_clips_but_riding() {
+        let node = AnimationNodeIndex::new;
+        let mut clips = Clips {
+            graph: Handle::default(),
+            idle: node(1),
+            stance: Some(node(4)),
+            moving: [(Handle::default(), node(2)), (Handle::default(), node(3))],
+            attacks: Vec::new(),
+            bolts: [None, None],
+            arts: Vec::new(),
+            dying: Vec::new(),
+            pickup: None,
+            riding: [None, Some((node(9), Handle::default())), None],
+            riding_attack: None,
+            knocked: None,
+            defend: None,
+            hit: None,
+            soaring: Some(Soaring {
+                stand: node(5),
+                moving: (node(6), Handle::default()),
+                strike: (node(7), Handle::default(), [0.27, 0.0]),
+            }),
+            player: None,
+        };
+        // Standing, in a fight or not, his form's stance; moving at either gait, its move.
+        for fight in [false, true] {
+            assert_eq!(clips.node(None, fight, (false, true)), node(5));
+        }
+        for gait in [Gait::Walk, Gait::Run] {
+            assert_eq!(clips.node(Some(gait), false, (false, true)), node(6));
+        }
+        // Riding, the ride first; out of the form, his own.
+        assert_eq!(clips.node(None, false, (true, true)), node(9));
+        assert_eq!(clips.node(Some(Gait::Walk), false, (false, false)), node(2));
+        // His charge runs by his running clip: his form's while it holds.
+        assert_eq!(clips.running(true).0, node(6));
+        assert_eq!(clips.running(false).0, node(3));
+        clips.soaring = None;
+        assert_eq!(clips.running(true).0, node(3));
+    }
+
+    #[test]
+    fn an_effect_50_makes_the_daemon_soar_whatever_its_key() {
+        use opensacred_rules::fight::Effect;
+        assert!(!soaring(None));
+        let mut effects = crate::effects::Effects::default();
+        assert!(!soaring(Some(&effects)));
+        let mut formed = Effect::new(opensacred_rules::arts::FORMED, 0.0);
+        formed.art = opensacred_rules::arts::DAEMON_FORM;
+        effects.add(formed, 10.0);
+        assert!(soaring(Some(&effects)));
     }
 }
