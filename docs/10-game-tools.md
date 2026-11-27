@@ -218,6 +218,7 @@ The line is split at blanks, single or double quotes keeping blanks within a wor
   `--exec` splits at every semicolon, so a command in it cannot hold one.
 * Fixed 2026-10-20 (#202): a script goes on after a `screenshot` only once its file is written, a frame or two later, so that a `quit` or a jump right after it cannot come first (the last frame of a script was lost, and a frame asked for before a jump showed the new place before its sectors); and `wait ready` (and the state's `ready`) holds only once the sectors around the hero's place of now are in, not merely when the streamer has nothing to build, which it had right after a jump.
 * Fixed 2026-10-22 (#538): a hero whose model has nothing to play, a `--hero` model without animations or without the hero's clips, is ready once its scene has spawned (`hero::still`), where it waited for an animation player that Bevy's glTF loader gives no such scene, so that `wait ready`, `--screenshot` and `--benchmark` never ended.
+* Fixed 2026-11-27 (#3909): the scene is ready once the models about the hero are drawn too (`drawn`): every model within 1,600 units of the hero has its scene spawned and its model materials, but a creature whose model failed to load, and no render pipeline is still compiling, for three frames running; a model that never comes is given up on after 10 s and named in the log. Before, `wait ready`, `--screenshot`, `--record` and the client's `wait-ready` could end with the ground drawn and no hero or creature yet.
 
 ## 7. The console (#174)
 

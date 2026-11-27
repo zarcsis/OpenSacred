@@ -1955,6 +1955,10 @@ fn waited(world: &mut World) -> bool {
                 && hero
                     .zip(world.get_resource::<Streamer>())
                     .is_some_and(|(hero, streamer)| streamer.settled(hero))
+                // And the models about it drawn (#3909).
+                && world
+                    .get_resource::<crate::drawn::Drawn>()
+                    .is_some_and(crate::drawn::Drawn::ready)
         }
         Some(Waiting::Arrived) => {
             let mut bodies = world.query::<&Body>();

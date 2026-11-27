@@ -752,6 +752,10 @@ pub fn scene(assets: &AssetServer, model: &str) -> (WorldAssetRoot, Source) {
 #[derive(Component)]
 pub struct Unplaced;
 
+/// A model whose scene has spawned, [`Unplaced`] or not (`drawn`, #3909).
+#[derive(Component)]
+pub struct Spawned;
+
 /// A mesh of a model whose scene has just spawned, hidden until [`convert`] gives it its model
 /// material (#1628). Drawn before, it showed for a frame the glTF's material, lit by the scene's
 /// lights and out of the order, and a worn item's mesh on the item's own skeleton, which
@@ -898,7 +902,7 @@ fn ready(
     let Ok(with) = models.get(ready.entity) else {
         return;
     };
-    commands.entity(ready.entity).insert(Unplaced);
+    commands.entity(ready.entity).insert((Unplaced, Spawned));
     let root = with.map_or(ready.entity, |with| with.0);
     if !roots.get(root).is_ok_and(|ordered| ordered.0.is_some()) {
         return;

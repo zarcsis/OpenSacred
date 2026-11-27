@@ -1774,6 +1774,11 @@ impl Npc {
         self.hits.share
     }
 
+    /// Its model's glTF, whose load a script's `wait ready` waits for (`drawn`, #3909).
+    pub(crate) fn gltf_id(&self) -> AssetId<Gltf> {
+        self.gltf.id()
+    }
+
     /// Its attack's first slot, which one of its fidgets plays ([`Self::fidget_slot`]).
     pub(crate) fn attack_slot(&self) -> u16 {
         self.names.attack_slot
