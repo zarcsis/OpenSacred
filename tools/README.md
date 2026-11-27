@@ -26,16 +26,22 @@ uv run python -I tools/analysis/pe/pe_deep.py OriginalGame/Sacred.exe --no-disas
 
 ## The Ghidra project's scripts
 
-`tools/ghidra/` holds the Ghidra scripts (Java, compiled by Ghidra as it runs them) that build up the local project of docs/03 §4.1, the merger of the community's names, and the bridge through which every Claude Code session reaches the pyghidra-mcp server, starting it when it is down (docs/03 §3.2).
+`tools/ghidra/` holds the Ghidra scripts (Java, compiled by Ghidra as it runs them) that build up the local project of docs/03 §4.1, the merger of the community's names, the tool that rebuilds the project with them, and the bridge through which every Claude Code session reaches the pyghidra-mcp server, starting it when it is down (docs/03 §3.2).
 The scripts run on the project with the server stopped and `pyghidra-mcp.paused` in the project's directory, so that no session starts it again meanwhile, and their outputs stay in the project, never in the repository.
+`project.py build` runs them all, in docs/03 §4.1's order, on a project that it makes from the installation; `project.py dump` and `compare` check one project's markup against another's (#3870).
+
+```powershell
+uv run python -I tools/ghidra/project.py build --project-dir C:\Temp\GhidraNew --dump-dir C:\Temp\dumps   # a new project beside the server's
+uv run python -I tools/ghidra/project.py dump --out C:\Temp\dumps --tag orig   # the server's project, from a copy (save it through MCP first)
+uv run python -I tools/ghidra/project.py compare C:\Temp\dumps\Sacred.exe.orig.dump C:\Temp\dumps\Sacred.exe.rebuilt.dump
+uv run python -I tools/ghidra/project.py build --replace   # in place of the server's project, the server stopped; the old one moved aside
+```
+
+One script of them on the server's project, the server stopped:
 
 ```powershell
 $g = "$env:LOCALAPPDATA\Programs\Ghidra\ghidra_12.2_PUBLIC\support\analyzeHeadless.bat"
 & $g "$env:USERPROFILE\GhidraProjects" OpenSacred -process Sacred.exe-d98109 -noanalysis -scriptPath tools\ghidra `
-  -postScript RttiClassesScript.java `
-  -postScript ImportNamesScript.java <dir>\community-names.tsv `
-  -postScript MarkLibraryScript.java LIBRARY:7F1180-811000 LIBRARY:818000-85AB5A EH:85ACD2-88F629 `
-  -postScript CarryNamesScript.java /GameServer.exe-6233cd `
   -postScript ProjectStatsScript.java
 ```
 
@@ -48,6 +54,9 @@ $g = "$env:LOCALAPPDATA\Programs\Ghidra\ghidra_12.2_PUBLIC\support\analyzeHeadle
 | `ghidra/MarkLibraryScript.java` | tags the functions of address ranges (`TAG:start-end`) and of the `_STL` classes |
 | `ghidra/CarryNamesScript.java` | carries names and classes from another program of the project over the functions matched by their normalized bytes |
 | `ghidra/ProjectStatsScript.java` | the counts: functions by the source of their names, library, in classes; classes; vftables |
+| `ghidra/RenameProgramScript.java` | renames a closed program of the project |
+| `ghidra/DumpMarkupScript.java` | writes a program's markup as sorted text lines: the functions with their signatures, frames, tags and variables, the comments, symbols, defined data, equates, bookmarks, data types, the references' counts |
+| `ghidra/project.py` | `build`: the project rebuilt from the installation (docs/03 §4.1), its executables checked against the manifest, named as pyghidra-mcp named them, the community's sources fetched at pinned commits into a temporary directory; `dump`: each program's markup from a copy of a project; `compare`: two dumps' differences by kind and the functions' fields; the standard library alone, its tests `test_project.py` without Ghidra |
 | `ghidra/mcp_bridge.py` | the ghidra MCP server of a Claude Code session (stdio): starts pyghidra-mcp when nothing answers, and passes the session's messages to it over Streamable HTTP; `--start` starts it alone; the standard library alone, its tests `test_mcp_bridge.py` on a fake server |
 
 ## The release's FFmpeg

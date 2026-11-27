@@ -590,6 +590,14 @@ The maintainer's play (#551, asked for on 2026-10-22): the original on the scree
 
 The steps run on the project with the server stopped and `pyghidra-mcp.paused` in the project's directory (`save`, then `taskkill`, §3.2), each through Ghidra's headless analyzer with the scripts of `tools/ghidra/` (`ProjectStatsScript.java` counts before and after; tools/README.md has the commands), then the file is deleted and the server started again, by hand or by a session's bridge at its next call (§3.2).
 
+**The project is rebuilt, never copied** (#3870).
+It holds the imported `Sacred.exe` and `GameServer.exe`, the game's own files, so a copy of it would be a copy of the game, and it holds nothing else that the steps above do not make: on 2026-11-26 every function's name in it came from the analysis, an import or a script of `tools/ghidra/`, and every comment and bookmark from the analyzers, for the sessions keep what they find in `docs/re/`.
+`tools/ghidra/project.py build` makes it again from the installation in one go: the executables checked against the manifest, imported with the default analysis and named as pyghidra-mcp's first start named them, then steps 2–5 in their order, with the community's sources fetched at the commits of step 3 into a temporary directory.
+On 2026-11-26 it took 5 to 8 minutes, and `project.py compare` found its markup different from the project's of 2026-10-18 in 22 of 209,642 lines of `Sacred.exe` and in 2 of 75,544 of `GameServer.exe`, all of them the analysis's (Ghidra 12.1.4's, in the server's threads, against 12.2's headless): one switch table more and one library function merged into its neighbour, the purge of the DirectDraw imports, a few labels and bookmarks.
+Ghidra's XML export, without the memory's contents, is no copy either: applied onto a fresh import of the same executable it loses every function tag, the classes of the functions of default names, sets custom storage on about 1,200 signatures and makes about 1,000 data types again as `.conflict`.
+A project made elsewhere opens for writing only under the user name that owns it (`OWNER` in its `.rep\project.prp`), while a rebuilt one is its user's own.
+Should a session keep markup of its own in the project (a name, a type, a comment), the rebuild loses it: such markup needs an export of its own, checked against the project with `project.py dump` and `compare`.
+
 ### 4.2 What to analyze and what not
 
 | Subsystem | Analyze the code? | Why |
