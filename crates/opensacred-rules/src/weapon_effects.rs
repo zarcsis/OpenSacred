@@ -1,8 +1,8 @@
 //! The effects of a weapon in hand (#2922; docs/re/effects.md, "776, a weapon's glow" and "The
 //! unique weapons' effects"): what `cWeapon3D`'s switch (`0x5CDB60`) makes as a model is put on.
 //!
-//! - A weapon whose model has the bone `stdfx_bone01` glows at its bone `weapon_gl01` in the
-//!   colour of its bonuses' style ([`bonus_style`], [`WeaponGlow`], 776).
+//! - A weapon whose model has the bone `weapon_gl01` glows there in the colour of its bonuses'
+//!   style ([`bonus_style`], [`WeaponGlow`], 776).
 //! - The Seraphim's whip 3073 trails a whip of blue glows ([`MagicWhip`], 824).
 //! - Her wings 4010 and 4092 trail a ribbon from each streak bone ([`MagicStreak`], 837).
 //! - The Vampiress's sword 1771 sheds red sparks ([`MagicWorms`], 858).
@@ -18,9 +18,8 @@ pub const WHIP: u32 = 3073;
 pub const WINGS: [u32; 2] = [4010, 4092];
 pub const WORMS_SWORD: u32 = 1771;
 
-/// The bone that a weapon's model must have for its bonus's glow, and the bone the glow sits at
-/// (the 18th).
-pub const GLOW_BONE: &str = "stdfx_bone01";
+/// The bone that a weapon's model must have for its bonus's glow, and where the glow sits: the
+/// 18th of the bones' names (`0x401000(0x12)` at `0x5CDD82`, `0x44CD00`).
 pub const GLOW_AT: &str = "weapon_gl01";
 
 /// The style of the glow of a weapon whose bonus slots are `slots`, each its condition and its
@@ -33,15 +32,16 @@ pub fn bonus_style(slots: impl IntoIterator<Item = (u16, u32)>) -> Option<u8> {
         .find_map(|(_, effect)| style_of(effect & 0xFFFF))
 }
 
-/// The style of a bonus's effect (the byte table `0x5CEBA8`): 1 red, 2 green, 3 grey, 4 blue,
-/// 5 violet.
+/// The style of a bonus's effect: the byte table `0x5CEBA8` at the effect less 1, which the
+/// jump table `0x5CEB8C` follows, 1 red, 2 green, 3 grey, 4 blue, 5 violet; none for the effect
+/// 0 and from 52 on, which the table does not reach.
 fn style_of(effect: u32) -> Option<u8> {
     match effect {
-        5 | 11 | 24 | 25 => Some(1),
-        2 | 16 | 26 | 27 => Some(2),
-        1 | 29 | 30 | 34 => Some(3),
-        4 | 28 | 35 | 36 => Some(4),
-        3 | 7..=10 | 13 | 15 | 17..=23 | 31..=33 | 37..=41 | 43 | 44 => Some(5),
+        5 | 11 | 23 | 24 => Some(1),
+        2 | 16 | 25 | 26 => Some(2),
+        1 | 28 | 29 | 33 => Some(3),
+        4 | 27 | 34 | 35 => Some(4),
+        3 | 7..=10 | 13 | 15 | 17..=22 | 30..=32 | 36..=40 | 42 | 43 | 51 => Some(5),
         _ => None,
     }
 }
