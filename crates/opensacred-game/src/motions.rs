@@ -142,14 +142,42 @@ fn table(action: Action, class: u8) -> u16 {
     }
 }
 
+/// What a hero stands in by its own cases where its class's idle is not it (`0x5467A0` from
+/// `0x546971`; docs/re/motions.md, "The heroes' own cases").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnIdle {
+    /// Its fight stance, whatever lies near.
+    Stance,
+    /// The clip of this slot.
+    Slot(u16),
+}
+
+/// The idle of the hero of the type `kind` holding `class` by its own cases (#3891, #3892): the
+/// Gladiator (2) holding the class 2 stands in his stance whatever lies near; the Vampiress by
+/// day (6) with the class 1 or 2 out of a fight in the slot 1, `VMPD_IDLE_BH`, not her class's.
+pub fn own_idle(kind: u32, class: u8) -> Option<OwnIdle> {
+    match (kind, class) {
+        (2, 2) => Some(OwnIdle::Stance),
+        (6, 1 | 2) => Some(OwnIdle::Slot(1)),
+        _ => None,
+    }
+}
+
+/// The fight stance's slot of the hero of the type `kind` holding `class` by its own cases
+/// (#3892): the Vampiress by day (6) bare-handed the slot 15, `VMPD_FIDLE_1H`, not 14.
+pub fn own_stance(kind: u32, class: u8) -> Option<u16> {
+    (kind == 6 && class == 0).then_some(15)
+}
+
 /// The slot a creature plays for `action` holding `class`, of a model that has the slots `has`,
 /// and the gait it moves at, as `0x5467A0` picks them: the table's slot (`table`) where the
 /// model has it; else, standing, slot 2 where it has that, else 1; walking, the first it has of
 /// the walks 27, 28 and 29, then of the runs 40, 41 and 42, at a run, else the standing slot;
 /// running, the runs first, then the walks, at a walk. Its other cases are followed elsewhere:
-/// the fight stance by [`Slots::stance`] (#219), the attacks by [`Slots::attacks`], a rider's
-/// 169, else 166, and a flyer's 179 by `npcs` (#2288, #2250); the small spider's walk, always
-/// the slot 27, is not followed.
+/// the fight stance by [`Slots::stance`] (#219), the heroes' own standing cases by [`own_idle`]
+/// and [`own_stance`] (#3891, #3892), the attacks by [`Slots::attacks`], a rider's 169, else
+/// 166, and a flyer's 179 by `npcs` (#2288, #2250); the small spider's walk, always the slot 27,
+/// is not followed.
 pub fn slot(action: Action, class: u8, has: impl Fn(u16) -> bool) -> (u16, Action) {
     let slot = table(action, class);
     if slot != 0 && has(slot) {
@@ -359,6 +387,28 @@ impl Slots {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_gladiator_and_the_vampiress_by_day_stand_by_their_own_cases() {
+        // The Gladiator in his stance with the class 2 alone.
+        assert_eq!(own_idle(2, 2), Some(OwnIdle::Stance));
+        for class in [0, 1, 3, 10] {
+            assert_eq!(own_idle(2, class), None, "{class}");
+        }
+        // The Vampiress by day in the slot 1 with the classes 1 and 2, her stance 15 bare-handed;
+        // by night, the type 7, neither.
+        for class in [1, 2] {
+            assert_eq!(own_idle(6, class), Some(OwnIdle::Slot(1)));
+            assert_eq!(own_stance(6, class), None);
+        }
+        assert_eq!(own_idle(6, 0), None);
+        assert_eq!(own_stance(6, 0), Some(15));
+        assert_eq!(own_idle(7, 1), None);
+        assert_eq!(own_stance(7, 0), None);
+        // The others none.
+        assert_eq!(own_idle(1, 2), None);
+        assert_eq!(own_stance(2, 0), None);
+    }
 
     /// The slots of `THFM`'s clips, a thief's: its idle in 1, 14 and 21, its walk in 27, its run
     /// in 40, a rider's idle in 169.
