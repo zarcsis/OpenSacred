@@ -4999,6 +4999,23 @@ pub fn hero_attack(count: usize, first: f32, second: impl FnOnce() -> f32) -> us
     1 + at
 }
 
+/// The attack slots that the clips' chooser fixes for some types ([`fixed_attack_slot`]).
+pub const FIXED_ATTACK_SLOTS: [u16; 3] = [79, 80, 84];
+
+/// The attack slot that the clips' chooser fixes for a creature of the type `kind` holding what
+/// is of `class`, whether its model has the slot or not (`0x5467A0` at `0x546BCE`–`0x546C47`;
+/// docs/re/motions.md, "The other cases"; #3894): the barbarian 315 and the warriors 689 and 690
+/// holding the class 4 or nothing the slot 84; the dragons 52, 74, 88 and 100 to 103 the slot 80;
+/// the fire ghoul 73 the slot 79. None for any other, which strikes by its class's slots.
+pub fn fixed_attack_slot(kind: u32, class: u8) -> Option<u16> {
+    match kind {
+        315 | 689 | 690 if matches!(class, 0 | 4) => Some(84),
+        52 | 74 | 88 | 100..=103 => Some(80),
+        73 => Some(79),
+        _ => None,
+    }
+}
+
 /// The slots whose clips stand in for the slot `slot` where a model lacks it, the first of them
 /// that the model has (the models' clip getter `0x4118B0`, docs/re/motions.md, "Where the model
 /// lacks the slot"): the slot 89, else 84, else 79 for a slot of 79 to 153; none outside them,
@@ -5132,6 +5149,26 @@ mod tests {
         assert_eq!(hero_attack(5, 0.1, || 1.0), 4);
         assert_eq!(hero_attack(2, 0.1, || 0.999), 1);
         assert_eq!(hero_attack(3, 0.1, || 0.5), 2);
+    }
+
+    #[test]
+    fn some_types_strike_by_a_fixed_slot() {
+        for kind in [315, 689, 690] {
+            assert_eq!(fixed_attack_slot(kind, 0), Some(84));
+            assert_eq!(fixed_attack_slot(kind, 4), Some(84));
+            assert_eq!(fixed_attack_slot(kind, 1), None);
+            assert_eq!(fixed_attack_slot(kind, 3), None);
+        }
+        for kind in [52, 74, 88, 100, 103] {
+            assert_eq!(fixed_attack_slot(kind, 2), Some(80));
+        }
+        assert_eq!(fixed_attack_slot(73, 1), Some(79));
+        for kind in [51, 53, 72, 99, 104, 314, 316, 688, 691] {
+            assert_eq!(fixed_attack_slot(kind, 0), None, "{kind}");
+        }
+        for slot in [84, 80, 79] {
+            assert!(FIXED_ATTACK_SLOTS.contains(&slot));
+        }
     }
 
     #[test]
