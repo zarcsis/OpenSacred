@@ -3,7 +3,7 @@
 //! a blue glow at each of its bones `stdfx_bone01` on, the Seraphim's staff's line and the
 //! lightsabers' two along their bones `weapon_fx01` and `weapon_fx02`, and the glittering wings'
 //! glitter at their bones `sera03_fx0` to `3`; all added and untinted by the night, while the
-//! model is held, carried or worn.
+//! model is held, carried or worn, and drawn (a dead creature's go as its body vanishes, #3922).
 
 use std::collections::HashMap;
 
@@ -180,16 +180,31 @@ fn seek(
 /// the model.
 fn run(
     mut commands: Commands,
-    mut shown: Query<(Entity, &Shown, &mut Transform)>,
-    (places, holders): (Query<&GlobalTransform>, Query<&crate::models::OrderedWith>),
+    mut shown: Query<(Entity, &Shown, &mut Transform, &mut Visibility)>,
+    (places, holders, drawn): (
+        Query<&GlobalTransform>,
+        Query<&crate::models::OrderedWith>,
+        Query<&InheritedVisibility>,
+    ),
     (mut dice, mut meshes, orders): (ResMut<Dice>, ResMut<Assets<Mesh>>, crate::fx::Orders),
 ) {
     let s = iso::MODEL_SCALE;
-    for (entity, look, mut transform) in &mut shown {
+    for (entity, look, mut transform, mut visibility) in &mut shown {
         let Ok(model) = places.get(look.model) else {
             commands.entity(entity).despawn();
             continue;
         };
+        // Shown only while its model is drawn: a dead creature's go with its body as it vanishes
+        // (docs/decisions/drawing.md, "Weapon glows go with their vanished bodies", #3922).
+        let shows = drawn.get(look.model).ok().is_none_or(|drawn| drawn.get());
+        visibility.set_if_neq(if shows {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+        if !shows {
+            continue;
+        }
         let origin = model.translation();
         transform.translation = origin;
         // An item in a hand just behind its holder's model, one lying at its place, as the
