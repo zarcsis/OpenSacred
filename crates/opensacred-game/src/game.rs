@@ -852,9 +852,33 @@ pub fn clips_of(
             .map_or_else(|| preset.to_owned(), |(name, _)| name.to_owned())
     })
     .collect::<Vec<_>>();
-    let stance = slots
+    let mut stance = slots
         .as_ref()
         .and_then(|slots| slots.stance(class).map(str::to_owned));
+    let mut moving = moving;
+    // The heroes' own standing cases, where the model has their clips (`0x5467A0` from
+    // `0x546971`, #3891, #3892): the Gladiator's stance with the class 2, the Vampiress's day's
+    // idle with the classes 1 and 2 and her bare hands' stance.
+    if let Some(slots) = slots.as_ref() {
+        if let Some(slot) = motions::own_stance(kind, class)
+            && let Some(name) = slots.slot(slot)
+        {
+            stance = Some(name.to_owned());
+        }
+        match motions::own_idle(kind, class) {
+            Some(motions::OwnIdle::Stance) => {
+                if let Some(name) = &stance {
+                    moving[0].clone_from(name);
+                }
+            }
+            Some(motions::OwnIdle::Slot(slot)) => {
+                if let Some(name) = slots.slot(slot) {
+                    name.clone_into(&mut moving[0]);
+                }
+            }
+            None => {}
+        }
+    }
     let arts = making::clips(kind, class, slots.as_ref(), points);
     let dying = slots
         .as_ref()
