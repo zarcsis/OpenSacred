@@ -144,7 +144,12 @@ fn projection(zoom: f32) -> Projection {
 /// The camera that looks at `target` at `zoom` (clamped to the original's range).
 pub fn camera(target: Vec3, zoom: f32) -> impl Bundle {
     (
-        Camera3d::default(),
+        // Its depth kept and given back to the untinted camera without the models' shadows
+        // (`untinted_depth`, #3901).
+        Camera3d {
+            depth_texture_usages: crate::untinted_depth::USAGES.into(),
+            ..default()
+        },
         // The art's texels reach the screen as they are, as in the original, which has no
         // display transform: Bevy's default tone mapping dulled the bright tones (#28).
         Tonemapping::None,
@@ -165,8 +170,9 @@ pub const UNTINTED: usize = 8;
 /// The camera of what the night leaves untinted (#1191, docs/re/effects.md): a child of the
 /// world's camera ([`camera`]) that draws the layer [`UNTINTED`] after it and its night's pass
 /// (`daynight::Night`) into the same frame, against the world's depth, which the cameras of one
-/// target share, so that a fire keeps its colours by night and the fireflies add theirs to the
-/// darkened frame, as the original draws its effects without the tint; it has the world camera's
+/// target share, given back without the models' shadows (`untinted_depth`, #3901), so that a fire
+/// keeps its colours by night and the fireflies add theirs to the darkened frame, as the original
+/// draws its effects without the tint; it has the world camera's
 /// projection, whose zoom `daynight` keeps it, and the interface, drawn by the last camera, lies
 /// over both. Its effects are dimmed by the faded sprites before them, which the veil's camera
 /// draws before the world (`veil`, #3851).
