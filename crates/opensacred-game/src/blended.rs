@@ -6,14 +6,15 @@
 //! lists (docs/re/drawing.md, "The rows"). Within a layer, the centres order them.
 //!
 //! Bevy's own material also moves the depth that it tests by its `depth_bias`; [`Sorted`] keeps
-//! the bias for the order alone, and encodes its colour for the frame (`srgb`).
+//! the bias for the order alone, and encodes its colour for the frame (`srgb`); [`Veiled`] does
+//! the same under the veil (`veil`), which dims it by the faded sprites before it.
 
 use bevy::mesh::MeshVertexBufferLayoutRef;
 use bevy::pbr::{
     ExtendedMaterial, MaterialExtension, MaterialExtensionKey, MaterialExtensionPipeline,
     MaterialPlugin,
 };
-use bevy::prelude::{App, Asset, Plugin, StandardMaterial, TypePath};
+use bevy::prelude::{App, Asset, Handle, Image, Plugin, StandardMaterial, TypePath};
 use bevy::render::render_resource::{
     AsBindGroup, RenderPipelineDescriptor, SpecializedMeshPipelineError,
 };
@@ -112,6 +113,47 @@ impl MaterialExtension for Unbiased {
     }
 }
 
+/// A blended [`StandardMaterial`] in its layer, dimmed by the faded sprites before it (`veil`,
+/// `standard.wesl`'s `VEILED`): the lamps' glows, which the original draws right after their
+/// lamps, so that a sprite drawn after a glow, a column that fades about the hero, lies over it by
+/// its alpha (#3889).
+pub type Veiled = ExtendedMaterial<StandardMaterial, UnderVeil>;
+
+/// The extension of [`Veiled`]: [`Unbiased`]'s, with the veil (`veil::VEIL`) that it reads.
+#[derive(Asset, TypePath, AsBindGroup, Clone, Debug)]
+pub struct UnderVeil {
+    #[texture(111)]
+    veil: Option<Handle<Image>>,
+}
+
+impl Default for UnderVeil {
+    fn default() -> Self {
+        Self {
+            veil: Some(crate::veil::VEIL),
+        }
+    }
+}
+
+impl MaterialExtension for UnderVeil {
+    /// Bevy's own, its colour encoded for the frame (`srgb`), dimmed by the veil.
+    fn fragment_shader() -> ShaderRef {
+        crate::shaders::STANDARD.into()
+    }
+
+    fn specialize(
+        _pipeline: &MaterialExtensionPipeline,
+        descriptor: &mut RenderPipelineDescriptor,
+        _layout: &MeshVertexBufferLayoutRef,
+        _key: MaterialExtensionKey<Self>,
+    ) -> Result<(), SpecializedMeshPipelineError> {
+        unbias(descriptor);
+        if let Some(fragment) = descriptor.fragment.as_mut() {
+            fragment.shader_defs.push("VEILED".into());
+        }
+        Ok(())
+    }
+}
+
 /// Takes back the bias of the depth that [`StandardMaterial`] gives a pipeline by its
 /// `depth_bias`, for an extension of it whose `depth_bias` is its layer's.
 pub fn unbias(descriptor: &mut RenderPipelineDescriptor) {
@@ -146,13 +188,25 @@ pub fn sorted(base: StandardMaterial, layer: Layer) -> Sorted {
     }
 }
 
-/// The material of the blended things.
+/// `base` in `layer`, under the veil.
+pub fn veiled(base: StandardMaterial, layer: Layer) -> Veiled {
+    Veiled {
+        base: StandardMaterial {
+            depth_bias: layer.bias(),
+            ..base
+        },
+        extension: UnderVeil::default(),
+    }
+}
+
+/// The materials of the blended things.
 pub struct BlendedPlugin;
 
 impl Plugin for BlendedPlugin {
     fn build(&self, app: &mut App) {
         crate::shaders::embed_standard(app);
-        app.add_plugins(MaterialPlugin::<Sorted>::default());
+        app.add_plugins(MaterialPlugin::<Sorted>::default())
+            .add_plugins(MaterialPlugin::<Veiled>::default());
     }
 }
 

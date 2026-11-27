@@ -12,7 +12,8 @@
 //! through, `1 − alpha`. What the untinted camera draws blended, the particles of
 //! [`fx::Effect`](crate::fx::Effect) and the models' passes of
 //! [`ModelMaterial`](crate::models::ModelMaterial) (#3856), takes that product of its colour where
-//! it lies behind that place (`standard.wesl`'s `VEILED`, [`veiled`]).
+//! it lies behind that place (`standard.wesl`'s `VEILED`, [`veiled`]); and so do the lamps' glows,
+//! which the world camera draws after every sprite ([`Veiled`](crate::blended::Veiled), #3889).
 
 use bevy::asset::RenderAssetUsages;
 use bevy::camera::visibility::RenderLayers;

@@ -372,7 +372,7 @@ pub struct Glows {
 
 /// The glows' material, one for all (`daynight::glow` keeps its colour by the night).
 #[derive(Resource)]
-pub struct Glow(pub Handle<blended::Sorted>);
+pub struct Glow(pub Handle<blended::Veiled>);
 
 /// The type flag of the light sources (`items.pak +0x00`), whose miniatures glow.
 const LIGHT: u32 = 0x2_0000;
@@ -1390,7 +1390,7 @@ pub fn spawn_glows(
     commands: &mut Commands,
     glows: Vec<Glows>,
     meshes: &mut Assets<Mesh>,
-    material: &Handle<blended::Sorted>,
+    material: &Handle<blended::Veiled>,
 ) -> Vec<Entity> {
     glows
         .into_iter()
