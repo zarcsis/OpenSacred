@@ -173,6 +173,17 @@ pub struct InOrder {
     /// that it draws reads (`standard.wesl`'s `VEILED`).
     #[texture(111)]
     veil: Option<Handle<Image>>,
+    /// Whether it writes the depth alone, no colour: a blended pass's twin that the untinted
+    /// camera draws ([`depth_alone`], `untinted_depth`, #3901).
+    depth_alone: bool,
+}
+
+impl InOrder {
+    /// Whether its pass is blended and writes its depth: a fringe's, the water form's or a
+    /// vision's, which the depth given back to the untinted camera lacks (`untinted_depth`).
+    pub fn blended_depth(&self) -> bool {
+        !self.depth_alone && matches!(self.pass, Pass::Fringe(_) | Pass::Water | Pass::Vision)
+    }
 }
 
 /// What the pipeline of a [`ModelMaterial`] depends on beyond Bevy's own material.
@@ -189,6 +200,7 @@ pub struct InOrderKey {
     /// ([`InOrder::lit`]).
     lit_opaque: bool,
     lit_blended: bool,
+    depth_alone: bool,
 }
 
 impl From<&InOrder> for InOrderKey {
@@ -208,6 +220,7 @@ impl From<&InOrder> for InOrderKey {
                     extension.pass,
                     Pass::Fringe(_) | Pass::UnderBlended(_) | Pass::Water
                 ),
+            depth_alone: extension.depth_alone,
         }
     }
 }
@@ -311,6 +324,14 @@ impl MaterialExtension for InOrder {
             && let Some(depth) = descriptor.depth_stencil.as_mut()
         {
             depth.depth_write_enabled = Some(true);
+        }
+        // A twin writes its depth and no colour (`untinted_depth`).
+        if key.bind_group_data.depth_alone
+            && let Some(fragment) = descriptor.fragment.as_mut()
+        {
+            for target in fragment.targets.iter_mut().flatten() {
+                target.write_mask = bevy::render::render_resource::ColorWrites::empty();
+            }
         }
         Ok(())
     }
@@ -522,8 +543,28 @@ pub fn in_order(base: StandardMaterial, anchors: &Anchors, pass: Pass) -> ModelM
             specular: false,
             lit,
             veil: Some(crate::veil::VEIL),
+            depth_alone: false,
         },
     }
+}
+
+/// The depth-alone twin's material of `own`, a blended pass that writes its depth
+/// ([`InOrder::blended_depth`]): its texels that the alpha test keeps, at its place in the order,
+/// writing their depth and no colour, unlit, before the untinted camera's effects as an alpha
+/// test's are before the blended (`untinted_depth`, #3901). The water form's, of no texture of its
+/// own, writes the whole mesh's.
+pub fn depth_alone(own: ModelMaterial) -> ModelMaterial {
+    let mut alone = own;
+    alone.base.alpha_mode = AlphaMode::Mask(CUTOFF);
+    alone.base.depth_bias = 0.0;
+    alone.base.unlit = true;
+    alone.extension.pass = Pass::Tested;
+    alone.extension.lit = false;
+    alone.extension.specular = false;
+    alone.extension.effect = None;
+    alone.extension.glow = None;
+    alone.extension.depth_alone = true;
+    alone
 }
 
 /// Lights `material`'s base or leaves it unlit, its pixels leaving the night's pass or not with it

@@ -7,9 +7,10 @@
 //! as the model is, in the shadows' layer (`blended::Layer::Shadows`), over what the
 //! original draws before the model and under the model and what it draws after; the depth test
 //! keeps a shadow's later triangles off the pixels its first ones darkened, where the original
-//! has the stencil (docs/decisions/drawing.md, "Models' shadows by depth, not stencil"). The shadow
-//! of a model under a liquid's surface (`models::Sunk`) lies with it, in the layer under the
-//! liquids.
+//! has the stencil (docs/decisions/drawing.md, "Models' shadows by depth, not stencil"), and the
+//! world's depth is given back without the shadows to the untinted camera (`untinted_depth`,
+//! #3901). The shadow of a model under a liquid's surface (`models::Sunk`) lies with it, in the
+//! layer under the liquids.
 //!
 //! The edges are soft (#2624; docs/decisions/drawing.md, "The models' shadows' soft edges"), as
 //! the statics' shadows, silhouettes of 32 texels stretched over many pixels, look beside them:

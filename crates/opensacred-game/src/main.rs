@@ -291,6 +291,7 @@ mod ui_layers;
 mod undead;
 mod under_cursor;
 mod underworld_glyphs;
+mod untinted_depth;
 mod vamp_casts;
 mod vamp_sights;
 mod veil;
@@ -847,6 +848,7 @@ fn run(cli: Cli) -> Result<AppExit> {
         undead::UndeadPlugin,
         under_cursor::UnderCursorPlugin,
         underworld_glyphs::UnderworldGlyphsPlugin,
+        untinted_depth::UntintedDepthPlugin,
         vamp_casts::VampCastsPlugin,
         vamp_sights::VampSightsPlugin,
     ))
