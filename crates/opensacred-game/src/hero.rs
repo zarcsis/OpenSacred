@@ -559,6 +559,11 @@ impl Clips {
         }
     }
 
+    /// The Daemon's form's standing clip's node, where the model has his form's clips (#3887).
+    pub fn soaring_stand(&self) -> Option<AnimationNodeIndex> {
+        self.soaring.as_ref().map(|form| form.stand)
+    }
+
     /// The hero's running clip, its form's moving clip while `soaring`, which the Daemon's
     /// charge 1091 plays (`0x5467A0(2)` at `0x51B68A`, #3887).
     pub fn running(&self, soaring: bool) -> (AnimationNodeIndex, Handle<AnimationClip>) {
