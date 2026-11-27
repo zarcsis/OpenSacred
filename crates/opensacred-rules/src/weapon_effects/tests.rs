@@ -7,40 +7,30 @@ fn a_weapons_first_styled_bonus_gives_its_glows_colour() {
     let slots = [(0, 0), (0, 6), (0x0102, 4 | 0x0003_0000), (0, 5)];
     assert_eq!(bonus_style(slots), Some(4));
     // A slot of a condition alone, of the effect 0, gives none.
-    assert_eq!(bonus_style([(7, 0), (0, 25)]), Some(1));
+    assert_eq!(bonus_style([(7, 0), (0, 25)]), Some(2));
     assert_eq!(bonus_style([(0, 0), (0, 2)]), Some(2));
     assert_eq!(bonus_style([(0, 29)]), Some(3));
-    assert_eq!(bonus_style([(0, 44)]), Some(5));
-    assert_eq!(bonus_style([(0, 42), (0, 52), (0, 200)]), None);
+    assert_eq!(bonus_style([(0, 42)]), Some(5));
+    assert_eq!(bonus_style([(0, 44), (0, 52), (0, 200)]), None);
     assert_eq!(bonus_style(std::iter::empty()), None);
-    for (effect, style) in [
-        (1, 3),
-        (3, 5),
-        (7, 5),
-        (10, 5),
-        (11, 1),
-        (13, 5),
-        (15, 5),
-        (16, 2),
-        (17, 5),
-        (23, 5),
-        (24, 1),
-        (26, 2),
-        (27, 2),
-        (28, 4),
-        (30, 3),
-        (31, 5),
-        (33, 5),
-        (34, 3),
-        (35, 4),
-        (36, 4),
-        (37, 5),
-        (41, 5),
-        (43, 5),
-    ] {
-        assert_eq!(style_of(effect), Some(style), "{effect}");
+}
+
+#[test]
+fn every_effect_takes_its_style_from_the_table_at_the_effect_less_one() {
+    // `0x5CEBA8`'s bytes for the effects 1 to 51 (#3888), 0 for none.
+    const TABLE: [u8; 51] = [
+        3, 2, 5, 4, 1, 0, 5, 5, 5, 5, // 1 to 10
+        1, 0, 5, 0, 5, 2, 5, 5, 5, 5, // 11 to 20
+        5, 5, 1, 1, 2, 2, 4, 3, 3, 5, // 21 to 30
+        5, 5, 3, 4, 4, 5, 5, 5, 5, 5, // 31 to 40
+        0, 5, 5, 0, 0, 0, 0, 0, 0, 0, // 41 to 50
+        5, // 51
+    ];
+    assert_eq!(style_of(0), None);
+    for (effect, &style) in (1..).zip(&TABLE) {
+        assert_eq!(style_of(effect), (style != 0).then_some(style), "{effect}");
     }
-    for effect in [0, 6, 12, 14, 42, 45, 51, 52] {
+    for effect in [52, 53, 0xFFFF] {
         assert_eq!(style_of(effect), None, "{effect}");
     }
 }

@@ -759,21 +759,46 @@ Other makers of these types, not read and not followed: 801 at `0x4D3FA8`; 778 a
 
 ### 776, a weapon's glow
 
-`cWeapon3D` (`0x5CDD5D` to `0x5CDE3E`) makes it for a weapon of a bonus's style 1 to 5 (`0x5CEA50`) with the bone 18 `weapon_gl01`, by the FX event `0xB` with the weapon its caster, `+0x38` 1 and `+0x3C` the style (**confirmed** by code, not seen).
+`cWeapon3D` (`0x5CDD5D` to `0x5CDE3E`) makes it for a weapon of a bonus's style 1 to 5 (`0x5CEA50`) whose model has the bone 18 `weapon_gl01`, by the FX event `0xB` with the weapon its caster, `+0x38` 1 and `+0x3C` the style (**confirmed** by code; **seen** on the maintainer's frame of #3888, below).
 Its start (`0x76B5F0`) fills a ramp of white, a style's colour over 8 entries (1 red (0.5, 0.2, 0.2), 2 green (0.2, 0.5, 0.2), 3 grey (0.3, 0.3, 0.3), 4 blue (0.2, 0.2, 0.5), else violet (0.4, 0.2, 0.5)), a darker one at the alpha 0.8 over 192 ((0.3, 0.1, 0.1), (0.1, 0.3, 0.1), (0.2, 0.2, 0.2), (0.1, 0.1, 0.3), (0.3, 0.2, 0.3)) and to transparent over 56; its layer's life −1000 and size −2.7, a block of the size 3 every 0.005 s times the detail's factor; its flags `0x1200`, its light 250.
 Its update (`0x76B4C0`) emits at its point 0 in the state 0; its draw (`0x76B540`) draws `PARTICLE_GLOW01` billboards (the flags 9) and, while it emits, a `PARTICLE_FLARE02` glow at the point 0 of a half side of `17 + 3 p`, `p = (sin 2t + 1) / 2`.
 
-**The bonus's style** (`0x5CEA50`, read 2026-11-20 for #2922, **confirmed** by code): the weapon's bonus records in turn, its own (`+0x118`) first and then each of the list `+0x100` (records of `0x82` bytes), and in each its eight slots in order; a slot counts where its condition (`+0x3A`) or its effect (`+0x4A`) is not 0, and its effect's low 16 bits of 1 to 51 give a style by a byte table (`0x5CEBA8`), the first that gives one deciding:
+**The bonus's style** (`0x5CEA50`, read 2026-11-20 for #2922 and again 2026-11-27 for #3888, **confirmed** by code): the weapon's bonus records in turn, its own (`+0x118`) first and then each of the list `+0x100` (records of `0x82` bytes), and in each its eight slots in order; a slot counts where its condition (`+0x3A`) or its effect (`+0x4A`) is not 0, and its effect's low 16 bits of 1 to 51 give a style by a byte table (`0x5CEBA8`), the first that gives one deciding:
 
 | Style | Its colour | The effects |
 |---|---|---|
-| 1 | red | 5, 11, 24, 25 |
-| 2 | green | 2, 16, 26, 27 |
-| 3 | grey | 1, 29, 30, 34 |
-| 4 | blue | 4, 28, 35, 36 |
-| 5 | violet | 3, 7 to 10, 13, 15, 17 to 23, 31 to 33, 37 to 41, 43, 44 |
+| 1 | red | 5, 11, 23, 24 |
+| 2 | green | 2, 16, 25, 26 |
+| 3 | grey | 1, 28, 29, 33 |
+| 4 | blue | 4, 27, 34, 35 |
+| 5 | violet | 3, 7 to 10, 13, 15, 17 to 22, 30 to 32, 36 to 40, 42, 43, 51 |
 
-The effects 6, 12, 14, 42, 45 to 51, and those from 52, give none, and a weapon of none has no glow.
+The effects 6, 12, 14, 41 and 44 to 50, those of 52 to 199, 0, and those from 200 give none (`0x5CEABB` passes over 200 and above, `0x5CEAC2` takes one off and `0x5CEAC3` passes over what is then above 50), and a weapon of none has no glow.
+The byte table holds 51 entries, the effect less one its index, each an entry of the jump table `0x5CEB8C`: 0 the style 3 (`0x5CEB45`), 1 the style 2 (`0x5CEB34`), 2 and 5 the style 5 (`0x5CEB78`, `0x5CEB67`), 3 the style 4 (`0x5CEB56`), 4 the style 1 (`0x5CEB23`), 6 none (`0x5CEAD7`).
+The reading of 2026-11-20 was one entry off from the effect 23 on; the table above is the one read again from its bytes, which Ghidra's switch of `0x5CEA50` agrees with.
+Each style is the element of the spell of the effect's number in the spells' table (`tables/arts.ron`'s `element`): the element 4 red, 3 green, 2 grey, 1 blue, 5 and most of 0 violet; so the effects 1 to 51 are the spells' numbers, as the magic bonus's lists write them into a slot (docs/re/items.md, "The magic bonus (`0x5D4CE0`)"; **hypothesis**, strong, by a scratch comparison of the two tables 2026-11-27).
+
+**The bone, the time and the look** (read 2026-11-27 for #3888, **confirmed** by code unless marked):
+
+- **The bone.** Before it makes the object, the switch takes the name of the entry 18 of the bones' table (`0x401000` with `0x12` at `0x5CDD82`, `weapon_gl01` at `0x8E7440`) and looks it up in the weapon's own model (`0x44CD00`: false while the model is not loaded, its `+0x14` bit 26 clear; else `GrannyGetBoneIndexFromName` through `0x403600`, which answers 0 for a bone found); without the bone it makes nothing.
+  `stdfx_bone01` plays no part in it: that bone is the item's own blue glow's ("The arrows' elements", `0x5BEE90`).
+- **Where.** The FX handler's case `0xB` (`0x5A4F30`) follows the weapon (`+0x68` the event's caster) at its root (`+0x70` 0) and lays its point 0 at the bone 18 (`+0x72` `0x12`), which the system's flag `0x1000` moves there at each frame; its event of `+0x38` 0 ends it (`0x7CBA90`).
+- **When.** The switch is `cWeapon3D`'s virtual `+0x30` (the table at `0x891DE0`): the equipping's attach of an item's model to its creature's bone (`0x555300`) calls it on as the model is put on (the item's `+0x14` bit `0x1000` set), off where the creature's `+0x14` has the bit `0x2000` (the Vampiress's night form), and the unequipping (`0x556A30`) calls it off.
+  So the glow stays while the weapon is in the hand, at rest as in a fight; its system emits all the while and its flare is drawn while it emits.
+- **Its look.** The flare is `PARTICLE_FLARE02` drawn in white (`0x762E10` with `0xFFFFFFFF` from `0x76B540`) and added: the texture's own colours, a white core in lilac rings to a dark violet rim, whatever the style, so a staff's head shows a violet sphere of 34 to 40 units across.
+  The style colours the sparks alone, white as they are born, its colour after.
+  Born at the bone every 0.005 s and left where they are born, the sparks draw a short trail behind the bone as the weapon moves (**hypothesis** for the whitish arc behind the priest's sphere below).
+- **The Sakkara High Priest** (#3888): the type 312 (`PRIEST.GRN`) that every campaign tree's start script makes at `pos_boss2_209` (3780, 99) for the quest 209, holding the staff 1715 (`STAFF_MAGE.GRN`, the model 1530).
+  The staff's model has `weapon_gl01` at its head, about 71 units from its grip's bone, and no `stdfx_bone01`; its type has no second renderer's flag (`items.pak` flags `0x00080502`, docs/re/drawing.md, "The models' effects"), and no FX object, light or cast of his draws the sphere.
+  `CreateNPC` makes the staff anew by the item maker (docs/re/items.md, "A creature's items"): the template of 1715 gives its first slot a spell of the magic bonus's list 25 where its first entry's roll passes (the chance 33), else the effect 807 or 806, of no style, and the quality pass of the key `rand() % 4` may add slots; the record of `Weapon.pak` (the effects 813, 807, 34, 33 and 860) never reaches the weapon.
+  So whether a priest's staff glows, and in which colour, is rolled as he is made (**confirmed** by code; the share not counted).
+  **Seen** on the maintainer's frame of the original (#3888, the priest fighting the Daemon): at the staff's head a lilac disc of a sphere's look with a white core, the flare, and a whitish arc behind it.
+- **Which weapons.** Of the weapons' models (the `items.pak` types of the categories 5 and 33), 123 have `weapon_gl01` and 3 `stdfx_bone01` (`SeraLanze01`, `Seraphim_LongSword` and `Sword_long01`, the last two with both); 134 `Weapon.pak` records hold an effect of a style in their own slots on a model with `weapon_gl01`, the fixed items among them (a scratch scan of the converter's tables and models, 2026-11-27).
+  Any weapon in hand with that bone and a slot of a style glows, a creature's whose made slot holds a spell as a hero's: the Seraphim's tree alone arms creatures of 20 types through `CreateNPC` with the staffs 1715, 1874, 2170 and 2765, the swords 1714, 1718 and 1750 and the fighting staff 1852 (**estimate**: a scratch scan of its records), and the fills' pools more.
+
+**In `opensacred-game`**: since #3888 `weapon_effects` gives the glow to a weapon in hand whose model has `weapon_gl01` and lays it there (`opensacred_rules::weapon_effects::GLOW_AT`), and `opensacred_rules::weapon_effects::bonus_style` takes the styles of the table above.
+Before, it asked `stdfx_bone01`, as "The arrows' elements" had read the switch for #2061, so that only the three models above could glow and the priest's staff never, and its styles were one entry off for the effects 23 to 51.
+**Seen** 2026-11-27 in the game (the release build of `main`, a Seraphim's new game, the console's `cell 3778,99`): the priest of the type 312 at 3779,98 holds 1715 made with the effect 4 in its first slot (the style 4, blue, by either table), and no effect is made for it.
 
 ### The unique weapons' effects
 
@@ -811,7 +836,7 @@ Read 2026-11-20 for #2922 in Ghidra (**confirmed** by code unless marked); the w
 - So red sparks flicker about the sword, short-lived, within 40 of its grip each way, along a line of red glows from its grip toward its bone `weapon_fx01` (**hypothesis**: its points' bones and offset not traced).
 - **Seen** in the original: the Seraphim's whip a violet glowing band hanging from her hand; her wings eight blue-white streaks spread out from her back, each as long as she is tall.
 
-`opensacred-game` draws them since #2922 (`weapon_effects`, `opensacred_rules::weapon_effects`): each model put on (`npcs::Piece`) takes its effect by its type, the bonus's glow on a weapon in hand of the bone `stdfx_bone01` whose own record's or socketed items' bonuses give a style, each following its bones, added and untinted by the night, just behind its holder in the order.
+`opensacred-game` draws them since #2922 (`weapon_effects`, `opensacred_rules::weapon_effects`): each model put on (`npcs::Piece`) takes its effect by its type, the bonus's glow on a weapon in hand of the bone `weapon_gl01` whose own record's or socketed items' bonuses give a style ("776, a weapon's glow", #3888), each following its bones, added and untinted by the night, just behind its holder in the order.
 **Seen** in the game: the whips of quest 6001's ice elves (type 140) trailing blue-violet as they fight.
 The wings worn make no glow 776 (read and **seen** 2026-11-23 for #3174, #3601): an item worn in the slot 17 is a `cArmor3D`, whose switch (`0x5B9E10`, its argument on) makes the streaks (`0x3C`) of a type that `0x4282F0` admits and nothing else; `cWeapon3D`'s switch, which alone asks the bonus's style (`0x5CEA50`, called at `0x5CDD64` only), serves the weapons in hand.
 In the running original (the driver of #448, the Seraphim at 3283,2533, the driver's `wear` of 4010, 4018 and 4092 into the slot 17): a probe after the style's call (`0x5CDD69`) and the glow's start (`0x76B5F0`) were never reached, and the streaks' start (`0x788120`) ran seven times for 4010 and for 4092 and not for 4018 (`SeraWings04`, which has no streak bones); the frames show the blue streaks of the wings 2 and none on the wings 4.
@@ -3209,7 +3234,7 @@ Read 2026-11-05 for #2061 in Ghidra (**confirmed** by code unless marked otherwi
   An element shows where its share passes `+0x1DC`, 0.1 for every item (`cItemBase`'s constructor `0x5BE130`): a fire makes an object 796 (`FX_MAGICFIRE`, the FX event `0x1C`, its variant 1) kept at `+0x1AC`, a poison an object 808 (`FX_MAGICGIFT`, the event `0x1D`, variant 1) at `+0x1B4`, a magic sets `+0x1BC`; the client logs each.
 - **A weapon in hand** (`cWeapon3D::toggleVisuals`, `0x5CDB60`, as its model is put into a hand) takes its element from its own most damage of each kind, whole: the largest of the fire, the poison and the magic where it is larger than both others and than a third of the physical; the fire's and the poison's share `(v − min/2) / (max/3 − min/2)`, the magic's `(v − min/3) / (max/4 − min/3)`, `min` and `max` the balance's `SpawnWeaponMin` and `SpawnWeaponMax`, held to 0 … 1, shown where it passes 0.1.
   It makes the same FX events `0x1C` and `0x1D` on its bones 15 and 16, of the variant 1 (below), and draws the same line of glows.
-  The whole switch (`0x5CDB60`, with its argument on) makes first the torch's `0x13` (`0x428150`), else the `0x52` of `0x428360`, else the bonus's `0xB` (`0x5CEA50`) where its model has the bone `stdfx_bone01`, else the `0x33` of `0x428190`, which ends it, else a `0x3C` for each of its model's bones `fx_streak01` on (`0x4282F0`, kept at `+0x1C4` by its model's load `0x5BE5E0`); then the elements' shares and their objects for every one but the `0x33`'s.
+  The whole switch (`0x5CDB60`, with its argument on) makes first the torch's `0x13` (`0x428150`), else the `0x52` of `0x428360`, else the bonus's `0xB` (`0x5CEA50`) where its model has the bone `weapon_gl01` (`0x5CDD82`, "776, a weapon's glow"; a weapon of a style without the bone makes nothing of these), else the `0x33` of `0x428190`, which ends it, else a `0x3C` for each of its model's bones `fx_streak01` on (`0x4282F0`, kept at `+0x1C4` by its model's load `0x5BE5E0`); then the elements' shares and their objects for every one but the `0x33`'s.
 - **The objects 796 and 808** (`cParticleSystem_magicfire`, start `0x77A8E0`, run `0x77A650`, draw `0x77A6C0`; `cParticleSystem_magicgift`, start `0x77C3E0`): the events' variant 1 keeps the system at the arrow's bones 0, 15 and 16 (`weapon_fx01`, `weapon_fx02`; their cases `0x5A5212` and `0x5A4FAC`), the system's flags `0x1204` (its points at those bones at each frame, its origin at the arrow's place, so that its particles ride with it).
   Their event's `+0x38` is 1, and its `+0x3C`, which the start takes times 0.001 as its share, is 0 for an arrow (the shot's pushes `0x5BD76E` of `EDI`, which the test of `+0x1AC` just before shows to be 0) and the weapon's share a thousand times, truncated, for a weapon in hand (`0x5CE308`; #2093); one layer of the life −600 a second and the size `15·share + 10`; one block of the size `2·(share + 1)`, every 0.1 s at the detail 2, each spark at a point at random along the segment between the system's two points and the way it swept since the last emission (`0x766200`); drawn as billboards of `PARTICLE_GLOW01` of the flags 3, their four corners' colour (`0x00FF8844`, orange, and `0x0044FF44`, green) at the alpha of their life, added; the fire's light `200 + 200·share` (`0x77A9C7`), the poison's none.
 - **The item's own glows** (`0x5BEE90`, after the model's own draw in `0x5BEE60`, the draw of every `cItemBase` that its classes' tables name: the weapons in hand, the items worn, the arrows), read again 2026-11-05 for #2091:
@@ -3433,3 +3458,4 @@ The order above is #1092's: the machinery with the world's fires first, then the
 - The FX event's words `+0x10` … `+0x1C`, and the kinds of the handler not listed in docs/re/arts.md.
 - The remaining helper (`0x763CB0`) and the classes of the catalogue that no section above reads.
 - `cParticleSystem_anducar_human`'s virtual table (`0x898FEC`) while `0x5A0C50` builds 1169 with `anducar_demon`'s constructor.
+- Whether the whitish arc behind a glowing weapon's head is its glow's sparks ("776, a weapon's glow", #3888), and how many of the scripts' and the fills' armed creatures roll a slot of a style (a probe of `0x5CDD69` in the running original over a play through their sectors).

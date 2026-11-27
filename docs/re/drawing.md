@@ -560,6 +560,7 @@ Read 2026-11-02 (#1309) off `Sacred.exe` and the converted files; **confirmed** 
 
 The choice of the hero's figures (`0x6F1B30`) draws its figures' flagged items by `renderComplex` too, without the `DETAILLEVEL` test; an orthographic item draw (`0x40F270`) has the kinds 1 to 4 alone.
 Nothing else glows for the wings: no FX object (`0x451300` traced 2026-10-28), no light, and no glitter while worn.
+The violet sphere at a weapon's head is no model effect: it is the FX object 776 of a weapon in hand of a bonus's style whose model has the bone `weapon_gl01` (docs/re/effects.md, "776, a weapon's glow"; read 2026-11-27 for #3888, the Sakkara High Priest's staff 1715, whose type lacks the flag `0x100000`).
 
 ## The visions
 

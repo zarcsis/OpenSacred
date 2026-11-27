@@ -289,6 +289,7 @@ The quality pass (`0x5D2E40`) writes the quality bits last, the sum of its map's
 
 A fill (`FillSector`, `0x47C610`) makes all its creatures' items at one level: the hero's within the sector's bounds and jittered, as the creatures' (docs/re/spawning.md), raised by a tenth of a curve of the survival counter's minutes (`0x424650` at `0x47D277`; docs/re/questbook.md, "The statistics' book") through `0x552230`, which is the level itself on bronze, at most 300; every item of its `MakeGroup` rule is made at it with the quality key 0.
 `CreateNPC` makes a record's items at the creature's level with a key at random of 0–3.
+Read 2026-11-27 for #3888 (**confirmed** by code): it calls the maker (`0x4849EA`, `0x484AED`, `0x484BF0`, `0x484DEE`) with the item's own record (`0x5BEB30` with −1) and the sixth argument 0, so that an item whose type has a template has its record cleared and made anew, the slots of its `Weapon.pak` record lost; it does so for a creature that is no hero (its id above 16), unless the record's tag `0x7B` sets the flag (`0x482A8C`) that `0x484943` tests, which none of the Seraphim tree's `CreateNPC` records carries.
 A fixed item keeps its record when the maker stops (**hypothesis**: the copy of `Weapon.pak +0x80…+0x101`, whose words fit the record's layout).
 
 ## Example: a goblin's dagger

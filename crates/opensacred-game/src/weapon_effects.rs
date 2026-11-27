@@ -2,7 +2,7 @@
 //! unique weapons' effects"), as `cWeapon3D`'s switch (`0x5CDB60`) makes them for a model put on
 //! (`npcs::Piece`), each following its bones while the model is there:
 //!
-//! - a weapon in hand whose model has the bone `stdfx_bone01` glows at its bone `weapon_gl01`:
+//! - a weapon in hand whose model has the bone `weapon_gl01` glows there (`0x5CDD82`, #3888):
 //!   sparks of `PARTICLE_GLOW01`, white turning to its bonuses' style's colour, and a pulsing
 //!   flare (`opensacred_rules::weapon_effects::{bonus_style, WeaponGlow}`);
 //! - the whip 3073 trails fifty blue glows from its bone `weapon_fx01` (`MagicWhip`);
@@ -19,8 +19,8 @@ use bevy::prelude::*;
 use opensacred_rules::particles::{GlowLine, argb};
 use opensacred_rules::spawning::Rng;
 use opensacred_rules::weapon_effects::{
-    self as rules, GLOW_AT, GLOW_BONE, GLOW_FLARE, GLOW_TEXTURE, MagicStreak, MagicWhip,
-    MagicWorms, WHIP, WINGS, WORMS_COLOUR, WORMS_SWORD, WeaponGlow,
+    self as rules, GLOW_AT, GLOW_FLARE, GLOW_TEXTURE, MagicStreak, MagicWhip, MagicWorms, WHIP,
+    WINGS, WORMS_COLOUR, WORMS_SWORD, WeaponGlow,
 };
 
 use crate::bolt_looks::{models, world};
@@ -171,7 +171,7 @@ fn bonus_slots(
 
 /// Looks for the bones of each marked model once its scene is in, and gives it its effect by its
 /// type (`0x5CDB60`): the sword 1771's sparks, the bonus's glow at `weapon_gl01` of a weapon in
-/// hand whose model has `stdfx_bone01`, the whip 3073's trail or the wings' streaks.
+/// hand whose model has that bone, the whip 3073's trail or the wings' streaks.
 #[expect(
     clippy::type_complexity,
     reason = "a Bevy system takes its resources and queries as arguments, grouped"
@@ -213,7 +213,7 @@ fn seek(
         let item = piece.item();
         let style = || {
             let (wielded, holder, tables) = (wielded?, holder?, tables.as_deref()?);
-            named(GLOW_BONE)?;
+            named(GLOW_AT)?;
             let slots = bonus_slots(wielded, holder.0, &holders, (sets.as_deref(), tables));
             rules::bonus_style(slots)
         };
