@@ -526,7 +526,7 @@ The engine's state `0x10000` turns the stencil on with the reference 1 and the m
 - The shadow dots of `DETAILLEVEL` 0 lie on the same plane, under the root and the feet without the lean ("The shadow dots" below).
 - `opensacred-game` follows it since #3884: a creature aloft (`flight`) has the ground under it for its shadow's plane (`shadows::Plane`), its shadow and its dots on it, the lean measured from it.
   **Seen** 2026-11-27 in the game before it: a crow aloft at 188 to 197 world units over the ground (its 120) cast its shadow beside itself, on the plane of its own height, so that it seemed to skim the grass.
-  The fliers over the camera cast none (`fliers`; waits for #3885).
+  Since #3885 the fliers over the camera cast theirs on the plane of height 0 (`fliers`, `shadows::Plane`), and lay no dots.
 
 ## The models' effects
 

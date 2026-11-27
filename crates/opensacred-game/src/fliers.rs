@@ -7,7 +7,10 @@
 //! models above the ground's zero, at 115 of them a second, playing its fly's loop (the motion
 //! slot 179), for 20 s (`0x41F180`, `0x41F400`, `0x41F1B0`). It calls first 5 to 30 s after it
 //! starts, then every 10 to 30 s, until a roll of `rand()/32767 · 100` above 60 silences it for
-//! good: a crow `ANIMAL_CROW01`, a bat `ANIMAL_BAT04` or `05` at even odds, in the middle.
+//! good: a crow `ANIMAL_CROW01`, a bat `ANIMAL_BAT04` or `05` at even odds, in the middle. Its
+//! draw (`0x41F7F0`) casts its shadow on the world's plane of height 0 (`0x41F87D`;
+//! docs/re/drawing.md, "A flyer's shadow"), leaned by half its height (`shadows::Plane`, #3885),
+//! and lays no shadow dots, which the objects' draw alone lays.
 
 use bevy::gltf::Gltf;
 use bevy::prelude::*;
@@ -72,7 +75,7 @@ impl Looks {
 /// A flier over the camera: its type, its velocity in world units a second, the seconds it still
 /// lives and to its next call, and whether it calls no more.
 #[derive(Component)]
-struct Flier {
+pub(crate) struct Flier {
     kind: u32,
     velocity: Vec3,
     life: f32,
@@ -178,6 +181,9 @@ fn send(
                 .with_scale(Vec3::splat(iso::MODEL_SCALE)),
             Visibility::default(),
             models::Ordered::default(),
+            // Its shadow on the plane of height 0 (`0x41F87D`).
+            crate::shadows::Casts,
+            crate::shadows::Plane(0.0),
         ));
         count += 1;
     }
