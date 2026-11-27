@@ -668,7 +668,12 @@ fn choose(
                     )
                 })
             };
-            crate::making::may_make(arts, art, (effects, pack.as_deref(), riding)).is_ok()
+            let standing =
+                hero.zip(heights.as_deref())
+                    .map(|((_, transform, body, ..), heights)| {
+                        crate::making::standing(heights, transform.translation, body.level())
+                    });
+            crate::making::may_make(arts, art, (effects, pack.as_deref(), riding), standing).is_ok()
                 && admits(launch, under)
                 && (!(mortar || launch == Some(3)) || reached())
                 && (launch != Some(1) || foe_reached())
