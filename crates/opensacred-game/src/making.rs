@@ -38,6 +38,10 @@ use crate::motions::Slots;
 use crate::npcs::Dies;
 use crate::spawning::Rng;
 
+/// How long the Daemon's form's stance blends in over 1094's clip (its second run's `0x593320`
+/// at the blend 0.5; seen, #3907).
+const FORM_BLEND: Duration = Duration::from_millis(500);
+
 /// The blend into an art's clip (`0x593320`'s 0.5 over the attack speed, at most 0.2 s;
 /// **hypothesis**: seconds).
 const BLEND: Duration = Duration::from_millis(200);
@@ -3200,6 +3204,16 @@ fn make(
                     }
                     arts.start(making.art);
                     if ends {
+                        // The Daemon's 1094 cuts its clip at its point with his form's stance,
+                        // blended in over 0.5 s (its second run's `0x593320`; seen, #3907).
+                        if making.art == arts::FORM
+                            && let Some(node) = clips.soaring_stand()
+                        {
+                            transitions
+                                .play(&mut player, node, FORM_BLEND)
+                                .repeat()
+                                .set_speed(speed.0);
+                        }
                         end(&mut commands);
                     }
                 }

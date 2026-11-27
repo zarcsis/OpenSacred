@@ -1563,7 +1563,8 @@ fn the_daemons_boon_takes_his_forms_off_and_quickens_him() {
         ..weapon_art(1094, [20.0, 12.0], 0x80_0000)
     };
     let given = boon(&fury, 1, 1.0).unwrap();
-    assert_eq!(given.point, 0.7);
+    // At 0.7 of its clip, which its form's stance then cuts.
+    assert_eq!((given.point, given.ends), (0.7, true));
     let effects: Vec<(u32, u32, f32)> = given
         .effects
         .iter()

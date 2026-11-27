@@ -1583,7 +1583,9 @@ pub fn boon(record: &WeaponArt, level: u32, flight: f32) -> Option<Boon> {
             clears: vec![1094, 1097, 1098, 1099, 1100, DAEMON_FORM],
             starts: vec![(keyed(50, 0.0, art), 10.0)],
             replaces: Vec::new(),
-            ends: false,
+            // Its second run plays his standing slot, his form's, over the clip 150 before its
+            // end (`0x593320`; seen, #3907).
+            ends: true,
         });
     }
     // The Seraphim's 1018 and 1019 their effects of the whole value `L`, and they end
