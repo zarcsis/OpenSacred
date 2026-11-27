@@ -3,7 +3,9 @@
 //! making (#2569); a flyer's every walk is flown at its speed aloft ([`take_wing`]), climbing to
 //! its height over the ground as it moves, at most half its distance to its target in melee, and
 //! where it stands it comes down and lands, but the hornets, which keep flying on the ground
-//! (`0x5941A0`); its death sets it down at once (`0x44D520`).
+//! (`0x5941A0`); its death sets it down at once (`0x44D520`). Aloft, its shadow lies on the
+//! ground under it (`shadows::Plane`, #3884), as the raise moves the original's model alone and
+//! keeps the object's height `+0xF0` the ground's (`0x44D56A`, `0x596927`).
 
 use bevy::prelude::*;
 use opensacred_rules::minds;
@@ -14,6 +16,7 @@ use crate::frame::Step;
 use crate::hero::GameSpeed;
 use crate::iso;
 use crate::npcs::{Dies, Walk};
+use crate::shadows::Plane;
 use crate::terrain::Heights;
 
 /// A flyer off the ground: its height over it, in the units of the models' height, as the
@@ -77,7 +80,8 @@ fn take_wing(inserted: On<Insert<Walk>>, mut walks: Query<(&mut Walk, &Mind)>) {
 /// Raises each flyer over its ground: one that flies climbs as it moves, to its height
 /// (`minds::flies_up_to`: in melee at most half the whole distance to the creature it fights or
 /// the hero, `0x596600`), and comes down where it stands (`minds::climbs`), its model on its
-/// place's ground plus its height; landed, its flying is over (`+0x1F4` bit `0x200000` cleared,
+/// place's ground plus its height, its shadow's plane that ground ([`Plane`]); landed, its flying
+/// is over (`+0x1F4` bit `0x200000` cleared,
 /// `0x598FDD`) and it stands in its idle clip (`npcs::stance`), but a hornet keeps flying on the
 /// ground (`minds::lands`). One that flies no more, dead, is on the ground at once.
 /// A flyer is aloft from its flight's first frame; the walk that its behaviour gives it as it
@@ -100,6 +104,7 @@ fn fly(
             Option<&mut Mind>,
             Option<&Walk>,
             Option<&mut Aloft>,
+            Option<&mut Plane>,
             Option<&InTheWay>,
             Has<Dies>,
         ),
@@ -108,7 +113,7 @@ fn fly(
 ) {
     let seconds = time.delta_secs() * speed.0;
     let hero = heroes.iter().next();
-    for (entity, mut transform, mut mind, walk, aloft, way, dies) in &mut flyers {
+    for (entity, mut transform, mut mind, walk, aloft, plane, way, dies) in &mut flyers {
         let height = aloft.as_deref().map(|aloft| aloft.height);
         if height.is_none() && !walk.is_some_and(Walk::flies) {
             continue;
@@ -152,6 +157,14 @@ fn fly(
                         commands.entity(entity).insert(Aloft { height });
                     }
                 }
+                match plane {
+                    Some(mut plane) => {
+                        plane.set_if_neq(Plane(ground));
+                    }
+                    None => {
+                        commands.entity(entity).insert(Plane(ground));
+                    }
+                }
                 transform.translation.y = ground + world(height);
             }
             None => {
@@ -169,6 +182,9 @@ fn fly(
                         debug!("flight: {entity} lands");
                     }
                     commands.entity(entity).remove::<Aloft>();
+                }
+                if plane.is_some() {
+                    commands.entity(entity).remove::<Plane>();
                 }
                 transform.translation.y = ground;
             }
@@ -299,6 +315,8 @@ mod tests {
         assert_eq!(height(&app), Some(minds::FLIES_HIGH));
         let y = app.world().get::<Transform>(crow).unwrap().translation.y;
         assert!((y - world(minds::FLIES_HIGH)).abs() < 1e-3, "{y}");
+        // Its shadow lies on the ground under it.
+        assert_eq!(app.world().get::<Plane>(crow), Some(&Plane(0.0)));
         // Standing, it comes down, 11 a tick, and lands.
         app.world_mut().entity_mut(crow).remove::<Walk>();
         app.update();
@@ -308,6 +326,7 @@ mod tests {
         }
         assert_eq!(height(&app), None);
         assert!(!app.world().get::<Mind>(crow).unwrap().flying);
+        assert!(app.world().get::<Plane>(crow).is_none());
         assert!(
             app.world()
                 .get::<Transform>(crow)
