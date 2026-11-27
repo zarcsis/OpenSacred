@@ -107,6 +107,8 @@ const CREATE_OBJ: u16 = 8;
 const EQUIP_NPC: u16 = 7;
 const SET_NPC_STATE: u16 = 3;
 const SET_HP: u16 = 52;
+/// The record that sets a creature's base attribute (`SetCV`, `0x48DF30`; #3873).
+const SET_CV: u16 = 103;
 const DEL_NPC: u16 = 55;
 const SET_GROUP_STATE: u16 = 73;
 const SET_ICON: u16 = 86;
@@ -3817,6 +3819,66 @@ enum Regrouped {
     Removed(String),
 }
 
+/// The base attribute that a `SetCV` of the operands `ops` sets, and its value (`0x48DF30`;
+/// docs/re/netscript.md, "`SetCV`"): its first `0B` the attribute's index, its second the value
+/// held to 0..100; none for an index past 5, which writes nothing, or a record short of its two
+/// numbers.
+fn set_value(ops: &[opensacred_data::netscript::Operand]) -> Option<(usize, u8)> {
+    let mut numbers = ops.iter().filter_map(|o| match (o.tag, &o.value) {
+        (0x0B, Value::I32(v)) => Some(*v),
+        _ => None,
+    });
+    let attribute = usize::try_from(numbers.next()?)
+        .ok()
+        .filter(|&attribute| attribute < 6)?;
+    let value = u8::try_from(numbers.next()?.clamp(0, 100)).ok()?;
+    Some((attribute, value))
+}
+
+/// [`Npcs::revalue`] over the placements `placements`.
+fn revalued(records: &[Record], placements: &mut [Placement]) -> Vec<(String, usize, u8)> {
+    let made: HashSet<String> = records
+        .iter()
+        .filter(|record| record.kind == CREATE_NPC)
+        .filter_map(|record| match &record.body {
+            Body::Operands(ops) => name_of(ops),
+            _ => None,
+        })
+        .collect();
+    let mut values = Vec::new();
+    for record in records.iter().filter(|record| record.kind == SET_CV) {
+        let Body::Operands(ops) = &record.body else {
+            continue;
+        };
+        let (Some(name), Some((attribute, value))) = (
+            name_of(ops).filter(|name| !made.contains(name)),
+            set_value(ops),
+        ) else {
+            continue;
+        };
+        for placement in placements.iter_mut() {
+            if placement.name.as_ref() == Some(&name)
+                && let Some(slot) = placement.base.0.attributes.get_mut(attribute)
+            {
+                *slot = value;
+            }
+        }
+        values.push((name, attribute, value));
+    }
+    values
+}
+
+/// The health that a creature of the health `current` of its most `most` keeps of its new most
+/// `anew`, as a `SetCV` leaves it (`0x549480` with 2; docs/re/netscript.md, "`SetCV`"): its share
+/// in whole per cent, `⌊100·h/m⌋`, of the new most, truncated.
+fn kept_share(current: u32, most: u32, anew: u32) -> u32 {
+    if most == 0 {
+        return anew;
+    }
+    let share = u64::from(current.min(most)) * 100 / u64::from(most);
+    u32::try_from(u64::from(anew) * share / 100).unwrap_or(anew)
+}
+
 /// The death's and sight functions of a `CreateNPC` of the operands `ops`: its `0x05`'s and its
 /// `0x60`'s, the latter as `See:` and its name, in their order (`0x483970`, `0x4839CF`; #656,
 /// #1025).
@@ -3893,6 +3955,23 @@ fn set_states(
                 for &index in indices {
                     if let Some(placement) = placements.get_mut(index) {
                         placement.health_share = share;
+                    }
+                }
+            }
+            // A base attribute set (`0x48DF30`, #3873), of which its values are made.
+            SET_CV => {
+                let (Some(indices), Some((attribute, value))) = (
+                    name_of(ops).and_then(|name| named.get(&name)),
+                    set_value(ops),
+                ) else {
+                    continue;
+                };
+                for &index in indices {
+                    if let Some(slot) = placements
+                        .get_mut(index)
+                        .and_then(|placement| placement.base.0.attributes.get_mut(attribute))
+                    {
+                        *slot = value;
                     }
                 }
             }
@@ -10311,6 +10390,7 @@ impl Npcs {
             };
             reicon(&self.dialogues, &mut self.icons, set_icons(records));
             self.restate(records);
+            self.revalue(records);
             self.regroup(records, &born);
             self.moves(records, 0.0);
         }
@@ -10542,6 +10622,15 @@ impl Npcs {
             .iter()
             .position(|name| name.eq_ignore_ascii_case(talk))?;
         self.icons.get(index).copied()
+    }
+
+    /// What the play's `SetCV`s give the creatures made before them (`0x48DF30`, #3873), not
+    /// those of the same records before them ([`set_states`]): each record's name, the base
+    /// attribute's index and its value, given to the placements of that name here, and to the
+    /// creatures in the world by [`script_records`] ([`set_values`]). One of the hero's name
+    /// changes nothing: the hero's attributes are its own (no record names it).
+    fn revalue(&mut self, records: &[Record]) -> Vec<(String, usize, u8)> {
+        revalued(records, &mut self.placements)
     }
 
     /// What the play's `SetNPCState`s give the creatures made before them (#656, #658, #657):
@@ -13038,6 +13127,10 @@ pub(crate) fn script_records(
         }
     }
     reicon(&npcs.dialogues, &mut npcs.icons, icons);
+    let values = npcs.revalue(&records);
+    if !values.is_empty() {
+        commands.queue(move |world: &mut bevy::prelude::World| set_values(world, &values));
+    }
     for (name, state) in npcs.restate(&records) {
         // A dead creature takes its dialogue too, which holds its body to be spoken to (the dying
         // action's hold, `0x53ECA0`; #2444): Wilbur's of quest 45, given by his death's function.
@@ -15136,6 +15229,67 @@ pub(crate) fn raised_level(world: &mut bevy::prelude::World, entity: Entity, gra
                 .unwrap_or_default(),
         );
         world.entity_mut(entity).insert(regenerates);
+    });
+}
+
+/// Gives the creatures in the world of each name of `values` the base attribute of its index at
+/// its value, as the play's `SetCV`s do (`0x48DF30`, [`Npcs::revalue`]; docs/re/netscript.md,
+/// "`SetCV`"; #3873): their values made anew at their level from their base attributes, as the
+/// level's setter makes them ([`relevel`]), and their health kept at its share of their new most
+/// ([`kept_share`]).
+fn set_values(world: &mut bevy::prelude::World, values: &[(String, usize, u8)]) {
+    world.resource_scope(|world, npcs: bevy::prelude::Mut<Npcs>| {
+        let rules = &npcs.fight;
+        let mut creatures = world.query_filtered::<(
+            Entity,
+            &ScriptName,
+            (&mut ai::Mind, &mut fight::Health, &mut fight::Combat),
+            (&mut Arms, &mut Npc),
+            (&fight::Ranked, Option<&crate::effects::Effects>),
+        ), Without<Dies>>();
+        let mut made = Vec::new();
+        for (
+            entity,
+            named,
+            (mut mind, mut health, mut combat),
+            (mut arms, mut npc),
+            (ranked, effects),
+        ) in creatures.iter_mut(world)
+        {
+            let mut set = false;
+            for (_, attribute, value) in values.iter().filter(|(name, ..)| *name == named.0) {
+                if let Some(slot) = arms.base.0.attributes.get_mut(*attribute) {
+                    *slot = *value;
+                    set = true;
+                }
+            }
+            if !set {
+                continue;
+            }
+            let (current, most) = (health.current, health.most);
+            let regenerates = relevel(
+                health.level,
+                ranked.0,
+                (&mut mind, &mut health, &mut combat, &mut npc),
+                &arms,
+                rules,
+                &effects
+                    .map(crate::effects::Effects::list)
+                    .unwrap_or_default(),
+            );
+            health.current = kept_share(current, most, health.most);
+            bevy::log::info!(
+                "npcs: the scripts set {}'s base attributes to {:?}, its health {}/{}",
+                named.0,
+                arms.base.0.attributes,
+                health.current,
+                health.most
+            );
+            made.push((entity, regenerates));
+        }
+        for (entity, regenerates) in made {
+            world.entity_mut(entity).insert(regenerates);
+        }
     });
 }
 
@@ -20133,6 +20287,85 @@ mod tests {
         // Two sectors off along either axis is outside.
         assert!(ends_at_start(start, (99 * 64, 60 * 64), Some(891)));
         assert!(ends_at_start(start, (97 * 64, 62 * 64), Some(891)));
+    }
+
+    #[test]
+    fn a_set_cv_sets_its_creatures_base_attribute() {
+        // The Mage's test's troll (#3873): its `b3` to 50 and its `b0` to 5, one of an index
+        // past 5 that writes nothing and one of a value past 100 held to it.
+        let op = |tag, value| Operand { tag, value };
+        let record = |kind, ops| Record {
+            kind,
+            body: Body::Operands(ops),
+        };
+        let set = |name: &str, attribute, value| {
+            record(
+                SET_CV,
+                vec![
+                    op(0x01, Value::Str(name.into())),
+                    op(0x0B, Value::I32(attribute)),
+                    op(0x0B, Value::I32(value)),
+                ],
+            )
+        };
+        let records = [
+            record(
+                CREATE_NPC,
+                vec![
+                    op(0x01, Value::Str("res:17310".into())),
+                    op(0x02, Value::I32(50)),
+                ],
+            ),
+            set("res:17310", 3, 50),
+            set("res:17310", 0, 5),
+            set("res:17310", 6, 7),
+            set("res:17310", 2, 1000),
+            set("other", 1, 9),
+        ];
+        let made = HashMap::from([(std::ptr::from_ref(&records[0]), 0)]);
+        let records: Vec<&Record> = records.iter().collect();
+        let mut placements = vec![Placement::default(), Placement::default()];
+        placements[0].base.0.attributes = [33, 34, 24, 43, 0, 50];
+        set_states(&records, &made, &mut placements);
+        assert_eq!(placements[0].base.0.attributes, [5, 34, 100, 50, 0, 50]);
+        assert_eq!(placements[1].base.0.attributes, [0; 6]);
+        // Short of its value, it sets nothing.
+        assert_eq!(set_value(&[op(0x0B, Value::I32(3))]), None);
+    }
+
+    #[test]
+    fn a_set_cv_of_the_play_sets_the_placements_made_before() {
+        // #3873: a later run's `SetCV` on a creature that an earlier one made, which a load's
+        // records give again.
+        let op = |tag, value| Operand { tag, value };
+        let records = [Record {
+            kind: SET_CV,
+            body: Body::Operands(vec![
+                op(0x01, Value::Str("Res:18204".into())),
+                op(0x0B, Value::I32(3)),
+                op(0x0B, Value::I32(50)),
+            ]),
+        }];
+        let mut placement = Placement {
+            name: Some("res:18204".into()),
+            ..Placement::default()
+        };
+        placement.base.0.attributes = [10, 10, 10, 10, 10, 10];
+        let mut placements = vec![placement, Placement::default()];
+        let values = revalued(&records, &mut placements);
+        assert_eq!(values, [("res:18204".to_owned(), 3, 50)]);
+        assert_eq!(placements[0].base.0.attributes, [10, 10, 10, 50, 10, 10]);
+        assert_eq!(placements[1].base.0.attributes, [0; 6]);
+    }
+
+    #[test]
+    fn a_set_cv_keeps_the_health_s_share_in_whole_per_cent() {
+        // `⌊m'·⌊100·h/m⌋/100⌋` (docs/re/netscript.md, "`SetCV`"): the troll's 190 of 190 to its
+        // new 219, and a creature at 2 of 3 (66 %) of a new 100.
+        assert_eq!(kept_share(190, 190, 219), 219);
+        assert_eq!(kept_share(2, 3, 100), 66);
+        assert_eq!(kept_share(0, 50, 80), 0);
+        assert_eq!(kept_share(5, 0, 80), 80);
     }
 
     #[test]
