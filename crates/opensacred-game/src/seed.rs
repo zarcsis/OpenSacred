@@ -6,8 +6,9 @@
 //! mixes it into its own constant ([`dice`]), and a game's own rolls, made anew as it starts (the
 //! scripts', the quest book's), the game's count too ([`Game`]), as the original's `rand()` runs on
 //! from one game to the next. The rolls seeded on purpose keep their seeds: the sectors' fills
-//! and `CreateNPC`'s levels by their sector and cell (docs/decisions/spawning.md), the containers'
-//! by the original's own seed (`opensacred_rules::containers::seed`).
+//! by their sector, and `CreateNPC`'s levels by their cell with the game's seed mixed in
+//! (docs/decisions/spawning.md), the containers' by the original's own seed
+//! (`opensacred_rules::containers::seed`).
 //!
 //! Without a seed set, as in the tests, the run's seed is 0, which leaves each generator its
 //! constant alone.

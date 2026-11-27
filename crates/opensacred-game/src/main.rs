@@ -4,7 +4,7 @@
 //! in a plugin of its own, and the steps of `frame::Step` order the systems across modules.
 
 // The packaged build opens no console window (#1495).
-#![cfg_attr(feature = "packaged", windows_subsystem = "windows")]
+#![cfg_attr(all(windows, feature = "packaged"), windows_subsystem = "windows")]
 
 mod ai;
 mod ambience;
@@ -962,7 +962,8 @@ fn main() -> ExitCode {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(e) => {
-            // Its usage, its help or its version too, which the packaged build cannot print.
+            // The packaged Windows build has no console to show even its help or version.
+            #[cfg(windows)]
             write_failure(&e.render().to_string());
             e.exit()
         }

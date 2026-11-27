@@ -508,14 +508,14 @@ fn act(
 }
 
 /// The installation's folder, as the player picks it.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn pick_folder() -> Option<PathBuf> {
     rfd::FileDialog::new()
         .set_title("The folder of Sacred Gold 2.28")
         .pick_folder()
 }
 
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "linux")))]
 fn pick_folder() -> Option<PathBuf> {
     None
 }

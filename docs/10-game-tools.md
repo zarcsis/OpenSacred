@@ -128,7 +128,7 @@ The commands are the one way in: the console, the scripts and the remote protoco
   The same records go to `%LOCALAPPDATA%\OpenSacred\logs\opensacred.log` (`$XDG_STATE_HOME` on Linux), a new file each start with the two before kept, so that a crash's log can be read after it; `--log-file` writes another one.
   Done 2026-10-19 (#169): the records are those that Bevy's filter lets through (INFO and above), each line of the file `seconds-since-the-start LEVEL target: message`; the panel takes one line a record, its targets in the game without `opensacred_game::`, and whether it shows is the setting `[debug] log`.
 * **The run's seed**: the rolls that stand for the original's `rand()` take one seed of the run, the clock's as the original's `srand(time())` (docs/re/items.md), which the log's first records tell (`seed: the run's seed is N`), the overlay's first line too (#2590), and `--seed N` gives again, so that a run that showed a problem can be played again with the same rolls; each generator mixes it into its own constant, and a game's own rolls (the scripts', the quest book's) the count of the run's games before it too (#1644).
-  The rolls seeded on purpose keep their seeds: the sectors' fills and `CreateNPC`'s levels (docs/decisions/spawning.md) and the containers' (docs/re/containers.md).
+  The rolls seeded on purpose keep their seeds: the sectors' fills by their sector, `CreateNPC`'s levels by their cell with the game's own seed mixed in, so that a game and the loads of its saves keep them (#3875; docs/decisions/spawning.md), and the containers' (docs/re/containers.md).
   The tests set no seed, which leaves each generator its constant alone.
 
 ## 6. Commands and scripts (#173)

@@ -543,7 +543,7 @@ fn load(
         .chain(seraphim.then_some(opensacred_rules::arts::BFG_ITEM))
         .collect();
     let difficulty = game.difficulty.unwrap_or_default();
-    let mut npcs = npcs::Npcs::read(shared, &scripts, &items, difficulty)?;
+    let mut npcs = npcs::Npcs::read(shared, &scripts, &items, (difficulty, seed))?;
     if let Some(saved) = played {
         npcs.resume(saved, |at| areas.get(&at).copied());
     }
