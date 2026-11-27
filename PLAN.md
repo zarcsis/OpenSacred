@@ -303,7 +303,7 @@ Identical reruns are no longer a goal (2026-10-23, #694): stage A stays reproduc
 Outputs are never committed.
 The converter repairs the defects of the original's data as it writes them (#348): `assets/` holds sound data, the game reads it as it is, and the HD packs made from it (M7) start clean, while `opensacred-formats` reads the original's files as they are.
 Each repair is as narrow as its defect, described in docs/02 and recorded as a decision in `docs/decisions/`.
-MIT-licensed community work (open-grn, grn2glb, sacred-sdk) is used as a reference with attribution; code without a license (SacredEngineRemake) is not used.
+MIT-licensed community work (open-grn, grn2glb, sacred-sdk, SacredEngineRemake) is used as a reference with attribution; code without a license is not used, nor code translated from decompiler output under any license (docs/08 §5).
 
 ## 8. Graphics and 4K
 
