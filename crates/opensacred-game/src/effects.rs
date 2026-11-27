@@ -4,9 +4,9 @@
 //! creature's fight values are made anew with it (`0x5796A0`, `opensacred_rules::fight::Effect`):
 //! the hero's attack, defence, damage, resistances, attack speed and regeneration, an NPC's with
 //! its pace and its hits' share too. Of the adder's own cases by the effect's id (#761), the
-//! module follows the poison's merging (30, #1354) and its cure and the potions' 33 held alone
-//! (#1353), and the conversion's turn of sides (14); the others are followed where a feature
-//! reads them, else left out. At each tick an NPC's bleeding (23) and a creature's poison (30)
+//! module follows the poison's merging (30, #1354) and its cure, the potions' 33 held alone
+//! (#1353), the Daemon's form 50 held alone (#3897), and the conversion's turn of sides (14); the
+//! others are followed where a feature reads them, else left out. At each tick an NPC's bleeding (23) and a creature's poison (30)
 //! strike their bearer, and an NPC whose time (29) is out dies.
 
 use bevy::ecs::entity::MapEntities;
@@ -48,8 +48,16 @@ impl Effects {
         }
     }
 
-    /// Adds `effect` for `seconds` at the list's end.
+    /// Adds `effect` for `seconds` at the list's end; the Daemon's form 50 alone, a second
+    /// renewing the first's seconds (`0x582D50` at `0x584B16`, docs/re/arts.md, "The effects", 50;
+    /// #3897), so that 1094's two leave one, whose countdown comes in the form's last seconds.
     pub fn add(&mut self, effect: Effect, seconds: f32) {
+        if effect.id == opensacred_rules::arts::FORMED
+            && let Some(held) = self.0.iter_mut().find(|timed| timed.effect.id == effect.id)
+        {
+            held.left = seconds;
+            return;
+        }
         self.0.push(Timed {
             effect,
             left: seconds,
@@ -674,6 +682,26 @@ impl Plugin for EffectsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_daemons_form_holds_one_effect_50_whose_seconds_a_second_renews() {
+        use opensacred_rules::arts::{DAEMON_FORM, FORM, FORMED};
+        let mut effects = Effects::default();
+        let mut started = Effect::new(FORMED, 0.0);
+        started.art = u32::from(FORM);
+        effects.add(started, 10.0);
+        effects.add(Effect::new(2, 0.35), 34.0);
+        let mut formed = Effect::new(FORMED, 0.0);
+        formed.art = DAEMON_FORM;
+        effects.add(formed, 34.0);
+        // One effect 50, the first, its seconds the second's; the others stack as they come.
+        let fifty: Vec<&Timed> = effects.0.iter().filter(|t| t.effect.id == FORMED).collect();
+        assert_eq!(fifty.len(), 1);
+        assert_eq!(fifty[0].effect.art, u32::from(FORM));
+        assert_eq!(effects.left(FORMED), Some(34.0));
+        effects.add(Effect::new(2, 0.35), 34.0);
+        assert_eq!(effects.0.len(), 3);
+    }
 
     #[test]
     fn a_scripts_bleeding_strikes_its_bearer_itself_until_it_is_ended() {
