@@ -287,6 +287,29 @@ Read off the client with Ghidra 2026-10-26 (#1001), **confirmed** by code unless
   The Underworld's `the_end_of_uw` lifts Vilya at 1 % and sets her to 0 again in the same run, which lays her down again, her dialogue `endofall` holding her body; `Game_over` lifts her at 100.
   Since #2477 `npcs::script_healths` lifts a dead creature of the name so where it kept its mind aside as it died (`npcs::Stashed`, which a creature that the scripts name keeps), a later `SetHP` of the same run finding it standing.
 
+## `SetCV`
+
+Read off the client with Ghidra 2026-11-26 (#3871), **confirmed** by code unless marked otherwise, and **seen** under the driver of #448 where marked.
+
+- `SetCV` (103, the walker's case `0x475C21`, `0x48DF30`) takes a creature's name (its `01`; the hero's name the local player's hero) and two numbers (its `0B`s): the first an index, the second a value, held to 0..100 (`0x48E008`: above 100 it takes 100; below 0, 0).
+- It finds the creature by its name in the map of names (`0x464BD0`), so a creature that exists as the record runs; none found, it does nothing.
+- It writes the value into the creature's base attribute of that index, the stats' `b0` to `b5` (`+0x3F2` to `+0x3FC`, the stats' `+0x4A` to `+0x54`, docs/re/fight.md, "An NPC's attack, defence and damage"; `0x48E0B9`, a jump table of six cases, an index past 5 writing nothing).
+- It then takes the creature's health and most health (`0x549460(2)`, `(1)`), sets its level again (`0x564D60` of its stats' level `+0x56`, without the scaling, with the hold), which recomputes the stats from the base attributes (`0x5796A0`), and gives it the health `⌊m'·⌊100·h/m⌋/100⌋`, its share of its new most `m'` (`0x549480(…, 2)`); for the local hero it also refreshes a copy of its stats kept elsewhere, and marks the creature's byte `+0x4CF` (not read).
+- So a base attribute so set holds for good: the attributes `a_i = b_i + ⌊b_i·(L − 1)/10⌋` at every later level, `A`, `D`, the unarmed damage and the `Creature.pak` bonuses scaled by `a0`… (docs/re/fight.md, "An NPC's attack, defence and damage"), and the most health, whose sum `S` and exponent read the stats' `b0` and `b3` (`0x565912`, `0x56591E`; docs/re/fight.md, "Health").
+- **The records** (the 20 trees' `*Code.bin`, a census by the prototype's reader 2026-11-26, **confirmed** on the files): 1,934 `SetCV`s, 1,925 in `FunkCode.bin` and 9 in `StartCode.bin`, each one name and two numbers; the indices 0 to 4 (374, 331, 339, 427 and 463 of them), never 5; their values 1, 5, 15, 50, 100 and 200, and 600, 650, 850, 900, 1,000, 1,200 and 1,400, so that 1,798 of them are held to 100.
+  The Sacred campaign's trees hold 92 each (93 the Mage's), the Underworld's 99 each and the two multiplayer trees 107 each:
+  - `grab_uw_138` to `grab_uw_153`, in every tree, 80: each makes a boss (`0x1F` 1000) at the hero and sets its `b0` to `b4` to 1,000, 600, 1,000, 650 and 1,000, all held to 100;
+  - `QIS_OnEnter301` (4: two creatures' `b0` to 1 and `b3` to 100), `QIS_OnEnter9521` (2: `b0` 15, `b3` 50), `Region24Init` (`b3` 100), `Region25Init` (`b3` 200, held to 100), `OMO-1hetz1_1502` and `OMO-1hetz2_1502` (`b3` 100), and the start script's one (`res:18204`, `b3` 50), in the campaign's trees;
+  - `OMO-1nomage107` (`res:17310`'s `b2` to 1) in the campaign's trees but the Mage's, whose `prüfung_start` gives its own `res:17310`, the test's troll, `b3` 50 and `b0` 5 ("The Mage's test in the stone circle (quests 1 and 10)");
+  - `Zwergenaufstand` (12) and `zwergenkingkampf` (5) in the Underworld's and the multiplayer trees.
+- **Seen** 2026-11-26 at the Mage's test, the troll made at the level 2 (the level of `CreateNPC`'s roll, "`CreateNPC`'s level" of docs/re/spawning.md, the level 1 in another game): its health 190 of 190 before the first `SetCV` (`b3` 50, a probe at `0x48E0B0` and one at `0x48E127`), 219 of 219 before the second (`b0` 5), and then 126 of 126; `stats` gave the base attributes 5, 34, 24, 50, 0 and 50, the attributes 5, 37, 26, 55, 0 and 55, `A` 15.5, `D` 21.8, the physical damage 2.5 to 3 and the poison's 2, and the same after the release.
+  The type's own base (`Creature.pak`) is 33, 34, 24, 43, 0 and 50: the troll fights with the strength of 5 for its type's 33, and its health is `⌊S^g · 10/31⌋` of `S` 60 (5 + 50 and their tenths) rather than 83, times the level's factor.
+  The troll of #3867, of the level 1, had 108.
+
+`opensacred-game` does not follow `SetCV`: its record goes to the world's records, which no system reads (`scripts`, `npcs`), and a creature's base attributes are its type's (`opensacred_rules::fight`).
+**Seen** 2026-11-26 in the game (the build of c37353f9): the test's troll of the level 2 (its roll seeded by its cell, docs/decisions/spawning.md, "Sectors' creatures kept and seeded") had 190 of 190, `A` 31.0, `D` 28.0, the physical damage 17.2 to 31.6 and the poison's 13.0 to 22.9, where the original's of the same level has 126, 15.5, 21.8, 2.5 to 3 and 2.
+The original's way, to follow: a `SetCV` of the play on the creature of its name in the world, one of the start's, a region's or a sector's on the placement it names as it is made (as `SetHP`'s, above), its base attribute of the index set to the value held to 0..100, the creature's stats made again at its level from its base attributes and its health kept at its share of its new most; the base attributes then the creature's own, kept by a save, through its later levels and a boss's levelling at its first fight.
+
 ## `EquipNPC`
 
 Read off the client with Ghidra 2026-11-16 (#2752), **confirmed** by code unless marked otherwise.
@@ -983,7 +1006,7 @@ The maintainer chose them on 2026-10-25, as their issues say: `opensacred-conver
 
 Read 2026-11-26 for #3867 on the converter's Luau of the Mage's tree (`type_npc_magician`, `quests/1.luau` and `quests/10.luau`), **confirmed** by the records, and **seen** under the driver of #448 (a Mage's new game, the god mode, the test taken from Alcalata (271) at 3290,2509).
 
-- The end of quest 1's dialogue (`exit01`) runs `prüfung_start`, which, while the variable `10` lacks its bit 0, makes the troll `res:17310` (the type 50, heading 90) at `monster10` (3289,2490), hostile (`0x08`) with its flags word's mode 0 (`0x14`) and the death's function `tot10`; gives it two `SetCV`s (type 103, not read); makes the bubble prison `buble2` (853, docs/re/effects.md, "The bubble prison") at its place; sets the base trigger `prüfung_beginnen` on the cells of y 2496 from x 3280 to 3310, across the circle's mouth; and makes the trigger `trigger2_10` closed (`0x27`, its kind 0) and patches under it the eight cells about the troll (3288 to 3290, 2489 to 2491).
+- The end of quest 1's dialogue (`exit01`) runs `prüfung_start`, which, while the variable `10` lacks its bit 0, makes the troll `res:17310` (the type 50, heading 90) at `monster10` (3289,2490), hostile (`0x08`) with its flags word's mode 0 (`0x14`) and the death's function `tot10`; gives it two `SetCV`s, its `b3` 50 and its `b0` 5 ("`SetCV`" above); makes the bubble prison `buble2` (853, docs/re/effects.md, "The bubble prison") at its place; sets the base trigger `prüfung_beginnen` on the cells of y 2496 from x 3280 to 3310, across the circle's mouth; and makes the trigger `trigger2_10` closed (`0x27`, its kind 0) and patches under it the eight cells about the troll (3288 to 3290, 2489 to 2491).
 - **What holds the troll** is not the bubble but two things:
   - its flags word of the mode 0, without bit 0: the hero's look wakes no hostile creature without that bit and its own timer runs only for the bits `0x3` or `0x408` (docs/re/ai.md, "Dormant and awake"), so it stays dormant; each look gives it the idle action instead, a fidget or, in 22.5 % of the looks, a step to a point within 150 of itself (docs/re/ai.md, "The idle action");
   - the eight closed cells about it, which the cell's test refuses to every creature (docs/re/movement.md, "The objects in the way"), so that the step's way finds no cell out and it stands in its own (**hypothesis** that the steps are tried and refused: not traced).
@@ -1004,7 +1027,7 @@ Read 2026-11-26 for #3867 on the converter's Luau of the Mage's tree (`type_npc_
 The original's way, to follow: a `CreateTrigger` and its `TriggerPatch`es of any function, as the function runs, close the patched cells of a closed trigger to every creature at once, and the trigger's `SetTriggerState` opens them; so the troll stands caged until the release, and the circle's mouth is barred from the release to the troll's death.
 Since #3867 the game follows it (`npcs::take_triggers`, docs/re/movement.md, "In `opensacred-game`"), and its converter deletes the bubble at the release (docs/decisions/netscript.md, "Mage's test's field gone at the troll's release").
 **Seen** 2026-11-26 in the game of #3867 (a Mage's new game, the test taken by `talk` and `answer 1`): the cage's cells closed by the trigger, the troll at 3289,2490 inside the bubble at every reading over 20 s; walked across the base trigger's line, the troll woke and fought the hero at 3289,2492, the cage open and the circle's mouth closed by `trigger10`.
-The troll's level and health differ too: level 1 and 108 in the original, 2 and 190 in the game (its `SetCV`s and `CreateNPC`'s level not compared).
+The troll's level and health differ too: level 1 and 108 in the original of #3867, 2 and 190 in the game, the level by `CreateNPC`'s roll and the health by its `SetCV`s, which the game does not follow ("`SetCV`" above, #3871).
 
 ## `SetNPCState`
 
