@@ -234,8 +234,7 @@ The direct dependencies of `[workspace.dependencies]` in `Cargo.toml` and what B
 | The game's own texts, Fluent files of `opensacred-game`'s `text/` (#1986) | fluent-syntax | 0.12.0 | MIT or Apache-2.0 |
 | The saves' window's dates in the computer's time zone (#1990), the user's short date's pattern read from the registry | jiff, winreg | 1.0.0, 0.56.0 | MIT or Unlicense; MIT |
 | The player's installation found by the registry (#1496), in `opensacred-locate` | winreg | 0.56.0 | MIT |
-| The packaged game's folder dialog at its first start on Windows (#1498) | rfd | 0.18.0 | MIT |
-| The free space of the disk that the player's conversion writes to (#1497) | fs4 | 1.1.0 | MIT or Apache-2.0 |
+| The packaged game's folder dialog at its first start (#1498): the Windows shell's, and the desktop portal's on Linux (#3854) | rfd | 0.18.0 | MIT || The free space of the disk that the player's conversion writes to (#1497) | fs4 | 1.1.0 | MIT or Apache-2.0 |
 | Binary format parsing | our own `opensacred_formats::reader::Reader`; binrw, zerocopy and bytemuck are not used (see above) | — | — |
 | Compression | miniz_oxide (zlib: decompression with an output size limit, and the zlib stream of the postcard files) | 0.9.1 | MIT, Zlib or Apache-2.0 |
 | The game's archives (#699) | a reader and writer of their own in `opensacred-data` (`archive`) over miniz_oxide and crc32fast | — | — |
