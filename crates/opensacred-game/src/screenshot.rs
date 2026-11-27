@@ -44,7 +44,7 @@ impl Request {
 pub fn take(
     mut commands: Commands,
     mut request: ResMut<Request>,
-    ready: Res<Ready>,
+    (ready, drawn): (Res<Ready>, Res<crate::drawn::Drawn>),
     streamer: Res<Streamer>,
     bodies: Query<&Transform, With<Body>>,
 ) {
@@ -52,7 +52,8 @@ pub fn take(
         .iter()
         .next()
         .is_some_and(|hero| streamer.settled(hero.translation));
-    if request.taken || !ready.0 || !settled {
+    // And the models about the hero drawn (#3909).
+    if request.taken || !ready.0 || !settled || !drawn.ready() {
         return;
     }
     request.frames += 1;
@@ -216,12 +217,17 @@ fn bgra(image: &Image) -> Option<Vec<u8>> {
 
 #[expect(
     clippy::too_many_arguments,
+    clippy::type_complexity,
     reason = "a system's parameters: the recording, the scene's state and the run's details"
 )]
 pub fn record(
     mut commands: Commands,
     mut recording: ResMut<Recording>,
-    (ready, streamer): (Option<Res<Ready>>, Option<Res<Streamer>>),
+    (ready, streamer, drawn): (
+        Option<Res<Ready>>,
+        Option<Res<Streamer>>,
+        Option<Res<crate::drawn::Drawn>>,
+    ),
     bodies: Query<&Transform, With<Body>>,
     mut exit: MessageWriter<AppExit>,
     (real, virtual_time, count): Clocks,
@@ -273,7 +279,8 @@ pub fn record(
                 .as_deref()
                 .is_some_and(|streamer| streamer.settled(hero.translation))
         });
-        if !ready.is_some_and(|ready| ready.0) || (recording.rendered == 0 && !settled) {
+        let drawn = drawn.is_some_and(|drawn| drawn.ready());
+        if !ready.is_some_and(|ready| ready.0) || (recording.rendered == 0 && !(settled && drawn)) {
             return;
         }
     }

@@ -83,6 +83,7 @@ mod doings;
 mod doom_signs;
 mod doors;
 mod dragon_fires;
+mod drawn;
 mod drops;
 mod dryad_ghosts;
 mod dwarf_armours;
@@ -618,8 +619,8 @@ fn run(cli: Cli) -> Result<AppExit> {
         doom_signs::DoomSignsPlugin,
         doors::DoorsPlugin,
     ))
+    .add_plugins((dragon_fires::DragonFiresPlugin, drawn::DrawnPlugin))
     .add_plugins((
-        dragon_fires::DragonFiresPlugin,
         drops::DropsPlugin,
         dryad_ghosts::DryadGhostsPlugin,
         dwarf_armours::DwarfArmoursPlugin,

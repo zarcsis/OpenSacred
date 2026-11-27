@@ -322,6 +322,7 @@ pub struct Probe<'w, 's> {
     cameras: Query<'w, 's, &'static Projection, crate::iso::Eye>,
     streamer: Option<Res<'w, Streamer>>,
     ready: Option<Res<'w, Ready>>,
+    drawn: Option<Res<'w, crate::drawn::Drawn>>,
     npcs: Query<'w, 's, (), With<Npc>>,
     healths: Query<'w, 's, (&'static Transform, &'static Health), Without<Body>>,
     experience: Option<Res<'w, Experience>>,
@@ -498,7 +499,9 @@ impl Probe<'_, '_> {
                     .zip(self.streamer.as_deref())
                     .is_some_and(|((transform, _), streamer)| {
                         streamer.settled(transform.translation)
-                    }),
+                    })
+                // And the models about the hero drawn (#3909).
+                && self.drawn.as_deref().is_some_and(crate::drawn::Drawn::ready),
         }
     }
 }

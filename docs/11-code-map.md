@@ -190,6 +190,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/doom_signs.rs`: The Daemon's call of death's sign at a kill
 - `crates/opensacred-game/src/doors.rs`: The doors that the hero opens and closes
 - `crates/opensacred-game/src/dragon_fires.rs`: The dragons' breath of fire
+- `crates/opensacred-game/src/drawn.rs`: Whether the models about the hero are drawn
 - `crates/opensacred-game/src/drops.rs`: The creatures' drops
 - `crates/opensacred-game/src/dryad_ghosts.rs`: The dryad ghosts
 - `crates/opensacred-game/src/dwarf_armours.rs`: The look of the Dwarf's armour (58, 1021, `cParticleSystem_panzer`) and steel
