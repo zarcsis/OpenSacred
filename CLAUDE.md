@@ -135,7 +135,7 @@ Hooks in `.claude/settings.json` automate steps 1–3 without the game files: `c
 - Never commit decompiler output or code translated from it: describe the original's behavior in prose in `docs/re/` and implement it independently (docs/08 §3). Nothing about circumventing a protection.
 - The same rules hold for issues, pull requests, discussions and their attachments: no game files and no converted assets; frames and recordings of the game in play are attachments, never committed ("Issues and pull requests"; docs/08 §3).
 - `unsafe` is forbidden by a workspace lint, in `opensacred-oracle` too: its Unicorn wrapper needs none, and only a wrapper that did would make it the exception.
-- Do not use code from unlicensed projects (SacredEngineRemake); do not port GPL code (sacred-bild) — facts only. MIT borrowings carry attribution.
+- Do not use code from unlicensed projects; do not port GPL code (sacred-bild) — facts only. MIT borrowings carry attribution.
 - New dependencies only with licenses allowed in `deny.toml`.
 
 ## Tests

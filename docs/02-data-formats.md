@@ -360,7 +360,7 @@ The original does skinning on the CPU twice per frame (model + shadow), which is
 
 ### 4.4 What community projects can do and what nobody can
 
-| Need | openheilig (MIT/CC BY-SA) | grn2glb (MIT + LGPL VTex) | open-grn (MIT, drop-in DLL) | SacredEngineRemake (no license) |
+| Need | openheilig (MIT/CC BY-SA) | grn2glb (MIT + LGPL VTex) | open-grn (MIT, drop-in DLL) | SacredEngineRemake (MIT since 2026-11-25) |
 |---|---|---|---|---|
 | Container, skeleton, weights, materials, clips | yes, cross-checked on the corpus and against an oracle (apitrace/GDB on LGP Linux) | yes (1,571 models parse; 1 animation makes it into the GLB, deformation not checked) | yes | yes (managed parser) |
 | Semantics of interpolation mode 2 | derived and cross-checked | no (raw ints) | its own blend, not cross-checked numerically | linear/slerp (wrong) |
@@ -1436,7 +1436,7 @@ External projects and documents this one relies on (without copying their conten
 - openheilig/research (CC BY-SA 4.0), /engine, /tools (MIT) — `formats/granny-grn.md`, `formats/script-bytecode.md`, `formats/pak-containers.md`: https://github.com/openheilig/research
 - bssth/sacred-sdk (MIT) — `ports/engine/sacred_hash.h`, `ports/herosave/hero_save.h`, `re/py/funkcode_tags.py`, `lua_bake_opcodes.inc`: https://github.com/bssth/sacred-sdk
 - ancaria-dev/grn2glb (MIT; VTex codec LGPL-2.1+): https://github.com/ancaria-dev/grn2glb ; karolak6612/open-grn (MIT): https://github.com/karolak6612/open-grn
-- Aytackydln/SacredEngineRemake (no license; not used): https://github.com/Aytackydln/SacredEngineRemake
+- Aytackydln/SacredEngineRemake (MIT since 2026-11-25; a reference of facts, no code ported): https://github.com/Aytackydln/SacredEngineRemake
 - MairwunNx/SacredUtils (Apache-2.0, Balance/Creature/Weapon/global.res editors): https://github.com/MairwunNx/SacredUtils ; gonX/sacred-savepak-system: https://github.com/gonX/sacred-savepak-system
 - wine `include/d3d.h`, `include/d3dtypes.h` (D3D7 constants for the render contract): https://raw.githubusercontent.com/wine-mirror/wine/master/include/d3dtypes.h
 - FFmpeg `libavcodec/bink.c` (origin of the VTex codec): https://raw.githubusercontent.com/FFmpeg/FFmpeg/master/libavcodec/bink.c

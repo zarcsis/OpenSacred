@@ -92,11 +92,13 @@ The risk is low (**estimate**), and it stays apart from the repository: a compla
 | bssth/sacred-sdk | MIT | NetScript facts, the string hash, addresses; the notice is in `THIRD-PARTY-NOTICES.md` |
 | kirides/sacred-bild | GPL-3.0 | function names only, in a developer's local Ghidra project; nothing is committed |
 | kryotek, sacredbamboo | AGPL-3.0 and others | not used before multiplayer, after version 1.0; then facts about the protocol only, in our own words, no code |
-| SacredEngineRemake | no license (all rights reserved) | not used |
+| SacredEngineRemake | MIT since 2026-11-25 (Aytac Kayadelen); kirides' contributions merged before its license file are MIT too by their consent (#3881) | a reference of facts in our own words, as open-grn is; no code is ported (docs/09 §3.3) |
 
 Facts about formats are not protected by copyright; code is.
 So from other projects we take knowledge and write our own code.
 A constant table or formula taken from an MIT project carries the project's notice in `THIRD-PARTY-NOTICES.md` and a comment naming the source.
+Code ported from another language is a derived work and carries the notice too.
+No license lifts §3: a community project's code translated from decompiler output stays out of the tree whatever its license, as SacredEngineRemake's network code, checked against the original's code and traffic, may be.
 
 ## 6. Name and trademark
 
