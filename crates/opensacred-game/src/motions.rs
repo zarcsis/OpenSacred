@@ -333,14 +333,19 @@ impl Slots {
         }
     }
 
-    /// The hero's attack's clips for `class`: its class's own, else the bare hands' of class 0,
-    /// as its standing and moving fall back to them (the hero's case of `0x5467A0`'s action 4,
-    /// the creature's `+0x200` bit `0x40`, is not read; the heroes' models hold the attacks of
-    /// the classes their weapons take).
+    /// The hero's attack's clips for `class`, the first first (`0x5467A0`'s heroes' case of the
+    /// action 4, docs/re/motions.md, "The heroes' own cases"; #3893): the slots that its model
+    /// fills one after another from its class's first, at most five (one of the class 13); where
+    /// it fills not the first, the stand-in that the models' clip getter gives in its place, as
+    /// an NPC's ([`Slots::attacks`]), none where it has none either. No class 0's.
     pub fn hero_attacks(&self, class: u8) -> Vec<String> {
-        let own = self.own_attacks(class);
+        let first = Self::attack_slot(class);
+        let most = if class == 13 { 1 } else { 5 };
+        let own: Vec<String> = (first..first + most)
+            .map_while(|slot| self.slot(slot).map(str::to_owned))
+            .collect();
         if own.is_empty() {
-            self.own_attacks(0)
+            self.attacks(class).clips
         } else {
             own
         }
@@ -572,10 +577,22 @@ mod tests {
     }
 
     #[test]
-    fn the_heros_class_without_strikes_of_its_own_strikes_with_the_bare_hands() {
-        let hero = Slots::of([(79, "BH_A"), (80, "BH_B"), (84, "1H_A")]);
+    fn the_heros_attacks_run_from_its_class_first_else_the_getters_stand_in() {
+        let hero = Slots::of([
+            (79, "BH_A"),
+            (80, "BH_B"),
+            (84, "1H_A"),
+            (86, "1H_C"),
+            (89, "2H_A"),
+        ]);
+        // The slots one after another from the class's first, to the first gap.
+        assert_eq!(hero.hero_attacks(0), ["BH_A", "BH_B"]);
         assert_eq!(hero.hero_attacks(1), ["1H_A"]);
-        assert_eq!(hero.hero_attacks(5), ["BH_A", "BH_B"]);
+        assert_eq!(hero.hero_attacks(2), ["2H_A"]);
+        // Its class's first not filled, the stand-in, the first of 89, 84 and 79, not class 0's.
+        assert_eq!(hero.hero_attacks(5), ["2H_A"]);
+        let bare = Slots::of([(79, "BH_A"), (80, "BH_B")]);
+        assert_eq!(bare.hero_attacks(5), ["BH_A"]);
         assert!(Slots::default().hero_attacks(5).is_empty());
     }
 

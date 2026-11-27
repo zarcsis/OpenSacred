@@ -117,7 +117,7 @@ Who else meets a lacking slot (the converted models' slots against the creature 
 
 `opensacred-game` follows it for the Seraphim's bolts of a creature since #3303 (`npcs::BoltClip`, `opensacred_rules::minds::stand_ins`): a shot of the slot 145 that the model lacks plays the first of 89, 84 and 79 that it has at the shot's rate and looses at the record 0's fraction, and one of the slot 164 plays nothing, its first bolt leaving at the first tick after its start as its stance's fraction of 0 lets it, its second since #3562 at the first tick after it at which the stance has played 0.6 of its loop (`opensacred_rules::arts::second_bolt_due`, `npcs::strike`), and the shot ending since #3572 at the first tick after its second bolt (`opensacred_rules::arts::Bolt::ends_after`, docs/re/fight.md, "The archers").
 Since #3314 an NPC's melee strike of a class its model lacks takes the first of 89, 84 and 79 that the model has (`motions::Slots::attacks`), timed by the record 0 (`npcs`' `LACKING`), and hits once a swing at its first fraction as every NPC's strike does since #3686; one whose model has none of the three plays nothing and strikes not, as before.
-The hero's attack keeps its class 0's clips where its model has none of its class's (`motions::Slots::hero_attacks`), where the original's gives its class's first slot and so the getter's stand-in ("The heroes' own cases" below); not followed.
+Since #3893 the hero's attack takes the getter's stand-in where its model fills not its class's first slot, as the original's (`motions::Slots::hero_attacks`, "The heroes' own cases" below), where it took its class 0's clips before.
 
 ## The rate of the clip in play
 
@@ -203,7 +203,7 @@ For a creature of `+0x200` bit `0x40`, the player's hero ("The fight stance" bel
   With none counted it gives the first all the same, which the model lacks, so that the getter's stand-in plays ("Where the model lacks the slot" above): the hero falls back to no class 0's clips.
 - Defending (the action 5) has no case of the heroes': the table's, with its fallback.
 
-`opensacred-game` follows the Vampiress's night's class (`forms`) and, in effect, the Wood Elf's case, as her model lacks the slot 26 and her stance falls to her idle of the class, 13 (`hero::Clips`); since #3887 the Daemon's form (below); since #3891 and #3892 the Gladiator's stance with the class 2 and the Vampiress's day's slots 1 and 15, where the model has them (`motions::own_idle`, `motions::own_stance`, `game::clips_of`); not the attack's roll (#3893), whose clip the game picks among its class's own at even odds (`attack`), its class 0's where the model has none.
+`opensacred-game` follows the Vampiress's night's class (`forms`) and, in effect, the Wood Elf's case, as her model lacks the slot 26 and her stance falls to her idle of the class, 13 (`hero::Clips`); since #3887 the Daemon's form (below); since #3891 and #3892 the Gladiator's stance with the class 2 and the Vampiress's day's slots 1 and 15, where the model has them (`motions::own_idle`, `motions::own_stance`, `game::clips_of`); and since #3893 the attack's roll, its class's first four times in five among the slots its model fills one after another from it (`motions::Slots::hero_attacks`, `opensacred_rules::minds::hero_attack`, `attack`), where the game picked among its class's own at even odds and fell back to its class 0's.
 
 ### The Daemon's form
 
