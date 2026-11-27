@@ -534,8 +534,8 @@ The engine's state `0x10000` turns the stencil on with the reference 1 and the m
   The frames show a crow over the rocks and its shadow, its wings spread as the bird's, on the sand some 240 pixels right of it and 320 below, as at the detail 2, while the hero stood on her dots.
 - `opensacred-game` follows it since #3884: a creature aloft (`flight`) has the ground under it for its shadow's plane (`shadows::Plane`), its shadow and its dots on it, the lean measured from it.
   **Seen** 2026-11-27 in the game before it: a crow aloft at 188 to 197 world units over the ground (its 120) cast its shadow beside itself, on the plane of its own height, so that it seemed to skim the grass.
-  Since #3885 the fliers over the camera cast theirs on the plane of height 0 (`fliers`, `shadows::Plane`), and lay no dots.
-  At the detail 0 it hides their shadows with every model's (`shadows`' `detail`), where the original casts them (above): a flier over the camera keeps its shadow at every detail.
+  Since #3885 the fliers over the camera cast theirs on the plane of height 0 (`fliers`, `shadows::Plane`), and lay no dots; since #3920 at every detail, the detail 0 too (`shadows::AtEveryDetail`).
+  Since #3920 a flier over the camera keeps its shadow at the detail 0 too (`shadows::AtEveryDetail`), where the game hides every other model's there (`shadows`' `detail`), as the original casts it (above).
 
 ## The models' effects
 
