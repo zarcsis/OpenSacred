@@ -4977,6 +4977,28 @@ pub fn strike_gives_way(
     struck >= hits && left <= STRIKE_TURN / speed
 }
 
+/// Which of a hero's `count` attack clips a strike plays (`0x5467A0`'s heroes' case of the action
+/// 4, docs/re/motions.md, "The heroes' own cases"; #3893): with more than one, a roll `first` of
+/// `rand()/32767` at most 0.2 takes one of the others at even odds by a second such roll `second`,
+/// `1 + ⌊second · (count − 1)⌋`, held to the last where the original's one roll in 32,768 runs past
+/// it; any other roll the first, so that the first plays four times in five. `second` is asked
+/// only where `first` takes the others.
+pub fn hero_attack(count: usize, first: f32, second: impl FnOnce() -> f32) -> usize {
+    if count < 2 || first > 0.2 {
+        return 0;
+    }
+    let others = u16::try_from(count - 1).unwrap_or(u16::MAX);
+    let at = (second() * f32::from(others)).floor();
+    // Truncated toward zero, the roll at most 1: at most `others` (`_ftol`).
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a share of the others' count, from 0 to it"
+    )]
+    let at = at.clamp(0.0, f32::from(others) - 1.0) as usize;
+    1 + at
+}
+
 /// The slots whose clips stand in for the slot `slot` where a model lacks it, the first of them
 /// that the model has (the models' clip getter `0x4118B0`, docs/re/motions.md, "Where the model
 /// lacks the slot"): the slot 89, else 84, else 79 for a slot of 79 to 153; none outside them,
@@ -5092,6 +5114,25 @@ mod tests {
     use std::collections::HashSet;
 
     use super::*;
+
+    #[test]
+    fn a_heros_attack_is_its_first_four_times_in_five() {
+        // One clip or none, no roll.
+        for count in [0, 1] {
+            assert_eq!(hero_attack(count, 0.0, || panic!("no second roll")), 0);
+        }
+        // Above 0.2 the first, without the second roll.
+        assert_eq!(hero_attack(5, 0.21, || panic!("no second roll")), 0);
+        assert_eq!(hero_attack(5, 1.0, || panic!("no second roll")), 0);
+        // At most 0.2 one of the others by the second roll, the last held at its end.
+        assert_eq!(hero_attack(5, 0.2, || 0.0), 1);
+        assert_eq!(hero_attack(5, 0.0, || 0.249), 1);
+        assert_eq!(hero_attack(5, 0.1, || 0.25), 2);
+        assert_eq!(hero_attack(5, 0.1, || 0.999), 4);
+        assert_eq!(hero_attack(5, 0.1, || 1.0), 4);
+        assert_eq!(hero_attack(2, 0.1, || 0.999), 1);
+        assert_eq!(hero_attack(3, 0.1, || 0.5), 2);
+    }
 
     #[test]
     fn a_minds_deadline_moves_with_the_real_clock_and_a_save_keeps_it() {

@@ -346,12 +346,17 @@ pub(crate) fn aim(
     }
 }
 
+/// A roll of the client's `rand()` over 32,767, from 0 to 1.
+fn rand_share(dice: &mut opensacred_rules::spawning::Rng) -> f32 {
+    f32::from(u16::try_from(dice.below(0x8000)).unwrap_or(0)) / 32_767.0
+}
+
 /// The hero's attack (the AI's state 4 for a hero, docs/re/fight.md), deciding at the world's
 /// ticks ([`Phase`], #617): the click's order taken at a tick, it decides at the next; farther
 /// than its band from its target it runs to it, after it as it moves, its move ending in the band
 /// at any frame; in the band, or at once, it stops and turns to the target, and at the next tick
-/// strikes: one of its attack clips at random, once, at the game's speed, which hits at the first
-/// tick past the clip's fractions (0.5 for a first of 0; a second where there is one) when the
+/// strikes: one of its attack clips, its first four times in five (`minds::hero_attack`), once,
+/// at the game's speed, which hits at the first tick past the clip's fractions (0.5 for a first of 0; a second where there is one) when the
 /// target is then within 1.5 times the reach, its strikes at an even pace. It strikes again while
 /// the button that sent it is held or a click asks for another (the original's attack action keeps
 /// its first half while the button is held, #705), until the target dies; a strike at once or in
@@ -789,7 +794,7 @@ fn engage(
             continue;
         }
         // A shot of bolts plays its own clip, the railgun's slot 164 or the BFG's 145, where the
-        // model has it (`0x4DCB80`, #1371); else one of its attack clips at random.
+        // model has it (`0x4DCB80`, #1371); else one of its attack clips by its roll.
         let shot = bolt.and_then(|bolt| match bolt {
             Bolt::Railgun => clips.bolts[0].as_ref(),
             Bolt::Bfg => clips.bolts[1].as_ref(),
@@ -797,7 +802,6 @@ fn engage(
         if let (Some(bolt), Some(_)) = (bolt, shot) {
             debug!("attack: the hero shoots its {bolt:?} bolts by their own clip");
         }
-        let count = u32::try_from(clips.attacks.len()).unwrap_or(0);
         // In the Daemon's form of 1094 every strike and shot is his form's 147 (`0x5467A0` at
         // `0x546A69`, #3887).
         let formed = clips
@@ -810,9 +814,15 @@ fn engage(
         } else if formed.is_some() {
             formed
         } else {
-            usize::try_from(dice.0.below(count))
-                .ok()
-                .and_then(|index| clips.attacks.get(index))
+            // Its first clip four times in five, else one of the others (`0x5467A0`, #3893).
+            let count = clips.attacks.len();
+            let index = if count < 2 {
+                0
+            } else {
+                let first = rand_share(&mut dice.0);
+                minds::hero_attack(count, first, || rand_share(&mut dice.0))
+            };
+            clips.attacks.get(index)
         };
         let Some((node, clip, fractions)) = shot.or(strike) else {
             commands.entity(hero).remove::<Attack>();
