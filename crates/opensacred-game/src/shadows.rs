@@ -105,6 +105,12 @@ pub struct Plane(pub f32);
 #[derive(Component)]
 pub struct Shadow;
 
+/// A caster whose shadow the original draws at every detail, the lowest too: the fliers over the
+/// camera, whose draw (`0x41F7F0`) casts it with no test of the detail (`0x41F889`; #3920), where
+/// the objects' draw lays dots in its place at the lowest ([`detail`]).
+#[derive(Component)]
+pub struct AtEveryDetail;
+
 /// The copy of a model's mesh that draws its shadow into the [`ShadowMask`].
 #[derive(Component)]
 pub struct MaskCopy;
@@ -527,13 +533,17 @@ type ModelMesh = (
 /// or the wings, casts with its holder, flattened at its holder's height through the holder's
 /// slot that its meshes take, as the client draws an item's shadow at its holder's height
 /// (`0x44B230`, #2610).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components and filters"
+)]
 pub fn cast(
     mut commands: Commands,
     shared: Res<Shared>,
     meshes: Query<ModelMesh, (Added<MeshMaterial3d<ModelMaterial>>, Without<Fringe>)>,
     parents: Query<&ChildOf>,
     models: Query<Option<&OrderedWith>, Model>,
-    casters: Query<Has<Sunk>, (With<Casts>, With<Ordered>)>,
+    casters: Query<(Has<Sunk>, Has<AtEveryDetail>), (With<Casts>, With<Ordered>)>,
 ) {
     for (entity, mesh, skinned, tag, transform, parent) in &meshes {
         let Some(root) = parents
@@ -547,7 +557,7 @@ pub fn cast(
             .ok()
             .flatten()
             .map_or(root, |&OrderedWith(holder)| holder);
-        let Ok(sunk) = casters.get(caster) else {
+        let Ok((sunk, always)) = casters.get(caster) else {
             continue;
         };
         let mut shadow = commands.spawn((
@@ -562,6 +572,9 @@ pub fn cast(
         ));
         if let Some(skinned) = skinned {
             shadow.insert(skinned.clone());
+        }
+        if always {
+            shadow.insert(AtEveryDetail);
         }
         // And into the mask, for its edges (#2624).
         let mut copy = commands.spawn((
@@ -584,20 +597,20 @@ pub fn cast(
 type Copies = Or<(With<Shadow>, With<MaskCopy>)>;
 
 /// Hides the models' shadows at the options' lowest detail, where `shadow_dots` lays the dots of
-/// `0x407960` in their place, and shows them above it: sharp, as the original's, at the medium
-/// detail, the mask's camera off and its copies hidden, and with their soft edges at the highest
-/// (#2628), which pays for that camera.
+/// `0x407960` in their place, but those of the casters drawn [`AtEveryDetail`], and shows them
+/// above it: sharp, as the original's, at the medium detail, the mask's camera off and its copies
+/// hidden, and with their soft edges at the highest (#2628), which pays for that camera.
 fn detail(
     settings: Option<Res<crate::settings::Settings>>,
-    mut copies: Query<(&mut Visibility, Has<MaskCopy>), Copies>,
+    mut copies: Query<(&mut Visibility, Has<MaskCopy>, Has<AtEveryDetail>), Copies>,
     mut cameras: Query<&mut Camera, With<MaskCamera>>,
     shared: Option<Res<Shared>>,
     mut materials: ResMut<Assets<ShadowMaterial>>,
 ) {
     let detail = crate::settings::detail(settings.as_deref());
     let soft = detail >= 2;
-    for (mut visibility, masked) in &mut copies {
-        let shown = if masked { soft } else { detail >= 1 };
+    for (mut visibility, masked, always) in &mut copies {
+        let shown = if masked { soft } else { always || detail >= 1 };
         visibility.set_if_neq(if shown {
             Visibility::Inherited
         } else {

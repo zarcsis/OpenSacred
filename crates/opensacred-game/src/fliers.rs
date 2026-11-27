@@ -10,7 +10,8 @@
 //! good: a crow `ANIMAL_CROW01`, a bat `ANIMAL_BAT04` or `05` at even odds, in the middle. Its
 //! draw (`0x41F7F0`) casts its shadow on the world's plane of height 0 (`0x41F87D`;
 //! docs/re/drawing.md, "A flyer's shadow"), leaned by half its height (`shadows::Plane`, #3885),
-//! and lays no shadow dots, which the objects' draw alone lays.
+//! at every detail, the lowest too (`shadows::AtEveryDetail`, #3920), and lays no shadow dots,
+//! which the objects' draw alone lays.
 
 use bevy::gltf::Gltf;
 use bevy::prelude::*;
@@ -181,9 +182,10 @@ fn send(
                 .with_scale(Vec3::splat(iso::MODEL_SCALE)),
             Visibility::default(),
             models::Ordered::default(),
-            // Its shadow on the plane of height 0 (`0x41F87D`).
+            // Its shadow on the plane of height 0 (`0x41F87D`), at every detail (`0x41F889`).
             crate::shadows::Casts,
             crate::shadows::Plane(0.0),
+            crate::shadows::AtEveryDetail,
         ));
         count += 1;
     }
