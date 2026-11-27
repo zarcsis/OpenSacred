@@ -1371,6 +1371,9 @@ pub struct Npcs {
     /// eighth of which a horse that `CreateNPC` makes takes ([`Self::scripted_level`]),
     /// [`hero_riding`] keeping it.
     riding: u32,
+    /// The seed of the game being played, which the roll of a `CreateNPC`'s level takes with its
+    /// cell ([`level_dice`], #3875).
+    game: crate::seed::Game,
 }
 
 /// Where a creature came from, which decides what becomes of it when its sector goes, as the
@@ -5087,12 +5090,13 @@ impl Npcs {
     }
 
     /// Reads the records of the scripts that ran, `tree` (`scripts::run`), and the tables, and
-    /// what of them the hero's template's items `worn` are ([`Self::hero_holds`]).
+    /// what of them the hero's template's items `worn` are ([`Self::hero_holds`]), for the game
+    /// of the seed `game`.
     pub fn read(
         shared: &sectors::Shared,
         tree: &Tree,
         worn: &[u32],
-        difficulty: opensacred_rules::drops::Difficulty,
+        (difficulty, game): (opensacred_rules::drops::Difficulty, crate::seed::Game),
     ) -> Result<Self> {
         let assets = &shared.assets;
         let tables = &shared.tables;
@@ -5433,6 +5437,7 @@ impl Npcs {
             waters: Vec::new(),
             drawn: HashSet::new(),
             riding: 0,
+            game,
         })
     }
 
@@ -5901,6 +5906,15 @@ const HORSES_CLASS: u8 = 4;
 /// ([`Npcs::scripted_level`]): the level's offset in the creature (`+0x3FE`).
 const LEVEL_ROLL: usize = 0x3FE;
 
+/// The generator of the roll of the level of a `CreateNPC`'s creature on the global cell `cell`
+/// in the game of the seed `game` (`rand() % 2`, docs/re/spawning.md, "`CreateNPC`'s level"):
+/// its cell's, the game's seed mixed in, so that the game rolls it the same each time it makes a
+/// creature there, a load of its save too, whose start runs on the saved game's seed, and a new
+/// game anew, as the original's `rand()` seeded by the time (#3875).
+fn level_dice((x, y): (u32, u32), game: crate::seed::Game) -> spawning::Rng {
+    spawning::Rng::of(x, y, LEVEL_ROLL).mixed(game.0)
+}
+
 /// The creatures that the command `spawn` makes (#524).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Spawn {
@@ -5984,7 +5998,8 @@ impl Npcs {
     /// its cell's sector's highest, or a boss's marker level (`fight::tagged_level`, #540); else
     /// (`fight::scripted_level`) the hero's, `hero`, by the levels of its cell's sector, then a
     /// horse's by the hero's riding and any other's by the survival counter, `played`, held at the
-    /// sector's highest (#562); its roll the same each time it is made on its cell.
+    /// sector's highest (#562); its roll the same each time the game makes it on its cell
+    /// ([`level_dice`]).
     fn scripted_level(&self, placement: &Placement, hero: u32, played: fight::Played) -> u32 {
         let (x, y) = placement.cell;
         let side = u32::try_from(SIDE).unwrap_or(64);
@@ -6003,7 +6018,7 @@ impl Npcs {
         } else {
             fight::Raise::Played(played)
         };
-        let mut dice = spawning::Rng::of(x, y, LEVEL_ROLL);
+        let mut dice = level_dice(placement.cell, self.game);
         fight::scripted_level(values, hero, raise, creature, &self.fight, &mut dice)
     }
 }
@@ -20227,6 +20242,26 @@ mod tests {
         assert_eq!(states["unlocked"], (true, false));
         assert_eq!(states["door"], (true, false));
         assert!(!states.contains_key("plain"));
+    }
+
+    #[test]
+    fn a_createnpc_level_rolls_by_its_cell_and_the_games_seed() {
+        // #3875: the hero's level or one more, `rand() % 2`, over many cells.
+        let coins = |game: crate::seed::Game| {
+            (0..64)
+                .map(|i| level_dice((3289 + i, 2490), game).below(2))
+                .collect::<Vec<_>>()
+        };
+        // A game without a seed rolls by the cell alone.
+        let alone = (0..64)
+            .map(|i| spawning::Rng::of(3289 + i, 2490, LEVEL_ROLL).below(2))
+            .collect::<Vec<_>>();
+        assert_eq!(coins(crate::seed::Game(0)), alone);
+        // One game rolls the same each time, another otherwise.
+        let game = crate::seed::Game(0x5EED);
+        assert_eq!(coins(game), coins(game));
+        assert_ne!(coins(game), alone);
+        assert_ne!(coins(crate::seed::Game(0x5EEE)), coins(game));
     }
 
     #[test]
