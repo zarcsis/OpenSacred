@@ -136,14 +136,21 @@ fn record(record: &original::Record) -> Record {
     }
 }
 
-/// The script of `<dir>/<name>`; a file the installation lacks (the empty quest files) has no
-/// records.
+/// What the Steam release holds in each file that the GOG release ships empty, its 9 empty
+/// `QuestCode.bin` among them: a single space (docs/02 §7, #3908).
+const STEAM_EMPTY: &[u8] = b" ";
+
+/// The script of `<dir>/<name>`; a file the installation lacks, the GOG release's empty quest
+/// files and the Steam release's single space in their place have no records.
 fn script(game_dir: &Path, dir: &str, name: &str) -> Result<Vec<Record>> {
     let path = game_dir.join(dir).join(name);
     if !path.exists() {
         return Ok(Vec::new());
     }
     let data = read_game_file(&path)?;
+    if data == STEAM_EMPTY {
+        return Ok(Vec::new());
+    }
     let script = original::Script::parse(&data).with_context(|| format!("{dir}/{name}"))?;
     Ok(script.records.iter().map(record).collect())
 }
@@ -538,6 +545,23 @@ mod tests {
         assert!(!is_network("netscript/type_npc_elve/quests/1.luau"));
         assert!(!is_network("netscript/netscript.ron"));
         assert!(!is_network("netscript/netscript.nsc"));
+    }
+
+    /// A quest file that is missing, empty as the GOG release's are, or the Steam release's
+    /// single space in its place has no records; any other byte is still parsed (#3908).
+    #[test]
+    fn empty_quest_files_of_either_release_have_no_records() {
+        let game = scratch_dir("netscript-empty");
+        let dir = "bin/Addon/TYPE_NPC_ELVE";
+        fs::create_dir_all(game.join(dir)).unwrap();
+        assert!(script(&game, dir, "QuestCode.bin").unwrap().is_empty());
+        for empty in [&b""[..], STEAM_EMPTY] {
+            fs::write(game.join(dir).join("QuestCode.bin"), empty).unwrap();
+            assert!(script(&game, dir, "QuestCode.bin").unwrap().is_empty());
+        }
+        fs::write(game.join(dir).join("QuestCode.bin"), b"\0").unwrap();
+        let error = script(&game, dir, "QuestCode.bin").unwrap_err();
+        assert!(format!("{error:#}").contains("QuestCode.bin"), "{error:#}");
     }
 
     #[test]

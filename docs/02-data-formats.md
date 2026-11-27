@@ -946,6 +946,7 @@ Auxiliary files, **confirmed 2026-10-17** on the client's loader (`0x46FBxx`–`
 Other auxiliary files: `QuestCode.bin`: 1–3 records of starting flags (the Sacred campaign and the MP trees), empty in the 9 Underworld trees (`bin/Addon/NetScriptCamp`, `bin/Addon/TYPE_NPC_*`); `QuestPoolCode.bin` is empty in all 20 directories.
 
 Empty quest files: 29 files (9 `QuestCode.bin` + 20 `QuestPoolCode.bin`) in the GOG release are 0 B in size; the converter treats them as sections without records.
+The Steam release holds a single space (`0x20`, 1 B) in each of them (docs/01 §1), which no record's header fits, and the converter takes that byte for the empty file (#3908).
 The empty `QuestPoolCode.bin`s leave the dynamic quests without a template, so that the release makes none (**confirmed** by code 2026-10-26, docs/re/netscript.md, "The dynamic quests").
 
 ### 7.2 Twenty directories
@@ -1378,7 +1379,7 @@ The converter was written in the order of the vertical slice (PLAN.md, §9): tex
 
 ## 13. Specifics of the GOG release
 
-* 29 `QuestCode.bin` and `QuestPoolCode.bin` files in the GOG installation have zero size, meaning "no script"; the converter treats an empty file and a missing file the same way.
+* 29 `QuestCode.bin` and `QuestPoolCode.bin` files in the GOG installation have zero size, meaning "no script"; the converter treats an empty file and a missing file the same way, and the Steam release's single space in their place too (§7).
 * `Settings.cfg` in a clean GOG installation: `GFX32 : 1`, `GFX_LIMIT128 : 1`, `COMPAT_VIDEO : 1`, `GFXSTARTUP : LOADING0.BMP`, volumes 64, `VIOLENCE : 0`.
   The game rewrites the file on launch (adds `AUTOSAVE`, `NETWORK_*` and other keys, changes `FULLSCREEN`, `VIOLENCE`), so the file is not in the manifest.
   For the new engine the values matter only as a hint for default settings.
