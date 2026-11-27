@@ -628,13 +628,14 @@ mod tests {
         // losses gain two (9), 9009's win three (11), the 5.7.4 entrance two (20) and the air's
         // compass three (9); 501's new loss holds two (11); Jacquaire moves; 2303's dialogue (11)
         // loses one; `BadToGood`'s fills of area 2 gain five (11); the companions' lines gain a
-        // wait each, 23 (20).
+        // wait each, 23 (20); the Mage's test's release deletes its field, one (1).
         assert_eq!(
             summary.records,
             2_203_278 + 11 + 20 + 20 + 9 + 9 + 9 - 11 + 2 * 9 + 3 * 11 + 2 * 20 + 3 * 9 + 2 * 11
                 - 11
                 + 5 * 11
                 + 23 * 20
+                + 1
         );
         // The chest's cell in the start scripts of the 9 Underworld trees and the 2 multiplayer
         // trees, and no warning.
@@ -682,6 +683,10 @@ mod tests {
                 ("quest 7619's follower's death after the win (#938)", 11),
                 ("quest 9009's win before 2203's barrel (#935)", 11),
                 ("quests 301 and 302 lost at 55's start (#946)", 9),
+                (
+                    "the Mage's test's field gone at the troll's release (#3867)",
+                    1
+                ),
                 ("the desert bridge's hero's line with Vilya (#2684)", 20),
             ])
         );
