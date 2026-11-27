@@ -20,7 +20,8 @@
 //! "Blending"). A mesh is drawn twice here (docs/decisions/drawing.md, "Sprites' opaque and
 //! translucent texels apart"): its opaque texels through the depth buffer, then the others blended
 //! over what lies behind them, with the blended things of its layer (`blended`), its quads far to
-//! near. A light source's miniature (type flag `0x20000`, the lamps) carries a glow, a quad of
+//! near; a sprite of a fading type's translucent texels a mesh of its own, ordered by its place
+//! ([`sprite_mesh`], #3866). A light source's miniature (type flag `0x20000`, the lamps) carries a glow, a quad of
 //! `PARTICLE_GLOW01` three times its size about it, which `daynight` shows by night (`0x62FF60`,
 //! docs/re/daynight.md).
 //!
@@ -69,6 +70,7 @@ use crate::{buildings, files, iso, liquids};
 
 /// The texture of a batch: an atlas, relative to the asset directory, a page of the sector's
 /// sprites, or the shadow atlas, whose materials [`StaticShadows`] holds.
+#[derive(Clone)]
 enum BatchTexture {
     Atlas(String),
     Page(usize),
@@ -91,9 +93,15 @@ struct Batch {
     footprints: Vec<[f32; 2]>,
     /// Whether a quad of the batch stands on an upper storey's floor ([`Standing`]).
     on_floor: bool,
-    /// Each quad's [`nearness`] and first vertex, until the indices take their order.
-    quads: Vec<(f64, u32)>,
+    /// Each quad's [`nearness`], first vertex and whether its sprite is of a fading type, until
+    /// the indices take their order.
+    quads: Vec<(f64, u32, bool)>,
     indices: Vec<u32>,
+    /// The quads of the sprites of no fading type, which the translucent pass draws as one mesh.
+    fringe: Vec<u32>,
+    /// The first vertices of each sprite's quads of a fading type, far to near, each sprite's
+    /// translucent texels a mesh of its own ([`sprite_mesh`], #3866).
+    sprites: Vec<Vec<u32>>,
     /// Its sprites of a fading type, for the points' first ([`Fading`]).
     fading: Vec<Faded>,
 }
@@ -1098,6 +1106,8 @@ fn add_quad(batches: &mut BTreeMap<BatchKey, Batch>, pending: Pending) -> Result
         on_floor: false,
         quads: Vec::new(),
         indices: Vec::new(),
+        fringe: Vec::new(),
+        sprites: Vec::new(),
         fading: Vec::new(),
     });
     // The texels map onto the quad one to one; the shader samples only the texels whose centres
@@ -1137,7 +1147,7 @@ fn add_quad(batches: &mut BTreeMap<BatchKey, Batch>, pending: Pending) -> Result
         (v1 - 0.5).floor(),
     ];
     batch.sources.extend([texels; 4]);
-    batch.quads.push((nearness(placed), first));
+    batch.quads.push((nearness(placed), first, quad.fades));
     // A fading sprite at the place the shader takes, its first corner's.
     if quad.fades && matches!(quad.texture, Texture::Page(_)) {
         let anchor = spot.anchor_at(screens[0]);
@@ -1326,10 +1336,20 @@ pub fn build(
     for batch in batches.values_mut() {
         batch.fading.sort_by(|a, b| a.near.total_cmp(&b.near));
         batch.quads.sort_by(|a, b| a.0.total_cmp(&b.0));
-        for &(_, first) in &batch.quads {
-            batch
-                .indices
-                .extend([first, first + 2, first + 1, first, first + 3, first + 2]);
+        let mut last: Option<f64> = None;
+        for &(near, first, fades) in &batch.quads {
+            let quad = [first, first + 2, first + 1, first, first + 3, first + 2];
+            batch.indices.extend(quad);
+            if !fades {
+                batch.fringe.extend(quad);
+                continue;
+            }
+            // A sprite's quads share its place, its nearness, and lie together in the order.
+            match batch.sprites.last_mut() {
+                Some(sprite) if last == Some(near) => sprite.push(first),
+                _ => batch.sprites.push(vec![first]),
+            }
+            last = Some(near);
         }
     }
     let pages = pages
@@ -1727,7 +1747,7 @@ pub fn spawn(
         // (docs/re/drawing.md, "Blending"); a shadow's texels are all translucent.
         // The fading batch's texels that the points fade also go into the veil (`veil`, #3851).
         let fades = fading.is_some();
-        let (passes, veil): (Vec<Handle<SpriteMaterial>>, _) = match batch.texture {
+        let (passes, veil): (Vec<Handle<SpriteMaterial>>, _) = match batch.texture.clone() {
             BatchTexture::Shadows => match shadows {
                 Some(shadows) if batch.layer == Layer::StaticShadows => {
                     (vec![shadows.list1.clone()], None)
@@ -1755,26 +1775,43 @@ pub fn spawn(
                 )
             }
         };
-        let mesh = meshes.add(
-            Mesh::new(
-                PrimitiveTopology::TriangleList,
-                RenderAssetUsages::RENDER_WORLD,
-            )
-            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, batch.positions)
-            .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, batch.uvs)
-            .with_inserted_attribute(ATTRIBUTE_ANCHOR, batch.anchors)
-            .with_inserted_attribute(ATTRIBUTE_SOURCE, batch.sources)
-            .with_inserted_attribute(ATTRIBUTE_SCREEN, batch.screens)
-            .with_inserted_attribute(ATTRIBUTE_FADE, batch.fades)
-            .with_inserted_attribute(ATTRIBUTE_FLOOR, batch.floors)
-            .with_inserted_attribute(ATTRIBUTE_FOOTPRINT, batch.footprints)
-            .with_inserted_indices(Indices::U32(batch.indices)),
-        );
+        // A sprite batch with sprites of a fading type draws their translucent texels each as a
+        // mesh of its own, ordered among the blended things by its place (#3866): the opaque pass
+        // and the veil keep the whole batch.
+        let split = passes.len() == 2 && !batch.sprites.is_empty();
+        let sprites: Vec<Handle<Mesh>> = if split {
+            batch
+                .sprites
+                .iter()
+                .map(|firsts| meshes.add(sprite_mesh(&batch, firsts)))
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let fringe = (split && !batch.fringe.is_empty())
+            .then(|| meshes.add(batch_mesh(&batch, batch.fringe.clone())));
+        let indices = std::mem::take(&mut batch.indices);
+        let mesh = meshes.add(batch_mesh(&batch, indices));
         let veil =
             veil.map(|material| (material, Some(RenderLayers::layer(crate::veil::VEIL_LAYER))));
-        let passes = passes.into_iter().map(|material| (material, None));
-        for (pass, (material, layers)) in passes.chain(veil).enumerate() {
-            let mut entity = commands.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material)));
+        let fringe_material = passes.get(1).cloned();
+        let passes = passes
+            .into_iter()
+            .enumerate()
+            .filter_map(|(pass, material)| {
+                // The translucent pass of a split batch: its sprites of no fading type alone.
+                let mesh = match (pass, split) {
+                    (1, true) => fringe.clone()?,
+                    _ => mesh.clone(),
+                };
+                Some((mesh, material, None))
+            });
+        let sprites = sprites
+            .into_iter()
+            .filter_map(|sprite| Some((sprite, fringe_material.clone()?, None)));
+        let veil = veil.map(|(material, layers)| (mesh.clone(), material, layers));
+        for (pass, (mesh, material, layers)) in passes.chain(veil).chain(sprites).enumerate() {
+            let mut entity = commands.spawn((Mesh3d(mesh), MeshMaterial3d(material)));
             if let Some(layers) = layers {
                 entity.insert(layers);
             }
@@ -1797,6 +1834,93 @@ pub fn spawn(
         }
     }
     entities
+}
+
+/// The mesh of `batch`'s vertices, of the triangles `indices`.
+fn batch_mesh(batch: &Batch, indices: Vec<u32>) -> Mesh {
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, batch.positions.clone())
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, batch.uvs.clone())
+    .with_inserted_attribute(ATTRIBUTE_ANCHOR, batch.anchors.clone())
+    .with_inserted_attribute(ATTRIBUTE_SOURCE, batch.sources.clone())
+    .with_inserted_attribute(ATTRIBUTE_SCREEN, batch.screens.clone())
+    .with_inserted_attribute(ATTRIBUTE_FADE, batch.fades.clone())
+    .with_inserted_attribute(ATTRIBUTE_FLOOR, batch.floors.clone())
+    .with_inserted_attribute(ATTRIBUTE_FOOTPRINT, batch.footprints.clone())
+    .with_inserted_indices(Indices::U32(indices))
+}
+
+/// How far toward the camera, in world units, a sprite's own mesh lies per world unit that its
+/// anchor lies right of its sector's middle ([`sprite_mesh`]): the shader's `ACROSS`, by which of
+/// two sprites on one diagonal, at one depth, the original draws the one further right later.
+const SORT_ACROSS: f32 = 0.002;
+
+/// The mesh of the quads of one sprite of `batch` whose first vertices are `firsts`, its
+/// vertices `batch`'s, its positions, which serve Bevy's culling and the blended things' order
+/// alone, laid toward the camera by [`SORT_ACROSS`] of the anchor's place right of its sector's
+/// middle (#3866). Its vertices lie in the plane of the screen through its anchor ([`Spot::at`]),
+/// so that Bevy, which orders the blended meshes by their centres, draws the translucent texels
+/// of the fading sprites in the original's order of their places, the rows, where a batch of a
+/// sector's sprites sorts by the sector's middle alone; the sprites of one cell keep their
+/// batch's order. The positions move along the line of sight alone, which leaves them where they
+/// show; the sector's middle keeps the move to a few units, under a row's step of some 30.
+fn sprite_mesh(batch: &Batch, firsts: &[u32]) -> Mesh {
+    let vertices: Vec<usize> = firsts
+        .iter()
+        .filter_map(|&first| usize::try_from(first).ok())
+        .flat_map(|first| first..first + 4)
+        .collect();
+    let take = |values: &[[f32; 4]]| -> Vec<[f32; 4]> {
+        vertices
+            .iter()
+            .filter_map(|&i| values.get(i).copied())
+            .collect()
+    };
+    let anchors = take(&batch.anchors);
+    let shift = anchors.first().map_or(0.0, |&[x, _, z, _]| {
+        let side = opensacred_data::world::SIDE as f32;
+        let middle = |at: f32| ((at / iso::CELL / side).floor() + 0.5) * side * iso::CELL;
+        let off = Vec3::new(x - middle(x), 0.0, z - middle(z));
+        SORT_ACROSS * off.dot(iso::right())
+    });
+    let toward = -iso::forward() * shift;
+    let positions: Vec<[f32; 3]> = vertices
+        .iter()
+        .filter_map(|&i| batch.positions.get(i))
+        .map(|&p| (Vec3::from(p) + toward).to_array())
+        .collect();
+    let pick2 = |values: &[[f32; 2]]| -> Vec<[f32; 2]> {
+        vertices
+            .iter()
+            .filter_map(|&i| values.get(i).copied())
+            .collect()
+    };
+    let fades: Vec<f32> = vertices
+        .iter()
+        .filter_map(|&i| batch.fades.get(i).copied())
+        .collect();
+    let indices: Vec<u32> = (0..u32::try_from(firsts.len()).unwrap_or(0))
+        .flat_map(|quad| {
+            let first = quad * 4;
+            [first, first + 2, first + 1, first, first + 3, first + 2]
+        })
+        .collect();
+    Mesh::new(
+        PrimitiveTopology::TriangleList,
+        RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, pick2(&batch.uvs))
+    .with_inserted_attribute(ATTRIBUTE_ANCHOR, anchors)
+    .with_inserted_attribute(ATTRIBUTE_SOURCE, take(&batch.sources))
+    .with_inserted_attribute(ATTRIBUTE_SCREEN, pick2(&batch.screens))
+    .with_inserted_attribute(ATTRIBUTE_FADE, fades)
+    .with_inserted_attribute(ATTRIBUTE_FLOOR, take(&batch.floors))
+    .with_inserted_attribute(ATTRIBUTE_FOOTPRINT, pick2(&batch.footprints))
+    .with_inserted_indices(Indices::U32(indices))
 }
 
 /// The material of a fading batch's texels that the points fade, over `atlas`, into the veil
@@ -2659,6 +2783,34 @@ pub(crate) mod tests {
         // Its fading sprites in their order, each at its anchor, over its 8 pixels square.
         let fading: Vec<[f32; 4]> = batch.fading.iter().map(|faded| faded.anchor).collect();
         assert_eq!(fading, [behind, second]);
+        // Their quads each a sprite of its own, far to near, and the translucent pass of the
+        // batch the others alone (#3866).
+        assert_eq!(batch.sprites, [vec![12], vec![4]]);
+        let fringe: Vec<u32> = batch.fringe.chunks(6).map(|q| q[0] / 4).collect();
+        assert_eq!(fringe, [0, 2]);
+        // A sprite's own mesh: its quad's vertices, moved along the line of sight alone, toward
+        // the camera by `ACROSS` of its anchor right of its sector's middle.
+        let mesh = sprite_mesh(batch, &batch.sprites[1]);
+        let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+            mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+        else {
+            panic!("no positions");
+        };
+        assert_eq!(positions.len(), 4);
+        let side = opensacred_data::world::SIDE as f32 * iso::CELL;
+        let middle = Vec3::new(side / 2.0, 0.0, side / 2.0);
+        let second_at = Vec3::new(second[0], second[1], second[2]);
+        let shift = SORT_ACROSS * (second_at - middle).dot(iso::right());
+        for (moved, was) in positions.iter().zip(&batch.positions[4..8]) {
+            let off = Vec3::from(*moved) - Vec3::from(*was);
+            assert!((off.dot(-iso::forward()) - shift).abs() < 1e-3, "{off}");
+            assert!(off.dot(iso::right()).abs() < 1e-3 && off.dot(iso::up()).abs() < 1e-3);
+        }
+        let Some(bevy::mesh::Indices::U32(indices)) = mesh.indices() else {
+            panic!("no indices");
+        };
+        assert_eq!(indices, &[0, 2, 1, 0, 3, 2]);
+        assert!((f64::from(SORT_ACROSS) - ACROSS).abs() < 1e-9);
         assert!(batch.fading.iter().all(|faded| {
             let [x0, y0, x1, y1] = faded.rect;
             (x1 - x0, y1 - y0) == (8.0, 8.0) && faded.near == nearness(faded.anchor)
