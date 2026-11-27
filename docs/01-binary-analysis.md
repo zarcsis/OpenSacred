@@ -58,6 +58,8 @@ The Steam release of Sacred Gold (**confirmed** on file 2026-10-30, #1484, `open
 - `PAK/loading0.bmp` and `PAK/loading1.bmp` are other loading screens, 1024×768: the first at 24 bits with two bytes after its pixels, the second at 16 bits (`BI_RGB`, 5-5-5).
 - `movie/oem.wmv` is another intro's logo.
 
+The 30 files that the GOG release ships empty, which the manifest leaves out, hold a single space (`0x20`) in the Steam release: the 29 empty quest files of docs/02 §7 and `bin/sgqp.bin` (**confirmed** on file 2026-11-27, #3908).
+
 ## 2. The GOG client
 
 Checked on the file `OriginalGame/Sacred.exe` (`tools/triage/pe_triage.py`, pefile, `uv run python -I`, read-only):
