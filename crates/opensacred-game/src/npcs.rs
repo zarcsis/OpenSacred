@@ -597,6 +597,14 @@ struct ClipNames {
     /// Its defending slot, where its model has one (`motions::Slots::defend_slot`): its parry's
     /// (#2487).
     defend: Option<u16>,
+    /// The class of what it holds, and the clips that the attack slots which the chooser fixes
+    /// for some types play on its model, its own or the getter's stand-in, whether a stand-in
+    /// ([`Self::of_creature`], `minds::fixed_attack_slot`, #3894); none for a rider, whose case
+    /// comes first.
+    #[serde(default)]
+    class: u8,
+    #[serde(default)]
+    fixed: Option<Vec<(u16, String, bool)>>,
 }
 
 /// The small spider, whose every action plays its walk, the slot 27 (`0x5467A0`, #2913).
@@ -611,7 +619,7 @@ impl ClipNames {
     /// is read).
     fn of_creature(self, creature: u32) -> Self {
         let Some(walk) = self.walk.clone().filter(|_| creature == SMALL_SPIDER) else {
-            return self;
+            return self.fixed_attack(creature);
         };
         Self {
             stand: Some(walk.clone()),
@@ -626,6 +634,30 @@ impl ClipNames {
             attack_slot: SCUTTLE,
             defend: Some(SCUTTLE),
             walk: Some(walk),
+            ..self
+        }
+    }
+
+    /// These clips with the attack slot that the chooser fixes for the type `creature`, where it
+    /// fixes one (`minds::fixed_attack_slot`, `0x546BCE`–`0x546C47`, #3894): its strike and its
+    /// fidget's that slot's clip on its model, else the getter's stand-in, else none.
+    fn fixed_attack(self, creature: u32) -> Self {
+        let (Some(slot), Some(fixed)) = (
+            minds::fixed_attack_slot(creature, self.class),
+            self.fixed.as_ref(),
+        ) else {
+            return self;
+        };
+        let (attacks, stand_in) = fixed
+            .iter()
+            .find(|(fixed, ..)| *fixed == slot)
+            .map_or((Vec::new(), true), |(_, name, stand_in)| {
+                (vec![name.clone()], *stand_in)
+            });
+        Self {
+            attacks,
+            stand_in,
+            attack_slot: slot,
             ..self
         }
     }
@@ -657,6 +689,8 @@ impl ClipNames {
                 .collect(),
             fun: [None, None, None, None],
             fun_slots: 0,
+            // The rider's case comes first (`0x5467A0`).
+            fixed: None,
             ..Self::of(slots, class)
         }
     }
@@ -682,6 +716,19 @@ impl ClipNames {
                 .fold(0, |mask, i| mask | (1 << i)),
             attack_slot: motions::Slots::attack_slot(class),
             defend: slots.defend_slot(class),
+            class,
+            fixed: Some(
+                minds::FIXED_ATTACK_SLOTS
+                    .iter()
+                    .filter_map(|&slot| match slots.slot(slot) {
+                        Some(name) => Some((slot, name.to_owned(), false)),
+                        None => minds::stand_ins(slot)
+                            .iter()
+                            .find_map(|&other| slots.slot(other))
+                            .map(|name| (slot, name.to_owned(), true)),
+                    })
+                    .collect(),
+            ),
         }
     }
 }
@@ -16554,6 +16601,43 @@ mod tests {
         assert_eq!((spider.attack_slot, spider.defend), (27, Some(27)));
         // Any other creature's as they are.
         assert_eq!(names.clone().of_creature(70).stand, names.stand);
+    }
+
+    #[test]
+    fn some_types_strike_by_their_fixed_slots_clip_or_its_stand_in() {
+        // A model with the slots 79 and 84 and the class 1's 84 to 86.
+        let slots = motions::Slots::of([(79, "BH_A"), (84, "1H_A"), (85, "1H_B"), (86, "1H_C")]);
+        // The fire ghoul strikes by its 79 whatever it holds.
+        let ghoul = ClipNames::of(&slots, 1).of_creature(73);
+        assert_eq!(
+            (ghoul.attacks, ghoul.stand_in),
+            (vec!["BH_A".to_owned()], false)
+        );
+        assert_eq!(ghoul.attack_slot, 79);
+        // A dragon by its 80, which the model lacks: the getter's stand-in, 84.
+        let dragon = ClipNames::of(&slots, 0).of_creature(52);
+        assert_eq!(
+            (dragon.attacks, dragon.stand_in),
+            (vec!["1H_A".to_owned()], true)
+        );
+        assert_eq!(dragon.attack_slot, 80);
+        // A barbarian by its 84 bare-handed, by its class's holding the class 1.
+        let bare = ClipNames::of(&slots, 0).of_creature(315);
+        assert_eq!(
+            (bare.attacks, bare.attack_slot),
+            (vec!["1H_A".to_owned()], 84)
+        );
+        let armed = ClipNames::of(&slots, 1).of_creature(315);
+        assert_eq!(armed.attacks.len(), 3);
+        assert_eq!(armed.attack_slot, 84);
+        // Another type by its class's own; a rider by its own, the rider's case first.
+        assert_eq!(ClipNames::of(&slots, 0).of_creature(70).attacks, ["BH_A"]);
+        let mounted = motions::Slots::of([(79, "BH_A"), (194, "RIDE_A")]);
+        let rider = ClipNames::riding(&mounted, 0).of_creature(73);
+        assert_eq!(rider.attacks, ["RIDE_A"]);
+        // None of its model's clips stands in: none.
+        let bare = ClipNames::of(&motions::Slots::default(), 0).of_creature(73);
+        assert!(bare.attacks.is_empty() && bare.stand_in);
     }
 
     #[test]
