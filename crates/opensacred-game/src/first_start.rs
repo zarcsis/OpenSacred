@@ -10,7 +10,7 @@ use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdout, Command, ExitCode, Stdio};
 use std::sync::Mutex;
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::time::{Duration, Instant};
 
 use bevy::log::{DEFAULT_FILTER, LogPlugin};
@@ -182,6 +182,9 @@ struct Screen {
     /// The assets' directory, whose mark is read again once they are made.
     assets: PathBuf,
     shot: Option<PathBuf>,
+    /// The folder's dialog while it is open on a thread of its own (Linux), the folder picked or
+    /// none to come on the channel.
+    picking: Option<Mutex<Receiver<Option<PathBuf>>>>,
 }
 
 #[derive(Component)]
@@ -364,9 +367,10 @@ pub fn run(
         need,
         assets,
         shot,
+        picking: None,
     })
     .add_systems(Startup, (spawn, locate))
-    .add_systems(Update, (pump, show, keys, photograph));
+    .add_systems(Update, (pump, answer, show, keys, photograph));
     let exit = app.run();
     // The window and the converter are gone with the app.
     drop(app);
@@ -481,29 +485,68 @@ const PALE: Color = Color::srgb(0.92, 0.89, 0.82);
 const DIM: Color = Color::srgb(0.62, 0.58, 0.52);
 
 /// A button's action: the folder's choice, or the end.
-fn act(
-    In(action): In<Action>,
-    mut commands: Commands,
-    mut screen: ResMut<Screen>,
-    mut exit: MessageWriter<AppExit>,
-) {
+fn act(In(action): In<Action>, mut screen: ResMut<Screen>, mut exit: MessageWriter<AppExit>) {
     match action {
         Action::Quit => {
             exit.write(AppExit::error());
         }
         Action::Choose => {
-            let Some(dir) = pick_folder() else {
-                return;
-            };
-            info!("first start: the player picked {}", dir.display());
-            match install(&dir) {
-                Ok(run) => {
-                    commands.insert_resource(run);
-                    screen.phase = Phase::Locating;
-                }
-                Err(message) => screen.phase = Phase::Failed(message),
+            if screen.picking.is_none() {
+                screen.picking = Some(Mutex::new(open_dialog()));
             }
         }
+    }
+}
+
+/// Opens the folder's dialog, its answer to come on the channel it gives, which `answer` reads.
+fn open_dialog() -> Receiver<Option<PathBuf>> {
+    let (send, picked) = channel();
+    // The desktop portal's dialog waits on D-Bus, and nothing would pump the window's events
+    // meanwhile, so that the desktop would call the window not responding: it runs on a thread
+    // of its own (#3876).
+    #[cfg(target_os = "linux")]
+    std::thread::spawn(move || {
+        let _ = send.send(pick_folder());
+    });
+    // The shell's dialog is modal and pumps the window's messages itself.
+    #[cfg(not(target_os = "linux"))]
+    let _ = send.send(pick_folder());
+    picked
+}
+
+/// Converts the installation in the folder that the player picked.
+fn take(dir: &Path, commands: &mut Commands, screen: &mut Screen) {
+    info!("first start: the player picked {}", dir.display());
+    match install(dir) {
+        Ok(run) => {
+            commands.insert_resource(run);
+            screen.phase = Phase::Locating;
+        }
+        Err(message) => screen.phase = Phase::Failed(message),
+    }
+}
+
+/// The folder's dialog's answer once it has come: the folder picked, or none when the player
+/// closed the dialog or its thread ended without one.
+fn answered(picking: &Mutex<Receiver<Option<PathBuf>>>) -> Option<Option<PathBuf>> {
+    let Ok(picked) = picking.lock() else {
+        return Some(None);
+    };
+    match picked.try_recv() {
+        Ok(dir) => Some(dir),
+        Err(TryRecvError::Empty) => None,
+        Err(TryRecvError::Disconnected) => Some(None),
+    }
+}
+
+/// Takes the folder of a dialog open on a thread of its own.
+fn answer(mut commands: Commands, mut screen: ResMut<Screen>) {
+    let Some(answer) = screen.picking.as_ref().and_then(answered) else {
+        return;
+    };
+    screen.picking = None;
+    if let Some(dir) = answer {
+        take(&dir, &mut commands, &mut screen);
     }
 }
 
@@ -677,7 +720,7 @@ fn show(
     }
     for (action, mut node) in &mut buttons {
         let shown = match action {
-            Action::Choose => choose,
+            Action::Choose => choose && screen.picking.is_none(),
             Action::Quit => true,
         };
         node.display = if shown { Display::Flex } else { Display::None };
@@ -764,6 +807,26 @@ mod tests {
         );
         assert_eq!(made(&dir, "1.1.0"), Ok(()));
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// The dialog's answer is taken once it has come: the folder, none for a closed dialog or an
+    /// ended thread, and nothing yet while it is open (#3876).
+    #[test]
+    fn the_dialogs_answer_is_taken_once_it_has_come() {
+        let (send, picked) = channel();
+        let picking = Mutex::new(picked);
+        assert_eq!(answered(&picking), None);
+        send.send(Some(PathBuf::from("c:/games/sacred gold")))
+            .unwrap();
+        assert_eq!(
+            answered(&picking),
+            Some(Some(PathBuf::from("c:/games/sacred gold")))
+        );
+        send.send(None).unwrap();
+        assert_eq!(answered(&picking), Some(None));
+        assert_eq!(answered(&picking), None);
+        drop(send);
+        assert_eq!(answered(&picking), Some(None));
     }
 
     #[test]

@@ -3,7 +3,7 @@
 //! and one line a module's plugin: each module registers its own systems, resources and observers
 //! in a plugin of its own, and the steps of `frame::Step` order the systems across modules.
 
-// The packaged build opens no console window (#1495).
+// The packaged Windows build opens no console window (#1495).
 #![cfg_attr(all(windows, feature = "packaged"), windows_subsystem = "windows")]
 
 mod ai;
@@ -962,8 +962,8 @@ fn main() -> ExitCode {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(e) => {
-            // The packaged Windows build has no console to show even its help or version.
-            #[cfg(windows)]
+            // Its usage, its help or its version too, which a packaged build may have no console
+            // to show.
             write_failure(&e.render().to_string());
             e.exit()
         }
@@ -995,8 +995,9 @@ fn main() -> ExitCode {
     }
 }
 
-/// The packaged build, which has no console, writes the error it ends with into
-/// `logs\opensacred-error.log` in the user's state directory, beside the log (#1495).
+/// The packaged build, which may have no console (Windows' never has one, and a Linux one
+/// started from a desktop's launcher shows none), writes the error it ends with into
+/// `logs/opensacred-error.log` in the user's state directory, beside the log (#1495, #3876).
 fn write_failure(text: &str) {
     if !cfg!(feature = "packaged") {
         return;

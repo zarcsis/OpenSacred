@@ -115,8 +115,7 @@ pub fn resolve(given: PathBuf) -> (PathBuf, Option<Place>) {
 }
 
 /// Whether two directories are the same, by their names, case aside on Windows (the registry
-/// writes GOG's in lower case) and their separators aside. Linux Steam also exposes the
-/// same library through symbolic links.
+/// writes GOG's in lower case) and their separators aside, or, on Linux, by where they lead.
 fn same_dir(a: &Path, b: &Path) -> bool {
     let key = |path: &Path| {
         let text = path.to_string_lossy().replace('\\', "/");
@@ -127,13 +126,18 @@ fn same_dir(a: &Path, b: &Path) -> bool {
             text
         }
     };
-    if key(a) == key(b) {
-        return true;
-    }
-    #[cfg(target_os = "linux")]
-    if let (Ok(a), Ok(b)) = (a.canonicalize(), b.canonicalize()) {
-        return a == b;
-    }
+    key(a) == key(b) || same_target(a, b)
+}
+
+/// Whether two directories that are there lead to one: Linux Steam reaches one library through
+/// symbolic links too (#3854).
+#[cfg(target_os = "linux")]
+fn same_target(a: &Path, b: &Path) -> bool {
+    matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn same_target(_: &Path, _: &Path) -> bool {
     false
 }
 
@@ -156,8 +160,11 @@ fn gog_dirs() -> Vec<PathBuf> {
     Vec::new()
 }
 
-/// Steam's own directories: the user's `SteamPath` and the machine's `InstallPath` on Windows,
-/// the user's Steam libraries elsewhere, including Flatpak Steam on Linux.
+/// Steam's own directories: the user's `SteamPath` and the machine's `InstallPath` on Windows;
+/// elsewhere `~/.local/share/Steam` and `~/.steam/steam`, and on Linux also Flatpak Steam's
+/// `~/.var/app/com.valvesoftware.Steam/.local/share/Steam` and `…/data/Steam` (#3854) and
+/// Snap Steam's `~/snap/steam/common/.local/share/Steam` (#3876). A directory that is not there
+/// gives no library.
 #[cfg(windows)]
 fn steam_roots() -> Vec<PathBuf> {
     use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
@@ -189,6 +196,8 @@ fn steam_roots() -> Vec<PathBuf> {
         ".var/app/com.valvesoftware.Steam/.local/share/Steam",
         #[cfg(target_os = "linux")]
         ".var/app/com.valvesoftware.Steam/data/Steam",
+        #[cfg(target_os = "linux")]
+        "snap/steam/common/.local/share/Steam",
     ]
     .iter()
     .map(|path| home.join(path))
