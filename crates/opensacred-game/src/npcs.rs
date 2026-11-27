@@ -3966,6 +3966,73 @@ fn trigger_cells(records: &[&Record]) -> Vec<(String, Spot)> {
         .collect()
 }
 
+/// Takes the triggers that `records` make as they run (`CreateTrigger`, `0x496520`) and the
+/// cells their `TriggerPatch`es put under them (`0x496F20`), as the start's are taken
+/// ([`trigger_cells`]): their cells kept by their sectors, closed as those come in where the
+/// trigger is not open, and the trigger barred where its record bars it; a patch of a trigger
+/// that an earlier run made counts too. Answers each trigger made and whether it is open,
+/// whose cells already in the world the caller opens or closes (#3867; docs/re/netscript.md,
+/// "The Mage's test in the stone circle (quests 1 and 10)": its cage of closed cells about the
+/// troll, and the bars across the circle's mouth).
+#[expect(
+    clippy::type_complexity,
+    reason = "the three tables of `Npcs` that the triggers fill"
+)]
+fn take_triggers(
+    records: &[&Record],
+    side: u32,
+    (triggers, closed, locked): (
+        &mut HashMap<String, Vec<Spot>>,
+        &mut HashMap<(u32, u32), Vec<(String, Spot)>>,
+        &mut HashSet<String>,
+    ),
+) -> Vec<(String, bool)> {
+    let made = trigger_states(records);
+    for (name, (_, bars)) in &made {
+        if *bars {
+            locked.insert(name.clone());
+        } else {
+            locked.remove(name);
+        }
+    }
+    let patched = records
+        .iter()
+        .filter(|r| r.kind == TRIGGER_PATCH)
+        .filter_map(|r| match &r.body {
+            Body::Operands(ops) => Some(ops),
+            _ => None,
+        })
+        .filter_map(|ops| name_of(ops).map(|name| (name, ops)))
+        .filter(|(name, _)| made.contains_key(name) || triggers.contains_key(name))
+        .flat_map(|(name, ops)| {
+            ops.iter().filter_map(move |o| match (o.tag, &o.value) {
+                (0x2A, Value::I32x3([x, y, floor])) => Some((name.clone(), (*x, *y, *floor))),
+                _ => None,
+            })
+        })
+        .collect::<Vec<(String, Spot)>>();
+    for (name, spot) in patched {
+        let spots = triggers.entry(name.clone()).or_default();
+        if spots.contains(&spot) {
+            continue;
+        }
+        spots.push(spot);
+        let (x, y, _) = spot;
+        if let (Ok(cx), Ok(cy)) = (u32::try_from(x), u32::try_from(y)) {
+            closed
+                .entry((cx / side, cy / side))
+                .or_default()
+                .push((name, spot));
+        }
+    }
+    let mut made: Vec<(String, bool)> = made
+        .into_iter()
+        .map(|(name, (open, _))| (name, open))
+        .collect();
+    made.sort();
+    made
+}
+
 /// The state of each trigger that `records`' `CreateTrigger`s make, by its name lower-cased: open
 /// (bit 0) and locked (`0x8000`), as the handler takes its markers in order (`0x496520`); a
 /// trigger made again takes its new state.
@@ -4134,6 +4201,10 @@ pub struct Added {
     /// The placements of the items that go straight into the hero's backpack ([`TO_PACK`],
     /// #3543), which the play's run gives and a load's does not.
     pub into_pack: Vec<usize>,
+    /// The triggers that the records' `CreateTrigger`s made, each with whether it is open
+    /// ([`Npcs::add_triggers`], #3867), whose cells the play's run opens or closes at once, as a
+    /// load's sectors close them as they come in.
+    pub triggers: Vec<(String, bool)>,
 }
 
 /// A placement's index and the items its creature held before a run's `EquipNPC`s and after them
@@ -10151,13 +10222,24 @@ impl Npcs {
                     .map(|&index| (position, index))
             })
             .collect();
+        let triggers = self.add_triggers(&records, side);
         Ok(Added {
             equipped,
             placed: made.len(),
             changes,
             born,
             into_pack,
+            triggers,
         })
+    }
+
+    /// Takes the triggers that `records` make as they run ([`take_triggers`], #3867).
+    fn add_triggers(&mut self, records: &[&Record], side: u32) -> Vec<(String, bool)> {
+        take_triggers(
+            records,
+            side,
+            (&mut self.triggers, &mut self.closed, &mut self.locked),
+        )
     }
 
     /// The item that the `CreateObj` of the placement `index` gives straight into the hero's
@@ -12709,8 +12791,8 @@ pub(crate) fn script_records(
     mut commands: Commands,
     records: Option<ResMut<crate::scripts::WorldRecords>>,
     mut npcs: ResMut<Npcs>,
-    (heights, heroes, mut bodies, streamer, mut changes, crowd): (
-        Res<Heights>,
+    (mut heights, heroes, mut bodies, streamer, mut changes, crowd): (
+        ResMut<Heights>,
         Query<&Transform, With<hero::Body>>,
         Query<(Entity, &mut hero::Body)>,
         Res<Streamer>,
@@ -12866,6 +12948,11 @@ pub(crate) fn script_records(
                 );
             }
             changes.0.extend(added.changes);
+            // The triggers that the run made: their cells closed or opened at once (#3867).
+            for (name, open) in &added.triggers {
+                bevy::log::info!("npcs: the scripts make the trigger {name}, open {open}");
+                open_trigger(&mut npcs, &mut heights, name, *open);
+            }
             (added.born, added.equipped, added.into_pack)
         }
         Err(e) => {
@@ -20140,6 +20227,56 @@ mod tests {
         assert_eq!(states["unlocked"], (true, false));
         assert_eq!(states["door"], (true, false));
         assert!(!states.contains_key("plain"));
+    }
+
+    #[test]
+    fn a_trigger_that_a_run_makes_closes_its_cells_and_a_later_run_patches_it() {
+        let op = |tag, value| Operand { tag, value };
+        let record = |kind, ops| Record {
+            kind,
+            body: Body::Operands(ops),
+        };
+        let name = |name: &str| op(0x01, Value::Str(name.into()));
+        let patch = |trigger: &str, cell: [i32; 3]| {
+            record(
+                TRIGGER_PATCH,
+                vec![name(trigger), op(0x2A, Value::I32x3(cell))],
+            )
+        };
+        // The Mage's test's cage, made closed and patched by one run (#3867).
+        let first = [
+            record(
+                CREATE_TRIGGER,
+                vec![name("trigger2_10"), op(CLOSED, Value::Marker)],
+            ),
+            patch("trigger2_10", [3288, 2491, 0]),
+            patch("trigger2_10", [3288, 2490, 0]),
+            patch("unknown", [1, 1, 0]),
+        ];
+        let (mut triggers, mut closed, mut locked) =
+            (HashMap::new(), HashMap::new(), HashSet::new());
+        let mut take = |records: &[Record]| {
+            let records: Vec<&Record> = records.iter().collect();
+            take_triggers(&records, 64, (&mut triggers, &mut closed, &mut locked))
+        };
+        assert_eq!(take(&first), [("trigger2_10".to_owned(), false)]);
+        // A later run's patch of it counts, a cell patched twice once; a barred one is barred.
+        let later = [
+            patch("trigger2_10", [3289, 2489, 0]),
+            patch("trigger2_10", [3288, 2490, 0]),
+            record(
+                CREATE_TRIGGER,
+                vec![name("gate"), op(LOCKED, Value::Marker)],
+            ),
+        ];
+        assert_eq!(take(&later), [("gate".to_owned(), false)]);
+        assert_eq!(
+            triggers["trigger2_10"],
+            [(3288, 2491, 0), (3288, 2490, 0), (3289, 2489, 0)]
+        );
+        assert!(!triggers.contains_key("unknown"));
+        assert_eq!(closed[&(51, 38)].len(), 3);
+        assert!(locked.contains("gate"));
     }
 
     #[test]

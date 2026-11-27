@@ -33,6 +33,8 @@ const SET_TIMER: u16 = 56;
 const CREATE_NPC: u16 = 1;
 const SET_NPC_STATE: u16 = 3;
 const SET_BASE_TRIGGER: u16 = 4;
+const SET_TRIGGER_STATE: u16 = 49;
+const DEL_NPC: u16 = 55;
 const TRIGGER_QUEST: u16 = 20;
 const CALL_FUNCTION: u16 = 22;
 const TEXT: u16 = 26;
@@ -645,7 +647,7 @@ pub struct Addition {
 }
 
 /// The repairs of functions that `netscript` makes.
-pub const EDITS: [Edit; 29] = [
+pub const EDITS: [Edit; 30] = [
     Edit {
         what: "quest 10260's item named (#957)",
         function: "fillchest_chestQJ_03",
@@ -790,6 +792,11 @@ pub const EDITS: [Edit; 29] = [
         what: "the desert bridge's hero's line with Vilya (#2684)",
         function: "OMO-1Wüstenbrücke_audiomeldungen",
         edit: |records| desert_bridge(records),
+    },
+    Edit {
+        what: "the Mage's test's field gone at the troll's release (#3867)",
+        function: "OMO1prüfung_beginnen",
+        edit: test_field_gone,
     },
 ];
 
@@ -1188,6 +1195,22 @@ fn glubba_dies(records: &mut Vec<Record>) -> Result<(), String> {
 fn glubba_lost(records: &mut [Record]) -> Result<(), String> {
     let i = the_line(records, "Res:NQ_Log_Qend")?;
     rename_in(&mut records[i..=i], "Res:NQ_Log_Qend", "Res:NQ_Log_QFAIL");
+    Ok(())
+}
+
+/// Quest 1's release of the Mage's test (`OMO1prüfung_beginnen`) opens the cage of closed cells
+/// about the troll and wakes it, but leaves its bubble prison `buble2`, the cage's look, which
+/// only the troll's death deletes (`tot10`): its field stood empty beside the fight
+/// (docs/re/netscript.md, "The Mage's test in the stone circle (quests 1 and 10)"). The
+/// release deletes it as it opens the cage, at the trigger's opening.
+fn test_field_gone(records: &mut Vec<Record>) -> Result<(), String> {
+    let i = the(
+        records,
+        "SetTriggerState of trigger2_10",
+        SET_TRIGGER_STATE,
+        |r| has(r, 0x01, &text("trigger2_10")),
+    )?;
+    records.insert(i + 1, new(DEL_NPC, vec![op(0x01, text("buble2"))]));
     Ok(())
 }
 
@@ -1823,6 +1846,29 @@ mod tests {
         assert!(report.made.is_empty());
         assert_eq!(report.warnings.len(), 1);
         assert_eq!(tree.functions[0].records, repaired);
+    }
+
+    #[test]
+    fn the_mages_test_deletes_its_field_as_it_opens_the_cage() {
+        // #3867.
+        let state = record(
+            SET_TRIGGER_STATE,
+            vec![
+                (0x01, Value::Str("trigger2_10".into())),
+                (0x26, Value::Marker),
+            ],
+        );
+        let after = record(NOP, Vec::new());
+        let records = vec![state.clone(), after.clone()];
+        let mut tree = tree(vec![function("OMO1prüfung_beginnen", records)]);
+        let report = repair(&EDITS, &[], &[], "bin/NetScript", &mut tree);
+        assert_eq!(
+            report.made,
+            ["the Mage's test's field gone at the troll's release (#3867)"]
+        );
+        assert!(report.warnings.is_empty());
+        let deleted = record(DEL_NPC, vec![(0x01, Value::Str("buble2".into()))]);
+        assert_eq!(tree.functions[0].records, [state, deleted, after]);
     }
 
     #[test]
