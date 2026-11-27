@@ -15,7 +15,7 @@ use crate::frame::Playing;
 use crate::fx::{Effect, Quads, empty, particle_material, particle_texture};
 use crate::game::{AppState, Data};
 use crate::iso;
-use crate::shadows::Casts;
+use crate::shadows::{Casts, Plane};
 
 /// The dots' texture, `SHADOWDOT.TGA`.
 const TEXTURE: &str = "SHADOWDOT";
@@ -142,6 +142,10 @@ fn laid(root: Vec3, feet: [Vec3; 2], half: f32) -> [(Vec3, f32); 5] {
 
 /// Lays each caster's dots under its root and its feet at its model's place in the order, just
 /// behind the model, as the original draws them right before it; hidden with the caster.
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
 fn run(
     casters: Query<(
         Entity,
@@ -149,6 +153,7 @@ fn run(
         &GlobalTransform,
         &InheritedVisibility,
         Option<&Size>,
+        Option<&Plane>,
     )>,
     mut placed: Query<(&mut Transform, &mut Visibility), With<DotsMesh>>,
     (children, bones, worn): (
@@ -161,7 +166,7 @@ fn run(
 ) {
     let s = iso::MODEL_SCALE;
     let (across, depth) = iso::fx_axes();
-    for (caster, dots, at, shown, size) in &casters {
+    for (caster, dots, at, shown, size, plane) in &casters {
         let Ok((mut transform, mut visibility)) = placed.get_mut(dots.entity) else {
             continue;
         };
@@ -195,7 +200,8 @@ fn run(
             orders.borne_by(caster).or_else(|| orders.at(origin)),
             origin,
         );
-        transform.translation = origin;
+        // On the ground under a flyer aloft (`0x407C3D`), at its root's height otherwise.
+        transform.translation = plane.map_or(origin, |plane| origin.with_y(plane.0));
         if let Some(mut mesh) = meshes.get_mut(&dots.mesh) {
             quads.into_mesh(&mut mesh);
         }

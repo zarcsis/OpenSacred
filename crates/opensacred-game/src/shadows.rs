@@ -94,7 +94,9 @@ pub struct Casts;
 /// The height of the plane that a caster's shadow falls on, where it is not its root's: the
 /// ground's under an effect's model that flies (the demon fire's sphere, the hell disk, the
 /// bubble), as the effects' draws pass `0x406FF0` the system's height less its height over the
-/// ground (`0x5A9A6D`), so that it casts on the ground under it, shifted by half its height.
+/// ground (`0x5A9A6D`), and under a creature aloft (`flight`), whose object's height `+0xF0`
+/// stays the ground's (`0x44D56A`), so that it casts on the ground under it, shifted by half its
+/// height; a creature's shadow dots lie on it too (`shadow_dots`).
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct Plane(pub f32);
 
