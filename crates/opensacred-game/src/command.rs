@@ -1676,12 +1676,25 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                         Option<&crate::effects::Effects>,
                         Option<&crate::riding::Seat>,
                         Option<&crate::fight::Holding>,
+                        &Transform,
+                        &Body,
                     ), With<Body>>();
-                    let (effects, riding) = heroes
+                    let heights = world.get_resource::<Heights>();
+                    let (effects, riding, standing) = heroes
                         .iter(world)
                         .next()
-                        .map(|(effects, seat, holding)| {
-                            (effects.cloned(), crate::riding::riding_with(seat, holding))
+                        .map(|(effects, seat, holding, transform, body)| {
+                            (
+                                effects.cloned(),
+                                crate::riding::riding_with(seat, holding),
+                                heights.map(|heights| {
+                                    crate::making::standing(
+                                        heights,
+                                        transform.translation,
+                                        body.level(),
+                                    )
+                                }),
+                            )
                         })
                         .unwrap_or_default();
                     // The art of the hero's form for the one asked, as the right button takes it
@@ -1710,6 +1723,7 @@ fn execute(world: &mut World, command: Command) -> Result<Outcome, String> {
                                 world.get_resource::<crate::pickup::Pack>(),
                                 riding,
                             ),
+                            standing,
                         )?;
                         first.push(make_art(world, art)?);
                     }

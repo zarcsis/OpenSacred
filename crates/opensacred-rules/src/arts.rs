@@ -737,6 +737,20 @@ pub fn formed_slots(class: u8) -> FormedSlots {
     }
 }
 
+/// Whether the order's test refuses `art` where its maker stands (`0x51D840`; docs/re/arts.md,
+/// "The Daemon's", #3895), `town` where its cell is a structure's or a settlement's (the ground's
+/// bit 0, `0x635240`), `walkable` where it may be walked on (`0x636890`), `wading` while an effect
+/// keyed by [`FORM`] holds: his 1094 on a town's cell (its case `0x446`), which would take the form
+/// off him at once; and his forms 1097 to 1100 wading where he may not walk (its cases `0x449` to
+/// `0x44C`, `0x51DAC7`–`0x51DAFF`), over the water or the fence that 1094's form lets him onto.
+pub fn refused_where(art: u16, (town, walkable): (bool, bool), wading: bool) -> bool {
+    match art {
+        FORM => town,
+        1097..=1100 => wading && !walkable,
+        _ => false,
+    }
+}
+
 /// The arts while whose clips their maker holds the mark `+0x200` bit `0x10`, by which a strike's
 /// event 5 and the event `0x100` pass it by (`0x56B130`; docs/re/arts.md, "The Seraphim's", "The
 /// Gladiator's"; #3126): the jumps 1003 and 1017 from their first run to their end, the

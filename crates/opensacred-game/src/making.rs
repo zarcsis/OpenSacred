@@ -422,6 +422,7 @@ pub fn may_make(
         Option<&crate::pickup::Pack>,
         Option<bool>,
     ),
+    standing: Option<(bool, bool)>,
 ) -> Result<(), String> {
     if arts.arts.get(art).is_none() {
         return Err(format!("the hero holds no art {art}"));
@@ -438,6 +439,11 @@ pub fn may_make(
     if !arts::in_form(art, arts.kind) {
         return Err(format!("{art} is not made in this form"));
     }
+    // The Daemon's 1094 on a town's cell, his forms where he wades (`0x51D840`, #3895).
+    let wading = effects.is_some_and(|effects| effects.holds_any(&[arts::FORM]));
+    if standing.is_some_and(|standing| arts::refused_where(art, standing, wading)) {
+        return Err(format!("{art} is refused where the hero stands"));
+    }
     let cannon = pack
         .and_then(|pack| pack.worn.get(usize::from(arts::CANNON_SLOT)))
         .is_some_and(Option::is_some);
@@ -450,6 +456,23 @@ pub fn may_make(
         return Err(format!("{art} is not made on horseback"));
     }
     Ok(())
+}
+
+/// Where the hero at `at` on the level `level` stands for the order's test of its arts
+/// ([`may_make`], `0x51D840`): whether its cell is a structure's or a settlement's, the ground's
+/// bit 0 (`0x635240`), which the inside layers' cells have not; and whether it may be walked on
+/// (`0x636890`).
+pub fn standing(
+    heights: &crate::terrain::Heights,
+    at: Vec3,
+    level: crate::terrain::Level,
+) -> (bool, bool) {
+    let cell = crate::paths::cell_of(at.x, at.z);
+    let town = level.is_none()
+        && heights
+            .flags(cell)
+            .is_some_and(|flags| flags & crate::buildings::BUILDING_CELL != 0);
+    (town, heights.walkable_at(cell, level))
 }
 
 /// Whether the mortar 1086 may be made at `point` on the level `on`, made from `here` on the level
@@ -731,7 +754,10 @@ pub(crate) fn aim(
                 continue;
             }
         }
-        match may_make(&arts, art, (effects, pack.as_deref(), riding)) {
+        let standing = heights
+            .as_deref()
+            .map(|heights| standing(heights, at.translation(), body.level()));
+        match may_make(&arts, art, (effects, pack.as_deref(), riding), standing) {
             Ok(()) => {
                 // A boon's target is its maker (the launch type 5, `0x51D840`).
                 let target = if matches!(

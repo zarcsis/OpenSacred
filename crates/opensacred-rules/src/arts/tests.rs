@@ -2602,3 +2602,19 @@ fn the_daemons_form_takes_its_own_slots_and_the_class_2_its_two() {
         }
     );
 }
+
+#[test]
+fn the_daemons_form_is_refused_in_a_town_and_his_forms_where_he_wades() {
+    // 1094 on a town's cell alone, whatever else.
+    assert!(refused_where(FORM, (true, true), false));
+    assert!(!refused_where(FORM, (false, false), true));
+    // A form while he wades where he may not walk alone.
+    for form in [1097, 1100] {
+        assert!(refused_where(form, (false, false), true));
+        assert!(!refused_where(form, (false, true), true));
+        assert!(!refused_where(form, (true, false), false));
+    }
+    // Another art nowhere, and the forms' neighbours are no forms.
+    assert!(!refused_where(1096, (true, false), true));
+    assert!(!refused_where(1101, (true, false), true));
+}
