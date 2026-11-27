@@ -4,7 +4,8 @@
 //! and `weapon_fx02` (`0x5BEE90`), and for the fire and the poison sparks along it that ride with
 //! it (`opensacred_rules::particles::ArrowSparks`), the fire lighting the night; all added and
 //! untinted by the night, while the arrow lives. A weapon in hand shows its own element likewise
-//! (#2089, `opensacred_rules::arrows::weapon_element`), while its model is in the hand.
+//! (#2089, `opensacred_rules::arrows::weapon_element`), while its model is in the hand and drawn
+//! (a dead creature's goes as its body vanishes, #3922).
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -186,8 +187,14 @@ fn show(
 fn run(
     mut commands: Commands,
     time: Res<Time>,
-    mut shown: Query<(Entity, &mut Shown, &mut Transform)>,
-    places: Query<&GlobalTransform>,
+    mut shown: Query<(
+        Entity,
+        &mut Shown,
+        &mut Transform,
+        &mut Visibility,
+        Has<daynight::Light>,
+    )>,
+    (places, drawn): (Query<&GlobalTransform>, Query<&InheritedVisibility>),
     (children, bones, worn, holders): (
         Query<&Children>,
         Query<(&Name, &GlobalTransform)>,
@@ -198,11 +205,37 @@ fn run(
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
-    for (entity, mut look, mut transform) in &mut shown {
+    for (entity, mut look, mut transform, mut visibility, lit) in &mut shown {
         let Ok(arrow) = places.get(look.arrow) else {
             commands.entity(entity).despawn();
             continue;
         };
+        // Shown and lighting while its arrow or weapon is drawn alone: a dead creature's go with
+        // its body as it vanishes (docs/decisions/drawing.md, "Weapon glows go with their vanished
+        // bodies", #3922).
+        let shows = drawn.get(look.arrow).ok().is_none_or(|drawn| drawn.get());
+        visibility.set_if_neq(if shows {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+        let light = look
+            .sparks
+            .as_ref()
+            .map(ArrowSparks::light)
+            .filter(|&r| r > 0.0);
+        if let Some(light) = light
+            && shows != lit
+        {
+            if shows {
+                commands.entity(entity).insert(daynight::Light(light));
+            } else {
+                commands.entity(entity).remove::<daynight::Light>();
+            }
+        }
+        if !shows {
+            continue;
+        }
         let origin = arrow.translation();
         transform.translation = origin;
         if look.shaft.is_none() {

@@ -11,8 +11,9 @@
 //! - the sword 1771 sheds red sparks within 40 of its grip and a line of red glows from its grip
 //!   to its bone `weapon_fx01` (`MagicWorms`).
 //!
-//! All added and untinted by the night, just behind the holder's model in the order; the glow
-//! lights the night about it.
+//! All added and untinted by the night, just behind the holder's model in the order, while the
+//! model is drawn (a dead creature's go as its body vanishes, #3922); the glow lights the night
+//! about it.
 
 use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
 use bevy::prelude::*;
@@ -283,8 +284,18 @@ fn seek(
 fn run(
     mut commands: Commands,
     time: Res<Time>,
-    mut shown: Query<(Entity, &mut Shown, &mut Transform)>,
-    (places, holders): (Query<&GlobalTransform>, Query<&crate::models::OrderedWith>),
+    mut shown: Query<(
+        Entity,
+        &mut Shown,
+        &mut Transform,
+        &mut Visibility,
+        Has<crate::daynight::Light>,
+    )>,
+    (places, holders, drawn): (
+        Query<&GlobalTransform>,
+        Query<&crate::models::OrderedWith>,
+        Query<&InheritedVisibility>,
+    ),
     (mut dice, mut meshes, orders, preroll): (
         ResMut<Dice>,
         ResMut<Assets<Mesh>>,
@@ -294,12 +305,33 @@ fn run(
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
-    for (entity, mut look, mut transform) in &mut shown {
+    for (entity, mut look, mut transform, mut visibility, lit) in &mut shown {
         let look = &mut *look;
         let Ok(model) = places.get(look.model) else {
             commands.entity(entity).despawn();
             continue;
         };
+        // Shown and lighting while its model is drawn alone: a dead creature's glows go with its
+        // body as it vanishes, where the original's hang alone in the air until its corpse goes
+        // (docs/decisions/drawing.md, "Weapon glows go with their vanished bodies", #3922).
+        let shows = drawn.get(look.model).ok().is_none_or(|drawn| drawn.get());
+        visibility.set_if_neq(if shows {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        });
+        if matches!(look.kind, Kind::Glow { .. }) && shows != lit {
+            if shows {
+                commands
+                    .entity(entity)
+                    .insert(crate::daynight::Light(rules::GLOW_LIGHT));
+            } else {
+                commands.entity(entity).remove::<crate::daynight::Light>();
+            }
+        }
+        if !shows {
+            continue;
+        }
         let origin = model.translation();
         transform.translation = origin;
         let order = holders
