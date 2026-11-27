@@ -12,8 +12,11 @@ opensacred-data.workspace = true
 # Luau, built from mlua's vendored sources: only this crate and those that use it need a C++
 # compiler.
 mlua.workspace = true
-ron.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+# The tests on the game files read a tree's Luau index.
+ron.workspace = true
 
 [lints]
 workspace = true
