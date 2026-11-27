@@ -197,6 +197,10 @@ pub fn slot(action: Action, class: u8, has: impl Fn(u16) -> bool) -> (u16, Actio
 #[derive(Clone, Debug, Default)]
 pub struct Slots(HashMap<u16, String>);
 
+/// The name of `MOTIONS.PAK`'s record 0, whose fractions a slot that a model lacks takes, its
+/// entry of the model's slot table 0 (`0x4135D0`; docs/02-data-formats.md §4.1).
+pub const LACKING: &str = "INVALID_MOTION";
+
 /// An NPC's attack's clips for the class of what it holds ([`Slots::attacks`]): its class's own,
 /// at their own hit fractions, or the clip of the stand-in that its model has in their place,
 /// which `MOTIONS.PAK`'s record 0 times (`stand_in`; `0x4135D0`, docs/re/motions.md, "Where the
@@ -337,17 +341,21 @@ impl Slots {
     /// action 4, docs/re/motions.md, "The heroes' own cases"; #3893): the slots that its model
     /// fills one after another from its class's first, at most five (one of the class 13); where
     /// it fills not the first, the stand-in that the models' clip getter gives in its place, as
-    /// an NPC's ([`Slots::attacks`]), none where it has none either. No class 0's.
-    pub fn hero_attacks(&self, class: u8) -> Vec<String> {
+    /// an NPC's ([`Slots::attacks`]), timed as its is by the motions' record 0 ([`LACKING`],
+    /// #3921), none where it has none either. No class 0's.
+    pub fn hero_attacks(&self, class: u8) -> Attacks {
         let first = Self::attack_slot(class);
         let most = if class == 13 { 1 } else { 5 };
         let own: Vec<String> = (first..first + most)
             .map_while(|slot| self.slot(slot).map(str::to_owned))
             .collect();
         if own.is_empty() {
-            self.attacks(class).clips
+            self.attacks(class)
         } else {
-            own
+            Attacks {
+                clips: own,
+                stand_in: false,
+            }
         }
     }
 
@@ -586,14 +594,18 @@ mod tests {
             (89, "2H_A"),
         ]);
         // The slots one after another from the class's first, to the first gap.
-        assert_eq!(hero.hero_attacks(0), ["BH_A", "BH_B"]);
-        assert_eq!(hero.hero_attacks(1), ["1H_A"]);
-        assert_eq!(hero.hero_attacks(2), ["2H_A"]);
+        let clips = |class| hero.hero_attacks(class).clips;
+        assert_eq!(clips(0), ["BH_A", "BH_B"]);
+        assert_eq!(clips(1), ["1H_A"]);
+        assert_eq!(clips(2), ["2H_A"]);
+        assert!(!hero.hero_attacks(2).stand_in);
         // Its class's first not filled, the stand-in, the first of 89, 84 and 79, not class 0's.
-        assert_eq!(hero.hero_attacks(5), ["2H_A"]);
+        assert_eq!(clips(5), ["2H_A"]);
+        // A stand-in, timed by the motions' record 0 (#3921).
+        assert!(hero.hero_attacks(5).stand_in);
         let bare = Slots::of([(79, "BH_A"), (80, "BH_B")]);
-        assert_eq!(bare.hero_attacks(5), ["BH_A"]);
-        assert!(Slots::default().hero_attacks(5).is_empty());
+        assert_eq!(bare.hero_attacks(5).clips, ["BH_A"]);
+        assert!(Slots::default().hero_attacks(5).clips.is_empty());
     }
 
     #[test]

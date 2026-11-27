@@ -14451,9 +14451,9 @@ impl Strikes {
     }
 }
 
-/// The name of `MOTIONS.PAK`'s record 0, whose fractions a slot that a model lacks takes, its
-/// entry of the model's slot table 0 (`0x4135D0`; docs/02-data-formats.md §4.1).
-const LACKING: &str = "INVALID_MOTION";
+/// The name of `MOTIONS.PAK`'s record 0, whose fractions a slot that a model lacks takes
+/// ([`motions::LACKING`]).
+const LACKING: &str = motions::LACKING;
 
 /// The clip that a shot of bolts plays (`0x4DCB80`'s sub-state 0 through `0x593320` and the
 /// models' clip getter `0x4118B0`; docs/re/motions.md, "Where the model lacks the slot"; #3303).
