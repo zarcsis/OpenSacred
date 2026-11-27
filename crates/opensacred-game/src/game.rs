@@ -952,11 +952,23 @@ pub fn clips_of(
                 strike: with_fractions(named(formed.strike)?),
             })
         });
+    // A stand-in for a slot that the model lacks strikes at the fractions of the motions' record
+    // 0, as the original times it (#3921).
     let attacks = slots
         .map(|slots| slots.hero_attacks(class))
-        .unwrap_or_default()
+        .unwrap_or_default();
+    let stand_in = attacks.stand_in;
+    let attacks = attacks
+        .clips
         .into_iter()
-        .map(with_fractions)
+        .map(|name| {
+            if stand_in {
+                let lacking = with_fractions(motions::LACKING.to_owned()).1;
+                (name, lacking)
+            } else {
+                with_fractions(name)
+            }
+        })
         .collect();
     forms::Clips {
         moving: [moving[0].clone(), moving[1].clone(), moving[2].clone()],
