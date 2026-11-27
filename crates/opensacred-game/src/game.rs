@@ -787,6 +787,7 @@ fn load(
     hero.knocked = clips.knocked;
     hero.defend = clips.defend;
     hero.hit = clips.hit;
+    hero.soaring = clips.soaring;
     hero.speeds = record.speed.map(|s| f32::from(s) * hero.pace * speed);
     if game.walking {
         hero.walking = true;
@@ -913,6 +914,20 @@ pub fn clips_of(
         .as_ref()
         .and_then(|slots| slots.slot(opensacred_rules::arts::HIT_CLIP))
         .map(str::to_owned);
+    // The Daemon's clips in the form of 1094, the hero's of the type 9, where the model has all
+    // three (#3887).
+    let soaring = slots
+        .as_ref()
+        .filter(|_| kind == Class::Daemon.creature())
+        .and_then(|slots| {
+            let formed = opensacred_rules::arts::formed_slots(class);
+            let named = |slot: u16| slots.slot(slot).map(str::to_owned);
+            Some(forms::Soaring {
+                stand: named(formed.stand)?,
+                moving: named(formed.moving)?,
+                strike: with_fractions(named(formed.strike)?),
+            })
+        });
     let attacks = slots
         .map(|slots| slots.hero_attacks(class))
         .unwrap_or_default()
@@ -932,6 +947,7 @@ pub fn clips_of(
         knocked,
         defend,
         hit,
+        soaring,
     }
 }
 

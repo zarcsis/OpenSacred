@@ -891,6 +891,7 @@ fn make(
             Option<&fight::Frenzy>,
             Option<&crate::riding::Seat>,
             Option<&fight::Base>,
+            Option<&crate::effects::Effects>,
         ),
         (
             Without<Dies>,
@@ -943,6 +944,7 @@ fn make(
         frenzy,
         seat,
         base,
+        effects,
     ) in &mut heroes
     {
         // From the saddle its spells take the rider's clips, its `Hardhit` the rider's 194, and
@@ -1368,6 +1370,12 @@ fn make(
             let (node, clip, mut points) = match (action.node, &action.clip) {
                 _ if let Some((node, clip, points, _)) = &saddle => {
                     (*node, clip.clone(), points.clone())
+                }
+                // The Daemon's charge plays his running clip, his form's while it holds
+                // (`0x5467A0(2)` at `0x51B68A`, #3887).
+                _ if style == Style::Charge => {
+                    let (node, clip) = clips.running(hero::soaring(effects));
+                    (node, clip, action.points.clone())
                 }
                 (Some(node), Some(clip)) => (node, clip.clone(), action.points.clone()),
                 _ => {

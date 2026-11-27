@@ -2579,3 +2579,26 @@ fn a_hit_clips_weight_rises_from_its_start_toward_1_over_10_seconds() {
         (0.25, 0.1, 10.0)
     );
 }
+
+#[test]
+fn the_daemons_form_takes_its_own_slots_and_the_class_2_its_two() {
+    for class in [0, 1, 3, 4, 10] {
+        assert_eq!(
+            formed_slots(class),
+            FormedSlots {
+                stand: 145,
+                moving: 148,
+                strike: 147,
+            },
+            "{class}"
+        );
+    }
+    assert_eq!(
+        formed_slots(2),
+        FormedSlots {
+            stand: 146,
+            moving: 149,
+            strike: 147,
+        }
+    );
+}

@@ -714,6 +714,29 @@ pub fn gun_rundum_shot<T: Copy>(shot: usize, target: Option<T>, gathered: &[T]) 
 pub const FORM: u16 = 1094;
 pub const FORMED: u32 = 50;
 
+/// The Daemon's clips while an effect [`FORMED`] lies in his list, whatever its key and its
+/// seconds, and he does not ride (`0x5467A0` at `0x5469F2`–`0x546A69`, docs/re/motions.md, "The
+/// Daemon's form"): standing and in his stance, moving at either gait, and every plain strike and
+/// shot. Their top bone raises him off the ground: he soars by his clips alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FormedSlots {
+    pub stand: u16,
+    pub moving: u16,
+    pub strike: u16,
+}
+
+/// The [`FormedSlots`] of the Daemon holding what is of `class`: 145 standing, 148 moving and 147
+/// striking, and holding the class 2 alone 146 and 149, the other two-handed classes taking the
+/// first two.
+pub fn formed_slots(class: u8) -> FormedSlots {
+    let two = class == 2;
+    FormedSlots {
+        stand: if two { 146 } else { 145 },
+        moving: if two { 149 } else { 148 },
+        strike: 147,
+    }
+}
+
 /// The arts while whose clips their maker holds the mark `+0x200` bit `0x10`, by which a strike's
 /// event 5 and the event `0x100` pass it by (`0x56B130`; docs/re/arts.md, "The Seraphim's", "The
 /// Gladiator's"; #3126): the jumps 1003 and 1017 from their first run to their end, the
@@ -1382,7 +1405,9 @@ pub fn action(kind: u32, style: Style, class: u8) -> Option<ArtAction> {
         // His 1082 the slot 157 at the rate 1.0 (`0x514790` at `0x518600`).
         (8, Style::Frenzy) => Some(plain(157)),
         // The Daemon's 1094 the slot 150 at the blend 0.5 and the rate 1.0 (`0x5192E0` at
-        // `0x51BC63`), and his charge 1091 the slot 148 so (seen).
+        // `0x51BC63`), and his charge 1091 the slot 148 so (seen), where the game finds no running
+        // clip of his: the charge plays his running clip (`0x5467A0(2)` at `0x51B68A`), his form's
+        // 148 or 149 while it holds (`making`, #3887).
         (9, Style::Boon) => Some(plain(150)),
         (9, Style::Charge) => Some(plain(148)),
         // His 1101 the slot 155 and his 1103 the slot 144 so (`0x51B46E`).
