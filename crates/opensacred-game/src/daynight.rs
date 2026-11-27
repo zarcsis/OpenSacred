@@ -583,12 +583,13 @@ pub struct GlowTexture(pub String);
 
 /// Makes the glows' material (`statics::Glow`), hidden until the dusk: the texture times the
 /// colour, unlit, blended over what is drawn by its opacity, as the original blends it, over the
-/// other blended things.
+/// other blended things, and dimmed by the faded sprites before it, which the original draws
+/// after it over it by their alpha (`blended::Veiled`, #3889).
 pub fn make_glow(
     mut commands: Commands,
     texture: Option<Res<GlowTexture>>,
     assets: Res<AssetServer>,
-    mut materials: ResMut<Assets<blended::Sorted>>,
+    mut materials: ResMut<Assets<blended::Veiled>>,
 ) {
     let Some(texture) = texture.filter(|t| !t.0.is_empty()) else {
         return;
@@ -602,7 +603,7 @@ pub fn make_glow(
         ..default()
     };
     commands.insert_resource(crate::statics::Glow(
-        materials.add(blended::sorted(material, Layer::Glows)),
+        materials.add(blended::veiled(material, Layer::Glows)),
     ));
 }
 
@@ -629,7 +630,7 @@ pub fn glow(
     dungeons: Res<Dungeons>,
     hero: Query<&Transform, With<crate::hero::Body>>,
     glow: Option<Res<crate::statics::Glow>>,
-    mut materials: ResMut<Assets<blended::Sorted>>,
+    mut materials: ResMut<Assets<blended::Veiled>>,
 ) {
     let Some(glow) = glow else {
         return;
