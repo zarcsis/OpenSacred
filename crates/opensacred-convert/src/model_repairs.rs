@@ -315,19 +315,49 @@ fn dragon_tail(skeleton: &mut Skeleton, model: &mut Model) -> Result<usize, Stri
 }
 
 /// `ORCHIDEE.GRN` (model 1492), the claws of item 1773 and of the Daemon's starting 7908 (through
-/// 7803), stands its sockets a quarter turn about their X axis, the blades', off every other hand
-/// weapon's: in its socket's frame, the hand's, the fan of its blades spreads across the palm
-/// where the brass knuckles of the same subclass span the line of the knuckles, as a sword's blade
-/// runs along it (#3926, docs/02 §4.2). The repair turns each socket by −90° about its own X axis,
-/// so that the model turns +90° about its blades in either hand, the left socket keeping its 167°
-/// from the right as every weapon's does (docs/decisions/models.md, "Daemon's claws along the
-/// knuckles").
+/// 7803), a gauntlet: a plate over the back of the hand, a grip bar across the palm under it and
+/// four blades ahead. Its sockets stand a quarter turn about their X axis, the blades', off every
+/// other hand weapon's: in its socket's frame, the hand's, the fan of its blades spreads across
+/// the palm where the brass knuckles of the same subclass span the line of the knuckles, as a
+/// sword's blade runs along it (#3926, docs/02 §4.2). They also stand at the plate's back, so that
+/// the grip lay under the Daemon's fingers and off the middle of her knuckles, where a sword's
+/// grip runs through the socket's origin (#3929). The repair turns each socket by −90° about its
+/// own X axis, so that the model turns +90° about its blades in either hand, the left socket
+/// keeping its 167° from the right as every weapon's does, and moves it so that the grip's middle
+/// lies on her hand's grip, at the middle of her four knuckles across her hand
+/// (docs/decisions/models.md, "Daemon's claws along the knuckles").
 const CLAWS: &[u8] = b"ORCHIDEE.GRN";
-/// The sockets, each a bone under the root turned about X alone, and its rotation in the file, to
-/// 1e-5: 5° for the right hand's, 172° for the left's.
-const CLAW_SOCKETS: [(&[u8], [f32; 4]); 2] = [
-    (b"Bone_weapon_01", [0.043_619, 0.0, 0.0, 0.999_048]),
-    (b"Bone_weapon_02", [0.997_564, 0.0, 0.0, 0.069_756]),
+
+/// A socket of the claws, a bone under the root turned about X alone.
+struct ClawSocket {
+    name: &'static [u8],
+    /// Its translation in the file, to 1e-3, and its rotation, to 1e-5.
+    at: [f32; 3],
+    rotation: [f32; 4],
+    /// Its translation repaired: the place that puts the grip bar's middle, in its frame turned,
+    /// on the origin of the Daemon's socket of the same name, the grip of her hand, at the middle
+    /// of her four knuckles across it (`Bip01 R Finger1` to `4` at 0.965 along her
+    /// `Bone_weapon_01`'s Y in her clips of bare hands, `Bip01 L Finger1` to `4` at 0.065 along
+    /// her `Bone_weapon_02`'s): the bar, from −4.835 to −2.192 along X, −1.813 to 3.287 across
+    /// and −1.389 to −0.628 deep in the file, the plate then lies on the back of her hand from
+    /// her wrist to the middle of her fingers.
+    moved_to: [f32; 3],
+}
+
+/// The right hand's socket at 5° about X and the left's at 172°.
+const CLAW_SOCKETS: [ClawSocket; 2] = [
+    ClawSocket {
+        name: b"Bone_weapon_01",
+        at: [-6.246, -0.825, -0.058],
+        rotation: [0.043_619, 0.0, 0.0, 0.999_048],
+        moved_to: [-3.513_1, -1.699_5, -1.103_7],
+    },
+    ClawSocket {
+        name: b"Bone_weapon_02",
+        at: [-6.246, 0.825, -0.058],
+        rotation: [0.997_564, 0.0, 0.0, 0.069_756],
+        moved_to: [-3.513_1, -0.671_4, -1.033_9],
+    },
 ];
 /// The turn by −90° about X that each socket takes after its own rotation.
 const QUARTER_BACK: [f32; 4] = [
@@ -340,33 +370,41 @@ const QUARTER_BACK: [f32; 4] = [
 /// The [`Repair`] of [`CLAWS`].
 fn claw_sockets(skeleton: &mut Skeleton, _: &mut Model) -> Result<usize, String> {
     let mut sockets = Vec::new();
-    for (name, rotation) in CLAW_SOCKETS {
-        let socket = only_bone(skeleton, name)?;
-        let bone = &skeleton.bones[socket];
+    for socket in &CLAW_SOCKETS {
+        let name = socket.name.escape_ascii();
+        let index = only_bone(skeleton, socket.name)?;
+        let bone = &skeleton.bones[index];
         if bone.parent != Some(0) {
+            return Err(format!("the socket `{name}` does not hang under the root"));
+        }
+        if !within(&bone.translation, &socket.at, 1e-3) {
             return Err(format!(
-                "the socket `{}` does not hang under the root",
-                name.escape_ascii()
+                "the socket `{name}` does not lie at {:?}",
+                socket.at
             ));
         }
-        if !bone
-            .rotation
-            .iter()
-            .zip(rotation)
-            .all(|(a, b)| (a - b).abs() <= 1e-5)
-        {
+        if !within(&bone.rotation, &socket.rotation, 1e-5) {
             return Err(format!(
-                "the socket `{}` is not turned by {rotation:?}",
-                name.escape_ascii()
+                "the socket `{name}` is not turned by {:?}",
+                socket.rotation
             ));
         }
-        sockets.push(socket);
+        sockets.push((index, socket));
     }
-    for socket in sockets {
-        let bone = &mut skeleton.bones[socket];
+    for (index, socket) in sockets {
+        let bone = &mut skeleton.bones[index];
         bone.rotation = compose(bone.rotation, QUARTER_BACK);
+        bone.translation = socket.moved_to;
     }
     Ok(0)
+}
+
+/// Whether each of `values` lies within `tolerance` of `expected`'s.
+fn within(values: &[f32], expected: &[f32], tolerance: f32) -> bool {
+    values
+        .iter()
+        .zip(expected)
+        .all(|(a, b)| (a - b).abs() <= tolerance)
 }
 
 /// The rotation `a · b` of two quaternions `[x, y, z, w]`: `b` first, in `a`'s frame.
@@ -1064,16 +1102,17 @@ mod tests {
         fs::remove_dir_all(out).unwrap();
     }
 
-    /// The claws' bones in short: the mesh's bone and the two sockets under the root.
+    /// The claws' bones in short: the mesh's bone and the two sockets under the root, where the
+    /// file has them.
     fn claws() -> Skeleton<'static> {
         let mut bones = vec![
             bone(b"__Root", None, [0.0; 3]),
             bone(b"Orchidee5", Some(0), [-4.05, 0.0, 0.09]),
-            bone(b"Bone_weapon_02", Some(0), [-6.25, 0.82, -0.06]),
-            bone(b"Bone_weapon_01", Some(0), [-6.25, -0.82, -0.06]),
+            bone(b"Bone_weapon_02", Some(0), CLAW_SOCKETS[1].at),
+            bone(b"Bone_weapon_01", Some(0), CLAW_SOCKETS[0].at),
         ];
-        bones[2].rotation = CLAW_SOCKETS[1].1;
-        bones[3].rotation = CLAW_SOCKETS[0].1;
+        bones[2].rotation = CLAW_SOCKETS[1].rotation;
+        bones[3].rotation = CLAW_SOCKETS[0].rotation;
         Skeleton { bones }
     }
 
@@ -1092,7 +1131,7 @@ mod tests {
     }
 
     #[test]
-    fn the_claws_sockets_turn_the_model_a_quarter_about_its_blades() {
+    fn the_claws_sockets_turn_the_model_a_quarter_about_its_blades_and_move_to_its_grip() {
         let mut skeleton = claws();
         let mut model = amulet_model();
         let (old_skeleton, old_model) = (skeleton.clone(), model.clone());
@@ -1103,12 +1142,13 @@ mod tests {
         assert_eq!(model, old_model);
         assert_eq!(skeleton.bones[..2], old_skeleton.bones[..2]);
         let quarter = conjugate(QUARTER_BACK);
-        for socket in [2, 3] {
+        for (socket, expected) in [(3, &CLAW_SOCKETS[0]), (2, &CLAW_SOCKETS[1])] {
             let (new, old) = (&skeleton.bones[socket], &old_skeleton.bones[socket]);
             assert_eq!(
-                (new.name, new.parent, new.translation, new.scale_shear),
-                (old.name, old.parent, old.translation, old.scale_shear)
+                (new.name, new.parent, new.scale_shear),
+                (old.name, old.parent, old.scale_shear)
             );
+            assert_eq!(new.translation, expected.moved_to);
             // The socket's frame turned back is the model turned +90° about X in the hand.
             assert!(same_turn(compose(new.rotation, quarter), old.rotation));
         }
@@ -1133,6 +1173,9 @@ mod tests {
         skeleton.bones[3].rotation = compose(skeleton.bones[3].rotation, QUARTER_BACK);
         cases.push((skeleton, "the socket `Bone_weapon_01` is not turned"));
         let mut skeleton = claws();
+        skeleton.bones[2].translation[1] += 0.01;
+        cases.push((skeleton, "the socket `Bone_weapon_02` does not lie at"));
+        let mut skeleton = claws();
         skeleton.bones[2].parent = Some(1);
         cases.push((skeleton, "`Bone_weapon_02` does not hang under the root"));
         let mut skeleton = claws();
@@ -1152,14 +1195,12 @@ mod tests {
         }
     }
 
-    /// The vertices of every mesh of a converted file in the frame of its socket `Bone_weapon_01`,
-    /// a node under the root of the identity: the hand's frame as the item is held.
-    fn in_socket_frame(glb: &Glb) -> Vec<[f32; 3]> {
+    /// The vertices of every mesh of a converted file, where they lie in the file's model and in
+    /// the frame of its socket `socket`, a node under the root of the identity: the hand's frame
+    /// as the item is held.
+    fn in_socket_frame(glb: &Glb, socket: &str) -> Vec<([f32; 3], [f32; 3])> {
         let nodes = glb.json["nodes"].as_array().unwrap();
-        let socket = nodes
-            .iter()
-            .position(|n| n["name"] == "Bone_weapon_01")
-            .unwrap();
+        let socket = nodes.iter().position(|n| n["name"] == socket).unwrap();
         let root = &nodes[0];
         assert_eq!(root["name"], "__Root");
         assert!(
@@ -1183,29 +1224,35 @@ mod tests {
                 for p in positions.chunks(3) {
                     let v = [p[0] - at[0], p[1] - at[1], p[2] - at[2], 0.0];
                     let [x, y, z, _] = compose(compose(back, v), conjugate(back));
-                    found.push([x, y, z]);
+                    found.push(([p[0], p[1], p[2]], [x, y, z]));
                 }
             }
         }
         found
     }
 
+    /// The least and the greatest of `points` along each axis.
+    fn bounds(points: &[[f32; 3]]) -> ([f32; 3], [f32; 3]) {
+        let min =
+            std::array::from_fn(|axis| points.iter().map(|p| p[axis]).fold(f32::MAX, f32::min));
+        let max =
+            std::array::from_fn(|axis| points.iter().map(|p| p[axis]).fold(f32::MIN, f32::max));
+        (min, max)
+    }
+
     /// The span of `points` along each axis.
     fn spans(points: &[[f32; 3]]) -> [f32; 3] {
-        std::array::from_fn(|axis| {
-            let (min, max) = points.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
-                (lo.min(p[axis]), hi.max(p[axis]))
-            });
-            max - min
-        })
+        let (min, max) = bounds(points);
+        std::array::from_fn(|axis| max[axis] - min[axis])
     }
 
     /// Model 1492 in the game files beside the brass knuckles 1506: converted, the claws spread
     /// their blades along the line of the knuckles, Y in the hand's frame, as the brass knuckles
-    /// span it, and their tips bend to the palm, −Z.
+    /// span it, their tips bend to the palm, −Z in the right hand and +Z in the left, and the
+    /// middle of their grip lies on each socket's origin, at the Daemon's knuckles' middle across.
     #[test]
     #[ignore = "needs the game files in OriginalGame/"]
-    fn the_claws_spread_along_the_knuckles() {
+    fn the_claws_spread_along_the_knuckles_from_the_grip() {
         let game = opensacred_locate::original();
         let (pak, dir_name) = models::PAKS[0];
         let out = scratch_dir("claws");
@@ -1219,19 +1266,57 @@ mod tests {
         );
         assert!(summary.warnings.is_empty(), "{:?}", summary.warnings);
         let read = |file: &str| Glb::read(&fs::read(dst.join(file)).unwrap());
-        let claws = in_socket_frame(&read("1492-orchidee.glb"));
-        let knuckles = in_socket_frame(&read("1506-schlagring.glb"));
-        for (points, what) in [(&claws, "claws"), (&knuckles, "brass knuckles")] {
-            let [_, y, z] = spans(points);
+        let (claws, knuckles) = (read("1492-orchidee.glb"), read("1506-schlagring.glb"));
+        let held = |glb: &Glb, socket| -> Vec<[f32; 3]> {
+            in_socket_frame(glb, socket)
+                .into_iter()
+                .map(|(_, p)| p)
+                .collect()
+        };
+        for (points, what) in [
+            (held(&claws, "Bone_weapon_01"), "claws"),
+            (held(&knuckles, "Bone_weapon_01"), "brass knuckles"),
+        ] {
+            let [_, y, z] = spans(&points);
             assert!(y > 2.0 * z, "{what}: {y} across Y, {z} across Z");
         }
-        let [x, y, _] = spans(&claws);
-        assert!(x > 18.0 && y > 7.0, "{x} {y}");
-        let tips: Vec<&[f32; 3]> = claws.iter().filter(|p| p[0] > 15.0).collect();
-        assert!(!tips.is_empty());
-        let count = f32::from(u16::try_from(tips.len()).unwrap());
-        let bend = tips.iter().map(|p| p[2]).sum::<f32>() / count;
-        assert!(bend < -0.8, "{bend}");
+        // Each hand: its palm's side, and the middle of the knuckles across.
+        for (socket, palm, across) in [
+            ("Bone_weapon_01", -1.0, 0.965),
+            ("Bone_weapon_02", 1.0, 0.065),
+        ] {
+            let placed = in_socket_frame(&claws, socket);
+            let points: Vec<[f32; 3]> = placed.iter().map(|&(_, p)| p).collect();
+            let [x, y, _] = spans(&points);
+            assert!(x > 18.0 && y > 7.0, "{socket}: {x} {y}");
+            // The grip bar: behind the blades and below the plate in the file's model.
+            let grip: Vec<[f32; 3]> = placed
+                .iter()
+                .filter(|(model, _)| model[0] < -1.0 && model[1] < -0.3)
+                .map(|&(_, p)| p)
+                .collect();
+            assert_eq!(grip.len(), 260, "{socket}");
+            let (low, high) = bounds(&grip);
+            // The blades' tips against their roots ahead of the grip: towards the palm.
+            let (_, most) = bounds(&points);
+            let depth = |from: f32, to: f32| {
+                let part: Vec<f32> = points
+                    .iter()
+                    .filter(|p| (from..to).contains(&p[0]))
+                    .map(|p| p[2])
+                    .collect();
+                part.iter().sum::<f32>() / f32::from(u16::try_from(part.len()).unwrap())
+            };
+            let bend = depth(most[0] - 2.0, most[0] + 1.0) - depth(high[0] + 1.5, high[0] + 3.5);
+            assert!(bend * palm > 0.5, "{socket}: the tips' bend {bend}");
+            let middle: [f32; 3] = std::array::from_fn(|axis| (low[axis] + high[axis]) / 2.0);
+            for (axis, expected) in [0.0, across, 0.0].into_iter().enumerate() {
+                assert!(
+                    (middle[axis] - expected).abs() < 0.01,
+                    "{socket}: the grip's middle {middle:?}"
+                );
+            }
+        }
         fs::remove_dir_all(out).unwrap();
     }
 }
