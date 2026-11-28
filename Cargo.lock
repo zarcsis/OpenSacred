@@ -4928,11 +4928,12 @@ dependencies = [
 
 [[package]]
 name = "opusic-sys"
-version = "0.7.7"
+version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "986d749e9dc12035f11bf3ecc83a2a696ff7534d4143be9469a4a0faa25b9fd1"
+checksum = "b021b7e4b872e7f069bf95e746382c0d683feb209c08c95eddcdfdb272e3dbc0"
 dependencies = [
  "cmake",
+ "pkg-config",
 ]
 
 [[package]]
