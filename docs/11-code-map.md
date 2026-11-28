@@ -200,6 +200,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-game/src/dwarf_greeds.rs`: The look of the Dwarf's greed
 - `crates/opensacred-game/src/dwarf_magics.rs`: The look of the dwarves' magic
 - `crates/opensacred-game/src/effects.rs`: The creatures' effects
+- `crates/opensacred-game/src/effects.wesl`: The effects' vertex shader
 - `crates/opensacred-game/src/element_stones.rs`: The element stones' looks
 - `crates/opensacred-game/src/elf_sights.rs`: The Wood Elf's multi-shot's sight
 - `crates/opensacred-game/src/equipment.rs`: The equipment window's slots

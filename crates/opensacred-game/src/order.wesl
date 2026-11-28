@@ -2,8 +2,8 @@
 // anchor, the centre of a cell at height 0 and its draw list's depth, and a place in the cell.
 // The cell's height has no part in it: the original orders a list's objects by their cells alone
 // (#112).
-// Shared by the sprites' shader (`sprites.wesl`), the models' (`models.wesl`) and the models'
-// shadows' (`shadows.wesl`).
+// Shared by the sprites' shader (`sprites.wesl`), the models' (`models.wesl`), the models'
+// shadows' (`shadows.wesl`) and the effects' (`effects.wesl`).
 
 import bevy_pbr::render::mesh_view_bindings::view;
 
@@ -43,4 +43,16 @@ fn depth(anchor: vec4<f32>, offset: f32) -> f32 {
     let per_unit = view.clip_from_view[2][2];
     let looked_at = view.clip_from_view[3][2] - DISTANCE * per_unit;
     return looked_at + nearer * per_unit;
+}
+
+/// The reversed depth of an orthographic view at the point `local` from `origin` in the world,
+/// taken as [`depth`] takes a place's, relative to the point the camera looks at: the two large
+/// points' difference first, then the small offset, so that the point keeps its depth's precision
+/// among the models' and the sprites'.
+fn point(origin: vec3<f32>, local: vec3<f32>) -> f32 {
+    let back = view.world_from_view[2].xyz;
+    let relative = (origin - (view.world_position - back * DISTANCE)) + local;
+    let per_unit = view.clip_from_view[2][2];
+    let looked_at = view.clip_from_view[3][2] - DISTANCE * per_unit;
+    return looked_at + dot(relative, back) * per_unit;
 }

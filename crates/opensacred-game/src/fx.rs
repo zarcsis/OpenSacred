@@ -445,8 +445,13 @@ pub(crate) fn wrapped_texture(
 /// before an added one is premultiplied by its alpha (`standard.wesl`'s `PARTICLES`), so that
 /// the texels' and the colours' values are laid over the frame or added to it as they are, as
 /// the original's device blends them (docs/re/effects.md, "Drawing and blending"); Bevy's own
-/// writes linear light, which the frame takes for its values, its middle tones dark.
+/// writes linear light, which the frame takes for its values, its middle tones dark. Its vertex
+/// stage takes an orthographic view's depth relative to the point the camera looks at
+/// (`effects.wesl`, #3935).
 pub(crate) type Effect = ExtendedMaterial<StandardMaterial, Particles>;
+
+/// The vertex stage of [`Effect`], embedded in the binary.
+const VERTEX: &str = "embedded://opensacred_game/effects.wesl";
 
 /// The extension of [`Effect`]: whether an added particle takes its colour whole, its alpha
 /// unused, as the original's source `ONE` does (`0x761B00`'s flag `0x10`, the glows' styles but
@@ -500,6 +505,10 @@ impl From<&Particles> for ParticlesKey {
 }
 
 impl MaterialExtension for Particles {
+    fn vertex_shader() -> ShaderRef {
+        VERTEX.into()
+    }
+
     fn fragment_shader() -> ShaderRef {
         crate::shaders::STANDARD.into()
     }
@@ -1034,6 +1043,52 @@ impl OnFloor {
 /// The part of its own depth that a model's vertex keeps on a floor's plane (`ON_FLOOR_SQUEEZE`
 /// of `models.wesl`).
 const ON_FLOOR_SQUEEZE: f32 = 0.002;
+
+/// A mesh of a system that follows a model's bones, a child of the system's own entity, which
+/// [`lay`] places.
+#[derive(Component)]
+pub(crate) struct BoneMesh;
+
+/// The meshes of the systems that follow a model's bones ([`BoneMesh`]), apart from the models'
+/// roots and the cameras that [`Orders`] reads.
+pub(crate) type BoneMeshes<'w, 's> = Query<
+    'w,
+    's,
+    &'static mut GlobalTransform,
+    (
+        With<BoneMesh>,
+        Without<crate::models::Ordered>,
+        Without<Camera3d>,
+    ),
+>;
+
+/// The filter of a system's own entity that [`lay`] places: apart from its meshes, the models'
+/// roots and the cameras that [`Orders`] reads.
+pub(crate) type LaidApart = (
+    Without<BoneMesh>,
+    Without<crate::models::Ordered>,
+    Without<Camera3d>,
+);
+
+/// Lays a system that follows a model's bones, its entity and its meshes ([`BoneMesh`]), at
+/// `origin` within a frame whose transforms are propagated already: run so, after
+/// `TransformSystems::Propagate`, it takes the bones where the model is drawn in the same frame,
+/// where run before the propagation it took them a frame behind, and its quads lay over or under
+/// the model as the bones' last frame's places fell (#3935).
+pub(crate) fn lay(
+    origin: Vec3,
+    (transform, global): (&mut Transform, &mut GlobalTransform),
+    children: Option<&Children>,
+    meshes: &mut BoneMeshes,
+) {
+    transform.translation = origin;
+    *global = GlobalTransform::from_translation(origin);
+    for child in children.into_iter().flat_map(|children| children.iter()) {
+        if let Ok(mut mesh) = meshes.get_mut(child) {
+            *mesh = GlobalTransform::from_translation(origin);
+        }
+    }
+}
 
 /// Where the original draws a particle system in its draw lists (docs/re/drawing.md, "The models",
 /// #2047): its FX object's whole system at the object's place, after the
@@ -2157,6 +2212,7 @@ pub struct FxPlugin;
 
 impl Plugin for FxPlugin {
     fn build(&self, app: &mut App) {
+        bevy::asset::embedded_asset!(app, "effects.wesl");
         crate::shaders::embed_standard(app);
         app.add_plugins(MaterialPlugin::<Effect>::default())
             .init_resource::<Crackles>()
