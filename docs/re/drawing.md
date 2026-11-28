@@ -65,7 +65,7 @@ The addresses and the numbers below are the code's; what they make on the screen
 `0x639080(creature's id, its place, its heading, the foot's point)` is called by the creature's animation step (`0x5941A0`, at `0x5984BB` to `0x598740`) at each of the walk's step moments, the two feet's (the bones `Bip01 R Foot` and `Bip01 L Foot`, 36 and 37 of the names' table `0x8E7200`) and, for a model that has them, the two hands' (2 and 1), as docs/re/sound.md, "The other creatures' footsteps", reads them.
 - The place is the creature's own (`+0x18`: the sector, `x` and `y` in world units, the floor), not the bone's: the bone's point is used only by the fire of the set 23 and of the Big Demon (docs/re/sound.md, "Footsteps by the ground").
 - The heading is the creature's direction (`+0x70`) as an angle on the screen (`0x450680`): the direction through the cells' projection, then `atan2(−y, x)` in degrees, 0° to the right and 90° up.
-- A creature in the air (`+0x1F4` bit `0x200000`) and the Daemon in her flying form (`0x691260`: the sound manager's record of the type 9 while its `+0xAF49` is set) never reach the step: their moments play the wings' sound alone.
+- A creature in the air (`+0x1F4` bit `0x200000`) and the Daemon in 1094's form (`0x691260`: the sound manager's record of the type 9 while its `+0xAF49` is set) never reach the step: their moments play the wings' sound alone, the feet's without asking for the bones, the hands' where the model has them (docs/re/sound.md, "The other creatures' footsteps"; **seen** 2026-11-28 for #3934: the Daemon moving in his form played four wing beats a loop and no step).
 - Each call lays at most one picture, so a walker lays one at each foot's moment and a four-legged model one at each of its four.
 
 **Who lays one.**
