@@ -985,7 +985,7 @@ fn lines(
             continue;
         }
         let instance = speech.play(sample).handle();
-        named.name(instances, Some(instance));
+        named.name(instances, Some(instance), false);
     }
 }
 

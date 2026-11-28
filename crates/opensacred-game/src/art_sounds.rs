@@ -1,10 +1,12 @@
 //! The sounds of the hero's spells and combat arts (#1172, #1174; docs/re/sound.md, "Spells and
 //! arts"): a spell's cast as its clip starts (`0x51E110`) and its act as it acts (`0x522480`,
 //! `spells::Acts`); an art's own cry as it starts (the event `(5, 1)` of `0x4FD0F0`), after
-//! which its battle cry is sure (`voices`); and its executor's sound as it starts (the
+//! some of which its battle cry is sure ([`battle_cry`], `voices`); and its executor's sound as
+//! it starts (the
 //! executors' cases, `0x506770`, `0x50E6C0`, `0x514790`, `0x5192E0`; where in the case is not
-//! read). Each plays at the caster or the maker, the healing's cast at its target, at the
-//! volume 1 and a rate's factor of 0.5, the sample's own rate.
+//! read). Each plays at the caster or the maker, the healing's cast at its target and an art's
+//! own cry in the middle, not placed (#3938), at the volume 1 and a rate's factor of 0.5, the
+//! sample's own rate.
 //!
 //! The sounds of the objects that an art makes as it starts and at its point are here too
 //! ([`objects`]); the spells' and arts' objects' other sounds, their flights, impacts and loops,
@@ -80,9 +82,11 @@ pub fn act(spell: u16) -> &'static [u32] {
     }
 }
 
-/// The own cry of the art `art` as it starts, one of the sounds at even odds (`0x4FD0F0` at
-/// `0x4FD87A`, `0x4FDE34`, `0x4FE630`): the jump into the pack, the neck breakers, the hand of
-/// god for a Gladiator and the aura for another maker, the hurled weapon, and the auras.
+/// The own cry of the art `art` as it starts, one of the sounds at even odds (`0x6828E0`, posted
+/// by `0x4FD0F0` at `0x4FD87A`, `0x4FDE34`, `0x4FE630`): the jump into the pack, the neck
+/// breakers, the hand of god for a maker of the type `maker` 2, the Gladiator, and the aura for
+/// another, the hurled weapon, and the auras. An art started after its maker walked to its
+/// distance finds its maker of the type 0 (docs/re/sound.md, "The battle cry").
 pub fn own_cry(art: u16, maker: u32) -> &'static [u32] {
     match art {
         1003 => &[2098],
@@ -94,9 +98,26 @@ pub fn own_cry(art: u16, maker: u32) -> &'static [u32] {
     }
 }
 
-/// Whether the art `art` takes its battle cry surely: those of an own cry (`0x4FD0F0`).
-pub fn cries_surely(art: u16) -> bool {
-    !own_cry(art, 0).is_empty()
+/// How the start of an art takes its maker's battle cry (`0x6828E0`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Cry {
+    /// Surely, after the art's own cry.
+    Sure,
+    /// By its maker's roll (`voices`).
+    Rolled,
+}
+
+/// The battle cry that the start of the art `art` by a maker of the type `maker` takes at its
+/// order (docs/re/sound.md, "The battle cry"): surely after the own cries of the jump into the
+/// pack, the neck breakers and the hurled weapon; none after the Gladiator's hand of god, whose
+/// own cry ends the handler's case; else by the roll, the auras' too. An art started after its
+/// maker walked to its distance takes none ([`crate::making::Playing::approached`]).
+pub fn battle_cry(art: u16, maker: u32) -> Option<Cry> {
+    match art {
+        1003 | 1009..=1011 | 1013 => Some(Cry::Sure),
+        1012 if maker == GLADIATOR => None,
+        _ => Some(Cry::Rolled),
+    }
 }
 
 /// The sounds of the executor of the art `art`: the Vampiress's vampirism, wolves' call, turbo
@@ -153,8 +174,10 @@ fn starts(
     mut sfx: ResMut<crate::sfx::Sfx>,
     mut sounds: MessageWriter<Play>,
 ) {
-    let maker = hero.map_or(0, |hero| hero.creature);
+    let creature = hero.map_or(0, |hero| hero.creature);
     for (entity, making, playing) in &started {
+        // An art started after a walk to its distance finds its maker of the type 0.
+        let maker = if playing.approached() { 0 } else { creature };
         if matches!(arts::style(making.art), Some(Style::Cast(_))) {
             let at = if making.art == HEALING {
                 playing.target()
@@ -168,8 +191,13 @@ fn starts(
         }
         let cries = own_cry(making.art, maker);
         let pick = sfx.dice.below(u32::try_from(cries.len()).unwrap_or(1));
+        // In the middle, not placed (`0x6828E0`'s `playSFX` of the placing flag 0).
         if let Some(&id) = usize::try_from(pick).ok().and_then(|pick| cries.get(pick)) {
-            play(&mut sounds, id, entity);
+            sounds.write(Play {
+                sound: Of::Id(id),
+                at: None,
+                rate: (0.5, Roll::None),
+            });
         }
         for &id in executor(making.art).iter().chain(objects(making.art).0) {
             play(&mut sounds, id, entity);
@@ -215,8 +243,12 @@ mod tests {
         assert_eq!(own_cry(1012, GLADIATOR), [2102]);
         assert_eq!(own_cry(1012, 1), [2101]);
         assert_eq!(own_cry(1010, 1), [2099, 2100]);
-        assert!(cries_surely(1003));
-        assert!(!cries_surely(1071));
+        assert_eq!(battle_cry(1003, 5), Some(Cry::Sure));
+        assert_eq!(battle_cry(1013, GLADIATOR), Some(Cry::Sure));
+        assert_eq!(battle_cry(1012, GLADIATOR), None);
+        assert_eq!(battle_cry(1012, 1), Some(Cry::Rolled));
+        assert_eq!(battle_cry(1015, GLADIATOR), Some(Cry::Rolled));
+        assert_eq!(battle_cry(1071, 9), Some(Cry::Rolled));
         assert_eq!(executor(1103), [2122, 2122]);
         // The hero's panther's leap sounds no turbo boost (#2230).
         assert!(executor(1043).is_empty());

@@ -113,7 +113,16 @@ pub struct Playing {
     /// original's load plays the slot in play anew: its hits, shots and regeneration counted on,
     /// so that none acts twice.
     resume: bool,
+    /// Whether it started after the hero walked to its distance ([`Approaches`]).
+    approached: bool,
 }
+
+/// The hero walks to the distance of the art it was ordered to make, which then starts after the
+/// walk and not at its order: the original's post of the art's event then carries the id 0
+/// (`0x4FD87A`, `0x4FDE34`), so that the art takes no battle cry and its own cry finds its maker
+/// of the type 0 (docs/re/sound.md, "The battle cry"). A new order takes it away ([`ordered`]).
+#[derive(Component)]
+struct Approaches;
 
 /// The hero's order to make an art as a save keeps it (#3764): its target by its name.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -232,6 +241,7 @@ impl crate::doings::Saves for Playing {
             level: saved.level,
             factor: saved.factor,
             resume: true,
+            approached: false,
         })
     }
 }
@@ -240,6 +250,12 @@ impl Playing {
     /// Its target.
     pub fn target(&self) -> Entity {
         self.target
+    }
+
+    /// Whether it started after the hero walked to its distance, not at its order
+    /// ([`Approaches`]).
+    pub fn approached(&self) -> bool {
+        self.approached
     }
 
     /// The rate its clip plays at, its length over its seconds (the original's `+0x3E6` over 100).
@@ -922,6 +938,7 @@ fn make(
             Option<&crate::riding::Seat>,
             Option<&fight::Base>,
             Option<&crate::effects::Effects>,
+            Has<Approaches>,
         ),
         (
             Without<Dies>,
@@ -975,6 +992,7 @@ fn make(
         seat,
         base,
         effects,
+        approaches,
     ) in &mut heroes
     {
         // From the saddle its spells take the rider's clips, its `Hardhit` the rider's 194, and
@@ -992,7 +1010,9 @@ fn make(
         };
         let here = transform.translation;
         let end = |commands: &mut Commands| {
-            commands.entity(hero).remove::<(Making, Playing)>();
+            commands
+                .entity(hero)
+                .remove::<(Making, Playing, Approaches)>();
         };
         let Some(mut playing) = playing else {
             // An art made at a point wants it on the hero's floor, a straight way to it and a
@@ -1091,6 +1111,7 @@ fn make(
                     level,
                     factor: 1.0,
                     resume: false,
+                    approached: false,
                 });
                 continue;
             }
@@ -1160,6 +1181,10 @@ fn make(
                     continue;
                 }
             }
+            // Whether it starts at its order, not after a walk to its distance (`0x4FE630`;
+            // docs/re/sound.md, "The battle cry"); the original's step back from a target too
+            // near is not followed (#3943).
+            let at_order = !approaches;
             // A boon is made where the hero stands, on itself; any other art on its target alive,
             // within its distance.
             if making.target != hero && !raises {
@@ -1202,6 +1227,7 @@ fn make(
                     // (`0x4F8560`).
                     let onto = ways.get(making.target).ok().map(|way| way.level);
                     body.send_to(target, onto);
+                    commands.entity(hero).insert(Approaches);
                     continue;
                 }
                 // From the saddle a `Hardhit` turns the rider to its target first, and the
@@ -1579,11 +1605,17 @@ fn make(
                 "making: the hero makes {} ({style:?}) at level {level}, its factor {factor}",
                 making.art
             );
-            // The hero's battle cry (`0x67A7A0`'s event 5, `0x693FE0`, #713).
-            cries.write(crate::voices::BattleCry {
-                hero,
-                sure: crate::art_sounds::cries_surely(making.art),
-            });
+            // The hero's battle cry (`0x67A7A0`'s event 5, `0x693FE0`, #713), at its order alone
+            // (`0x6828E0`, #3938).
+            if let Some(cry) = at_order
+                .then(|| crate::art_sounds::battle_cry(making.art, arts.kind))
+                .flatten()
+            {
+                cries.write(crate::voices::BattleCry {
+                    hero,
+                    sure: cry == crate::art_sounds::Cry::Sure,
+                });
+            }
             let seconds = length / played.max(f32::EPSILON);
             // The Dwarf's `Rundum` with a gun gathers up to three other hostiles of the hero's
             // list before its clip (`0x518760` to `0x518894`).
@@ -1613,7 +1645,9 @@ fn make(
                 level,
                 factor,
                 resume: false,
+                approached: !at_order,
             });
+            commands.entity(hero).remove::<Approaches>();
             // The weapons' streaks of the arts that its executor streaks, for its clip (#3454).
             crate::weapon_streaks::lay(
                 &mut commands,
@@ -3983,6 +4017,11 @@ fn knock(
     }
 }
 
+/// A new order to make an art is made anew from where the hero stands ([`Approaches`]).
+fn ordered(made: On<Insert<Making>>, mut commands: Commands) {
+    commands.entity(made.entity).remove::<Approaches>();
+}
+
 /// A creature knocked back leaves its fight and is held until its timer fires with its slide
 /// over (`0x531AF7`, `opensacred_rules::minds::Mind::knocked`), at each knockback.
 fn held(knocked: On<Insert<Knocked>>, mut minds: Query<(&mut Mind, &Knocked)>) {
@@ -4070,7 +4109,8 @@ impl Plugin for MakingPlugin {
                     .in_set(Step::HeroMove),
             )
             .add_systems(Update, knock.in_set(Unpaused).in_set(Step::HeroMove))
-            .add_observer(held);
+            .add_observer(held)
+            .add_observer(ordered);
     }
 }
 
@@ -4111,6 +4151,7 @@ mod tests {
             level: 3,
             factor: 1.0,
             resume: false,
+            approached: false,
         };
         let saved = playing.saved(&Moment::default()).unwrap();
         let bytes = postcard::to_stdvec(&saved).unwrap();

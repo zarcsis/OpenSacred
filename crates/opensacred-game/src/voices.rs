@@ -8,8 +8,10 @@
 //! wait of its id. One line a creature.
 //!
 //! The hero speaks lines of its own too, MP3 samples by name (`0x693FE0`, #713), one at a time
-//! with the dialogues' voice-overs ([`NamedLine`], #1238): a battle cry at a combat art, one in
-//! three; its death's line; its refusal of an item it may not use ([`NotMine`], #1289); and its
+//! with the dialogues' voice-overs ([`NamedLine`], #1238): a battle cry at a combat art started
+//! at its order, one in three, one in two for the Gladiator and the Vampiress, surely after some
+//! arts' own cries (`art_sounds::battle_cry`), giving way to a line by name of the hero's own
+//! (#3938); its death's line; its refusal of an item it may not use ([`NotMine`], #1289); and its
 //! comments in the fight on one clock, which each comment that plays sets back to 0 (`+0xB7E8`,
 //! #1175; docs/re/sound.md, "The hero's comments"): a taunt at a boss's or a champion's hit while
 //! the hero's own grunt still sounds, the kind of the foe near it as it attacks, its kill and its
@@ -268,8 +270,10 @@ const HOSTILE_IDLE: u8 = 20;
 const PEACEFUL_IDLE: u8 = 70;
 /// The profiles' group of the idle noises.
 const IDLE: u8 = 0;
-/// The Gladiator's creature type, whose battle cry's roll is one in two (`0x4FD0F0`).
-const GLADIATOR: u32 = 2;
+/// The heroes' creature types whose battle cry's roll is one in two, the Gladiator and the
+/// Vampiress by day and by night (`0x6828E0`, the jump table `0x685200`); the others' one in
+/// three.
+const CRIES_ONE_IN_TWO: [u32; 3] = [2, 6, 7];
 /// The hero's cries at a critical hit (`SOUND_FX_HERO_CRITICALHIT01`, `02`).
 const HERO_CRIES: [u32; 2] = [16301, 16302];
 
@@ -360,7 +364,7 @@ impl HeroLine {
             Self::EnemyType(_) => 8,
             Self::EnemyTooWeak | Self::EnemyTooStrong => 20,
             Self::BattleCry { sure: true, .. } => 1,
-            Self::BattleCry { .. } if creature == GLADIATOR => 2,
+            Self::BattleCry { .. } if CRIES_ONE_IN_TWO.contains(&creature) => 2,
             Self::BattleCry { .. } => 3,
             Self::EnemyKillMe
             | Self::Breathing
@@ -440,9 +444,10 @@ pub(crate) struct Speaking(pub(crate) Handle<AudioInstance>, pub(crate) bool);
 
 /// The line by name that plays: the sound manager's one at a time (`0x693FE0`, `+0xB7E0`), which
 /// the hero's lines by name and the dialogues' voice-overs (`talk`) share, so that each stops the
-/// one before, and which `0x693FB0` stops (#1238).
+/// one before, and which `0x693FB0` stops (#1238); and whether the hero speaks it, the line's
+/// speaker the listener (`+0xB7E2`, `+0xAF40`), to which a battle cry gives way (#3938).
 #[derive(Resource, Default)]
-pub struct NamedLine(Option<Handle<AudioInstance>>);
+pub struct NamedLine(Option<Handle<AudioInstance>>, bool);
 
 impl NamedLine {
     /// Whether a line by name plays on the speech's channel `audio` (`volumes`).
@@ -455,13 +460,20 @@ impl NamedLine {
         })
     }
 
-    /// `line` now the line by name, the one before stopped; with none, only the stop
-    /// (`0x693FB0`). The line stopped, if one was.
+    /// Whether a line by name that the hero speaks plays on the speech's channel `audio`.
+    pub(crate) fn hero_plays(&self, audio: &AudioChannel<crate::volumes::Speech>) -> bool {
+        self.1 && self.plays(audio)
+    }
+
+    /// `line` now the line by name, the hero's where `hero`, the one before stopped; with none,
+    /// only the stop (`0x693FB0`). The line stopped, if one was.
     pub(crate) fn name(
         &mut self,
         instances: &mut Assets<AudioInstance>,
         line: Option<Handle<AudioInstance>>,
+        hero: bool,
     ) -> Option<Handle<AudioInstance>> {
+        self.1 = hero && line.is_some();
         let old = std::mem::replace(&mut self.0, line)?;
         if let Some(mut instance) = instances.get_mut(&old) {
             debug!("voices: the line by name stops");
@@ -479,7 +491,7 @@ pub fn name_line(world: &mut World, line: Option<Handle<AudioInstance>>) {
     }
     world.resource_scope(|world, mut named: Mut<NamedLine>| {
         if let Some(mut instances) = world.get_resource_mut::<Assets<AudioInstance>>() {
-            named.name(&mut instances, line);
+            named.name(&mut instances, line, false);
         }
     });
 }
@@ -957,7 +969,7 @@ fn speak(
                 rate: (0.45, sfx::Roll::Tenths),
             });
             if named_line.plays(&speech) {
-                let stopped = named_line.name(&mut instances, None);
+                let stopped = named_line.name(&mut instances, None, false);
                 if speaking.is_some_and(|s| s.1 && stopped.as_ref() == Some(&s.0)) {
                     speaking = None;
                     cried = true;
@@ -994,6 +1006,11 @@ fn speak(
         }
     }
     for cry in cries.read() {
+        // It gives way to a line by name of the hero's that plays, and plays over its other
+        // lines, stopping another speaker's line by name (`0x682A86`–`0x682AAA`, #3938).
+        if named_line.hero_plays(&speech) {
+            continue;
+        }
         if let Some((id, file)) = hero_type.and_then(|creature| {
             let night = forms.as_ref().is_some_and(|forms| forms.by_night());
             let line = HeroLine::BattleCry {
@@ -1007,7 +1024,7 @@ fn speak(
                 id,
                 file,
                 wait: None,
-                play: Play::Plays,
+                play: Play::Over,
                 named: true,
             });
         }
@@ -1080,7 +1097,7 @@ fn speak(
         );
         // A line by name stops the one that plays, a dialogue's voice-over too.
         if line.named {
-            named_line.name(&mut instances, Some(instance.clone()));
+            named_line.name(&mut instances, Some(instance.clone()), true);
         }
         commands
             .entity(line.speaker)
@@ -1517,8 +1534,9 @@ fn flight(
         .with_playback_rate(f64::from(rate))
         .handle();
     placed.follow(sfx::Following::new(instance.clone(), Some(entity), hero_at));
-    // No line by name plays: the slot only takes it.
+    // No line by name plays: the slot only takes it, the hero's.
     named_line.0 = Some(instance.clone());
+    named_line.1 = true;
     commands.entity(entity).insert(Speaking(instance, true));
 }
 
@@ -2131,6 +2149,18 @@ mod tests {
             Some(Named::Foe(Foe::Goblin))
         );
         assert_eq!(kind("TYPE_NPC_WOLF"), None);
+    }
+
+    #[test]
+    fn the_battle_cry_rolls_one_in_two_for_the_gladiator_and_the_vampiress() {
+        let cry = |sure| HeroLine::BattleCry { sure, night: false };
+        for creature in [2, 6, 7] {
+            assert_eq!(cry(false).roll(creature), 2);
+        }
+        for creature in [1, 3, 4, 5, 8, 9] {
+            assert_eq!(cry(false).roll(creature), 3);
+        }
+        assert_eq!(cry(true).roll(9), 1);
     }
 
     #[test]

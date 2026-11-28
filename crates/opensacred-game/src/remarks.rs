@@ -714,7 +714,9 @@ fn remark(
         if waits && let Some(voices) = voices.as_mut() {
             voices.commented(id, now, 60.0);
         }
-        named.name(&mut instances, Some(instance.clone()));
+        // The hero's own, but a companion's click or equipment line.
+        let hero = !matches!(post, Remark::Click { .. } | Remark::Equipment { .. });
+        named.name(&mut instances, Some(instance.clone()), hero);
         commands.entity(entity).insert(Speaking(instance, true));
     }
 }
