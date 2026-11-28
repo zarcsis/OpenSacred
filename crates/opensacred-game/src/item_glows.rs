@@ -3,18 +3,23 @@
 //! a blue glow at each of its bones `stdfx_bone01` on, the Seraphim's staff's line and the
 //! lightsabers' two along their bones `weapon_fx01` and `weapon_fx02`, and the glittering wings'
 //! glitter at their bones `sera03_fx0` to `3`; all added and untinted by the night, while the
-//! model is held, carried or worn, and drawn (a dead creature's go as its body vanishes, #3922).
+//! model is held, carried or worn, and drawn (a dead creature's go as its body vanishes, #3922);
+//! laid after the frame's transforms are propagated, at the bones where the model is drawn in the
+//! same frame (`fx::lay`, #3935).
 
 use std::collections::HashMap;
 
-use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers, VisibilitySystems};
 use bevy::prelude::*;
 use opensacred_rules::particles::{
     self, BLUE_GLOW, BLUE_GLOW_BONES, GLITTER_BONES, GLITTER_TEXTURE, GLOW_LINE_TEXTURE, GlowLine,
 };
 
 use crate::frame::{Playing, Unpaused};
-use crate::fx::{Effect, Quads, empty, particle_material, particle_texture, whole_material};
+use crate::fx::{
+    BoneMesh, BoneMeshes, Effect, LaidApart, Quads, empty, particle_material, particle_texture,
+    whole_material,
+};
 use crate::game::{AppState, Data};
 use crate::npcs::Piece;
 use crate::spawning::Rng;
@@ -160,6 +165,7 @@ fn seek(
                         Transform::IDENTITY,
                         NoFrustumCulling,
                         RenderLayers::layer(iso::UNTINTED),
+                        BoneMesh,
                     ));
                 }
             }
@@ -177,19 +183,37 @@ fn seek(
 
 /// Draws each model's own glows a frame on at its bones (`0x5BEE90`): its lines from one bone to
 /// the other (`0x40DA80`), its blue glows and its glitter, rolled anew (`0x40E2B0`); they go with
-/// the model.
+/// the model. Run after the frame's transforms are propagated ([`crate::fx::lay`]).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
 fn run(
     mut commands: Commands,
-    mut shown: Query<(Entity, &Shown, &mut Transform, &mut Visibility)>,
+    mut shown: Query<
+        (
+            Entity,
+            &Shown,
+            (&mut Transform, &mut GlobalTransform),
+            &mut Visibility,
+            Option<&Children>,
+        ),
+        LaidApart,
+    >,
     (places, holders, drawn): (
-        Query<&GlobalTransform>,
+        Query<&GlobalTransform, (Without<Shown>, Without<BoneMesh>)>,
         Query<&crate::models::OrderedWith>,
         Query<&InheritedVisibility>,
     ),
-    (mut dice, mut meshes, orders): (ResMut<Dice>, ResMut<Assets<Mesh>>, crate::fx::Orders),
+    (mut dice, mut meshes, orders, mut laid): (
+        ResMut<Dice>,
+        ResMut<Assets<Mesh>>,
+        crate::fx::Orders,
+        BoneMeshes,
+    ),
 ) {
     let s = iso::MODEL_SCALE;
-    for (entity, look, mut transform, mut visibility) in &mut shown {
+    for (entity, look, (mut transform, mut global), mut visibility, parts) in &mut shown {
         let Ok(model) = places.get(look.model) else {
             commands.entity(entity).despawn();
             continue;
@@ -206,7 +230,7 @@ fn run(
             continue;
         }
         let origin = model.translation();
-        transform.translation = origin;
+        crate::fx::lay(origin, (&mut transform, &mut global), parts, &mut laid);
         // An item in a hand just behind its holder's model, one lying at its place, as the
         // original draws the system before the creature (#2188).
         let order = holders
@@ -269,7 +293,14 @@ impl Plugin for ItemGlowsPlugin {
             .init_resource::<Materials>()
             .add_systems(
                 Update,
-                (mark, seek, run).chain().in_set(Playing).in_set(Unpaused),
+                (mark, seek).chain().in_set(Playing).in_set(Unpaused),
+            )
+            .add_systems(
+                PostUpdate,
+                run.after(TransformSystems::Propagate)
+                    .before(VisibilitySystems::VisibilityPropagate)
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(in_state(crate::pause::Play::Running)),
             );
     }
 }

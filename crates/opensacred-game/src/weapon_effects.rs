@@ -13,9 +13,10 @@
 //!
 //! All added and untinted by the night, just behind the holder's model in the order, while the
 //! model is drawn (a dead creature's go as its body vanishes, #3922); the glow lights the night
-//! about it.
+//! about it. Laid after the frame's transforms are propagated, at the bones where the model is
+//! drawn in the same frame (`fx::lay`, #3935).
 
-use bevy::camera::visibility::{NoFrustumCulling, RenderLayers};
+use bevy::camera::visibility::{NoFrustumCulling, RenderLayers, VisibilitySystems};
 use bevy::prelude::*;
 use opensacred_rules::particles::{GlowLine, argb};
 use opensacred_rules::spawning::Rng;
@@ -26,7 +27,10 @@ use opensacred_rules::weapon_effects::{
 
 use crate::bolt_looks::{models, world};
 use crate::frame::{Playing, Unpaused};
-use crate::fx::{Effect, Quads, empty, particle_material, particle_texture, whole_material};
+use crate::fx::{
+    BoneMesh, BoneMeshes, Effect, LaidApart, Quads, empty, particle_material, particle_texture,
+    whole_material,
+};
 use crate::game::{AppState, Data};
 use crate::iso;
 use crate::npcs::Piece;
@@ -264,6 +268,7 @@ fn seek(
                         Transform::IDENTITY,
                         NoFrustumCulling,
                         RenderLayers::layer(iso::UNTINTED),
+                        BoneMesh,
                     ));
                 }
             }
@@ -280,32 +285,42 @@ fn seek(
     }
 }
 
-/// Runs and draws each model's effect a frame on at its bones; it goes with the model.
+/// Runs and draws each model's effect a frame on at its bones; it goes with the model. Run after
+/// the frame's transforms are propagated ([`crate::fx::lay`]).
+#[expect(
+    clippy::type_complexity,
+    reason = "a Bevy system's queries carry their components"
+)]
 fn run(
     mut commands: Commands,
     time: Res<Time>,
-    mut shown: Query<(
-        Entity,
-        &mut Shown,
-        &mut Transform,
-        &mut Visibility,
-        Has<crate::daynight::Light>,
-    )>,
+    mut shown: Query<
+        (
+            Entity,
+            &mut Shown,
+            (&mut Transform, &mut GlobalTransform),
+            &mut Visibility,
+            Has<crate::daynight::Light>,
+            Option<&Children>,
+        ),
+        LaidApart,
+    >,
     (places, holders, drawn): (
-        Query<&GlobalTransform>,
+        Query<&GlobalTransform, (Without<Shown>, Without<BoneMesh>)>,
         Query<&crate::models::OrderedWith>,
         Query<&InheritedVisibility>,
     ),
-    (mut dice, mut meshes, orders, preroll): (
+    (mut dice, mut meshes, orders, preroll, mut laid): (
         ResMut<Dice>,
         ResMut<Assets<Mesh>>,
         crate::fx::Orders,
         Res<crate::fx::Preroll>,
+        BoneMeshes,
     ),
 ) {
     let dt = time.delta_secs().min(0.1);
     let s = iso::MODEL_SCALE;
-    for (entity, mut look, mut transform, mut visibility, lit) in &mut shown {
+    for (entity, mut look, (mut transform, mut global), mut visibility, lit, parts) in &mut shown {
         let look = &mut *look;
         let Ok(model) = places.get(look.model) else {
             commands.entity(entity).despawn();
@@ -333,7 +348,7 @@ fn run(
             continue;
         }
         let origin = model.translation();
-        transform.translation = origin;
+        crate::fx::lay(origin, (&mut transform, &mut global), parts, &mut laid);
         let order = holders
             .get(look.model)
             .map_or_else(|_| orders.at(origin), |holder| orders.borne_by(holder.0));
@@ -452,7 +467,14 @@ impl Plugin for WeaponEffectsPlugin {
             .init_resource::<Looks>()
             .add_systems(
                 Update,
-                (mark, seek, run).chain().in_set(Playing).in_set(Unpaused),
+                (mark, seek).chain().in_set(Playing).in_set(Unpaused),
+            )
+            .add_systems(
+                PostUpdate,
+                run.after(TransformSystems::Propagate)
+                    .before(VisibilitySystems::VisibilityPropagate)
+                    .run_if(in_state(AppState::InGame))
+                    .run_if(in_state(crate::pause::Play::Running)),
             );
     }
 }
