@@ -1863,6 +1863,15 @@ pub fn made_from(distance: i32, reach: f32) -> Option<(f32, f32)> {
 /// rider, not here).
 const MADE_WITHIN: f32 = 10.0;
 
+/// Whether an art made from `at` within `within` of its target ([`made_from`]) starts at its
+/// order, its creature standing `distance` from the target: where it needs no distance, or within
+/// `within` of it on either side (`0x4FE630`); one further walks to it, and one nearer steps back
+/// to it, and starts after (`0x4FD87A`, `0x4FDE34`), which takes its battle cry away
+/// (docs/re/sound.md, "The battle cry").
+pub fn made_at_order(at: f32, within: f32, distance: f32) -> bool {
+    at <= 0.0 || (distance - at).abs() <= within
+}
+
 /// The arts that the order makes where their creature stands, whatever their record's distance,
 /// once a straight way leads to the target (`0x4FD0F0`, `0x4FCC80`): the jumps 1003 and 1017,
 /// and 1032.
