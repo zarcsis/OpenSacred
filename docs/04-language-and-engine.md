@@ -263,7 +263,7 @@ Versions as of 2026-10-16.
 Considered then and not taken: leafwing-input-manager 0.22.0 for input with remapping (the game's own `controls`, #1553), matroska-demuxer and webm-iterable for the WebM container (Symphonia's Matroska demuxer, §6.1), and insta 1.49.0 for snapshot tests (no test is written with it).
 rav1d and proptest, planned then, are dependencies now (§6.1).
 
-Update policy: Rust stable at the latest version (currently 1.100.0), bumped together with the dependencies; dependencies daily, in a `Dependencies: cargo update` pull request, and a `deps` issue for each newer incompatible release of a direct dependency or of Rust (`CLAUDE.md`, "Work order"; docs/03 §3.3); Bevy when a release comes out, after the ecosystem crates we use have been updated.
+Update policy: Rust stable at the latest version (currently 1.100.1), bumped together with the dependencies; dependencies daily, in a `Dependencies: cargo update` pull request, and a `deps` issue for each newer incompatible release of a direct dependency or of Rust (`CLAUDE.md`, "Work order"; docs/03 §3.3); Bevy when a release comes out, after the ecosystem crates we use have been updated.
 
 ## Open questions
 
@@ -280,5 +280,5 @@ So a whole number the original truncates can differ from one of `f32` arithmetic
 ## Sources
 
 * Precedents (OpenNox, OpenGothic, isle-portable): docs/09 §5 and the links there.
-* Crate versions: `Cargo.lock` on 2026-11-17 (§6.1), crates.io as of 2026-10-16 (§4.1, §6.2); Rust 1.100.0: the stable channel and `rust-toolchain.toml`.
+* Crate versions: `Cargo.lock` on 2026-11-17 (§6.1), crates.io as of 2026-10-16 (§4.1, §6.2); Rust 1.100.1: the stable channel and `rust-toolchain.toml`.
 * Bevy 0.20: bevy.org/news/bevy-0-20 and release reviews; Godot 4.7.2: godotengine.org; godot-rust WebAssembly: docs.rs/godot 0.5.5; Fyrox 1.0: fyrox.rs/blog and secondary reviews; Unreal Engine 5.8: unrealengine.com; Visual Studio 2026 and MSVC 14.50: devblogs.microsoft.com/cppblog.
