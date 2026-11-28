@@ -1,6 +1,6 @@
-//! Repairs of the models' data (docs/02 §4.6) that `models` makes as it writes the records they
-//! name, each as narrow as its defect (CLAUDE.md, "Code conventions"). A named record whose data
-//! is not what its repair expects is left as it is, with a warning.
+//! Repairs of the models' data (docs/02 §4.2, §4.6) that `models` makes as it writes the records
+//! they name, each as narrow as its defect (CLAUDE.md, "Code conventions"). A named record whose
+//! data is not what its repair expects is left as it is, with a warning.
 
 use opensacred_formats::grn::{Bone, Influence, Mesh, Model, Skeleton};
 
@@ -9,7 +9,7 @@ use opensacred_formats::grn::{Bone, Influence, Mesh, Model, Skeleton};
 pub enum Outcome {
     /// No repair names the record.
     None,
-    /// Repaired: the number of positions whose bones changed.
+    /// Repaired: the number of positions whose bones changed, none for a repair of the sockets.
     Repaired(usize),
     /// A record that a repair names, whose data is not what the repair expects: left as it is.
     Mismatch(String),
@@ -20,10 +20,11 @@ pub enum Outcome {
 type Repair = fn(&mut Skeleton, &mut Model) -> Result<usize, String>;
 
 /// The repairs by the names of the records they repair.
-const REPAIRS: [(&[&[u8]], Repair); 3] = [
+const REPAIRS: [(&[&[u8]], Repair); 4] = [
     (&[EARTH_AMULET], earth_amulet),
     (&[CANNON], cannon_strap),
     (&DRAGONS, dragon_tail),
+    (&[CLAWS], claw_sockets),
 ];
 
 /// Repairs `skeleton` and `model` of the model record `name` if a repair names it; the record
@@ -311,6 +312,71 @@ fn dragon_tail(skeleton: &mut Skeleton, model: &mut Model) -> Result<usize, Stri
         }
     }
     Ok(TAIL_RINGS.iter().map(|(ring, _)| ring.len()).sum())
+}
+
+/// `ORCHIDEE.GRN` (model 1492), the claws of item 1773 and of the Daemon's starting 7908 (through
+/// 7803), stands its sockets a quarter turn about their X axis, the blades', off every other hand
+/// weapon's: in its socket's frame, the hand's, the fan of its blades spreads across the palm
+/// where the brass knuckles of the same subclass span the line of the knuckles, as a sword's blade
+/// runs along it (#3926, docs/02 §4.2). The repair turns each socket by −90° about its own X axis,
+/// so that the model turns +90° about its blades in either hand, the left socket keeping its 167°
+/// from the right as every weapon's does (docs/decisions/models.md, "Daemon's claws along the
+/// knuckles").
+const CLAWS: &[u8] = b"ORCHIDEE.GRN";
+/// The sockets, each a bone under the root turned about X alone, and its rotation in the file, to
+/// 1e-5: 5° for the right hand's, 172° for the left's.
+const CLAW_SOCKETS: [(&[u8], [f32; 4]); 2] = [
+    (b"Bone_weapon_01", [0.043_619, 0.0, 0.0, 0.999_048]),
+    (b"Bone_weapon_02", [0.997_564, 0.0, 0.0, 0.069_756]),
+];
+/// The turn by −90° about X that each socket takes after its own rotation.
+const QUARTER_BACK: [f32; 4] = [
+    -std::f32::consts::FRAC_1_SQRT_2,
+    0.0,
+    0.0,
+    std::f32::consts::FRAC_1_SQRT_2,
+];
+
+/// The [`Repair`] of [`CLAWS`].
+fn claw_sockets(skeleton: &mut Skeleton, _: &mut Model) -> Result<usize, String> {
+    let mut sockets = Vec::new();
+    for (name, rotation) in CLAW_SOCKETS {
+        let socket = only_bone(skeleton, name)?;
+        let bone = &skeleton.bones[socket];
+        if bone.parent != Some(0) {
+            return Err(format!(
+                "the socket `{}` does not hang under the root",
+                name.escape_ascii()
+            ));
+        }
+        if !bone
+            .rotation
+            .iter()
+            .zip(rotation)
+            .all(|(a, b)| (a - b).abs() <= 1e-5)
+        {
+            return Err(format!(
+                "the socket `{}` is not turned by {rotation:?}",
+                name.escape_ascii()
+            ));
+        }
+        sockets.push(socket);
+    }
+    for socket in sockets {
+        let bone = &mut skeleton.bones[socket];
+        bone.rotation = compose(bone.rotation, QUARTER_BACK);
+    }
+    Ok(0)
+}
+
+/// The rotation `a · b` of two quaternions `[x, y, z, w]`: `b` first, in `a`'s frame.
+fn compose([ax, ay, az, aw]: [f32; 4], [bx, by, bz, bw]: [f32; 4]) -> [f32; 4] {
+    [
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    ]
 }
 
 /// The mesh's own index of the skeleton bone `name`, its local bone (docs/02 §4.2).
@@ -995,6 +1061,177 @@ mod tests {
             }
             assert!(blended >= 12, "{file}: {blended}");
         }
+        fs::remove_dir_all(out).unwrap();
+    }
+
+    /// The claws' bones in short: the mesh's bone and the two sockets under the root.
+    fn claws() -> Skeleton<'static> {
+        let mut bones = vec![
+            bone(b"__Root", None, [0.0; 3]),
+            bone(b"Orchidee5", Some(0), [-4.05, 0.0, 0.09]),
+            bone(b"Bone_weapon_02", Some(0), [-6.25, 0.82, -0.06]),
+            bone(b"Bone_weapon_01", Some(0), [-6.25, -0.82, -0.06]),
+        ];
+        bones[2].rotation = CLAW_SOCKETS[1].1;
+        bones[3].rotation = CLAW_SOCKETS[0].1;
+        Skeleton { bones }
+    }
+
+    /// The quaternion `q` within 1e-5 of `expected`, either sign.
+    fn same_turn(q: [f32; 4], expected: [f32; 4]) -> bool {
+        let close = |sign: f32| {
+            q.iter()
+                .zip(expected)
+                .all(|(a, b)| (a - sign * b).abs() <= 1e-5)
+        };
+        close(1.0) || close(-1.0)
+    }
+
+    fn conjugate([x, y, z, w]: [f32; 4]) -> [f32; 4] {
+        [-x, -y, -z, w]
+    }
+
+    #[test]
+    fn the_claws_sockets_turn_the_model_a_quarter_about_its_blades() {
+        let mut skeleton = claws();
+        let mut model = amulet_model();
+        let (old_skeleton, old_model) = (skeleton.clone(), model.clone());
+        assert_eq!(
+            apply(b"Orchidee.grn", &mut skeleton, &mut model),
+            Outcome::Repaired(0)
+        );
+        assert_eq!(model, old_model);
+        assert_eq!(skeleton.bones[..2], old_skeleton.bones[..2]);
+        let quarter = conjugate(QUARTER_BACK);
+        for socket in [2, 3] {
+            let (new, old) = (&skeleton.bones[socket], &old_skeleton.bones[socket]);
+            assert_eq!(
+                (new.name, new.parent, new.translation, new.scale_shear),
+                (old.name, old.parent, old.translation, old.scale_shear)
+            );
+            // The socket's frame turned back is the model turned +90° about X in the hand.
+            assert!(same_turn(compose(new.rotation, quarter), old.rotation));
+        }
+        // −85° and 82° about X, a sword's sockets' turns.
+        assert!(same_turn(
+            skeleton.bones[3].rotation,
+            [-0.675_590, 0.0, 0.0, 0.737_277]
+        ));
+        assert!(same_turn(
+            skeleton.bones[2].rotation,
+            [0.656_059, 0.0, 0.0, 0.754_710]
+        ));
+        // The left socket keeps its turn from the right one.
+        let between = |s: &Skeleton| compose(conjugate(s.bones[3].rotation), s.bones[2].rotation);
+        assert!(same_turn(between(&skeleton), between(&old_skeleton)));
+    }
+
+    #[test]
+    fn claws_unlike_the_expected_ones_are_left_as_they_are() {
+        let mut cases: Vec<(Skeleton, &str)> = Vec::new();
+        let mut skeleton = claws();
+        skeleton.bones[3].rotation = compose(skeleton.bones[3].rotation, QUARTER_BACK);
+        cases.push((skeleton, "the socket `Bone_weapon_01` is not turned"));
+        let mut skeleton = claws();
+        skeleton.bones[2].parent = Some(1);
+        cases.push((skeleton, "`Bone_weapon_02` does not hang under the root"));
+        let mut skeleton = claws();
+        skeleton.bones[2].name = b"Bone_weapon_01";
+        cases.push((skeleton, "two bones `Bone_weapon_01`"));
+        let mut skeleton = claws();
+        skeleton.bones.pop();
+        cases.push((skeleton, "no bone `Bone_weapon_01`"));
+        for (mut skeleton, reason) in cases {
+            let mut model = amulet_model();
+            let old = skeleton.clone();
+            match apply(CLAWS, &mut skeleton, &mut model) {
+                Outcome::Mismatch(found) => assert!(found.contains(reason), "{found}"),
+                other => panic!("{other:?}"),
+            }
+            assert_eq!((skeleton, model), (old, amulet_model()));
+        }
+    }
+
+    /// The vertices of every mesh of a converted file in the frame of its socket `Bone_weapon_01`,
+    /// a node under the root of the identity: the hand's frame as the item is held.
+    fn in_socket_frame(glb: &Glb) -> Vec<[f32; 3]> {
+        let nodes = glb.json["nodes"].as_array().unwrap();
+        let socket = nodes
+            .iter()
+            .position(|n| n["name"] == "Bone_weapon_01")
+            .unwrap();
+        let root = &nodes[0];
+        assert_eq!(root["name"], "__Root");
+        assert!(
+            root["children"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|c| glb.field(c) == socket)
+        );
+        let vector = |value: &serde_json::Value| -> Vec<f32> {
+            serde_json::from_value(value.clone()).unwrap()
+        };
+        assert_eq!(vector(&root["rotation"]), [0.0, 0.0, 0.0, 1.0]);
+        let at = vector(&nodes[socket]["translation"]);
+        let turn = vector(&nodes[socket]["rotation"]);
+        let back = conjugate([turn[0], turn[1], turn[2], turn[3]]);
+        let mut found = Vec::new();
+        for mesh in glb.json["meshes"].as_array().unwrap() {
+            for primitive in mesh["primitives"].as_array().unwrap() {
+                let positions = glb.floats(&primitive["attributes"]["POSITION"]);
+                for p in positions.chunks(3) {
+                    let v = [p[0] - at[0], p[1] - at[1], p[2] - at[2], 0.0];
+                    let [x, y, z, _] = compose(compose(back, v), conjugate(back));
+                    found.push([x, y, z]);
+                }
+            }
+        }
+        found
+    }
+
+    /// The span of `points` along each axis.
+    fn spans(points: &[[f32; 3]]) -> [f32; 3] {
+        std::array::from_fn(|axis| {
+            let (min, max) = points.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| {
+                (lo.min(p[axis]), hi.max(p[axis]))
+            });
+            max - min
+        })
+    }
+
+    /// Model 1492 in the game files beside the brass knuckles 1506: converted, the claws spread
+    /// their blades along the line of the knuckles, Y in the hand's frame, as the brass knuckles
+    /// span it, and their tips bend to the palm, −Z.
+    #[test]
+    #[ignore = "needs the game files in OriginalGame/"]
+    fn the_claws_spread_along_the_knuckles() {
+        let game = opensacred_locate::original();
+        let (pak, dir_name) = models::PAKS[0];
+        let out = scratch_dir("claws");
+        let dst = models::output_dir(&out, dir_name);
+        let only = ["ORCHIDEE.GRN", "SCHLAGRING.GRN"].map(str::to_owned);
+        let summary =
+            models::convert_pak(&game.join(pak), &dst, &TextureIndex::default(), &only).unwrap();
+        assert_eq!(
+            (summary.repaired_models, summary.repaired_positions),
+            (1, 0)
+        );
+        assert!(summary.warnings.is_empty(), "{:?}", summary.warnings);
+        let read = |file: &str| Glb::read(&fs::read(dst.join(file)).unwrap());
+        let claws = in_socket_frame(&read("1492-orchidee.glb"));
+        let knuckles = in_socket_frame(&read("1506-schlagring.glb"));
+        for (points, what) in [(&claws, "claws"), (&knuckles, "brass knuckles")] {
+            let [_, y, z] = spans(points);
+            assert!(y > 2.0 * z, "{what}: {y} across Y, {z} across Z");
+        }
+        let [x, y, _] = spans(&claws);
+        assert!(x > 18.0 && y > 7.0, "{x} {y}");
+        let tips: Vec<&[f32; 3]> = claws.iter().filter(|p| p[0] > 15.0).collect();
+        assert!(!tips.is_empty());
+        let count = f32::from(u16::try_from(tips.len()).unwrap());
+        let bend = tips.iter().map(|p| p[2]).sum::<f32>() / count;
+        assert!(bend < -0.8, "{bend}");
         fs::remove_dir_all(out).unwrap();
     }
 }
