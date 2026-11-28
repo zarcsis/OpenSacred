@@ -1181,10 +1181,10 @@ fn make(
                     continue;
                 }
             }
-            // Whether it starts at its order: not after a walk to its distance, nor nearer than
-            // it, whence the original steps back first (`0x4FE630`; docs/re/sound.md, "The
-            // battle cry").
-            let mut at_order = !approaches;
+            // Whether it starts at its order, not after a walk to its distance (`0x4FE630`;
+            // docs/re/sound.md, "The battle cry"); the original's step back from a target too
+            // near is not followed (#3943).
+            let at_order = !approaches;
             // A boon is made where the hero stands, on itself; any other art on its target alive,
             // within its distance.
             if making.target != hero && !raises {
@@ -1230,7 +1230,6 @@ fn make(
                     commands.entity(hero).insert(Approaches);
                     continue;
                 }
-                at_order &= arts::made_at_order(at, within, distance);
                 // From the saddle a `Hardhit` turns the rider to its target first, and the
                 // horse it sits on with it (`0x4DBAD0`; seen, #2908); any other art keeps the
                 // pair's facing.

@@ -909,17 +909,6 @@ fn an_arts_clip_strikes_at_its_hit_points() {
 }
 
 #[test]
-fn an_art_starts_at_its_order_within_its_distance_on_either_side() {
-    // At 130 within 10: from 120 to 140 at the order; further it walks, nearer it steps back.
-    assert!(made_at_order(130.0, 10.0, 130.0));
-    assert!(made_at_order(130.0, 10.0, 140.0) && made_at_order(130.0, 10.0, 120.0));
-    assert!(!made_at_order(130.0, 10.0, 140.5) && !made_at_order(130.0, 10.0, 119.5));
-    // Where it needs no distance, at any.
-    assert!(made_at_order(0.0, f32::INFINITY, 500.0));
-    assert!(made_at_order(0.0, 10.0, 500.0));
-}
-
-#[test]
 fn the_dark_elfs_boons_give_him_their_effects() {
     // GOG 2.28's 1047 and 1048: `[+0x50]` 0.3 + 0.2·L, `[+0x58]` 0.2 + 0.05·L, `[+0x60]` 29 + L.
     let record = |id| WeaponArt {
