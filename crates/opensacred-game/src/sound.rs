@@ -7,9 +7,12 @@
 //! `SERA_WALK_1H` (**hypothesis**, docs/02 §4.1). The group of the profile follows the nature
 //! of the cell under the hero (docs/02 §5.2), `BRIDGE` on a bridge over a liquid as the client's
 //! step gives it (`0x639080`, `terrain::Heights::step_nature`), as the client's switch at
-//! `0x68EDDA` maps them (docs/re/sound.md). The Daemon's steps in his form of 1094 are the sounds
+//! `0x68EDDA` maps them (docs/re/sound.md). The Daemon's steps in her form of 1094 are the sounds
 //! 1195 or 1196 at random, whatever the ground (`0x68ECF6`, the sound manager's byte `+0xAF49`;
-//! **hypothesis**: wing beats).
+//! **hypothesis**: wing beats), timed by her form's moving clip, 148 or 149, at its motion's
+//! moments as every creature's (`steps::Moments`, `0x5941A0`), its hands' two with its feet's
+//! (#3928); they never reach the step of the ground (`0x691260`), so that she leaves no footprint
+//! nor fire there.
 //!
 //! The sound index, `sound/sound.ron`, is parsed once at the start ([`Index`], #827): the weapons'
 //! sounds (`sfx`), the footsteps, the music and the ambient loops take their samples from it.
@@ -21,8 +24,9 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use bevy::log::debug;
 use bevy::prelude::{
-    AnimationClip, AnimationPlayer, App, AssetServer, Assets, Handle, IntoScheduleConfigs, Message,
-    MessageWriter, OnEnter, Plugin, Query, Res, ResMut, Resource, Time, Transform, Update, Vec3,
+    AnimationClip, AnimationNodeIndex, AnimationPlayer, App, AssetServer, Assets, Handle,
+    IntoScheduleConfigs, Message, MessageWriter, OnEnter, Plugin, Query, Res, ResMut, Resource,
+    Time, Transform, Update, Vec3,
 };
 use bevy_kira_audio::prelude::{Audio, AudioControl, AudioInstance, AudioSource, PlaybackState};
 use opensacred_data::sound::{EXTENSION, Music, Sound};
@@ -104,14 +108,14 @@ pub struct Footsteps {
     /// The sample files of each group, relative to the asset directory.
     files: [Vec<String>; GROUPS],
     samples: [Vec<Handle<AudioSource>>; GROUPS],
-    /// The sample files of the Daemon's steps in his form, and their samples, of which one at
+    /// The sample files of the Daemon's steps in her form, and their samples, of which one at
     /// random plays.
     wing_files: Vec<String>,
     wings: Vec<Handle<AudioSource>>,
     dice: Rng,
     next: usize,
-    /// The clip and its fraction at the previous frame.
-    last: Option<(Gait, f32)>,
+    /// The node of the clip in play and its fraction at the previous frame.
+    last: Option<(AnimationNodeIndex, f32)>,
     /// The last step played and when: a step still queued after `STUCK` means there is no audio
     /// device, and the steps stop rather than pile up in the channel's queue.
     played: Option<(Handle<AudioInstance>, Duration)>,
@@ -193,12 +197,14 @@ fn passed(last: f32, now: f32, moment: f32) -> bool {
 }
 
 /// A step of the hero at its place, at a footstep moment of its walk or run clip (`0x5941A0`,
-/// `0x639080`), which the small fires of set 23 take (`fx`, #1808).
+/// `0x639080`), which its footprints and the small fires of set 23 take (`footprints`, `fx`,
+/// #1808); none in the Daemon's form of 1094, whose steps play the wings alone (`0x691260`).
 #[derive(Message, Clone, Copy, Debug)]
 pub struct HeroStep(pub Vec3);
 
-/// Plays a step each time the walk or the run clip passes one of its footstep moments, and tells
-/// each ([`HeroStep`]).
+/// Plays a step each time the moving clip in play passes one of its footstep moments, the walk's
+/// or the run's, or the Daemon's form's (`hero::Clips::moving`, #3928), and tells each on the
+/// ground ([`HeroStep`]).
 #[expect(
     clippy::too_many_arguments,
     reason = "a Bevy system takes its resources one by one"
@@ -207,7 +213,7 @@ pub fn step(
     mut footsteps: ResMut<Footsteps>,
     bodies: Query<(&Body, &Transform, Option<&Effects>)>,
     heights: Res<Heights>,
-    clips: Option<Res<Clips>>,
+    (clips, moments): (Option<Res<Clips>>, Option<Res<crate::steps::Moments>>),
     players: Query<&AnimationPlayer>,
     animations: Res<Assets<AnimationClip>>,
     audio: Res<Audio>,
@@ -215,29 +221,36 @@ pub fn step(
     mut steps: MessageWriter<HeroStep>,
     settings: Option<Res<crate::settings::Settings>>,
 ) {
-    let Some((gait, at, winged)) = bodies.iter().find_map(|(body, transform, effects)| {
-        let winged = effects.is_some_and(|effects| effects.holds(opensacred_rules::arts::FORMED));
+    let Some((gait, at, formed)) = bodies.iter().find_map(|(body, transform, effects)| {
         body.moving()
-            .map(|gait| (gait, transform.translation, winged))
+            .map(|gait| (gait, transform.translation, crate::hero::soaring(effects)))
     }) else {
         footsteps.last = None;
         return;
     };
-    let gait = Some(gait);
-    let fraction = clips.as_ref().zip(gait).and_then(|(clips, gait)| {
+    // The clip in play, where it is now in its loop, and its steps' moments.
+    let playing = clips.as_ref().and_then(|clips| {
         let player = players.get(clips.player?).ok()?;
-        let (clip, node) = clips.of(gait);
+        let (clip, node, name) = clips.moving(gait, formed);
         let duration = animations.get(clip)?.duration();
-        let active = player.animation(*node)?;
-        (duration > 0.0).then(|| (active.seek_time() / duration).rem_euclid(1.0))
+        let active = player.animation(node)?;
+        // The form's clip by its motion's moments, the walk's and the run's by those read.
+        let moments = match name {
+            Some(name) => moments.as_ref()?.of(name).to_vec(),
+            None => footsteps.moments[match gait {
+                Gait::Walk => 0,
+                Gait::Run => 1,
+            }]
+            .clone(),
+        };
+        (duration > 0.0).then(|| {
+            let now = (active.seek_time() / duration).rem_euclid(1.0);
+            (node, now, moments)
+        })
     });
-    let (Some(gait), Some(now)) = (gait, fraction) else {
+    let Some((node, now, moments)) = playing else {
         footsteps.last = None;
         return;
-    };
-    let moments = match gait {
-        Gait::Walk => 0,
-        Gait::Run => 1,
     };
     // The ground's group, or grass where the profile has nothing for it.
     let wanted = heights.step_nature(at.x, at.z).map_or(GRASS, group);
@@ -246,48 +259,47 @@ pub fn step(
     } else {
         wanted
     };
-    let winged = winged && !footsteps.wings.is_empty();
-    // Each step's moment, a sound or not.
-    if let Some((last_gait, last)) = footsteps.last
-        && last_gait == gait
-    {
-        for &moment in &footsteps.moments[moments] {
-            if passed(last, now, moment) {
-                steps.write(HeroStep(at));
-            }
+    let winged = formed && !footsteps.wings.is_empty();
+    let passing: Vec<f32> = match footsteps.last {
+        Some((last_node, last)) if last_node == node => moments
+            .into_iter()
+            .filter(|&moment| passed(last, now, moment))
+            .collect(),
+        _ => Vec::new(),
+    };
+    footsteps.last = Some((node, now));
+    // Each step's moment on the ground, a sound or not.
+    if !formed {
+        for _ in &passing {
+            steps.write(HeroStep(at));
         }
     }
-    if let Some((last_gait, last)) = footsteps.last
-        && last_gait == gait
-        && (winged || !footsteps.samples[group].is_empty())
-        // No footstep at the lowest sound quality (`0x68EBBF`).
-        && !crate::settings::low_sound(settings.as_deref())
+    // Nothing to play, or no footstep at the lowest sound quality (`0x68EBBF`).
+    if (!winged && footsteps.samples[group].is_empty())
+        || crate::settings::low_sound(settings.as_deref())
     {
-        for i in 0..footsteps.moments[moments].len() {
-            if passed(last, now, footsteps.moments[moments][i]) {
-                let stuck = footsteps.played.as_ref().is_some_and(|(step, at)| {
-                    audio.state(step) == PlaybackState::Queued
-                        && time.elapsed().saturating_sub(*at) > STUCK
-                });
-                if stuck {
-                    continue;
-                }
-                let sample = if winged {
-                    let count = u32::try_from(footsteps.wings.len()).unwrap_or(1);
-                    let roll = usize::try_from(footsteps.dice.below(count)).unwrap_or(0);
-                    footsteps.wings[roll].clone()
-                } else {
-                    let samples = &footsteps.samples[group];
-                    samples[footsteps.next % samples.len()].clone()
-                };
-                debug!("footstep at {now:.3} of the {gait:?} clip, group {group}, wings {winged}");
-                let step = audio.play(sample).handle();
-                footsteps.played = Some((step, time.elapsed()));
-                footsteps.next += 1;
-            }
-        }
+        return;
     }
-    footsteps.last = Some((gait, now));
+    for moment in passing {
+        let stuck = footsteps.played.as_ref().is_some_and(|(step, at)| {
+            audio.state(step) == PlaybackState::Queued && time.elapsed().saturating_sub(*at) > STUCK
+        });
+        if stuck {
+            continue;
+        }
+        let sample = if winged {
+            let count = u32::try_from(footsteps.wings.len()).unwrap_or(1);
+            let roll = usize::try_from(footsteps.dice.below(count)).unwrap_or(0);
+            footsteps.wings[roll].clone()
+        } else {
+            let samples = &footsteps.samples[group];
+            samples[footsteps.next % samples.len()].clone()
+        };
+        debug!("footstep at {moment:.3} of the {gait:?} clip, group {group}, wings {winged}");
+        let step = audio.play(sample).handle();
+        footsteps.played = Some((step, time.elapsed()));
+        footsteps.next += 1;
+    }
 }
 
 /// The footsteps of the hero's run and walk.

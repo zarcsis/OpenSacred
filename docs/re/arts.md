@@ -1508,7 +1508,7 @@ The readers of the effects 35, 16, 17, 50, 60 and 26 were read 2026-10-25 (#761;
   - `opensacred-game` makes it (#918; `opensacred_rules::arts::{wades, countdown, landing, drowning}`, the module `daemon`):
     - his form's clips are played since #3887 (`hero::Clips::soaring`, `hero::soaring`, `opensacred_rules::arts::formed_slots`): his stance, his move and his strike, which raise him off the ground as the original's;
     - the hero of an effect keyed by 1094 steps onto those cells of the ground and finds his ways over them;
-    - his steps are the sounds 1195 or 1196 at random;
+    - his steps are the sounds 1195 or 1196 at random, since #3928 at the moments of his form's moving clip (`hero::Clips::moving`, `steps::Moments`): 148's four, 0.089, 0.367, 0.645 and 0.923 of its loop, his hands' two with his feet's as every creature's (**hypothesis** that `0x5941A0` finds the hand bones for him too), and none tells the step of the ground, so that he leaves no footprint nor fire of the set 23 (docs/re/drawing.md, "The footprints"); between #3887 and #3928 his steps were timed by his walk's and his run's clips, which his form does not play, and he flew silent;
     - a cell of the ground's bit 0 ends his effects keyed by 1094 and `0x4321`, but while he makes an art;
     - the countdown is a line over him of the number, as the townsfolk's, for their 3 s;
     - one effect 50 alone since #3897, a second renewing its seconds (`effects::Effects::add`), so that 1094's first 10 s and its 29 + L leave one, whose countdown comes in the form's last seconds; before, both stood and the countdown came about 5 s into the form;
