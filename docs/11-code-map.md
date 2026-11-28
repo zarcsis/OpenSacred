@@ -26,7 +26,7 @@ A file's line is changed by changing its header.
 - `crates/opensacred-convert/src/luau.rs`: NetScript translated into Luau
 - `crates/opensacred-convert/src/main.rs`: `opensacred-convert`: offline converter of the player's own Sacred Gold 2.28 installation
 - `crates/opensacred-convert/src/manifest.rs`: The run manifests
-- `crates/opensacred-convert/src/model_repairs.rs`: Repairs of the models' data (docs/02 §4.6) that `models` makes as it writes the records they name
+- `crates/opensacred-convert/src/model_repairs.rs`: Repairs of the models' data (docs/02 §4.2, §4.6) that `models` makes as it writes the records they name
 - `crates/opensacred-convert/src/model_scales.rs`: The scale that the client gives 24 models as it loads its items table
 - `crates/opensacred-convert/src/models.rs`: `models` subcommand
 - `crates/opensacred-convert/src/netscript.rs`: `netscript` subcommand
