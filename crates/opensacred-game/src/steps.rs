@@ -219,9 +219,19 @@ fn passed(last: f32, now: f32, moment: f32) -> bool {
     }
 }
 
-/// The moments of the steps of each motion by its clip's name, upper-cased without its `.GRN`.
+/// The moments of the steps of each motion by its clip's name, upper-cased without its `.GRN`,
+/// which the hero's steps take too (`sound::step`).
 #[derive(Resource, Default)]
-struct Moments(HashMap<String, Vec<f32>>);
+pub struct Moments(HashMap<String, Vec<f32>>);
+
+impl Moments {
+    /// The moments of the steps of the clip `name`, none for a clip whose motion has none.
+    pub fn of(&self, name: &str) -> &[f32] {
+        self.0
+            .get(&name.to_ascii_uppercase())
+            .map_or(&[], Vec::as_slice)
+    }
+}
 
 /// The creature types that lay footprints (`0x426480`,
 /// `opensacred_rules::particles::lays_footprints`; #3066).
@@ -310,9 +320,10 @@ fn step(
         let Some((player, node, name, _)) = moving else {
             continue;
         };
-        let Some(at_moments) = moments.0.get(&name.to_ascii_uppercase()) else {
+        let at_moments = moments.of(name);
+        if at_moments.is_empty() {
             continue;
-        };
+        }
         let Ok((player, graph)) = players.get(player) else {
             continue;
         };
@@ -413,6 +424,19 @@ impl Plugin for StepsPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_clips_moments_are_found_by_its_name_in_any_case() {
+        let moments = Moments(HashMap::from([(
+            "DAEM_ATTACK_SPECIAL05".to_owned(),
+            vec![0.367, 0.089, 0.923, 0.645],
+        )]));
+        assert_eq!(
+            moments.of("daem_attack_special05"),
+            [0.367, 0.089, 0.923, 0.645]
+        );
+        assert!(moments.of("DAEM_WALK_BH").is_empty());
+    }
 
     #[test]
     fn a_type_steps_by_its_sound() {

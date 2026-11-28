@@ -564,6 +564,24 @@ impl Clips {
         self.soaring.as_ref().map(|form| form.stand)
     }
 
+    /// The moving clip at `gait` and its node as [`Clips::node`] plays them on foot: the
+    /// Daemon's form's while `soaring`, where the model has her form's clips, with its name, by
+    /// which her steps take its motion's moments (`sound::step`, #3928); else the walk's or the
+    /// run's, whose names the footsteps hold.
+    pub fn moving(
+        &self,
+        gait: Gait,
+        soaring: bool,
+    ) -> (&Handle<AnimationClip>, AnimationNodeIndex, Option<&str>) {
+        match self.soaring.as_ref().filter(|_| soaring) {
+            Some(form) => (&form.moving.1, form.moving.0, Some(&form.moving_name)),
+            None => {
+                let (clip, node) = self.of(gait);
+                (clip, *node, None)
+            }
+        }
+    }
+
     /// The hero's running clip, its form's moving clip while `soaring`, which the Daemon's
     /// charge 1091 plays (`0x5467A0(2)` at `0x51B68A`, #3887).
     pub fn running(&self, soaring: bool) -> (AnimationNodeIndex, Handle<AnimationClip>) {
@@ -575,10 +593,11 @@ impl Clips {
 }
 
 /// The Daemon's clips' nodes in the form of 1094 (`forms::Soaring`, #3887): standing, moving with
-/// its clip, and his strike.
+/// its clip and its name, and his strike.
 pub struct Soaring {
     stand: AnimationNodeIndex,
     moving: (AnimationNodeIndex, Handle<AnimationClip>),
+    moving_name: String,
     pub strike: Strike,
 }
 
@@ -716,13 +735,13 @@ pub fn spawn(
         let soaring = hero.soaring.clone().and_then(|form| {
             Some((
                 clip(&form.stand)?,
-                clip(&form.moving)?,
+                (clip(&form.moving)?, form.moving),
                 clip(&form.strike.0)?,
                 form.strike.1,
             ))
         });
         let soaring_at = clips.len();
-        if let Some((stand, moving, strike, _)) = &soaring {
+        if let Some((stand, (moving, _), strike, _)) = &soaring {
             clips.extend([stand.clone(), moving.clone(), strike.clone()]);
         }
         let (graph, nodes) = AnimationGraph::from_clips(clips);
@@ -737,10 +756,11 @@ pub fn spawn(
         let knocked = knocked.and_then(|clip| Some((*nodes.get(knocked_at)?, clip)));
         let defend = defend.and_then(|clip| Some((*nodes.get(defend_at)?, clip)));
         let hit = hit.and_then(|clip| Some((*nodes.get(hit_at)?, clip)));
-        let soaring = soaring.and_then(|(_, moving, strike, fractions)| {
+        let soaring = soaring.and_then(|(_, (moving, moving_name), strike, fractions)| {
             Some(Soaring {
                 stand: *nodes.get(soaring_at)?,
                 moving: (*nodes.get(soaring_at + 1)?, moving),
+                moving_name,
                 strike: (*nodes.get(soaring_at + 2)?, strike, fractions),
             })
         });
@@ -2087,6 +2107,7 @@ mod tests {
             soaring: Some(Soaring {
                 stand: node(5),
                 moving: (node(6), Handle::default()),
+                moving_name: "DAEM_ATTACK_SPECIAL05".to_owned(),
                 strike: (node(7), Handle::default(), [0.27, 0.0]),
             }),
             player: None,
@@ -2101,11 +2122,22 @@ mod tests {
         // Riding, the ride first; out of the form, his own.
         assert_eq!(clips.node(None, false, (true, true)), node(9));
         assert_eq!(clips.node(Some(Gait::Walk), false, (false, false)), node(2));
+        // The steps time the moving clip in play: the form's, by its name, while it holds
+        // (#3928), else the walk's or the run's, whose names the footsteps hold.
+        for gait in [Gait::Walk, Gait::Run] {
+            let (_, played, name) = clips.moving(gait, true);
+            assert_eq!((played, name), (node(6), Some("DAEM_ATTACK_SPECIAL05")));
+        }
+        assert_eq!(clips.moving(Gait::Walk, false).1, node(2));
+        assert_eq!(clips.moving(Gait::Run, false).1, node(3));
+        assert_eq!(clips.moving(Gait::Run, false).2, None);
         // His charge runs by his running clip: his form's while it holds.
         assert_eq!(clips.running(true).0, node(6));
         assert_eq!(clips.running(false).0, node(3));
         clips.soaring = None;
         assert_eq!(clips.running(true).0, node(3));
+        // A model without the form's clips steps by its own walk.
+        assert_eq!(clips.moving(Gait::Walk, true).1, node(2));
     }
 
     #[test]

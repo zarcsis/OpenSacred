@@ -75,32 +75,20 @@ fn find_looks(looks: &mut Looks, data: &Data, server: &AssetServer, effects: &mu
         .collect();
 }
 
-/// The footsteps of the hero, which lay footprints but in a winged form or of the fires of
-/// set 23 (`0x639080`, `0x63918C`).
-#[expect(
-    clippy::type_complexity,
-    reason = "a Bevy system's queries carry their filters"
-)]
+/// The footsteps of the hero, which lay footprints but of the fires of set 23 (`0x639080`,
+/// `0x63918C`); the Daemon's form of 1094 tells none (`sound::HeroStep`).
 fn hero_steps(
     mut steps: MessageReader<crate::sound::HeroStep>,
-    heroes: Query<
-        (
-            &Transform,
-            Option<&crate::effects::Effects>,
-            Option<&crate::fight::Holding>,
-        ),
-        With<crate::hero::Body>,
-    >,
+    heroes: Query<(&Transform, Option<&crate::fight::Holding>), With<crate::hero::Body>>,
     mut prints: MessageWriter<Step>,
 ) {
-    let Some((transform, effects, holding)) = heroes.iter().next() else {
+    let Some((transform, holding)) = heroes.iter().next() else {
         steps.clear();
         return;
     };
-    let winged = effects.is_some_and(|effects| effects.holds(opensacred_rules::arts::FORMED));
     let fiery = holding.is_some_and(|holding| holding.0.sets.fiery_steps());
     for &crate::sound::HeroStep(at) in steps.read() {
-        if !winged && !fiery {
+        if !fiery {
             prints.write(Step {
                 at,
                 facing: transform.rotation * Vec3::X,
